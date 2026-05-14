@@ -218,6 +218,7 @@ function OnClassSelected(classId)
         if isDead then return end
         if castState.active then return end  -- 施法中不可再按
         if GameUI.IsBagOpen() then return end -- 背包打开时不放技能
+        if GameUI.IsSkillPanelOpen() then return end -- 技能面板打开时不放技能
 
         if not skill then return end
         local canCast, reason = CharacterClass.CanCastSkill(player_, skill)
@@ -304,6 +305,20 @@ function OnClassSelected(classId)
         end
     end
 
+    -- 技能面板回调
+    GameUI.onSkillPanelToggle = function()
+        if GameUI.IsSkillPanelOpen() then
+            GameUI.HideSkillPanel()
+        else
+            GameUI.ShowSkillPanel(player_)
+        end
+    end
+
+    GameUI.onSkillPanelClosed = function()
+        -- 技能面板关闭后刷新 HUD 技能栏
+        GameUI.RefreshSkillButtons(player_)
+    end
+
     -- 战斗回调
     Combat.onDamageDealt = function(dmg, isCrit, worldPos)
         local color = isCrit and {255, 220, 50, 255} or {255, 255, 255, 255}
@@ -319,17 +334,35 @@ function OnClassSelected(classId)
         GameUI.AddFloatingText("+" .. math.floor(amount), pos, {100, 255, 130, 255})
     end
 
-    -- 掉落系统
+    -- 掉落系统（地面掉落模式）
     Inventory.Init()
     Combat.onEnemyDeath = function(enemyName, deathPos, exp)
-        local droppedItem, gold = Inventory.ProcessDrop(enemyName, player_.classId)
+        local droppedItem, gold = Inventory.RollDrop(enemyName)
+        -- 金币散落到地面
         if gold > 0 then
-            GameUI.AddFloatingText("+" .. gold .. "金", deathPos + Vector3(0, 0.5, 0), {255, 215, 0, 255})
+            Combat.SpawnGroundGold(scene_, deathPos, gold)
         end
+        -- 装备掉落到地面
         if droppedItem then
-            local rarity = Inventory.RARITY[droppedItem.rarity]
-            local color = rarity and rarity.color or {255, 255, 255, 255}
-            GameUI.AddFloatingText(droppedItem.name, deathPos + Vector3(0, 1.0, 0), color)
+            Combat.SpawnGroundItem(scene_, deathPos, droppedItem)
+        end
+    end
+
+    -- 金币磁吸拾取回调
+    Combat.onGoldPickup = function(amount, pos)
+        Inventory.AddGold(amount)
+        GameUI.AddFloatingText("+" .. amount .. "金", pos + Vector3(0, 0.3, 0), {255, 215, 0, 255})
+    end
+
+    -- 装备靠近拾取回调
+    Combat.onItemPickup = function(item, pos)
+        local ok, reason = Inventory.PickupItem(item, player_.classId)
+        local rarity = Inventory.RARITY[item.rarity]
+        local color = rarity and rarity.color or {255, 255, 255, 255}
+        if ok then
+            GameUI.AddFloatingText(item.name, pos + Vector3(0, 0.5, 0), color)
+        else
+            GameUI.AddFloatingText("背包已满", pos + Vector3(0, 0.5, 0), {255, 100, 100, 255})
         end
     end
 
@@ -355,9 +388,12 @@ function ReturnToMainMenu()
     GameUI.HideCastBar()
     ShowChargeGlow(false)
 
-    -- 关闭背包
+    -- 关闭背包和技能面板
     if GameUI.IsBagOpen() then
         GameUI.HideBagPanel()
+    end
+    if GameUI.IsSkillPanelOpen() then
+        GameUI.HideSkillPanel()
     end
 
     -- 清理战斗实体

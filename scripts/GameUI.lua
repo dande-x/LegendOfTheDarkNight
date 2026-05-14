@@ -1,7 +1,7 @@
 -- ============================================================================
 -- GameUI.lua — 贪玩渣渣灰 完整 UI 系统
--- 暗黑地牢风角色选择 + NanoVG 圆球 HP/MP + 开门过渡 + 技能栏 + 飘字
--- + 菜单/背包按钮 + 背包面板 + 施法条 + 伤害数字弹跳
+-- 暗黑地牢风角色选择 + NanoVG 圆球 HP/MP (左下角) + EXP条 + 开门过渡
+-- + 技能栏 + 飘字 + 菜单/背包按钮 + 背包面板 + 施法条 + 技能选择面板
 -- ============================================================================
 
 local UI = require("urhox-libs/UI")
@@ -49,7 +49,7 @@ local castBarState = {
     active = false,
     progress = 0,    -- 0~1
     skillName = "",
-    isCharging = false, -- 法师蓄力状态
+    isCharging = false,
 }
 
 -- ============================================================================
@@ -71,8 +71,10 @@ local uiState = {
     hudRoot = nil,
     selectRoot = nil,
     refs = {},
-    bagOpen = false,     -- 背包面板是否打开
-    bagRoot = nil,       -- 背包面板 UI root
+    bagOpen = false,
+    bagRoot = nil,
+    skillPanelOpen = false,
+    skillPanelRoot = nil,
 }
 
 GameUI.state = uiState
@@ -93,7 +95,7 @@ function GameUI.InitUI()
 end
 
 -- ============================================================================
--- 初始化 NanoVG (HP/MP 圆球 + 开门过渡 + 伤害飘字)
+-- 初始化 NanoVG
 -- ============================================================================
 function GameUI.InitNanoVG()
     nvgCtx = nvgCreate(1)
@@ -106,14 +108,13 @@ function GameUI.InitNanoVG()
     end
 end
 
--- NanoVG 渲染回调（全局函数）
 function HandleNanoVGRender(eventType, eventData)
     if not nvgCtx then return end
     GameUI._RenderNanoVG()
 end
 
 -- ============================================================================
--- 设置相机引用（world→screen 转换）
+-- 设置相机引用
 -- ============================================================================
 function GameUI.SetCamera(cam)
     cameraRef = cam
@@ -146,7 +147,7 @@ function GameUI._RenderNanoVG()
     local sh = graphics.height
     nvgBeginFrame(nvgCtx, sw, sh, 1.0)
 
-    -- 绘制 HP/MP 圆球 (仅游戏阶段)
+    -- 绘制 HP/MP 圆球 + EXP 条 (仅游戏阶段，左下角)
     if uiState.phase == "playing" and uiState.player then
         GameUI._DrawOrbs(nvgCtx, sw, sh)
     end
@@ -170,7 +171,7 @@ function GameUI._RenderNanoVG()
 end
 
 -- ============================================================================
--- HP/MP 合体圆球绘制（左半HP 右半MP）
+-- HP/MP 合体圆球 + EXP条 + 等级 (左下角)
 -- ============================================================================
 function GameUI._DrawOrbs(ctx, sw, sh)
     local scale = sh / 720
@@ -178,7 +179,7 @@ function GameUI._DrawOrbs(ctx, sw, sh)
 
     local r  = math.floor(38 * scale)
     local cx = math.floor(55 * scale)
-    local cy = math.floor(60 * scale)
+    local cy = sh - math.floor(75 * scale)  -- 左下角
 
     local hpProg = math.max(0, math.min(1, player.hp / math.max(1, player.maxHP)))
     local mpProg = math.max(0, math.min(1, player.mp / math.max(1, player.maxMP)))
@@ -298,6 +299,57 @@ function GameUI._DrawOrbs(ctx, sw, sh)
         nvgFillColor(ctx, nvgRGBA(70, 140, 210, 150))
         nvgText(ctx, cx + r * 0.35, cy + r + 9 * scale, "MP", nil)
     end
+
+    -- ======== 等级标签 (球上方) ========
+    if nvgFontId >= 0 then
+        nvgFontFaceId(ctx, nvgFontId)
+        nvgFontSize(ctx, math.floor(12 * scale))
+        nvgTextAlign(ctx, NVG_ALIGN_CENTER + NVG_ALIGN_BOTTOM)
+
+        -- 暗底衬托
+        nvgFillColor(ctx, nvgRGBA(0, 0, 0, 140))
+        nvgText(ctx, cx + 1, cy - r - 4 * scale + 1, "Lv." .. player.level, nil)
+        -- 文字
+        nvgFillColor(ctx, nvgRGBA(210, 195, 160, 255))
+        nvgText(ctx, cx, cy - r - 4 * scale, "Lv." .. player.level, nil)
+    end
+
+    -- ======== 经验条 (球下方) ========
+    local expProg = player.exp / math.max(1, player.expToNext)
+    local barW = math.floor(90 * scale)
+    local barH = math.floor(6 * scale)
+    local barX = cx - barW / 2
+    local barY = cy + r + math.floor(18 * scale)
+
+    -- 经验条背景
+    nvgBeginPath(ctx)
+    nvgRoundedRect(ctx, barX, barY, barW, barH, 3 * scale)
+    nvgFillColor(ctx, nvgRGBA(15, 12, 10, 200))
+    nvgFill(ctx)
+
+    -- 经验条填充
+    if expProg > 0 then
+        nvgBeginPath(ctx)
+        nvgRoundedRect(ctx, barX, barY, barW * expProg, barH, 3 * scale)
+        nvgFillColor(ctx, nvgRGBA(210, 180, 80, 220))
+        nvgFill(ctx)
+    end
+
+    -- 经验条边框
+    nvgBeginPath(ctx)
+    nvgRoundedRect(ctx, barX, barY, barW, barH, 3 * scale)
+    nvgStrokeColor(ctx, nvgRGBA(120, 100, 60, 140))
+    nvgStrokeWidth(ctx, 1.0 * scale)
+    nvgStroke(ctx)
+
+    -- EXP 文字
+    if nvgFontId >= 0 then
+        nvgFontSize(ctx, math.floor(8 * scale))
+        nvgTextAlign(ctx, NVG_ALIGN_CENTER + NVG_ALIGN_TOP)
+        nvgFillColor(ctx, nvgRGBA(210, 180, 80, 180))
+        nvgText(ctx, cx, barY + barH + 2 * scale,
+            "EXP " .. math.floor(expProg * 100) .. "%", nil)
+    end
 end
 
 -- ============================================================================
@@ -313,32 +365,26 @@ function GameUI._DrawFloatingTexts(ctx, sw, sh)
         local t = ft.timer
         local dur = ft.duration
 
-        -- 世界坐标 → 屏幕坐标
         local worldPos = ft.worldPos + Vector3(0, 1.5, 0)
         local screenPos = cameraRef:WorldToScreenPoint(worldPos)
 
-        -- screenPos.x/y 是 0~1 归一化坐标
         local sx = screenPos.x * sw
         local sy = screenPos.y * sh
 
-        -- 物理弹跳: 初速上方 -180, 重力 +350
         local vy0 = -180 * scale / 720
         local gravity = 350 * scale / 720
         local offsetY = (vy0 * t + 0.5 * gravity * t * t) * 720
 
-        -- 水平随机偏移（每个飘字固定方向）
         local offsetX = ft.offsetX * scale * t * 30
 
         sy = sy + offsetY
 
-        -- 缩放动画: 开始 1.8x 快速回落到 1.0x
         local popTime = 0.15
         local scaleAnim = 1.0
         if t < popTime then
             scaleAnim = 1.8 - 0.8 * (t / popTime)
         end
 
-        -- 透明度: 最后 0.4 秒淡出
         local alpha = 1.0
         local fadeStart = dur - 0.4
         if t > fadeStart then
@@ -346,7 +392,6 @@ function GameUI._DrawFloatingTexts(ctx, sw, sh)
         end
         alpha = math.max(0, math.min(1, alpha))
 
-        -- 字体大小
         local baseSize = ft.isCrit and 22 or 16
         local fontSize = math.floor(baseSize * scale * scaleAnim)
         nvgFontSize(ctx, fontSize)
@@ -355,11 +400,9 @@ function GameUI._DrawFloatingTexts(ctx, sw, sh)
         local c = ft.color
         local a = math.floor(c[4] * alpha)
 
-        -- 描边（黑色阴影）
         nvgFillColor(ctx, nvgRGBA(0, 0, 0, math.floor(a * 0.7)))
         nvgText(ctx, sx + offsetX + 1.5 * scale, sy + 1.5 * scale, ft.text, nil)
 
-        -- 正文
         nvgFillColor(ctx, nvgRGBA(c[1], c[2], c[3], a))
         nvgText(ctx, sx + offsetX, sy, ft.text, nil)
     end
@@ -375,19 +418,16 @@ function GameUI._DrawCastBar(ctx, sw, sh)
     local bx = (sw - barW) / 2
     local by = sh * 0.55
 
-    -- 背景
     nvgBeginPath(ctx)
     nvgRoundedRect(ctx, bx, by, barW, barH, 4 * scale)
     nvgFillColor(ctx, nvgRGBA(10, 8, 6, 200))
     nvgFill(ctx)
 
-    -- 填充
     local fillW = barW * castBarState.progress
     if fillW > 0 then
         nvgBeginPath(ctx)
         nvgRoundedRect(ctx, bx, by, fillW, barH, 4 * scale)
         if castBarState.isCharging then
-            -- 蓄力模式: 蓝色脉冲
             local pulse = 0.7 + 0.3 * math.sin(castBarState.progress * math.pi * 6)
             local pAlpha = math.floor(220 * pulse)
             nvgFillColor(ctx, nvgRGBA(60, 140, 255, pAlpha))
@@ -397,14 +437,12 @@ function GameUI._DrawCastBar(ctx, sw, sh)
         nvgFill(ctx)
     end
 
-    -- 边框
     nvgBeginPath(ctx)
     nvgRoundedRect(ctx, bx, by, barW, barH, 4 * scale)
     nvgStrokeColor(ctx, nvgRGBA(140, 120, 80, 180))
     nvgStrokeWidth(ctx, 1.5 * scale)
     nvgStroke(ctx)
 
-    -- 技能名
     if nvgFontId >= 0 and castBarState.skillName ~= "" then
         nvgFontFaceId(ctx, nvgFontId)
         nvgFontSize(ctx, math.floor(10 * scale))
@@ -424,7 +462,6 @@ function GameUI._DrawDoorTransition(ctx, sw, sh)
     local halfW = sw / 2
     local openOffset = halfW * ep
 
-    -- 左门扇
     local leftW = halfW - openOffset
     if leftW > 0 then
         nvgBeginPath(ctx)
@@ -454,7 +491,6 @@ function GameUI._DrawDoorTransition(ctx, sw, sh)
         end
     end
 
-    -- 右门扇
     local rightX = halfW + openOffset
     local rightW = sw - rightX
     if rightW > 0 then
@@ -485,7 +521,6 @@ function GameUI._DrawDoorTransition(ctx, sw, sh)
         end
     end
 
-    -- 中缝光线
     if ep > 0.02 and ep < 0.95 then
         local beamW = openOffset * 0.5
         local beamAlpha = math.floor(200 * (1 - ep))
@@ -540,6 +575,8 @@ function GameUI.ShowClassSelect(onSelected)
     uiState.onClassSelected = onSelected
     uiState.bagOpen = false
     uiState.bagRoot = nil
+    uiState.skillPanelOpen = false
+    uiState.skillPanelRoot = nil
 
     local classOrder = {"warrior", "mage", "taoist"}
     local classIcons = {
@@ -680,26 +717,24 @@ function GameUI.HideClassSelect()
 end
 
 -- ============================================================================
--- 游戏 HUD
+-- 游戏 HUD（去掉左上角 playerInfo，改由 NanoVG 绘制）
 -- ============================================================================
 function GameUI.ShowGameHUD(player)
     uiState.phase = "playing"
     uiState.player = player
     uiState.bagOpen = false
+    uiState.skillPanelOpen = false
 
-    -- 初始化 GameHUD (摇杆)
     GameHUD.Initialize()
     local hud = GameHUD.Create({})
     uiState.joystick = hud.joystick
 
-    -- 构建 HUD UI
     local hudRoot = UI.Panel {
         id = "gameHUD",
         width = "100%",
         height = "100%",
         pointerEvents = "box-none",
         children = {
-            GameUI._CreatePlayerInfo(player),
             GameUI._CreateSkillBar(player),
             GameUI._CreatePotions(player),
             GameUI._CreateMiniMapArea(player),
@@ -713,77 +748,7 @@ function GameUI.ShowGameHUD(player)
 end
 
 -- ============================================================================
--- 左上角 - 角色信息面板
--- ============================================================================
-function GameUI._CreatePlayerInfo(player)
-    local classDef = CharacterClass.Classes[player.classId]
-    local classColors = {
-        warrior = {200, 85, 45, 255},
-        mage    = {50, 120, 210, 255},
-        taoist  = {65, 190, 90, 255},
-    }
-    local clr = classColors[player.classId]
-
-    return UI.Panel {
-        id = "playerInfo",
-        position = "absolute",
-        top = 8, left = 8,
-        width = 170,
-        padding = 8,
-        backgroundColor = {12, 10, 8, 140},
-        borderRadius = 6,
-        borderWidth = 1,
-        borderColor = {55, 45, 35, 100},
-        children = {
-            UI.Panel {
-                flexDirection = "row",
-                alignItems = "center",
-                children = {
-                    UI.Panel {
-                        width = 22, height = 22,
-                        borderRadius = 11,
-                        backgroundColor = clr,
-                        justifyContent = "center",
-                        alignItems = "center",
-                        children = {
-                            UI.Label {
-                                text = string.sub(classDef.name, 1, 3),
-                                fontSize = 9,
-                                fontColor = {255, 255, 255, 255},
-                            },
-                        },
-                    },
-                    (function()
-                        local lbl = UI.Label {
-                            text = "Lv." .. player.level .. " " .. classDef.name,
-                            fontSize = 12,
-                            fontColor = {210, 195, 160, 255},
-                            marginLeft = 6,
-                        }
-                        uiState.refs.playerLevel = lbl
-                        return lbl
-                    end)(),
-                },
-            },
-            (function()
-                local bar = UI.ProgressBar {
-                    width = "100%",
-                    height = 4,
-                    marginTop = 6,
-                    value = player.exp / math.max(1, player.expToNext),
-                    backgroundColor = {25, 22, 18, 150},
-                    fillColor = C.ExpGold,
-                    borderRadius = 2,
-                }
-                uiState.refs.expBar = bar
-                return bar
-            end)(),
-        },
-    }
-end
-
--- ============================================================================
--- 右上角 - 菜单/背包按钮
+-- 右上角按钮 (菜单 + 背包 + 技能)
 -- ============================================================================
 function GameUI._CreateTopButtons()
     return UI.Panel {
@@ -793,6 +758,26 @@ function GameUI._CreateTopButtons()
         alignItems = "flex-end",
         gap = 8,
         children = {
+            -- 技能配置按钮
+            UI.Panel {
+                width = 44, height = 44,
+                borderRadius = 8,
+                backgroundColor = {25, 25, 35, 220},
+                borderWidth = 2,
+                borderColor = {80, 120, 180, 180},
+                justifyContent = "center",
+                alignItems = "center",
+                onPointerUp = function()
+                    if GameUI.onSkillPanelToggle then GameUI.onSkillPanelToggle() end
+                end,
+                children = {
+                    UI.Label {
+                        text = "技",
+                        fontSize = 16,
+                        fontColor = {100, 170, 240, 255},
+                    },
+                },
+            },
             -- 背包按钮
             UI.Panel {
                 width = 44, height = 44,
@@ -965,19 +950,19 @@ function GameUI._CreateLevelDots(level)
 end
 
 -- ============================================================================
--- 左下角 - 药瓶快捷键
+-- 左下角 - 药瓶快捷键（球的右侧偏移）
 -- ============================================================================
 function GameUI._CreatePotions(player)
     return UI.Panel {
         id = "potions",
         position = "absolute",
-        left = 20, bottom = 20,
-        flexDirection = "row",
-        gap = 10,
+        left = 115, bottom = 50,
+        flexDirection = "column",
+        gap = 8,
         children = {
             UI.Panel {
-                width = 44, height = 44,
-                borderRadius = 22,
+                width = 40, height = 40,
+                borderRadius = 20,
                 backgroundColor = {40, 15, 15, 210},
                 borderWidth = 2,
                 borderColor = {160, 55, 45, 200},
@@ -989,14 +974,14 @@ function GameUI._CreatePotions(player)
                 children = {
                     UI.Label {
                         text = "HP",
-                        fontSize = 11,
+                        fontSize = 10,
                         fontColor = {210, 75, 60, 255},
                     },
                 },
             },
             UI.Panel {
-                width = 44, height = 44,
-                borderRadius = 22,
+                width = 40, height = 40,
+                borderRadius = 20,
                 backgroundColor = {15, 15, 40, 210},
                 borderWidth = 2,
                 borderColor = {55, 110, 170, 200},
@@ -1008,7 +993,7 @@ function GameUI._CreatePotions(player)
                 children = {
                     UI.Label {
                         text = "MP",
-                        fontSize = 11,
+                        fontSize = 10,
                         fontColor = {65, 130, 195, 255},
                     },
                 },
@@ -1070,6 +1055,306 @@ function GameUI._CreateMiniMapArea(player)
 end
 
 -- ============================================================================
+-- 技能选择面板（全屏遮罩）
+-- ============================================================================
+function GameUI.ShowSkillPanel(player)
+    if uiState.skillPanelOpen then return end
+    uiState.skillPanelOpen = true
+
+    local classDef = CharacterClass.Classes[player.classId]
+    local allSkills = classDef.skills
+
+    local classColors = {
+        warrior = {200, 85, 45, 255},
+        mage    = {50, 120, 210, 255},
+        taoist  = {65, 190, 90, 255},
+    }
+    local clr = classColors[player.classId]
+
+    -- 构建技能行列表
+    local skillRows = {}
+
+    for _, skill in ipairs(allSkills) do
+        local slvl = CharacterClass.GetSkillLevel(skill, player.level)
+        local locked = (slvl == 0)
+
+        -- 判断该技能是否已装备，以及装在第几槽
+        local equippedSlot = 0
+        for s = 1, 6 do
+            if player.equippedSkills[s] and player.equippedSkills[s].id == skill.id then
+                equippedSlot = s
+                break
+            end
+        end
+
+        -- 解锁条件文本
+        local unlockText = ""
+        if skill.unlockLevels then
+            local parts = {}
+            for i, lv in ipairs(skill.unlockLevels) do
+                local star = player.level >= lv and "★" or "☆"
+                table.insert(parts, star .. "Lv." .. lv)
+            end
+            unlockText = table.concat(parts, " ")
+        end
+
+        -- 技能类型文字
+        local typeNames = {
+            melee = "近战", ranged = "远程", aoe = "范围",
+            buff = "增益", heal = "治愈", dot = "持续", dash = "位移", summon = "召唤",
+        }
+        local typeName = typeNames[skill.type] or skill.type
+
+        -- 状态标签
+        local statusText = ""
+        local statusColor = {100, 100, 100, 150}
+        if locked then
+            statusText = "未解锁"
+            statusColor = {150, 60, 60, 200}
+        elseif equippedSlot > 0 then
+            statusText = "槽位 " .. equippedSlot
+            statusColor = clr
+        else
+            statusText = "未装备"
+            statusColor = {160, 150, 120, 200}
+        end
+
+        local nameColor = locked and {100, 100, 100, 150} or {240, 235, 220, 255}
+        local descColor = locked and {80, 80, 80, 120} or {160, 150, 130, 200}
+
+        local skillId = skill.id
+        table.insert(skillRows, UI.Panel {
+            width = "100%",
+            flexDirection = "row",
+            alignItems = "center",
+            paddingVertical = 8,
+            paddingHorizontal = 10,
+            backgroundColor = equippedSlot > 0 and {35, 30, 25, 200} or {20, 16, 14, 180},
+            borderRadius = 4,
+            borderWidth = equippedSlot > 0 and 1 or 0,
+            borderColor = equippedSlot > 0 and {clr[1], clr[2], clr[3], 80} or {0,0,0,0},
+            children = {
+                -- 技能名区
+                UI.Panel {
+                    width = 130,
+                    children = {
+                        UI.Panel {
+                            flexDirection = "row",
+                            alignItems = "center",
+                            gap = 6,
+                            children = {
+                                UI.Label {
+                                    text = skill.name,
+                                    fontSize = 13,
+                                    fontColor = nameColor,
+                                },
+                                UI.Label {
+                                    text = "[" .. typeName .. "]",
+                                    fontSize = 9,
+                                    fontColor = {140, 130, 115, 140},
+                                },
+                            },
+                        },
+                        UI.Label {
+                            text = skill.desc or "",
+                            fontSize = 9,
+                            fontColor = descColor,
+                            marginTop = 2,
+                        },
+                        UI.Label {
+                            text = unlockText,
+                            fontSize = 9,
+                            fontColor = {180, 160, 80, 180},
+                            marginTop = 2,
+                        },
+                    },
+                },
+                -- CD / 耗蓝
+                UI.Panel {
+                    width = 70,
+                    alignItems = "center",
+                    children = {
+                        UI.Label {
+                            text = skill.manaCost > 0 and ("耗蓝 " .. skill.manaCost) or "免费",
+                            fontSize = 9,
+                            fontColor = {100, 160, 220, 180},
+                        },
+                        UI.Label {
+                            text = skill.cooldown > 0 and ("CD " .. skill.cooldown .. "s") or "",
+                            fontSize = 9,
+                            fontColor = {160, 140, 100, 140},
+                            marginTop = 2,
+                        },
+                    },
+                },
+                -- 状态 + 装备按钮
+                UI.Panel {
+                    width = 80,
+                    alignItems = "center",
+                    children = {
+                        UI.Label {
+                            text = statusText,
+                            fontSize = 10,
+                            fontColor = statusColor,
+                        },
+                        not locked and UI.Panel {
+                            width = 60, height = 26,
+                            borderRadius = 4,
+                            backgroundColor = equippedSlot > 0 and {60, 30, 25, 220} or {30, 45, 30, 220},
+                            borderWidth = 1,
+                            borderColor = equippedSlot > 0 and {160, 70, 60, 160} or {80, 140, 80, 160},
+                            justifyContent = "center",
+                            alignItems = "center",
+                            marginTop = 4,
+                            onPointerUp = function()
+                                if equippedSlot > 0 then
+                                    -- 卸下
+                                    player.equippedSkills[equippedSlot] = nil
+                                else
+                                    -- 装备到第一个空槽
+                                    local placed = false
+                                    for s = 1, 6 do
+                                        if player.equippedSkills[s] == nil then
+                                            player.equippedSkills[s] = skill
+                                            placed = true
+                                            break
+                                        end
+                                    end
+                                    if not placed then
+                                        -- 所有槽位已满，替换第1槽
+                                        player.equippedSkills[1] = skill
+                                    end
+                                end
+                                -- 刷新面板
+                                GameUI.HideSkillPanel()
+                                GameUI.ShowSkillPanel(player)
+                            end,
+                            children = {
+                                UI.Label {
+                                    text = equippedSlot > 0 and "卸下" or "装备",
+                                    fontSize = 10,
+                                    fontColor = equippedSlot > 0 and {200, 90, 70, 255} or {120, 200, 120, 255},
+                                },
+                            },
+                        } or nil,
+                    },
+                },
+            },
+        })
+    end
+
+    uiState.skillPanelRoot = UI.Panel {
+        id = "skillPanelOverlay",
+        width = "100%",
+        height = "100%",
+        backgroundColor = {0, 0, 0, 170},
+        justifyContent = "center",
+        alignItems = "center",
+        children = {
+            UI.Panel {
+                width = 380, height = 480,
+                backgroundColor = {16, 12, 10, 248},
+                borderRadius = 8,
+                borderWidth = 2,
+                borderColor = {80, 65, 45, 180},
+                padding = 14,
+                children = {
+                    -- 标题
+                    UI.Panel {
+                        flexDirection = "row",
+                        justifyContent = "space-between",
+                        width = "100%",
+                        marginBottom = 10,
+                        children = {
+                            UI.Label {
+                                text = "技能配置 — " .. classDef.name,
+                                fontSize = 16,
+                                fontColor = {210, 185, 80, 255},
+                            },
+                            UI.Label {
+                                text = "Lv." .. player.level,
+                                fontSize = 13,
+                                fontColor = {180, 170, 150, 200},
+                            },
+                        },
+                    },
+                    UI.Label {
+                        text = "点击【装备/卸下】调整槽位（最多6个技能）",
+                        fontSize = 10,
+                        fontColor = {130, 120, 105, 160},
+                        marginBottom = 8,
+                    },
+                    -- 分隔线
+                    UI.Panel {
+                        width = "100%", height = 1,
+                        backgroundColor = {60, 50, 38, 100},
+                        marginBottom = 8,
+                    },
+                    -- 技能列表 (scrollable area)
+                    UI.Panel {
+                        width = "100%",
+                        height = 340,
+                        overflow = "scroll",
+                        gap = 4,
+                        children = skillRows,
+                    },
+                    -- 关闭按钮
+                    UI.Panel {
+                        width = "100%",
+                        alignItems = "center",
+                        marginTop = 10,
+                        children = {
+                            UI.Button {
+                                label = "确认并关闭",
+                                width = 120, height = 34,
+                                backgroundColor = {50, 40, 30, 240},
+                                borderRadius = 4,
+                                borderWidth = 1,
+                                borderColor = {95, 80, 58, 180},
+                                fontSize = 13,
+                                fontColor = {210, 195, 155, 255},
+                                onClick = function()
+                                    GameUI.HideSkillPanel()
+                                    -- 通知 main.lua 刷新 HUD
+                                    if GameUI.onSkillPanelClosed then
+                                        GameUI.onSkillPanelClosed()
+                                    end
+                                end,
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    }
+
+    UI.SetRoot(uiState.skillPanelRoot)
+    print("[GameUI] Skill panel opened")
+end
+
+function GameUI.HideSkillPanel()
+    if not uiState.skillPanelOpen then return end
+    uiState.skillPanelOpen = false
+    uiState.skillPanelRoot = nil
+    if uiState.hudRoot then
+        UI.SetRoot(uiState.hudRoot)
+    end
+    print("[GameUI] Skill panel closed")
+end
+
+function GameUI.IsSkillPanelOpen()
+    return uiState.skillPanelOpen
+end
+
+--- 刷新技能栏按钮（技能面板关闭后重建HUD以反映新配置）
+function GameUI.RefreshSkillButtons(player)
+    if not player then return end
+    -- 重建整个 HUD（最可靠的方式，确保按钮回调绑定到新技能）
+    GameUI.ShowGameHUD(player)
+    print("[GameUI] Skill buttons refreshed")
+end
+
+-- ============================================================================
 -- 背包/装备面板 (全屏遮罩)
 -- ============================================================================
 function GameUI.ShowBagPanel(player)
@@ -1080,7 +1365,6 @@ function GameUI.ShowBagPanel(player)
     local SLOT = Inventory.SLOT
     local RARITY = Inventory.RARITY
 
-    -- 构建装备槽
     local slotNames = {
         { slot = SLOT.WEAPON,   label = "武器" },
         { slot = SLOT.ARMOR,    label = "防具" },
@@ -1128,7 +1412,6 @@ function GameUI.ShowBagPanel(player)
         })
     end
 
-    -- 构建背包格子
     local bagItems = {}
     for i = 1, 20 do
         local item = inv.bag[i]
@@ -1157,7 +1440,6 @@ function GameUI.ShowBagPanel(player)
         })
     end
 
-    -- 面板整体
     uiState.bagRoot = UI.Panel {
         id = "bagOverlay",
         width = "100%",
@@ -1174,7 +1456,6 @@ function GameUI.ShowBagPanel(player)
                 borderColor = {80, 65, 45, 180},
                 padding = 16,
                 children = {
-                    -- 标题栏
                     UI.Panel {
                         flexDirection = "row",
                         justifyContent = "space-between",
@@ -1193,7 +1474,6 @@ function GameUI.ShowBagPanel(player)
                             },
                         },
                     },
-                    -- 装备区
                     UI.Panel {
                         flexDirection = "row",
                         flexWrap = "wrap",
@@ -1201,27 +1481,23 @@ function GameUI.ShowBagPanel(player)
                         marginBottom = 12,
                         children = equipSlots,
                     },
-                    -- 分隔线
                     UI.Panel {
                         width = "100%", height = 1,
                         backgroundColor = {60, 50, 38, 100},
                         marginBottom = 10,
                     },
-                    -- 背包标题
                     UI.Label {
                         text = "背包 (" .. #inv.bag .. "/20)",
                         fontSize = 11,
                         fontColor = {140, 130, 115, 160},
                         marginBottom = 6,
                     },
-                    -- 背包格子
                     UI.Panel {
                         flexDirection = "row",
                         flexWrap = "wrap",
                         gap = 4,
                         children = bagItems,
                     },
-                    -- 关闭按钮
                     UI.Panel {
                         width = "100%",
                         alignItems = "center",
@@ -1255,7 +1531,6 @@ function GameUI.HideBagPanel()
     if not uiState.bagOpen then return end
     uiState.bagOpen = false
     uiState.bagRoot = nil
-    -- 恢复 HUD
     if uiState.hudRoot then
         UI.SetRoot(uiState.hudRoot)
     end
@@ -1271,10 +1546,8 @@ end
 -- ============================================================================
 function GameUI.UpdateHUD(player, dt)
     if uiState.phase ~= "playing" then return end
-    -- 如果背包打开，不更新 HUD widget（但 NanoVG 仍然绘制）
-    if uiState.bagOpen then
+    if uiState.bagOpen or uiState.skillPanelOpen then
         uiState.player = player
-        -- 开门动画仍需更新
         if doorState.active then
             doorState.progress = doorState.progress + dt / doorState.duration
             if doorState.progress >= 1 then
@@ -1289,22 +1562,14 @@ function GameUI.UpdateHUD(player, dt)
 
     if not uiState.hudRoot then return end
 
-    local refs = uiState.refs
     uiState.player = player
-
-    if refs.expBar then refs.expBar:SetValue(player.exp / math.max(1, player.expToNext)) end
-
-    if refs.playerLevel then
-        local classDef = CharacterClass.Classes[player.classId]
-        refs.playerLevel:SetText("Lv." .. player.level .. " " .. classDef.name)
-    end
 
     for i = 1, 6 do
         local sb = uiState.skillButtons[i]
         if sb and sb.skill then
             local cd = player.cooldowns[sb.skill.id] or 0
-            local cdPanel = refs["skill_" .. i .. "_cd"]
-            local cdText  = refs["skill_" .. i .. "_cdText"]
+            local cdPanel = uiState.refs["skill_" .. i .. "_cd"]
+            local cdText  = uiState.refs["skill_" .. i .. "_cdText"]
             if cd > 0 then
                 if cdPanel then cdPanel:SetStyle({ backgroundColor = {0, 0, 0, 140} }) end
                 if cdText then cdText:SetText(string.format("%.0f", math.ceil(cd))) end
@@ -1326,7 +1591,6 @@ function GameUI.UpdateHUD(player, dt)
         end
     end
 
-    -- 飘字更新
     GameUI._UpdateFloatingTexts(dt)
 end
 
@@ -1341,7 +1605,7 @@ function GameUI.AddFloatingText(text, worldPos, color, isCrit)
         timer = 0,
         duration = 1.2,
         isCrit = isCrit or false,
-        offsetX = (math.random() - 0.5) * 2, -- 随机水平偏移方向 -1~1
+        offsetX = (math.random() - 0.5) * 2,
     })
 end
 
@@ -1363,7 +1627,7 @@ function GameUI.GetFloatingTexts()
 end
 
 -- ============================================================================
--- 更新击杀计数
+-- 更新击杀计数 / 金币显示
 -- ============================================================================
 function GameUI.UpdateKillCount(count)
     local label = uiState.refs.killCount
@@ -1372,9 +1636,6 @@ function GameUI.UpdateKillCount(count)
     end
 end
 
--- ============================================================================
--- 更新金币显示
--- ============================================================================
 function GameUI.UpdateGold(gold)
     local label = uiState.refs.goldLabel
     if label then
@@ -1390,13 +1651,15 @@ function GameUI.GetJoystick()
 end
 
 -- ============================================================================
--- 技能/药瓶/菜单/背包回调 (由 main.lua 设置)
+-- 回调 (由 main.lua 设置)
 -- ============================================================================
 GameUI.onSkillPressed = nil
 GameUI.onUseHpPotion = nil
 GameUI.onUseMpPotion = nil
 GameUI.onMenuPressed = nil
 GameUI.onBagToggle = nil
+GameUI.onSkillPanelToggle = nil
+GameUI.onSkillPanelClosed = nil
 
 -- ============================================================================
 -- 清理

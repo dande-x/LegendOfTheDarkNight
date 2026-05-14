@@ -49,6 +49,7 @@ local enemies = {}       -- 活着的敌人列表
 local projectiles = {}   -- 弹道列表
 local aoeZones = {}      -- 范围持续伤害区域 (火墙等)
 local summons = {}        -- 召唤兽列表
+local groundItems = {}   -- 地面掉落物 {node, type="gold"/"item", amount, item, timer, magnetPhase, vel}
 local killCount = 0
 local spawnTimer = 0
 local SPAWN_INTERVAL = 1.8
@@ -57,6 +58,15 @@ local MAX_ENEMIES = 25
 Combat.enemies = enemies
 Combat.projectiles = projectiles
 Combat.killCount = 0
+
+-- 地面掉落常量
+local GOLD_MAGNET_DELAY = 0.6    -- 金币落地后多久开始吸附(秒)
+local GOLD_MAGNET_ACCEL = 25.0   -- 吸附加速度
+local GOLD_MAGNET_MAX_SPEED = 18.0
+local GOLD_PICKUP_DIST = 0.5     -- 拾取判定距离
+local ITEM_PICKUP_DIST = 2.0     -- 装备拾取距离
+local ITEM_LIFETIME = 60.0       -- 装备存在时间(秒)
+local GOLD_LIFETIME = 30.0       -- 金币存在时间(秒)
 
 -- ============================================================================
 -- PBR 材质快捷创建
@@ -788,6 +798,178 @@ function Combat.UpdateSpawner(scene, dt, playerNode, player)
 end
 
 -- ============================================================================
+-- 地面掉落物系统
+-- ============================================================================
+
+--- 生成金币散落到地面
+function Combat.SpawnGroundGold(scene, pos, amount)
+    -- 分成 3~4 个小金球散开
+    local count = math.random(3, 4)
+    local perCoin = math.floor(amount / count)
+    local remainder = amount - perCoin * count
+
+    for ci = 1, count do
+        local coinAmount = perCoin + (ci == 1 and remainder or 0)
+        if coinAmount <= 0 then break end
+
+        -- 散开偏移
+        local angle = (ci - 1) / count * math.pi * 2 + math.random() * 0.5
+        local dist = 0.5 + math.random() * 0.8
+        local offX = math.cos(angle) * dist
+        local offZ = math.sin(angle) * dist
+        local targetPos = Vector3(pos.x + offX, 0.15, pos.z + offZ)
+
+        local goldNode = scene:CreateChild("GroundGold")
+        -- 先从死亡位置上方开始
+        goldNode.position = Vector3(targetPos.x, 1.2, targetPos.z)
+        goldNode.scale = Vector3(0.18, 0.18, 0.18)
+
+        local model = goldNode:CreateComponent("StaticModel")
+        model:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
+        local mat = CreatePBR(Color(1.0, 0.85, 0.2, 1.0), 0.8, 0.25)
+        mat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.6, 0.45, 0.05)))
+        model:SetMaterial(mat)
+        model.castShadows = false
+
+        table.insert(groundItems, {
+            node = goldNode,
+            type = "gold",
+            amount = coinAmount,
+            timer = 0,
+            lifetime = GOLD_LIFETIME,
+            targetY = 0.15,
+            fallSpeed = 3.0 + math.random() * 2.0,
+            falling = true,
+            magnetPhase = false,
+            vel = 0,
+        })
+    end
+end
+
+--- 生成装备掉落到地面
+function Combat.SpawnGroundItem(scene, pos, item)
+    local Inventory = require("scripts.Inventory")
+    local rarity = Inventory.RARITY[item.rarity]
+    local rColor = rarity and rarity.color or {200, 200, 200, 255}
+    local c = Color(rColor[1] / 255, rColor[2] / 255, rColor[3] / 255, 1.0)
+
+    -- 稍微偏移
+    local offAngle = math.random() * math.pi * 2
+    local offDist = 0.3 + math.random() * 0.5
+    local targetPos = Vector3(pos.x + math.cos(offAngle) * offDist, 0.25, pos.z + math.sin(offAngle) * offDist)
+
+    local itemNode = scene:CreateChild("GroundItem")
+    itemNode.position = Vector3(targetPos.x, 1.5, targetPos.z)
+    itemNode.scale = Vector3(0.25, 0.25, 0.25)
+
+    local model = itemNode:CreateComponent("StaticModel")
+    model:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
+    local mat = CreatePBR(c, 0.3, 0.4)
+    mat:SetShaderParameter("MatEmissiveColor", Variant(Color(c.r * 0.5, c.g * 0.5, c.b * 0.5)))
+    model:SetMaterial(mat)
+    model.castShadows = true
+
+    table.insert(groundItems, {
+        node = itemNode,
+        type = "item",
+        item = item,
+        timer = 0,
+        lifetime = ITEM_LIFETIME,
+        targetY = 0.25,
+        fallSpeed = 2.5 + math.random() * 1.5,
+        falling = true,
+        rotSpeed = 60 + math.random() * 40,
+    })
+end
+
+--- 更新地面物品（金币磁吸 + 装备靠近拾取）
+function Combat.UpdateGroundItems(dt, playerNode)
+    if not playerNode then return end
+    local playerPos = playerNode.position
+
+    for i = #groundItems, 1, -1 do
+        local g = groundItems[i]
+        g.timer = g.timer + dt
+
+        -- 超时移除
+        if g.timer > g.lifetime then
+            g.node:Remove()
+            table.remove(groundItems, i)
+            goto continue_ground
+        end
+
+        local pos = g.node.position
+
+        -- 掉落动画
+        if g.falling then
+            local newY = pos.y - g.fallSpeed * dt
+            if newY <= g.targetY then
+                newY = g.targetY
+                g.falling = false
+            end
+            g.node.position = Vector3(pos.x, newY, pos.z)
+            pos = g.node.position
+        end
+
+        if g.type == "gold" then
+            -- 金币：延迟后磁吸向玩家
+            if not g.falling and g.timer >= GOLD_MAGNET_DELAY then
+                g.magnetPhase = true
+            end
+
+            if g.magnetPhase then
+                local toPlayer = playerPos - pos
+                toPlayer.y = 0
+                local dist = toPlayer:Length()
+
+                if dist < GOLD_PICKUP_DIST then
+                    -- 拾取金币
+                    if Combat.onGoldPickup then
+                        Combat.onGoldPickup(g.amount, pos)
+                    end
+                    g.node:Remove()
+                    table.remove(groundItems, i)
+                    goto continue_ground
+                end
+
+                -- 加速朝玩家飞去
+                g.vel = math.min(GOLD_MAGNET_MAX_SPEED, g.vel + GOLD_MAGNET_ACCEL * dt)
+                local dir = toPlayer:Normalized()
+                local newPos = pos + dir * g.vel * dt
+                newPos.y = math.max(0.15, newPos.y)
+                g.node.position = newPos
+            end
+
+        elseif g.type == "item" then
+            -- 装备：旋转 + 上下浮动
+            if not g.falling then
+                local rot = g.node.rotation
+                g.node.rotation = rot * Quaternion(g.rotSpeed * dt, Vector3.UP)
+                -- 轻微上下浮动
+                local bob = g.targetY + math.sin(g.timer * 2.5) * 0.1
+                g.node.position = Vector3(pos.x, bob, pos.z)
+            end
+
+            -- 靠近拾取
+            local toPlayer = playerPos - pos
+            toPlayer.y = 0
+            local dist = toPlayer:Length()
+
+            if dist < ITEM_PICKUP_DIST then
+                if Combat.onItemPickup then
+                    Combat.onItemPickup(g.item, pos)
+                end
+                g.node:Remove()
+                table.remove(groundItems, i)
+                goto continue_ground
+            end
+        end
+
+        ::continue_ground::
+    end
+end
+
+-- ============================================================================
 -- 工具函数
 -- ============================================================================
 function Combat.FindNearestEnemy(pos, maxRange)
@@ -813,6 +995,7 @@ function Combat.Update(scene, dt, playerNode, player)
     Combat.UpdateSummons(dt, playerNode)
     Combat.UpdateVisuals(scene, dt)
     Combat.UpdateSpawner(scene, dt, playerNode, player)
+    Combat.UpdateGroundItems(dt, playerNode)
 end
 
 --- 清空所有战斗实体
@@ -829,10 +1012,14 @@ function Combat.Clear()
     for _, z in ipairs(aoeZones) do
         if z.visualNode then z.visualNode:Remove() end
     end
+    for _, g in ipairs(groundItems) do
+        if g.node then g.node:Remove() end
+    end
     enemies = {}
     projectiles = {}
     summons = {}
     aoeZones = {}
+    groundItems = {}
     Combat.enemies = enemies
     Combat.projectiles = projectiles
     killCount = 0
@@ -845,5 +1032,7 @@ Combat.onDamageDealt = nil   -- function(dmg, isCrit, worldPos)
 Combat.onEnemyAttack = nil   -- function(enemy, dmg, playerPos)
 Combat.onPlayerHeal = nil    -- function(amount, playerPos)
 Combat.onEnemyDeath = nil    -- function(enemyName, deathPos, exp)
+Combat.onGoldPickup = nil    -- function(amount, worldPos)
+Combat.onItemPickup = nil    -- function(item, worldPos)
 
 return Combat

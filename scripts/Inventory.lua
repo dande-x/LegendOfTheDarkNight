@@ -1,5 +1,6 @@
 -- ============================================================================
--- Inventory.lua — 掉落 / 装备 / 背包 / 金币系统 (初版)
+-- Inventory.lua — 掉落 / 装备 / 背包 / 金币系统
+-- 支持地面拾取: RollDrop 只生成掉落物，不自动添加
 -- ============================================================================
 
 local Inventory = {}
@@ -31,7 +32,6 @@ Inventory.RARITY = RARITY
 -- 物品模板表
 -- ============================================================================
 local ITEM_TEMPLATES = {
-    -- ======== 武器 ========
     { id = "sword_iron",    name = "铁剑",     slot = SLOT.WEAPON,   rarity = "COMMON",    atk = 8,  def = 0, hp = 0,  classReq = "warrior" },
     { id = "sword_steel",   name = "精钢剑",   slot = SLOT.WEAPON,   rarity = "UNCOMMON",  atk = 15, def = 0, hp = 0,  classReq = "warrior" },
     { id = "sword_flame",   name = "烈焰刀",   slot = SLOT.WEAPON,   rarity = "RARE",      atk = 28, def = 0, hp = 0,  classReq = "warrior" },
@@ -44,35 +44,28 @@ local ITEM_TEMPLATES = {
     { id = "bell_jade",     name = "玉磬",     slot = SLOT.WEAPON,   rarity = "UNCOMMON",  atk = 12, def = 0, hp = 0,  classReq = "taoist" },
     { id = "bell_soul",     name = "招魂幡",   slot = SLOT.WEAPON,   rarity = "RARE",      atk = 22, def = 2, hp = 20, classReq = "taoist" },
     { id = "bell_holy",     name = "太虚法器", slot = SLOT.WEAPON,   rarity = "EPIC",      atk = 38, def = 3, hp = 60, classReq = "taoist" },
-
-    -- ======== 防具 ========
     { id = "armor_cloth",   name = "布甲",     slot = SLOT.ARMOR,    rarity = "COMMON",    atk = 0,  def = 5,  hp = 20  },
     { id = "armor_leather", name = "皮甲",     slot = SLOT.ARMOR,    rarity = "UNCOMMON",  atk = 0,  def = 10, hp = 40  },
     { id = "armor_chain",   name = "锁子甲",   slot = SLOT.ARMOR,    rarity = "RARE",      atk = 0,  def = 18, hp = 80  },
     { id = "armor_dragon",  name = "龙鳞甲",   slot = SLOT.ARMOR,    rarity = "EPIC",      atk = 5,  def = 30, hp = 150 },
     { id = "armor_heaven",  name = "天衣",     slot = SLOT.ARMOR,    rarity = "LEGENDARY", atk = 10, def = 40, hp = 250 },
-
-    -- ======== 戒指 ========
     { id = "ring_copper",   name = "铜戒",     slot = SLOT.RING,     rarity = "COMMON",    atk = 3,  def = 1, hp = 0  },
     { id = "ring_silver",   name = "银戒",     slot = SLOT.RING,     rarity = "UNCOMMON",  atk = 6,  def = 2, hp = 10 },
     { id = "ring_gold",     name = "金戒",     slot = SLOT.RING,     rarity = "RARE",      atk = 10, def = 4, hp = 25 },
     { id = "ring_dragon",   name = "龙纹戒",   slot = SLOT.RING,     rarity = "EPIC",      atk = 18, def = 6, hp = 50 },
-
-    -- ======== 项链 ========
     { id = "neck_bone",     name = "骨链",     slot = SLOT.NECKLACE, rarity = "COMMON",    atk = 2,  def = 2, hp = 15  },
     { id = "neck_jade",     name = "玉佩",     slot = SLOT.NECKLACE, rarity = "UNCOMMON",  atk = 4,  def = 4, hp = 30  },
     { id = "neck_amber",    name = "琥珀坠",   slot = SLOT.NECKLACE, rarity = "RARE",      atk = 8,  def = 6, hp = 50  },
     { id = "neck_dragon",   name = "龙牙链",   slot = SLOT.NECKLACE, rarity = "EPIC",      atk = 15, def = 10, hp = 80 },
 }
 
--- 构建 ID 索引
 local ITEM_BY_ID = {}
 for _, tmpl in ipairs(ITEM_TEMPLATES) do
     ITEM_BY_ID[tmpl.id] = tmpl
 end
 
 -- ============================================================================
--- 敌人掉落表 (enemyName → { gold, items:[{id, weight}] })
+-- 敌人掉落表
 -- ============================================================================
 local DROP_TABLES = {
     ["山贼"] = {
@@ -152,8 +145,7 @@ local playerData = {
         [SLOT.RING]     = nil,
         [SLOT.NECKLACE] = nil,
     },
-    bag = {},       -- 物品列表 (item template 引用)
-    -- 装备加成缓存
+    bag = {},
     bonusAtk = 0,
     bonusDef = 0,
     bonusHP  = 0,
@@ -180,7 +172,7 @@ function Inventory.Init()
 end
 
 -- ============================================================================
--- 装备评分（用于自动装备比较）
+-- 装备评分
 -- ============================================================================
 local function ItemScore(item)
     if not item then return -1 end
@@ -205,19 +197,10 @@ function Inventory.RecalcBonus()
 end
 
 -- ============================================================================
--- 应用装备加成到角色
--- ============================================================================
-function Inventory.ApplyBonus(player)
-    if not player then return end
-    -- 加成已包含在 bonusXxx 中，由 main.lua 叠加
-end
-
--- ============================================================================
--- 装备物品（自动卸下旧装备到背包）
+-- 装备物品
 -- ============================================================================
 function Inventory.EquipItem(item, playerClassId)
     if not item then return false end
-    -- 检查职业限制
     if item.classReq and item.classReq ~= playerClassId then
         return false
     end
@@ -225,17 +208,14 @@ function Inventory.EquipItem(item, playerClassId)
     local slot = item.slot
     local old = playerData.equipped[slot]
 
-    -- 卸下旧装备到背包
     if old then
         if #playerData.bag < MAX_BAG_SLOTS then
             table.insert(playerData.bag, old)
         end
-        -- 如果背包满了就丢弃旧的
     end
 
     playerData.equipped[slot] = item
 
-    -- 从背包中移除新装备
     for i, bagItem in ipairs(playerData.bag) do
         if bagItem == item then
             table.remove(playerData.bag, i)
@@ -249,7 +229,7 @@ function Inventory.EquipItem(item, playerClassId)
 end
 
 -- ============================================================================
--- 尝试自动装备（如果比当前好）
+-- 尝试自动装备
 -- ============================================================================
 function Inventory.TryAutoEquip(item, playerClassId)
     if not item then return false end
@@ -278,20 +258,40 @@ function Inventory.AddToBag(item)
 end
 
 -- ============================================================================
--- 处理敌人掉落
+-- 添加金币
 -- ============================================================================
-function Inventory.ProcessDrop(enemyName, playerClassId)
+function Inventory.AddGold(amount)
+    playerData.gold = playerData.gold + amount
+end
+
+-- ============================================================================
+-- 拾取物品（自动装备或放入背包）
+-- ============================================================================
+function Inventory.PickupItem(item, playerClassId)
+    if not item then return false, "无物品" end
+    local equipped = Inventory.TryAutoEquip(item, playerClassId)
+    if not equipped then
+        local added = Inventory.AddToBag(item)
+        if not added then
+            return false, "背包已满"
+        end
+    end
+    return true, ""
+end
+
+-- ============================================================================
+-- 掉落判定（只计算掉什么，不添加到背包/金币）
+-- ============================================================================
+function Inventory.RollDrop(enemyName)
     local dropTable = DROP_TABLES[enemyName]
     if not dropTable then return nil, 0 end
 
     -- 金币必掉
     local gold = math.random(dropTable.goldMin, dropTable.goldMax)
-    playerData.gold = playerData.gold + gold
 
     -- 物品掉落判定
     local droppedItem = nil
     if math.random() < dropTable.dropChance then
-        -- 加权随机选取物品
         local totalWeight = 0
         for _, entry in ipairs(dropTable.items) do
             totalWeight = totalWeight + entry.weight
@@ -304,16 +304,9 @@ function Inventory.ProcessDrop(enemyName, playerClassId)
             if roll <= acc then
                 local tmpl = ITEM_BY_ID[entry.id]
                 if tmpl then
-                    -- 创建物品实例 (浅拷贝)
                     droppedItem = {}
                     for k, v in pairs(tmpl) do
                         droppedItem[k] = v
-                    end
-
-                    -- 尝试自动装备
-                    local equipped = Inventory.TryAutoEquip(droppedItem, playerClassId)
-                    if not equipped then
-                        Inventory.AddToBag(droppedItem)
                     end
                 end
                 break
@@ -325,7 +318,19 @@ function Inventory.ProcessDrop(enemyName, playerClassId)
 end
 
 -- ============================================================================
--- 获取装备信息字符串（简易显示）
+-- 保留旧接口兼容（即时处理掉落 — 不再使用）
+-- ============================================================================
+function Inventory.ProcessDrop(enemyName, playerClassId)
+    local item, gold = Inventory.RollDrop(enemyName)
+    Inventory.AddGold(gold)
+    if item then
+        Inventory.PickupItem(item, playerClassId)
+    end
+    return item, gold
+end
+
+-- ============================================================================
+-- 获取装备信息字符串
 -- ============================================================================
 function Inventory.GetEquipSummary()
     local parts = {}
