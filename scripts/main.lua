@@ -7,6 +7,7 @@ local UI = require("urhox-libs/UI")
 local CharacterClass = require("scripts.CharacterClass")
 local GameUI = require("scripts.GameUI")
 local Combat = require("scripts.Combat")
+local Inventory = require("scripts.Inventory")
 require "urhox-libs.UI.GameHUD"
 
 -- ============================================================================
@@ -240,8 +241,24 @@ function OnClassSelected(classId)
         GameUI.AddFloatingText("+" .. math.floor(amount), pos, {100, 255, 130, 255})
     end
 
-    -- 初始刷几只怪
-    for i = 1, 4 do
+    -- 掉落系统
+    Inventory.Init()
+    Combat.onEnemyDeath = function(enemyName, deathPos, exp)
+        local droppedItem, gold = Inventory.ProcessDrop(enemyName, player_.classId)
+        -- 金币飘字
+        if gold > 0 then
+            GameUI.AddFloatingText("+" .. gold .. "金", deathPos + Vector3(0, 0.5, 0), {255, 215, 0, 255})
+        end
+        -- 掉落物品飘字
+        if droppedItem then
+            local rarity = Inventory.RARITY[droppedItem.rarity]
+            local color = rarity and rarity.color or {255, 255, 255, 255}
+            GameUI.AddFloatingText(droppedItem.name, deathPos + Vector3(0, 1.0, 0), color)
+        end
+    end
+
+    -- 初始刷怪
+    for i = 1, 8 do
         Combat.SpawnEnemy(scene_, playerNode_.position, player_.level)
     end
 
@@ -384,6 +401,15 @@ function HandleUpdate(eventType, eventData)
     if hpPotionCD > 0 then hpPotionCD = math.max(0, hpPotionCD - dt) end
     if mpPotionCD > 0 then mpPotionCD = math.max(0, mpPotionCD - dt) end
 
+    -- 装备加成应用
+    local inv = Inventory.playerData
+    local classDef = CharacterClass.Classes[player_.classId]
+    local g = classDef.growth
+    player_.atk = classDef.baseATK + g.atk * (player_.level - 1) + inv.bonusAtk
+    player_.def = classDef.baseDEF + g.def * (player_.level - 1) + inv.bonusDef
+    player_.maxHP = classDef.baseHP + g.hp * (player_.level - 1) + inv.bonusHP
+    if player_.hp > player_.maxHP then player_.hp = player_.maxHP end
+
     -- 战斗系统更新
     Combat.Update(scene_, dt, playerNode_, player_)
 
@@ -393,6 +419,7 @@ function HandleUpdate(eventType, eventData)
     -- UI 更新
     GameUI.UpdateHUD(player_, dt)
     GameUI.UpdateKillCount(Combat.killCount)
+    GameUI.UpdateGold(inv.gold)
 end
 
 -- ============================================================================

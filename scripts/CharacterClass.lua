@@ -227,90 +227,98 @@ CharacterClass.Classes = {
     },
 
     -- ================================================================
-    -- 道士
+    -- 道士 (召唤流)
     -- ================================================================
     taoist = {
         name = "道士",
-        desc = "召唤/治疗/持续消耗 混合型",
+        desc = "万灵召唤师，驱使群兽碾压一切",
         color = "Jade",
         resource = "道行",
-        baseHP = 160, baseMP = 120, baseATK = 14, baseDEF = 12,
+        baseHP = 160, baseMP = 130, baseATK = 12, baseDEF = 12,
         growth = BASE_GROWTH.taoist,
         moveSpeed = 3.3,
 
         passive = {
-            name = "通灵",
-            desc = "召唤兽持续 +20%，治疗效果 +15%",
+            name = "万灵通",
+            desc = "召唤兽攻击力 +25%，持续时间 +30%",
         },
 
         skills = {
-            -- 1. 治愈术 (普攻/基础治疗)
-            {
-                id = "t_heal", name = "治愈术", type = SKILL_TYPE.HEAL,
-                desc = "引天地灵气修补伤损",
-                slot = 1, cooldown = 6, manaCost = 8,
-                unlockLevels = {7, 13, 19},
-                healPercent = {15, 22, 30},
-                range = 0,
-            },
-            -- 2. 施毒术
-            {
-                id = "t_poison", name = "施毒术", type = SKILL_TYPE.DOT,
-                desc = "将毒理升华为道法，降防蚕食体力",
-                slot = 2, cooldown = 8, manaCost = 10,
-                unlockLevels = {16, 20, 25},
-                damage = {40, 55, 70}, -- 每秒
-                duration = {6, 6, 8},
-                defReduce = {15, 25, 35},
-                range = 5.0,
-            },
-            -- 3. 灵魂火符
+            -- 1. 灵魂火符 (普攻 — 远程基础输出)
             {
                 id = "t_talisman", name = "灵魂火符", type = SKILL_TYPE.RANGED,
-                desc = "投掷爆发护身符，远距引诱消耗",
-                slot = 3, cooldown = 3, manaCost = 5,
-                unlockLevels = {21, 25, 29},
-                damage = {120, 160, 200},
+                desc = "投掷灵符远距消耗，召唤师的基本功",
+                slot = 1, cooldown = 0, manaCost = 0,
+                unlockLevels = {7, 13, 19},
+                damage = {85, 105, 130},
                 range = 6.0, projectileSpeed = 10,
             },
-            -- 4. 召唤神兽
+            -- 2. 召唤骷髅 (召唤2只骷髅兵)
             {
-                id = "t_summon", name = "召唤神兽", type = SKILL_TYPE.SUMMON,
-                desc = "精神力打通灵界，唤神兽相助",
-                slot = 4, cooldown = 20, manaCost = 25,
-                unlockLevels = {22, 27, 33},
-                damage = {80, 110, 150}, -- 神兽攻击力
-                duration = {30, 40, 50},
+                id = "t_skeleton", name = "召唤骷髅", type = SKILL_TYPE.SUMMON,
+                desc = "唤醒亡灵骷髅，忠诚的前排炮灰",
+                slot = 2, cooldown = 10, manaCost = 12,
+                unlockLevels = {7, 15, 22},
+                damage = {45, 65, 90},
+                duration = {25, 35, 45},
+                summonCount = 2,
+                summonType = "skeleton",
                 range = 2.0,
             },
-            -- 5. 群体治疗术
+            -- 3. 灵狼召唤 (召唤灵狼，高攻速)
             {
-                id = "t_groupheal", name = "群体治疗", type = SKILL_TYPE.HEAL,
-                desc = "同时治愈多人，消耗极大",
-                slot = 5, cooldown = 22, manaCost = 30,
-                unlockLevels = {36, 40, 45},
-                healPercent = {12, 18, 25},
-                range = 0, aoeRadius = 5.0,
+                id = "t_wolf", name = "灵狼召唤", type = SKILL_TYPE.SUMMON,
+                desc = "唤出灵界之狼，撕咬迅猛，追击不止",
+                slot = 3, cooldown = 14, manaCost = 18,
+                unlockLevels = {16, 22, 28},
+                damage = {70, 100, 140},
+                duration = {30, 40, 50},
+                summonCount = 1,
+                summonType = "wolf",
+                range = 2.0,
             },
-            -- 6. 圣兽降临 (终极技)
+            -- 4. 万灵强化 (BUFF — 强化所有召唤兽)
+            {
+                id = "t_empower", name = "万灵强化", type = SKILL_TYPE.BUFF,
+                desc = "注入道力强化全部召唤兽，攻击力翻倍",
+                slot = 4, cooldown = 18, manaCost = 20,
+                unlockLevels = {20, 26, 32},
+                damage = {0, 0, 0},
+                buffMultiplier = {1.5, 1.8, 2.2},
+                duration = {8, 10, 12},
+                range = 0,
+            },
+            -- 5. 召唤石魔 (召唤巨灵 — 肉盾型)
+            {
+                id = "t_golem", name = "召唤巨灵", type = SKILL_TYPE.SUMMON,
+                desc = "唤出山岳巨灵，坚如磐石，横扫千军",
+                slot = 5, cooldown = 22, manaCost = 25,
+                unlockLevels = {25, 32, 40},
+                damage = {100, 150, 210},
+                duration = {30, 40, 55},
+                summonCount = 1,
+                summonType = "golem",
+                range = 2.0,
+            },
+            -- 6. 圣兽降临 (终极技 — 召唤最强圣兽)
             {
                 id = "t_holyBeast", name = "圣兽降临", type = SKILL_TYPE.SUMMON,
-                desc = "唤出圣兽，满阶化身麒麟圣灵",
-                slot = 6, cooldown = 40, manaCost = 40,
-                unlockLevels = {40, 44, 48},
-                damage = {160, 220, 300},
-                duration = {25, 35, 45},
+                desc = "唤出上古圣兽麒麟，毁天灭地",
+                slot = 6, cooldown = 35, manaCost = 35,
+                unlockLevels = {35, 42, 48},
+                damage = {180, 250, 350},
+                duration = {30, 40, 55},
+                summonCount = 1,
+                summonType = "holy",
                 range = 2.0, isUltimate = true,
             },
-            -- 7. 道力盾 (可替换装配)
+            -- 7. 治愈术 (可替换装配 — 自保技能)
             {
-                id = "t_shield", name = "道力盾", type = SKILL_TYPE.BUFF,
-                desc = "真气凝结护体之膜，源自魔法盾改良",
-                slot = 0, cooldown = 20, manaCost = 18,
-                unlockLevels = {40, 44, 48},
-                damage = {0, 0, 0},
-                shieldPercent = {25, 35, 45},
-                duration = {5, 6, 7},
+                id = "t_heal", name = "治愈术", type = SKILL_TYPE.HEAL,
+                desc = "引天地灵气修补伤损，召唤师的自保手段",
+                slot = 0, cooldown = 10, manaCost = 15,
+                unlockLevels = {7, 18, 30},
+                healPercent = {20, 30, 40},
                 range = 0,
             },
         },
@@ -337,7 +345,7 @@ function CharacterClass.CreatePlayer(classId, level)
         className = classDef.name,
         level     = level,
         exp       = 0,
-        expToNext = level * 100,
+        expToNext = 50 + level * 60,
 
         maxHP  = classDef.baseHP + g.hp * (level - 1),
         maxMP  = classDef.baseMP + g.mp * (level - 1),
@@ -414,7 +422,7 @@ function CharacterClass.LevelUp(player)
     player.def   = classDef.baseDEF + g.def * (player.level - 1)
     player.hp = player.maxHP
     player.mp = player.maxMP
-    player.expToNext = player.level * 100
+    player.expToNext = 50 + player.level * 60
     print("[CharacterClass] " .. classDef.name .. " upgraded to Lv." .. player.level)
 end
 

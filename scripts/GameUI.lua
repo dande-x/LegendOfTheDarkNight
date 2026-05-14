@@ -115,48 +115,25 @@ function GameUI._RenderNanoVG()
 end
 
 -- ============================================================================
--- HP/MP 圆球绘制
+-- HP/MP 合体圆球绘制（左半HP 右半MP）
 -- ============================================================================
 function GameUI._DrawOrbs(ctx, sw, sh)
     local scale = sh / 720
     local player = uiState.player
 
-    -- HP 圆球位置参数
-    local hpR  = math.floor(30 * scale)
-    local hpCX = math.floor(55 * scale)
-    local hpCY = math.floor(70 * scale)
+    local r  = math.floor(38 * scale)
+    local cx = math.floor(55 * scale)
+    local cy = math.floor(60 * scale)
 
-    -- MP 圆球位置参数
-    local mpR  = math.floor(26 * scale)
-    local mpCX = math.floor(135 * scale)
-    local mpCY = math.floor(73 * scale)
+    local hpProg = math.max(0, math.min(1, player.hp / math.max(1, player.maxHP)))
+    local mpProg = math.max(0, math.min(1, player.mp / math.max(1, player.maxMP)))
 
-    -- 绘制 HP 圆球
-    GameUI._DrawSingleOrb(ctx, hpCX, hpCY, hpR,
-        player.hp, player.maxHP,
-        {220, 55, 35},   -- 亮色
-        {110, 25, 15},   -- 暗色
-        {190, 75, 55},   -- 边框色
-        "HP", scale)
-
-    -- 绘制 MP 圆球
-    GameUI._DrawSingleOrb(ctx, mpCX, mpCY, mpR,
-        player.mp, player.maxMP,
-        {50, 110, 210},  -- 亮色
-        {25, 55, 120},   -- 暗色
-        {70, 140, 210},  -- 边框色
-        "MP", scale)
-end
-
-function GameUI._DrawSingleOrb(ctx, cx, cy, r, current, max, bright, dark, border, label, scale)
-    local progress = math.max(0, math.min(1, current / math.max(1, max)))
-
-    -- 外发光
+    -- 外发光 (紫色混合)
     nvgBeginPath(ctx)
-    nvgCircle(ctx, cx, cy, r + 5 * scale)
-    local glowGrad = nvgRadialGradient(ctx, cx, cy, r - 2, r + 8 * scale,
-        nvgRGBA(dark[1], dark[2], dark[3], 50),
-        nvgRGBA(dark[1], dark[2], dark[3], 0))
+    nvgCircle(ctx, cx, cy, r + 6 * scale)
+    local glowGrad = nvgRadialGradient(ctx, cx, cy, r - 2, r + 10 * scale,
+        nvgRGBA(100, 40, 90, 45),
+        nvgRGBA(60, 30, 60, 0))
     nvgFillPaint(ctx, glowGrad)
     nvgFill(ctx)
 
@@ -169,40 +146,82 @@ function GameUI._DrawSingleOrb(ctx, cx, cy, r, current, max, bright, dark, borde
     nvgFillPaint(ctx, bgGrad)
     nvgFill(ctx)
 
-    -- 液体填充（从底部往上 —— 使用裁剪区域）
-    if progress > 0 then
+    -- ======== 左半圆: HP (红) ========
+    if hpProg > 0 then
         nvgSave(ctx)
-        local fillHeight = 2 * r * progress
-        local clipY = cy + r - fillHeight
-        nvgScissor(ctx, cx - r, clipY, 2 * r, fillHeight)
+        local fillH = 2 * r * hpProg
+        local clipY = cy + r - fillH
+        -- 先裁剪到左半圆
+        nvgScissor(ctx, cx - r, cy - r, r, 2 * r)
+        -- 再裁剪到液面高度
+        nvgIntersectScissor(ctx, cx - r, clipY, r, fillH)
 
         nvgBeginPath(ctx)
         nvgCircle(ctx, cx, cy, r - 1)
-        local fillGrad = nvgRadialGradient(ctx, cx, cy - r * 0.15, r * 0.1, r * 0.85,
-            nvgRGBA(bright[1], bright[2], bright[3], 210),
-            nvgRGBA(dark[1], dark[2], dark[3], 230))
-        nvgFillPaint(ctx, fillGrad)
+        local hpGrad = nvgRadialGradient(ctx, cx - r * 0.1, cy - r * 0.15, r * 0.1, r * 0.85,
+            nvgRGBA(220, 55, 35, 210),
+            nvgRGBA(110, 25, 15, 230))
+        nvgFillPaint(ctx, hpGrad)
         nvgFill(ctx)
 
-        -- 液面高光线
+        -- 液面高光
         nvgBeginPath(ctx)
-        nvgEllipse(ctx, cx, clipY + 2 * scale, r * 0.65, 2.5 * scale)
-        nvgFillColor(ctx, nvgRGBA(255, 255, 255, 35))
+        nvgEllipse(ctx, cx - r * 0.25, clipY + 2 * scale, r * 0.35, 2 * scale)
+        nvgFillColor(ctx, nvgRGBA(255, 255, 255, 30))
         nvgFill(ctx)
 
         nvgRestore(ctx)
     end
 
-    -- 玻璃反光（左上方月牙形高光）
+    -- ======== 右半圆: MP (蓝) ========
+    if mpProg > 0 then
+        nvgSave(ctx)
+        local fillH = 2 * r * mpProg
+        local clipY = cy + r - fillH
+        -- 裁剪到右半圆
+        nvgScissor(ctx, cx, cy - r, r, 2 * r)
+        -- 裁剪到液面高度
+        nvgIntersectScissor(ctx, cx, clipY, r, fillH)
+
+        nvgBeginPath(ctx)
+        nvgCircle(ctx, cx, cy, r - 1)
+        local mpGrad = nvgRadialGradient(ctx, cx + r * 0.1, cy - r * 0.15, r * 0.1, r * 0.85,
+            nvgRGBA(50, 110, 210, 210),
+            nvgRGBA(25, 55, 120, 230))
+        nvgFillPaint(ctx, mpGrad)
+        nvgFill(ctx)
+
+        -- 液面高光
+        nvgBeginPath(ctx)
+        nvgEllipse(ctx, cx + r * 0.25, clipY + 2 * scale, r * 0.35, 2 * scale)
+        nvgFillColor(ctx, nvgRGBA(255, 255, 255, 30))
+        nvgFill(ctx)
+
+        nvgRestore(ctx)
+    end
+
+    -- ======== 中线分隔 ========
     nvgBeginPath(ctx)
-    nvgEllipse(ctx, cx - r * 0.22, cy - r * 0.32, r * 0.28, r * 0.18)
-    nvgFillColor(ctx, nvgRGBA(255, 255, 255, 28))
+    nvgMoveTo(ctx, cx, cy - r + 2)
+    nvgLineTo(ctx, cx, cy + r - 2)
+    nvgStrokeColor(ctx, nvgRGBA(180, 170, 140, 80))
+    nvgStrokeWidth(ctx, 1.2 * scale)
+    nvgStroke(ctx)
+
+    -- 玻璃反光（左上月牙 + 右上月牙）
+    nvgBeginPath(ctx)
+    nvgEllipse(ctx, cx - r * 0.28, cy - r * 0.35, r * 0.18, r * 0.12)
+    nvgFillColor(ctx, nvgRGBA(255, 255, 255, 25))
+    nvgFill(ctx)
+    nvgBeginPath(ctx)
+    nvgEllipse(ctx, cx + r * 0.28, cy - r * 0.35, r * 0.15, r * 0.10)
+    nvgFillColor(ctx, nvgRGBA(255, 255, 255, 20))
     nvgFill(ctx)
 
-    -- 外圈边框（双层）
+    -- 外圈边框
     nvgBeginPath(ctx)
     nvgCircle(ctx, cx, cy, r)
-    nvgStrokeColor(ctx, nvgRGBA(border[1], border[2], border[3], 190))
+    nvgStrokeColor(ctx, nvgRGBA(160, 120, 70, 190))
     nvgStrokeWidth(ctx, 2.5 * scale)
     nvgStroke(ctx)
 
@@ -215,17 +234,23 @@ function GameUI._DrawSingleOrb(ctx, cx, cy, r, current, max, bright, dark, borde
     -- 数值文字
     if nvgFontId >= 0 then
         nvgFontFaceId(ctx, nvgFontId)
-
-        -- 当前值
-        nvgFontSize(ctx, math.floor(13 * scale))
+        nvgFontSize(ctx, math.floor(11 * scale))
         nvgTextAlign(ctx, NVG_ALIGN_CENTER + NVG_ALIGN_MIDDLE)
-        nvgFillColor(ctx, nvgRGBA(255, 255, 255, 220))
-        nvgText(ctx, cx, cy - 1 * scale, tostring(math.floor(current)), nil)
 
-        -- 标签（HP / MP）
-        nvgFontSize(ctx, math.floor(9 * scale))
-        nvgFillColor(ctx, nvgRGBA(border[1], border[2], border[3], 160))
-        nvgText(ctx, cx, cy + r + 10 * scale, label, nil)
+        -- 左侧 HP 数值
+        nvgFillColor(ctx, nvgRGBA(255, 200, 180, 230))
+        nvgText(ctx, cx - r * 0.32, cy, tostring(math.floor(player.hp)), nil)
+
+        -- 右侧 MP 数值
+        nvgFillColor(ctx, nvgRGBA(180, 210, 255, 230))
+        nvgText(ctx, cx + r * 0.32, cy, tostring(math.floor(player.mp)), nil)
+
+        -- 底部标签
+        nvgFontSize(ctx, math.floor(8 * scale))
+        nvgFillColor(ctx, nvgRGBA(190, 75, 55, 150))
+        nvgText(ctx, cx - r * 0.35, cy + r + 9 * scale, "HP", nil)
+        nvgFillColor(ctx, nvgRGBA(70, 140, 210, 150))
+        nvgText(ctx, cx + r * 0.35, cy + r + 9 * scale, "MP", nil)
     end
 end
 
@@ -375,7 +400,7 @@ function GameUI.ShowClassSelect(onSelected)
     local classDescLines = {
         warrior = "近战之王\n刀光剑影，血战沙场",
         mage    = "法术宗师\n天雷地火，毁天灭地",
-        taoist  = "万灵道长\n驱使神兽，治愈苍生",
+        taoist  = "万灵召唤\n驱使群兽，碾压一切",
     }
 
     local cards = {}
@@ -832,6 +857,17 @@ function GameUI._CreateMiniMapArea(player)
                 uiState.refs.killCount = lbl
                 return lbl
             end)(),
+            (function()
+                local lbl = UI.Label {
+                    text = "金币: 0",
+                    fontSize = 11,
+                    fontColor = {255, 215, 80, 200},
+                    marginTop = 4,
+                    textAlign = "right",
+                }
+                uiState.refs.goldLabel = lbl
+                return lbl
+            end)(),
         },
     }
 end
@@ -925,6 +961,16 @@ function GameUI.UpdateKillCount(count)
     local label = uiState.refs.killCount
     if label then
         label:SetText("击杀: " .. count)
+    end
+end
+
+-- ============================================================================
+-- 更新金币显示
+-- ============================================================================
+function GameUI.UpdateGold(gold)
+    local label = uiState.refs.goldLabel
+    if label then
+        label:SetText("金币: " .. gold)
     end
 end
 

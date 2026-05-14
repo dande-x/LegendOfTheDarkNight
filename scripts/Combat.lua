@@ -15,19 +15,29 @@ local SKILL_TYPE = CharacterClass.SKILL_TYPE
 -- ============================================================================
 local ENEMY_DEFS = {
     {
-        name = "山贼",   level = 1,  hp = 120,  atk = 10, def = 4,
-        speed = 2.2, chaseRange = 8, attackRange = 1.5, attackCD = 2.0,
-        exp = 30, color = C.EnemyRed, scale = 0.9,
+        name = "山贼",   level = 1,  hp = 100,  atk = 10, def = 4,
+        speed = 2.4, chaseRange = 8, attackRange = 1.5, attackCD = 2.0,
+        exp = 50, color = C.EnemyRed, scale = 0.9,
     },
     {
-        name = "蛇妖",   level = 3,  hp = 200,  atk = 16, def = 6,
+        name = "野狼",   level = 2,  hp = 80,   atk = 14, def = 3,
+        speed = 3.2, chaseRange = 12, attackRange = 1.5, attackCD = 1.5,
+        exp = 65, color = Color(0.45, 0.35, 0.25, 1.0), scale = 0.75,
+    },
+    {
+        name = "蛇妖",   level = 3,  hp = 180,  atk = 16, def = 6,
         speed = 2.5, chaseRange = 10, attackRange = 2.0, attackCD = 1.8,
-        exp = 55, color = C.EnemyDark, scale = 1.0,
+        exp = 90, color = C.EnemyDark, scale = 1.0,
     },
     {
-        name = "石魔",   level = 5,  hp = 350,  atk = 22, def = 12,
+        name = "树妖",   level = 4,  hp = 260,  atk = 13, def = 10,
+        speed = 1.6, chaseRange = 6, attackRange = 2.0, attackCD = 2.2,
+        exp = 110, color = Color(0.25, 0.40, 0.18, 1.0), scale = 1.1,
+    },
+    {
+        name = "石魔",   level = 5,  hp = 320,  atk = 22, def = 12,
         speed = 1.8, chaseRange = 7, attackRange = 1.8, attackCD = 2.5,
-        exp = 90, color = Color(0.35, 0.30, 0.28, 1.0), scale = 1.3,
+        exp = 150, color = Color(0.35, 0.30, 0.28, 1.0), scale = 1.3,
     },
 }
 Combat.ENEMY_DEFS = ENEMY_DEFS
@@ -41,8 +51,8 @@ local aoeZones = {}      -- 范围持续伤害区域 (火墙等)
 local summons = {}        -- 召唤兽列表
 local killCount = 0
 local spawnTimer = 0
-local SPAWN_INTERVAL = 4.0
-local MAX_ENEMIES = 12
+local SPAWN_INTERVAL = 1.8
+local MAX_ENEMIES = 25
 
 Combat.enemies = enemies
 Combat.projectiles = projectiles
@@ -182,17 +192,24 @@ function Combat.UpdateEnemies(dt, playerNode, player)
         -- 死亡检测
         if e.hp <= 0 then
             e.state = "dead"
+            local deathPos = e.node.position
+            local deathName = e.name
+            local deathExp = e.exp
             e.node:Remove()
             table.remove(enemies, i)
             killCount = killCount + 1
             Combat.killCount = killCount
             -- 给玩家经验
             if player then
-                player.exp = player.exp + e.exp
-                if player.exp >= player.expToNext then
+                player.exp = player.exp + deathExp
+                while player.exp >= player.expToNext do
                     player.exp = player.exp - player.expToNext
                     CharacterClass.LevelUp(player)
                 end
+            end
+            -- 掉落回调
+            if Combat.onEnemyDeath then
+                Combat.onEnemyDeath(deathName, deathPos, deathExp)
             end
             goto continue
         end
@@ -387,12 +404,21 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
         return true, "dot"
 
     elseif skill.type == SKILL_TYPE.BUFF then
-        -- 护盾
         local slvl = CharacterClass.GetSkillLevel(skill, player.level)
-        local shieldPct = skill.shieldPercent[slvl]
         local dur = skill.duration[slvl]
-        player.shieldHP = player.maxHP * shieldPct / 100
-        player.shieldTimer = dur
+        if skill.buffMultiplier then
+            -- 万灵强化：提升所有召唤兽攻击力
+            local mult = skill.buffMultiplier[slvl]
+            for _, s in ipairs(summons) do
+                s.atk = s.baseAtk * mult
+                s.buffTimer = dur
+            end
+        elseif skill.shieldPercent then
+            -- 护盾
+            local shieldPct = skill.shieldPercent[slvl]
+            player.shieldHP = player.maxHP * shieldPct / 100
+            player.shieldTimer = dur
+        end
         return true, "buff"
 
     elseif skill.type == SKILL_TYPE.HEAL then
@@ -443,12 +469,17 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
         return true, "dash"
 
     elseif skill.type == SKILL_TYPE.SUMMON then
-        -- 召唤神兽
+        -- 召唤兽（支持多只同时存在）
         local slvl = CharacterClass.GetSkillLevel(skill, player.level)
         local summonAtk = skill.damage[slvl]
         local dur = skill.duration[slvl]
+        local count = skill.summonCount or 1
+        local sType = skill.summonType or "normal"
 
-        Combat.SpawnSummon(scene, playerPos, summonAtk, dur, skill.isUltimate)
+        for ci = 1, count do
+            local offset = Vector3((ci - 1) * 2 - (count - 1), 0, 1.5)
+            Combat.SpawnSummon(scene, playerPos + offset, summonAtk, dur, skill.isUltimate, sType)
+        end
         return true, "summon"
     end
 
@@ -600,35 +631,48 @@ function Combat.UpdateAOEZones(dt)
 end
 
 -- ============================================================================
--- 召唤兽
+-- 召唤兽（支持多只同时存在，最多6只）
 -- ============================================================================
-function Combat.SpawnSummon(scene, playerPos, atk, duration, isHoly)
-    -- 移除旧的召唤兽
-    for i = #summons, 1, -1 do
-        if summons[i].node then summons[i].node:Remove() end
-        table.remove(summons, i)
+local MAX_SUMMONS = 6
+
+local SUMMON_VISUALS = {
+    skeleton = { color = Color(0.55, 0.50, 0.40, 1.0), bodyScale = 0.35, headScale = 0.22, emissive = 0.15, atkCD = 1.5 },
+    wolf     = { color = Color(0.50, 0.45, 0.35, 1.0), bodyScale = 0.40, headScale = 0.25, emissive = 0.20, atkCD = 1.0 },
+    golem    = { color = Color(0.40, 0.38, 0.32, 1.0), bodyScale = 0.65, headScale = 0.35, emissive = 0.10, atkCD = 2.0 },
+    holy     = { color = C.Gold,                        bodyScale = 0.55, headScale = 0.32, emissive = 0.50, atkCD = 1.2 },
+    normal   = { color = C.Jade,                        bodyScale = 0.50, headScale = 0.30, emissive = 0.20, atkCD = 1.5 },
+}
+
+function Combat.SpawnSummon(scene, playerPos, atk, duration, isHoly, summonType)
+    -- 超过上限时移除最老的
+    while #summons >= MAX_SUMMONS do
+        local oldest = summons[1]
+        if oldest.node then oldest.node:Remove() end
+        table.remove(summons, 1)
     end
 
-    local summonNode = scene:CreateChild("Summon")
+    summonType = summonType or "normal"
+    local vis = SUMMON_VISUALS[summonType] or SUMMON_VISUALS.normal
+
+    local summonNode = scene:CreateChild("Summon_" .. summonType)
     summonNode.position = playerPos + Vector3(2, 0, 0)
 
     -- 身体
     local bodyNode = summonNode:CreateChild("Body")
-    bodyNode.position = Vector3(0, 0.4, 0)
-    bodyNode.scale = Vector3(0.5, 0.8, 0.5)
+    bodyNode.position = Vector3(0, vis.bodyScale, 0)
+    bodyNode.scale = Vector3(vis.bodyScale, vis.bodyScale * 1.6, vis.bodyScale)
     local bodyModel = bodyNode:CreateComponent("StaticModel")
     bodyModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
 
-    local summonColor = isHoly and C.Gold or C.Jade
-    local mat = CreatePBR(summonColor, 0.1, 0.5)
-    mat:SetShaderParameter("MatEmissiveColor", Variant(Color(summonColor.r * 0.5, summonColor.g * 0.5, summonColor.b * 0.5)))
+    local mat = CreatePBR(vis.color, 0.1, 0.5)
+    mat:SetShaderParameter("MatEmissiveColor", Variant(Color(vis.color.r * vis.emissive, vis.color.g * vis.emissive, vis.color.b * vis.emissive)))
     bodyModel:SetMaterial(mat)
     bodyModel.castShadows = true
 
     -- 头部
     local headNode = summonNode:CreateChild("Head")
-    headNode.position = Vector3(0, 1.0, 0)
-    headNode.scale = Vector3(0.3, 0.3, 0.3)
+    headNode.position = Vector3(0, vis.bodyScale * 2 + vis.headScale, 0)
+    headNode.scale = Vector3(vis.headScale, vis.headScale, vis.headScale)
     local headModel = headNode:CreateComponent("StaticModel")
     headModel:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
     headModel:SetMaterial(mat)
@@ -636,12 +680,15 @@ function Combat.SpawnSummon(scene, playerPos, atk, duration, isHoly)
     table.insert(summons, {
         node = summonNode,
         atk = atk,
+        baseAtk = atk,
         timer = duration,
-        attackCD = 1.5,
+        attackCD = vis.atkCD,
         attackTimer = 0,
-        isHoly = isHoly,
+        isHoly = isHoly or false,
+        summonType = summonType,
+        buffTimer = 0,
     })
-    print("[Combat] Summoned " .. (isHoly and "圣兽" or "神兽") .. " ATK=" .. atk)
+    print("[Combat] Summoned " .. summonType .. " ATK=" .. atk .. " (total:" .. #summons .. ")")
 end
 
 function Combat.UpdateSummons(dt, playerNode)
@@ -651,34 +698,51 @@ function Combat.UpdateSummons(dt, playerNode)
     for i = #summons, 1, -1 do
         local s = summons[i]
         s.timer = s.timer - dt
+
+        -- buff 衰减
+        if s.buffTimer > 0 then
+            s.buffTimer = s.buffTimer - dt
+            if s.buffTimer <= 0 then
+                s.atk = s.baseAtk
+            end
+        end
+
         if s.timer <= 0 then
             s.node:Remove()
             table.remove(summons, i)
         else
             s.attackTimer = math.max(0, s.attackTimer - dt)
 
-            -- 跟随玩家
+            -- 跟随玩家（松散跟随，不同召唤兽散开）
             local sPos = s.node.position
             local toPlayer = playerPos - sPos
             toPlayer.y = 0
             local distToPlayer = toPlayer:Length()
-            if distToPlayer > 3 then
+            local followSpeed = (s.summonType == "wolf") and 5.5 or 4.0
+            if distToPlayer > 3.5 then
                 toPlayer = toPlayer:Normalized()
-                s.node.position = sPos + toPlayer * 4.0 * dt
+                s.node.position = sPos + toPlayer * followSpeed * dt
             end
 
             -- 攻击最近的敌人
+            local chaseRange = (s.summonType == "wolf") and 6.0 or 4.5
             if s.attackTimer <= 0 then
-                local nearestEnemy, nearDist = Combat.FindNearestEnemy(s.node.position, 4.0)
+                local nearestEnemy, nearDist = Combat.FindNearestEnemy(s.node.position, chaseRange)
                 if nearestEnemy then
-                    Combat.DealDamage(nearestEnemy, s.atk, nil)
-                    s.attackTimer = s.attackCD
-                    -- 面向敌人
+                    -- 追向敌人
                     local dir = nearestEnemy.node.position - s.node.position
                     dir.y = 0
+                    local eDist = dir:Length()
                     dir = dir:Normalized()
                     local angle = math.atan2(dir.x, dir.z)
                     s.node.rotation = Quaternion(math.deg(angle), Vector3.UP)
+
+                    if eDist <= 2.0 then
+                        Combat.DealDamage(nearestEnemy, s.atk, nil)
+                        s.attackTimer = s.attackCD
+                    else
+                        s.node.position = sPos + dir * followSpeed * dt
+                    end
                 end
             end
         end
@@ -777,8 +841,9 @@ function Combat.Clear()
 end
 
 -- 回调（由 main.lua 设置）
-Combat.onDamageDealt = nil  -- function(dmg, isCrit, worldPos)
-Combat.onEnemyAttack = nil  -- function(enemy, dmg, playerPos)
-Combat.onPlayerHeal = nil   -- function(amount, playerPos)
+Combat.onDamageDealt = nil   -- function(dmg, isCrit, worldPos)
+Combat.onEnemyAttack = nil   -- function(enemy, dmg, playerPos)
+Combat.onPlayerHeal = nil    -- function(amount, playerPos)
+Combat.onEnemyDeath = nil    -- function(enemyName, deathPos, exp)
 
 return Combat
