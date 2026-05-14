@@ -41,9 +41,10 @@ local isDead = false
 -- 引擎入口
 -- ============================================================================
 function Start()
-    graphics.windowTitle = "传奇·山海"
+    graphics.windowTitle = "贪玩渣渣灰"
 
     GameUI.InitUI()
+    GameUI.InitNanoVG()
     CreateScene()
     SetupCamera()
 
@@ -53,7 +54,7 @@ function Start()
     end)
 
     SubscribeToEvent("Update", "HandleUpdate")
-    print("=== 传奇·山海 Started ===")
+    print("=== 贪玩渣渣灰 Started ===")
 end
 
 function Stop()
@@ -243,6 +244,9 @@ function OnClassSelected(classId)
     for i = 1, 4 do
         Combat.SpawnEnemy(scene_, playerNode_.position, player_.level)
     end
+
+    -- 启动开门过渡动画
+    GameUI.StartDoorOpen()
 
     print("[main] Game started with " .. CharacterClass.Classes[classId].name)
 end

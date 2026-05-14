@@ -1,6 +1,6 @@
 -- ============================================================================
--- GameUI.lua — 传奇·山海 完整 UI 系统
--- 技能栏(弧形) + HP/MP条 + 摇杆 + 角色选择界面 + 伤害飘字
+-- GameUI.lua — 贪玩渣渣灰 完整 UI 系统
+-- 暗黑地牢风角色选择 + NanoVG 圆球 HP/MP + 开门过渡 + 技能栏 + 飘字
 -- ============================================================================
 
 local UI = require("urhox-libs/UI")
@@ -13,7 +13,35 @@ local GameUI = {}
 local C = CharacterClass.Colors
 
 -- ============================================================================
--- 状态
+-- NanoVG 常量
+-- ============================================================================
+local NVG_ALIGN_LEFT   = 1
+local NVG_ALIGN_CENTER = 2
+local NVG_ALIGN_RIGHT  = 4
+local NVG_ALIGN_TOP    = 8
+local NVG_ALIGN_MIDDLE = 16
+local NVG_ALIGN_BOTTOM = 32
+local NVG_CW  = 1
+local NVG_CCW = 2
+
+-- ============================================================================
+-- NanoVG 状态
+-- ============================================================================
+local nvgCtx = nil
+local nvgFontId = -1
+
+-- ============================================================================
+-- 开门过渡状态
+-- ============================================================================
+local doorState = {
+    active = false,
+    progress = 0,     -- 0=关闭, 1=完全打开
+    duration = 2.2,
+    onComplete = nil,
+}
+
+-- ============================================================================
+-- UI 状态
 -- ============================================================================
 local uiState = {
     phase = "select",   -- "select" | "playing"
@@ -21,11 +49,10 @@ local uiState = {
     player = nil,
     joystick = nil,
     skillButtons = {},
-    floatingTexts = {},  -- 伤害飘字
+    floatingTexts = {},
     onClassSelected = nil,
     hudRoot = nil,
     selectRoot = nil,
-    -- 直接控件引用（用于高频更新，避免每帧查找）
     refs = {},
 }
 
@@ -47,7 +74,288 @@ function GameUI.InitUI()
 end
 
 -- ============================================================================
--- 角色选择界面
+-- 初始化 NanoVG (HP/MP 圆球 + 开门过渡)
+-- ============================================================================
+function GameUI.InitNanoVG()
+    nvgCtx = nvgCreate(1)
+    if nvgCtx then
+        nvgFontId = nvgCreateFont(nvgCtx, "sans", "Fonts/MiSans-Regular.ttf")
+        SubscribeToEvent(nvgCtx, "NanoVGRender", "HandleNanoVGRender")
+        print("[GameUI] NanoVG initialized, fontId=" .. nvgFontId)
+    else
+        print("[GameUI] WARNING: NanoVG creation failed")
+    end
+end
+
+-- NanoVG 渲染回调（全局函数）
+function HandleNanoVGRender(eventType, eventData)
+    if not nvgCtx then return end
+    GameUI._RenderNanoVG()
+end
+
+-- ============================================================================
+-- NanoVG 主渲染
+-- ============================================================================
+function GameUI._RenderNanoVG()
+    local sw = graphics.width
+    local sh = graphics.height
+    nvgBeginFrame(nvgCtx, sw, sh, 1.0)
+
+    -- 绘制 HP/MP 圆球 (仅游戏阶段)
+    if uiState.phase == "playing" and uiState.player then
+        GameUI._DrawOrbs(nvgCtx, sw, sh)
+    end
+
+    -- 绘制开门过渡
+    if doorState.active then
+        GameUI._DrawDoorTransition(nvgCtx, sw, sh)
+    end
+
+    nvgEndFrame(nvgCtx)
+end
+
+-- ============================================================================
+-- HP/MP 圆球绘制
+-- ============================================================================
+function GameUI._DrawOrbs(ctx, sw, sh)
+    local scale = sh / 720
+    local player = uiState.player
+
+    -- HP 圆球位置参数
+    local hpR  = math.floor(30 * scale)
+    local hpCX = math.floor(55 * scale)
+    local hpCY = math.floor(70 * scale)
+
+    -- MP 圆球位置参数
+    local mpR  = math.floor(26 * scale)
+    local mpCX = math.floor(135 * scale)
+    local mpCY = math.floor(73 * scale)
+
+    -- 绘制 HP 圆球
+    GameUI._DrawSingleOrb(ctx, hpCX, hpCY, hpR,
+        player.hp, player.maxHP,
+        {220, 55, 35},   -- 亮色
+        {110, 25, 15},   -- 暗色
+        {190, 75, 55},   -- 边框色
+        "HP", scale)
+
+    -- 绘制 MP 圆球
+    GameUI._DrawSingleOrb(ctx, mpCX, mpCY, mpR,
+        player.mp, player.maxMP,
+        {50, 110, 210},  -- 亮色
+        {25, 55, 120},   -- 暗色
+        {70, 140, 210},  -- 边框色
+        "MP", scale)
+end
+
+function GameUI._DrawSingleOrb(ctx, cx, cy, r, current, max, bright, dark, border, label, scale)
+    local progress = math.max(0, math.min(1, current / math.max(1, max)))
+
+    -- 外发光
+    nvgBeginPath(ctx)
+    nvgCircle(ctx, cx, cy, r + 5 * scale)
+    local glowGrad = nvgRadialGradient(ctx, cx, cy, r - 2, r + 8 * scale,
+        nvgRGBA(dark[1], dark[2], dark[3], 50),
+        nvgRGBA(dark[1], dark[2], dark[3], 0))
+    nvgFillPaint(ctx, glowGrad)
+    nvgFill(ctx)
+
+    -- 背景圆（深黑底）
+    nvgBeginPath(ctx)
+    nvgCircle(ctx, cx, cy, r)
+    local bgGrad = nvgRadialGradient(ctx, cx, cy - r * 0.2, r * 0.1, r,
+        nvgRGBA(25, 18, 15, 240),
+        nvgRGBA(10, 8, 6, 250))
+    nvgFillPaint(ctx, bgGrad)
+    nvgFill(ctx)
+
+    -- 液体填充（从底部往上 —— 使用裁剪区域）
+    if progress > 0 then
+        nvgSave(ctx)
+        local fillHeight = 2 * r * progress
+        local clipY = cy + r - fillHeight
+        nvgScissor(ctx, cx - r, clipY, 2 * r, fillHeight)
+
+        nvgBeginPath(ctx)
+        nvgCircle(ctx, cx, cy, r - 1)
+        local fillGrad = nvgRadialGradient(ctx, cx, cy - r * 0.15, r * 0.1, r * 0.85,
+            nvgRGBA(bright[1], bright[2], bright[3], 210),
+            nvgRGBA(dark[1], dark[2], dark[3], 230))
+        nvgFillPaint(ctx, fillGrad)
+        nvgFill(ctx)
+
+        -- 液面高光线
+        nvgBeginPath(ctx)
+        nvgEllipse(ctx, cx, clipY + 2 * scale, r * 0.65, 2.5 * scale)
+        nvgFillColor(ctx, nvgRGBA(255, 255, 255, 35))
+        nvgFill(ctx)
+
+        nvgRestore(ctx)
+    end
+
+    -- 玻璃反光（左上方月牙形高光）
+    nvgBeginPath(ctx)
+    nvgEllipse(ctx, cx - r * 0.22, cy - r * 0.32, r * 0.28, r * 0.18)
+    nvgFillColor(ctx, nvgRGBA(255, 255, 255, 28))
+    nvgFill(ctx)
+
+    -- 外圈边框（双层）
+    nvgBeginPath(ctx)
+    nvgCircle(ctx, cx, cy, r)
+    nvgStrokeColor(ctx, nvgRGBA(border[1], border[2], border[3], 190))
+    nvgStrokeWidth(ctx, 2.5 * scale)
+    nvgStroke(ctx)
+
+    nvgBeginPath(ctx)
+    nvgCircle(ctx, cx, cy, r + 1.5 * scale)
+    nvgStrokeColor(ctx, nvgRGBA(40, 35, 28, 200))
+    nvgStrokeWidth(ctx, 1.0 * scale)
+    nvgStroke(ctx)
+
+    -- 数值文字
+    if nvgFontId >= 0 then
+        nvgFontFaceId(ctx, nvgFontId)
+
+        -- 当前值
+        nvgFontSize(ctx, math.floor(13 * scale))
+        nvgTextAlign(ctx, NVG_ALIGN_CENTER + NVG_ALIGN_MIDDLE)
+        nvgFillColor(ctx, nvgRGBA(255, 255, 255, 220))
+        nvgText(ctx, cx, cy - 1 * scale, tostring(math.floor(current)), nil)
+
+        -- 标签（HP / MP）
+        nvgFontSize(ctx, math.floor(9 * scale))
+        nvgFillColor(ctx, nvgRGBA(border[1], border[2], border[3], 160))
+        nvgText(ctx, cx, cy + r + 10 * scale, label, nil)
+    end
+end
+
+-- ============================================================================
+-- 开门过渡绘制
+-- ============================================================================
+function GameUI._DrawDoorTransition(ctx, sw, sh)
+    local p = doorState.progress
+    -- Ease out cubic
+    local ep = 1 - (1 - p) * (1 - p) * (1 - p)
+
+    local halfW = sw / 2
+    local openOffset = halfW * ep
+
+    -- 左门扇
+    local leftW = halfW - openOffset
+    if leftW > 0 then
+        nvgBeginPath(ctx)
+        nvgRect(ctx, 0, 0, leftW, sh)
+        local leftGrad = nvgLinearGradient(ctx, 0, 0, leftW, 0,
+            nvgRGBA(18, 14, 10, 255),
+            nvgRGBA(40, 32, 22, 255))
+        nvgFillPaint(ctx, leftGrad)
+        nvgFill(ctx)
+
+        -- 左门右侧石质边框
+        nvgBeginPath(ctx)
+        nvgRect(ctx, leftW - 6, 0, 6, sh)
+        nvgFillColor(ctx, nvgRGBA(70, 58, 42, 220))
+        nvgFill(ctx)
+
+        -- 左门铆钉装饰
+        local boltSpacing = sh / 6
+        for i = 1, 5 do
+            local by = boltSpacing * i
+            nvgBeginPath(ctx)
+            nvgCircle(ctx, leftW - 30, by, 4)
+            nvgFillColor(ctx, nvgRGBA(90, 75, 55, 200))
+            nvgFill(ctx)
+            nvgBeginPath(ctx)
+            nvgCircle(ctx, leftW - 30, by, 2)
+            nvgFillColor(ctx, nvgRGBA(140, 120, 85, 160))
+            nvgFill(ctx)
+        end
+    end
+
+    -- 右门扇
+    local rightX = halfW + openOffset
+    local rightW = sw - rightX
+    if rightW > 0 then
+        nvgBeginPath(ctx)
+        nvgRect(ctx, rightX, 0, rightW, sh)
+        local rightGrad = nvgLinearGradient(ctx, rightX, 0, sw, 0,
+            nvgRGBA(40, 32, 22, 255),
+            nvgRGBA(18, 14, 10, 255))
+        nvgFillPaint(ctx, rightGrad)
+        nvgFill(ctx)
+
+        -- 右门左侧石质边框
+        nvgBeginPath(ctx)
+        nvgRect(ctx, rightX, 0, 6, sh)
+        nvgFillColor(ctx, nvgRGBA(70, 58, 42, 220))
+        nvgFill(ctx)
+
+        -- 右门铆钉装饰
+        local boltSpacing = sh / 6
+        for i = 1, 5 do
+            local by = boltSpacing * i
+            nvgBeginPath(ctx)
+            nvgCircle(ctx, rightX + 30, by, 4)
+            nvgFillColor(ctx, nvgRGBA(90, 75, 55, 200))
+            nvgFill(ctx)
+            nvgBeginPath(ctx)
+            nvgCircle(ctx, rightX + 30, by, 2)
+            nvgFillColor(ctx, nvgRGBA(140, 120, 85, 160))
+            nvgFill(ctx)
+        end
+    end
+
+    -- 中缝光线（门开中间漏出的光）
+    if ep > 0.02 and ep < 0.95 then
+        local beamW = openOffset * 0.5
+        local beamAlpha = math.floor(200 * (1 - ep))
+        nvgBeginPath(ctx)
+        nvgRect(ctx, halfW - beamW / 2, 0, beamW, sh)
+        local beamGrad = nvgLinearGradient(ctx,
+            halfW - beamW / 2, 0, halfW + beamW / 2, 0,
+            nvgRGBA(200, 170, 100, 0),
+            nvgRGBA(220, 190, 120, beamAlpha))
+        nvgFillPaint(ctx, beamGrad)
+        nvgFill(ctx)
+
+        -- 对称的另一半
+        nvgBeginPath(ctx)
+        nvgRect(ctx, halfW - beamW / 2, 0, beamW, sh)
+        local beamGrad2 = nvgLinearGradient(ctx,
+            halfW + beamW / 2, 0, halfW - beamW / 2, 0,
+            nvgRGBA(200, 170, 100, 0),
+            nvgRGBA(220, 190, 120, beamAlpha))
+        nvgFillPaint(ctx, beamGrad2)
+        nvgFill(ctx)
+    end
+
+    -- 上方兽头装饰线（门框顶部）
+    if ep < 0.85 then
+        local topAlpha = math.floor(255 * (1 - ep / 0.85))
+        nvgBeginPath(ctx)
+        nvgRect(ctx, 0, 0, sw, 8)
+        nvgFillColor(ctx, nvgRGBA(55, 45, 32, topAlpha))
+        nvgFill(ctx)
+        nvgBeginPath(ctx)
+        nvgRect(ctx, 0, sh - 6, sw, 6)
+        nvgFillColor(ctx, nvgRGBA(55, 45, 32, topAlpha))
+        nvgFill(ctx)
+    end
+end
+
+-- ============================================================================
+-- 启动开门动画
+-- ============================================================================
+function GameUI.StartDoorOpen(onComplete)
+    doorState.active = true
+    doorState.progress = 0
+    doorState.duration = 2.2
+    doorState.onComplete = onComplete
+    print("[GameUI] Door transition started")
+end
+
+-- ============================================================================
+-- 角色选择界面 (暗黑地牢风格)
 -- ============================================================================
 function GameUI.ShowClassSelect(onSelected)
     uiState.phase = "select"
@@ -55,78 +363,100 @@ function GameUI.ShowClassSelect(onSelected)
 
     local classOrder = {"warrior", "mage", "taoist"}
     local classIcons = {
-        warrior = "剑",
-        mage    = "火",
+        warrior = "武",
+        mage    = "法",
         taoist  = "道",
     }
-    local classColors = {
-        warrior = {190, 60, 50, 255},
-        mage    = {70, 140, 175, 255},
-        taoist  = {55, 155, 95, 255},
+    local classGlowColors = {
+        warrior = {200, 85, 45, 255},
+        mage    = {50, 120, 210, 255},
+        taoist  = {65, 190, 90, 255},
+    }
+    local classDescLines = {
+        warrior = "近战之王\n刀光剑影，血战沙场",
+        mage    = "法术宗师\n天雷地火，毁天灭地",
+        taoist  = "万灵道长\n驱使神兽，治愈苍生",
     }
 
     local cards = {}
     for _, classId in ipairs(classOrder) do
         local cls = CharacterClass.Classes[classId]
-        local clr = classColors[classId]
+        local glow = classGlowColors[classId]
 
         table.insert(cards, UI.Panel {
-            width = 200,
-            paddingVertical = 24,
-            paddingHorizontal = 16,
+            width = 185,
+            paddingVertical = 22,
+            paddingHorizontal = 14,
             alignItems = "center",
-            backgroundColor = {30, 30, 35, 220},
-            borderRadius = 16,
+            backgroundColor = {16, 12, 10, 245},
+            borderRadius = 4,
             borderWidth = 2,
-            borderColor = clr,
+            borderColor = {60, 50, 38, 200},
             children = {
-                -- 职业图标圆圈
+                -- 职业图标（深色底 + 发光边框圆）
                 UI.Panel {
-                    width = 72, height = 72,
-                    borderRadius = 36,
-                    backgroundColor = clr,
+                    width = 88, height = 88,
+                    borderRadius = 44,
+                    backgroundColor = {8, 6, 5, 255},
+                    borderWidth = 3,
+                    borderColor = glow,
                     justifyContent = "center",
                     alignItems = "center",
                     children = {
                         UI.Label {
                             text = classIcons[classId],
-                            fontSize = 28,
-                            fontColor = {255, 255, 255, 255},
+                            fontSize = 38,
+                            fontColor = glow,
                         },
                     },
                 },
-                -- 职业名
+                -- 职业名（金色）
                 UI.Label {
                     text = cls.name,
                     fontSize = 22,
-                    fontColor = {240, 235, 220, 255},
-                    marginTop = 12,
+                    fontColor = {210, 180, 75, 255},
+                    marginTop = 14,
                 },
-                -- 职业描述
+                -- 职业描述（暗色）
                 UI.Label {
-                    text = cls.desc,
-                    fontSize = 12,
-                    fontColor = {180, 175, 165, 180},
+                    text = classDescLines[classId],
+                    fontSize = 11,
+                    fontColor = {125, 115, 100, 190},
                     marginTop = 6,
                     textAlign = "center",
                 },
-                -- 属性预览
-                UI.Label {
-                    text = "HP " .. cls.baseHP .. "  ATK " .. cls.baseATK .. "  DEF " .. cls.baseDEF,
-                    fontSize = 11,
-                    fontColor = {160, 155, 145, 160},
-                    marginTop = 8,
+                -- 分隔线
+                UI.Panel {
+                    width = "80%",
+                    height = 1,
+                    backgroundColor = {60, 50, 38, 100},
+                    marginTop = 12,
+                    marginBottom = 8,
                 },
-                -- 选择按钮
+                -- 属性
+                UI.Label {
+                    text = "生命 " .. cls.baseHP,
+                    fontSize = 11,
+                    fontColor = {180, 80, 65, 200},
+                },
+                UI.Label {
+                    text = "攻击 " .. cls.baseATK .. "  防御 " .. cls.baseDEF,
+                    fontSize = 11,
+                    fontColor = {140, 130, 115, 160},
+                    marginTop = 3,
+                },
+                -- 选择按钮（石质暗色风格）
                 UI.Button {
-                    label = "选择",
+                    label = "进入山海",
                     marginTop = 16,
-                    width = 120,
-                    height = 36,
-                    backgroundColor = clr,
-                    borderRadius = 8,
+                    width = 130,
+                    height = 40,
+                    backgroundColor = {50, 40, 30, 240},
+                    borderRadius = 4,
+                    borderWidth = 1,
+                    borderColor = {95, 80, 58, 180},
                     fontSize = 14,
-                    fontColor = {255, 255, 255, 255},
+                    fontColor = {210, 195, 155, 255},
                     onClick = function()
                         uiState.selectedClass = classId
                         GameUI.HideClassSelect()
@@ -143,34 +473,34 @@ function GameUI.ShowClassSelect(onSelected)
         id = "classSelect",
         width = "100%",
         height = "100%",
-        backgroundColor = {20, 20, 25, 240},
+        backgroundColor = {10, 8, 6, 252},
         justifyContent = "center",
         alignItems = "center",
         children = {
             -- 标题
             UI.Label {
-                text = "传奇 · 山海",
+                text = "贪玩渣渣灰",
                 fontSize = 36,
-                fontColor = {210, 180, 80, 255},
-                marginBottom = 8,
+                fontColor = {215, 185, 80, 255},
+                marginBottom = 4,
             },
             UI.Label {
-                text = "选择你的职业",
-                fontSize = 14,
-                fontColor = {160, 155, 145, 180},
-                marginBottom = 32,
+                text = "选择你的命运",
+                fontSize = 13,
+                fontColor = {110, 100, 85, 170},
+                marginBottom = 30,
             },
-            -- 三个卡片横排
+            -- 三张卡片横排
             UI.Panel {
                 flexDirection = "row",
-                gap = 20,
+                gap = 18,
                 children = cards,
             },
         },
     }
 
     UI.SetRoot(uiState.selectRoot)
-    print("[GameUI] Class select screen shown")
+    print("[GameUI] Class select screen shown (dungeon style)")
 end
 
 function GameUI.HideClassSelect()
@@ -196,13 +526,13 @@ function GameUI.ShowGameHUD(player)
         height = "100%",
         pointerEvents = "box-none",
         children = {
-            -- 左上角：角色信息
+            -- 左上角：角色等级信息（HP/MP 由 NanoVG 绘制）
             GameUI._CreatePlayerInfo(player),
             -- 右下角：技能栏
             GameUI._CreateSkillBar(player),
             -- 左下角：药瓶快捷键
             GameUI._CreatePotions(player),
-            -- 右上角：小地图占位 + 等级
+            -- 右上角：小地图占位 + 击杀
             GameUI._CreateMiniMapArea(player),
         },
     }
@@ -213,44 +543,43 @@ function GameUI.ShowGameHUD(player)
 end
 
 -- ============================================================================
--- 左上角 - 角色信息面板
+-- 左上角 - 角色信息面板（简化版，HP/MP 由 NanoVG 绘制）
 -- ============================================================================
 function GameUI._CreatePlayerInfo(player)
     local classDef = CharacterClass.Classes[player.classId]
     local classColors = {
-        warrior = {190, 60, 50, 255},
-        mage    = {70, 140, 175, 255},
-        taoist  = {55, 155, 95, 255},
+        warrior = {200, 85, 45, 255},
+        mage    = {50, 120, 210, 255},
+        taoist  = {65, 190, 90, 255},
     }
     local clr = classColors[player.classId]
 
     return UI.Panel {
         id = "playerInfo",
         position = "absolute",
-        top = 12, left = 12,
-        width = 200,
-        padding = 10,
-        backgroundColor = {20, 20, 25, 180},
-        borderRadius = 10,
+        top = 8, left = 8,
+        width = 170,
+        padding = 8,
+        backgroundColor = {12, 10, 8, 140},
+        borderRadius = 6,
         borderWidth = 1,
-        borderColor = {80, 80, 85, 120},
+        borderColor = {55, 45, 35, 100},
         children = {
-            -- 职业名 + 等级
+            -- 职业标识 + 等级
             UI.Panel {
                 flexDirection = "row",
                 alignItems = "center",
-                marginBottom = 6,
                 children = {
                     UI.Panel {
-                        width = 28, height = 28,
-                        borderRadius = 14,
+                        width = 22, height = 22,
+                        borderRadius = 11,
                         backgroundColor = clr,
                         justifyContent = "center",
                         alignItems = "center",
                         children = {
                             UI.Label {
                                 text = string.sub(classDef.name, 1, 3),
-                                fontSize = 11,
+                                fontSize = 9,
                                 fontColor = {255, 255, 255, 255},
                             },
                         },
@@ -258,82 +587,23 @@ function GameUI._CreatePlayerInfo(player)
                     (function()
                         local lbl = UI.Label {
                             text = "Lv." .. player.level .. " " .. classDef.name,
-                            fontSize = 13,
-                            fontColor = {220, 215, 200, 255},
-                            marginLeft = 8,
+                            fontSize = 12,
+                            fontColor = {210, 195, 160, 255},
+                            marginLeft = 6,
                         }
                         uiState.refs.playerLevel = lbl
                         return lbl
                     end)(),
                 },
             },
-            -- HP 条
-            UI.Panel {
-                marginBottom = 4,
-                children = {
-                    (function()
-                        local bar = UI.ProgressBar {
-                            width = "100%",
-                            height = 14,
-                            value = player.hp / player.maxHP,
-                            backgroundColor = {40, 20, 20, 200},
-                            fillColor = C.HpRed,
-                            borderRadius = 3,
-                        }
-                        uiState.refs.hpBar = bar
-                        return bar
-                    end)(),
-                    (function()
-                        local lbl = UI.Label {
-                            text = math.floor(player.hp) .. "/" .. player.maxHP,
-                            fontSize = 9,
-                            fontColor = {255, 255, 255, 200},
-                            position = "absolute",
-                            top = 1, left = 0, right = 0,
-                            textAlign = "center",
-                        }
-                        uiState.refs.hpText = lbl
-                        return lbl
-                    end)(),
-                },
-            },
-            -- MP 条
-            UI.Panel {
-                children = {
-                    (function()
-                        local bar = UI.ProgressBar {
-                            width = "100%",
-                            height = 14,
-                            value = player.mp / player.maxMP,
-                            backgroundColor = {20, 20, 40, 200},
-                            fillColor = C.MpBlue,
-                            borderRadius = 3,
-                        }
-                        uiState.refs.mpBar = bar
-                        return bar
-                    end)(),
-                    (function()
-                        local lbl = UI.Label {
-                            text = math.floor(player.mp) .. "/" .. player.maxMP,
-                            fontSize = 9,
-                            fontColor = {255, 255, 255, 200},
-                            position = "absolute",
-                            top = 1, left = 0, right = 0,
-                            textAlign = "center",
-                        }
-                        uiState.refs.mpText = lbl
-                        return lbl
-                    end)(),
-                },
-            },
-            -- EXP 条
+            -- EXP 条（窄条）
             (function()
                 local bar = UI.ProgressBar {
                     width = "100%",
-                    height = 6,
-                    marginTop = 4,
+                    height = 4,
+                    marginTop = 6,
                     value = player.exp / math.max(1, player.expToNext),
-                    backgroundColor = {30, 30, 20, 150},
+                    backgroundColor = {25, 22, 18, 150},
                     fillColor = C.ExpGold,
                     borderRadius = 2,
                 }
@@ -350,17 +620,14 @@ end
 function GameUI._CreateSkillBar(player)
     local classDef = CharacterClass.Classes[player.classId]
 
-    -- 弧形布局参数 (右下角为基准)
-    -- 以 ① 普攻按钮为原点(右下角)，其他按钮沿弧形向左上排列
-    local btnSize = {72, 56, 56, 56, 56, 64}  -- 各按钮大小
-    -- 从右下角开始，弧形坐标 (相对于右下角锚点的偏移)
+    local btnSize = {72, 56, 56, 56, 56, 64}
     local positions = {
-        {x = -50,  y = -50},   -- ① 普攻 (最右下)
-        {x = -120, y = -65},   -- ②
-        {x = -175, y = -105},  -- ③
-        {x = -215, y = -160},  -- ④
-        {x = -235, y = -225},  -- ⑤
-        {x = -90,  y = -130},  -- ⑥ 终极技 (独立位置)
+        {x = -50,  y = -50},
+        {x = -120, y = -65},
+        {x = -175, y = -105},
+        {x = -215, y = -160},
+        {x = -235, y = -225},
+        {x = -90,  y = -130},
     }
 
     local skillClassColors = {
@@ -381,10 +648,9 @@ function GameUI._CreateSkillBar(player)
         local skillName = skill and string.sub(skill.name, 1, 6) or ""
         local skillLvl = skill and CharacterClass.GetSkillLevel(skill, player.level) or 0
 
-        -- 按钮边框颜色
         local borderClr
         if isUltimate then
-            borderClr = C.ExpGold  -- 鎏金边框
+            borderClr = C.ExpGold
         else
             borderClr = {baseClr[1], baseClr[2], baseClr[3], 180}
         end
@@ -398,20 +664,18 @@ function GameUI._CreateSkillBar(player)
             width = size,
             height = size,
             borderRadius = size / 2,
-            backgroundColor = {30, 30, 35, 200},
+            backgroundColor = {25, 22, 18, 210},
             borderWidth = isUltimate and 3 or 2,
             borderColor = borderClr,
             justifyContent = "center",
             alignItems = "center",
             children = {
-                -- 技能名
                 UI.Label {
                     text = skillName,
                     fontSize = size <= 56 and 10 or 12,
                     fontColor = skillLvl > 0 and {240, 235, 220, 255} or {100, 100, 100, 150},
                     textAlign = "center",
                 },
-                -- 冷却覆盖层
                 (function()
                     local cdTextLbl = UI.Label {
                         text = "",
@@ -432,7 +696,6 @@ function GameUI._CreateSkillBar(player)
                     uiState.refs["skill_" .. i .. "_cdText"] = cdTextLbl
                     return cdPanel
                 end)(),
-                -- 等级点
                 skillLvl > 0 and UI.Panel {
                     position = "absolute",
                     bottom = 2,
@@ -441,7 +704,6 @@ function GameUI._CreateSkillBar(player)
                     children = GameUI._CreateLevelDots(skillLvl),
                 } or nil,
             },
-            -- 点击释放技能
             onPointerUp = function()
                 if GameUI.onSkillPressed then
                     GameUI.onSkillPressed(i, skill)
@@ -491,13 +753,12 @@ function GameUI._CreatePotions(player)
         flexDirection = "row",
         gap = 10,
         children = {
-            -- HP 药瓶
             UI.Panel {
                 width = 44, height = 44,
                 borderRadius = 22,
-                backgroundColor = {50, 20, 20, 200},
+                backgroundColor = {40, 15, 15, 210},
                 borderWidth = 2,
-                borderColor = {180, 60, 50, 200},
+                borderColor = {160, 55, 45, 200},
                 justifyContent = "center",
                 alignItems = "center",
                 onPointerUp = function()
@@ -507,17 +768,16 @@ function GameUI._CreatePotions(player)
                     UI.Label {
                         text = "HP",
                         fontSize = 11,
-                        fontColor = {220, 80, 70, 255},
+                        fontColor = {210, 75, 60, 255},
                     },
                 },
             },
-            -- MP 药瓶
             UI.Panel {
                 width = 44, height = 44,
                 borderRadius = 22,
-                backgroundColor = {20, 20, 50, 200},
+                backgroundColor = {15, 15, 40, 210},
                 borderWidth = 2,
-                borderColor = {60, 120, 180, 200},
+                borderColor = {55, 110, 170, 200},
                 justifyContent = "center",
                 alignItems = "center",
                 onPointerUp = function()
@@ -527,7 +787,7 @@ function GameUI._CreatePotions(player)
                     UI.Label {
                         text = "MP",
                         fontSize = 11,
-                        fontColor = {70, 140, 200, 255},
+                        fontColor = {65, 130, 195, 255},
                     },
                 },
             },
@@ -545,29 +805,27 @@ function GameUI._CreateMiniMapArea(player)
         top = 12, right = 12,
         alignItems = "flex-end",
         children = {
-            -- 小地图占位
             UI.Panel {
                 width = 80, height = 80,
                 borderRadius = 40,
-                backgroundColor = {20, 20, 25, 160},
+                backgroundColor = {15, 12, 10, 160},
                 borderWidth = 1,
-                borderColor = {80, 80, 85, 100},
+                borderColor = {55, 45, 35, 100},
                 justifyContent = "center",
                 alignItems = "center",
                 children = {
                     UI.Label {
                         text = "MAP",
                         fontSize = 10,
-                        fontColor = {100, 100, 100, 120},
+                        fontColor = {90, 85, 75, 120},
                     },
                 },
             },
-            -- 击杀数
             (function()
                 local lbl = UI.Label {
                     text = "击杀: 0",
                     fontSize = 11,
-                    fontColor = {180, 175, 165, 180},
+                    fontColor = {170, 160, 140, 180},
                     marginTop = 8,
                     textAlign = "right",
                 }
@@ -586,18 +844,19 @@ function GameUI.UpdateHUD(player, dt)
 
     local refs = uiState.refs
 
-    -- 更新 HP/MP 条
-    if refs.hpBar then refs.hpBar:SetValue(player.hp / player.maxHP) end
-    if refs.mpBar then refs.mpBar:SetValue(player.mp / player.maxMP) end
-    if refs.hpText then refs.hpText:SetText(math.floor(player.hp) .. "/" .. player.maxHP) end
-    if refs.mpText then refs.mpText:SetText(math.floor(player.mp) .. "/" .. player.maxMP) end
+    -- HP/MP 圆球由 NanoVG 实时绘制, 这里只更新 player 引用即可
+    uiState.player = player
+
+    -- EXP 条
     if refs.expBar then refs.expBar:SetValue(player.exp / math.max(1, player.expToNext)) end
+
+    -- 等级标签
     if refs.playerLevel then
         local classDef = CharacterClass.Classes[player.classId]
         refs.playerLevel:SetText("Lv." .. player.level .. " " .. classDef.name)
     end
 
-    -- 更新技能冷却显示
+    -- 技能冷却显示
     for i = 1, 6 do
         local sb = uiState.skillButtons[i]
         if sb and sb.skill then
@@ -614,7 +873,18 @@ function GameUI.UpdateHUD(player, dt)
         end
     end
 
-    -- 更新飘字
+    -- 开门过渡动画更新
+    if doorState.active then
+        doorState.progress = doorState.progress + dt / doorState.duration
+        if doorState.progress >= 1 then
+            doorState.progress = 1
+            doorState.active = false
+            if doorState.onComplete then doorState.onComplete() end
+            print("[GameUI] Door transition complete")
+        end
+    end
+
+    -- 飘字更新
     GameUI._UpdateFloatingTexts(dt)
 end
 
@@ -676,6 +946,10 @@ GameUI.onUseMpPotion = nil
 -- 清理
 -- ============================================================================
 function GameUI.Shutdown()
+    if nvgCtx then
+        nvgDelete(nvgCtx)
+        nvgCtx = nil
+    end
     UI.Shutdown()
 end
 
