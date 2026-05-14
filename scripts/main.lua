@@ -409,7 +409,7 @@ function UpdatePlayerMovement(dt)
 
     -- 计算移动方向
     local moveDir = Vector3(x, 0, z)
-    moveDir:Normalize()
+    moveDir = moveDir:Normalized()
 
     -- 移动
     local speed = player_.moveSpeed

@@ -25,6 +25,8 @@ local uiState = {
     onClassSelected = nil,
     hudRoot = nil,
     selectRoot = nil,
+    -- 直接控件引用（用于高频更新，避免每帧查找）
+    refs = {},
 }
 
 GameUI.state = uiState
@@ -253,73 +255,91 @@ function GameUI._CreatePlayerInfo(player)
                             },
                         },
                     },
-                    UI.Label {
-                        id = "playerLevel",
-                        text = "Lv." .. player.level .. " " .. classDef.name,
-                        fontSize = 13,
-                        fontColor = {220, 215, 200, 255},
-                        marginLeft = 8,
-                    },
+                    (function()
+                        local lbl = UI.Label {
+                            text = "Lv." .. player.level .. " " .. classDef.name,
+                            fontSize = 13,
+                            fontColor = {220, 215, 200, 255},
+                            marginLeft = 8,
+                        }
+                        uiState.refs.playerLevel = lbl
+                        return lbl
+                    end)(),
                 },
             },
             -- HP 条
             UI.Panel {
                 marginBottom = 4,
                 children = {
-                    UI.ProgressBar {
-                        id = "hpBar",
-                        width = "100%",
-                        height = 14,
-                        value = player.hp / player.maxHP,
-                        backgroundColor = {40, 20, 20, 200},
-                        fillColor = C.HpRed,
-                        borderRadius = 3,
-                    },
-                    UI.Label {
-                        id = "hpText",
-                        text = math.floor(player.hp) .. "/" .. player.maxHP,
-                        fontSize = 9,
-                        fontColor = {255, 255, 255, 200},
-                        position = "absolute",
-                        top = 1, left = 0, right = 0,
-                        textAlign = "center",
-                    },
+                    (function()
+                        local bar = UI.ProgressBar {
+                            width = "100%",
+                            height = 14,
+                            value = player.hp / player.maxHP,
+                            backgroundColor = {40, 20, 20, 200},
+                            fillColor = C.HpRed,
+                            borderRadius = 3,
+                        }
+                        uiState.refs.hpBar = bar
+                        return bar
+                    end)(),
+                    (function()
+                        local lbl = UI.Label {
+                            text = math.floor(player.hp) .. "/" .. player.maxHP,
+                            fontSize = 9,
+                            fontColor = {255, 255, 255, 200},
+                            position = "absolute",
+                            top = 1, left = 0, right = 0,
+                            textAlign = "center",
+                        }
+                        uiState.refs.hpText = lbl
+                        return lbl
+                    end)(),
                 },
             },
             -- MP 条
             UI.Panel {
                 children = {
-                    UI.ProgressBar {
-                        id = "mpBar",
-                        width = "100%",
-                        height = 14,
-                        value = player.mp / player.maxMP,
-                        backgroundColor = {20, 20, 40, 200},
-                        fillColor = C.MpBlue,
-                        borderRadius = 3,
-                    },
-                    UI.Label {
-                        id = "mpText",
-                        text = math.floor(player.mp) .. "/" .. player.maxMP,
-                        fontSize = 9,
-                        fontColor = {255, 255, 255, 200},
-                        position = "absolute",
-                        top = 1, left = 0, right = 0,
-                        textAlign = "center",
-                    },
+                    (function()
+                        local bar = UI.ProgressBar {
+                            width = "100%",
+                            height = 14,
+                            value = player.mp / player.maxMP,
+                            backgroundColor = {20, 20, 40, 200},
+                            fillColor = C.MpBlue,
+                            borderRadius = 3,
+                        }
+                        uiState.refs.mpBar = bar
+                        return bar
+                    end)(),
+                    (function()
+                        local lbl = UI.Label {
+                            text = math.floor(player.mp) .. "/" .. player.maxMP,
+                            fontSize = 9,
+                            fontColor = {255, 255, 255, 200},
+                            position = "absolute",
+                            top = 1, left = 0, right = 0,
+                            textAlign = "center",
+                        }
+                        uiState.refs.mpText = lbl
+                        return lbl
+                    end)(),
                 },
             },
             -- EXP 条
-            UI.ProgressBar {
-                id = "expBar",
-                width = "100%",
-                height = 6,
-                marginTop = 4,
-                value = player.exp / math.max(1, player.expToNext),
-                backgroundColor = {30, 30, 20, 150},
-                fillColor = C.ExpGold,
-                borderRadius = 2,
-            },
+            (function()
+                local bar = UI.ProgressBar {
+                    width = "100%",
+                    height = 6,
+                    marginTop = 4,
+                    value = player.exp / math.max(1, player.expToNext),
+                    backgroundColor = {30, 30, 20, 150},
+                    fillColor = C.ExpGold,
+                    borderRadius = 2,
+                }
+                uiState.refs.expBar = bar
+                return bar
+            end)(),
         },
     }
 end
@@ -392,24 +412,26 @@ function GameUI._CreateSkillBar(player)
                     textAlign = "center",
                 },
                 -- 冷却覆盖层
-                UI.Panel {
-                    id = btnId .. "_cd",
-                    position = "absolute",
-                    top = 0, left = 0,
-                    width = size, height = size,
-                    borderRadius = size / 2,
-                    backgroundColor = {0, 0, 0, 0},  -- 初始透明
-                    justifyContent = "center",
-                    alignItems = "center",
-                    children = {
-                        UI.Label {
-                            id = btnId .. "_cdText",
-                            text = "",
-                            fontSize = 14,
-                            fontColor = {255, 255, 255, 220},
-                        },
-                    },
-                },
+                (function()
+                    local cdTextLbl = UI.Label {
+                        text = "",
+                        fontSize = 14,
+                        fontColor = {255, 255, 255, 220},
+                    }
+                    local cdPanel = UI.Panel {
+                        position = "absolute",
+                        top = 0, left = 0,
+                        width = size, height = size,
+                        borderRadius = size / 2,
+                        backgroundColor = {0, 0, 0, 0},
+                        justifyContent = "center",
+                        alignItems = "center",
+                        children = { cdTextLbl },
+                    }
+                    uiState.refs["skill_" .. i .. "_cd"] = cdPanel
+                    uiState.refs["skill_" .. i .. "_cdText"] = cdTextLbl
+                    return cdPanel
+                end)(),
                 -- 等级点
                 skillLvl > 0 and UI.Panel {
                     position = "absolute",
@@ -541,14 +563,17 @@ function GameUI._CreateMiniMapArea(player)
                 },
             },
             -- 击杀数
-            UI.Label {
-                id = "killCount",
-                text = "击杀: 0",
-                fontSize = 11,
-                fontColor = {180, 175, 165, 180},
-                marginTop = 8,
-                textAlign = "right",
-            },
+            (function()
+                local lbl = UI.Label {
+                    text = "击杀: 0",
+                    fontSize = 11,
+                    fontColor = {180, 175, 165, 180},
+                    marginTop = 8,
+                    textAlign = "right",
+                }
+                uiState.refs.killCount = lbl
+                return lbl
+            end)(),
         },
     }
 end
@@ -559,22 +584,17 @@ end
 function GameUI.UpdateHUD(player, dt)
     if uiState.phase ~= "playing" or not uiState.hudRoot then return end
 
-    -- 更新 HP/MP 条
-    local hpBar = UI.FindById("hpBar")
-    local mpBar = UI.FindById("mpBar")
-    local hpText = UI.FindById("hpText")
-    local mpText = UI.FindById("mpText")
-    local expBar = UI.FindById("expBar")
-    local lvLabel = UI.FindById("playerLevel")
+    local refs = uiState.refs
 
-    if hpBar then hpBar:SetProps({ value = player.hp / player.maxHP }) end
-    if mpBar then mpBar:SetProps({ value = player.mp / player.maxMP }) end
-    if hpText then hpText:SetProps({ text = math.floor(player.hp) .. "/" .. player.maxHP }) end
-    if mpText then mpText:SetProps({ text = math.floor(player.mp) .. "/" .. player.maxMP }) end
-    if expBar then expBar:SetProps({ value = player.exp / math.max(1, player.expToNext) }) end
-    if lvLabel then
+    -- 更新 HP/MP 条
+    if refs.hpBar then refs.hpBar:SetValue(player.hp / player.maxHP) end
+    if refs.mpBar then refs.mpBar:SetValue(player.mp / player.maxMP) end
+    if refs.hpText then refs.hpText:SetText(math.floor(player.hp) .. "/" .. player.maxHP) end
+    if refs.mpText then refs.mpText:SetText(math.floor(player.mp) .. "/" .. player.maxMP) end
+    if refs.expBar then refs.expBar:SetValue(player.exp / math.max(1, player.expToNext)) end
+    if refs.playerLevel then
         local classDef = CharacterClass.Classes[player.classId]
-        lvLabel:SetProps({ text = "Lv." .. player.level .. " " .. classDef.name })
+        refs.playerLevel:SetText("Lv." .. player.level .. " " .. classDef.name)
     end
 
     -- 更新技能冷却显示
@@ -582,14 +602,14 @@ function GameUI.UpdateHUD(player, dt)
         local sb = uiState.skillButtons[i]
         if sb and sb.skill then
             local cd = player.cooldowns[sb.skill.id] or 0
-            local cdPanel = UI.FindById("skill_" .. i .. "_cd")
-            local cdText  = UI.FindById("skill_" .. i .. "_cdText")
+            local cdPanel = refs["skill_" .. i .. "_cd"]
+            local cdText  = refs["skill_" .. i .. "_cdText"]
             if cd > 0 then
-                if cdPanel then cdPanel:SetProps({ backgroundColor = {0, 0, 0, 140} }) end
-                if cdText then cdText:SetProps({ text = string.format("%.0f", math.ceil(cd)) }) end
+                if cdPanel then cdPanel:SetStyle({ backgroundColor = {0, 0, 0, 140} }) end
+                if cdText then cdText:SetText(string.format("%.0f", math.ceil(cd))) end
             else
-                if cdPanel then cdPanel:SetProps({ backgroundColor = {0, 0, 0, 0} }) end
-                if cdText then cdText:SetProps({ text = "" }) end
+                if cdPanel then cdPanel:SetStyle({ backgroundColor = {0, 0, 0, 0} }) end
+                if cdText then cdText:SetText("") end
             end
         end
     end
@@ -632,9 +652,9 @@ end
 -- 更新击杀计数
 -- ============================================================================
 function GameUI.UpdateKillCount(count)
-    local label = UI.FindById("killCount")
+    local label = uiState.refs.killCount
     if label then
-        label:SetProps({ text = "击杀: " .. count })
+        label:SetText("击杀: " .. count)
     end
 end
 

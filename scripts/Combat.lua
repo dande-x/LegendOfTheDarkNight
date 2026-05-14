@@ -215,7 +215,7 @@ function Combat.UpdateEnemies(dt, playerNode, player)
                 local dir = e.patrolTarget - pos
                 dir.y = 0
                 if dir:Length() > 0.5 then
-                    dir:Normalize()
+                    dir = dir:Normalized()
                     e.node.position = pos + dir * e.speed * 0.5 * dt
                     -- 朝向移动方向
                     local angle = math.atan2(dir.x, dir.z)
@@ -230,8 +230,7 @@ function Combat.UpdateEnemies(dt, playerNode, player)
             elseif dist <= e.attackRange then
                 e.state = "attack"
             else
-                local dir = toPlayer
-                dir:Normalize()
+                local dir = toPlayer:Normalized()
                 e.node.position = pos + dir * e.speed * dt
                 local angle = math.atan2(dir.x, dir.z)
                 e.node.rotation = Quaternion(math.deg(angle), Vector3.UP)
@@ -243,8 +242,7 @@ function Combat.UpdateEnemies(dt, playerNode, player)
                 e.state = "chase"
             else
                 -- 面向玩家
-                local dir = toPlayer
-                dir:Normalize()
+                local dir = toPlayer:Normalized()
                 local angle = math.atan2(dir.x, dir.z)
                 e.node.rotation = Quaternion(math.deg(angle), Vector3.UP)
 
@@ -318,7 +316,7 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
         if target then
             dir = target.node.position - playerPos
             dir.y = 0
-            dir:Normalize()
+            dir = dir:Normalized()
             -- 让角色转向目标
             local angle = math.atan2(dir.x, dir.z)
             playerNode.rotation = Quaternion(math.deg(angle), Vector3.UP)
@@ -369,7 +367,7 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
             -- 转向目标
             local dir = target.node.position - playerPos
             dir.y = 0
-            dir:Normalize()
+            dir = dir:Normalized()
             local angle = math.atan2(dir.x, dir.z)
             playerNode.rotation = Quaternion(math.deg(angle), Vector3.UP)
         else
@@ -422,7 +420,7 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
         if target then
             dir = target.node.position - playerPos
             dir.y = 0
-            dir:Normalize()
+            dir = dir:Normalized()
             local angle = math.atan2(dir.x, dir.z)
             playerNode.rotation = Quaternion(math.deg(angle), Vector3.UP)
         end
@@ -665,7 +663,7 @@ function Combat.UpdateSummons(dt, playerNode)
             toPlayer.y = 0
             local distToPlayer = toPlayer:Length()
             if distToPlayer > 3 then
-                toPlayer:Normalize()
+                toPlayer = toPlayer:Normalized()
                 s.node.position = sPos + toPlayer * 4.0 * dt
             end
 
@@ -678,7 +676,7 @@ function Combat.UpdateSummons(dt, playerNode)
                     -- 面向敌人
                     local dir = nearestEnemy.node.position - s.node.position
                     dir.y = 0
-                    dir:Normalize()
+                    dir = dir:Normalized()
                     local angle = math.atan2(dir.x, dir.z)
                     s.node.rotation = Quaternion(math.deg(angle), Vector3.UP)
                 end
