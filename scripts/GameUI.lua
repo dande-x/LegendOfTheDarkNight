@@ -1,10 +1,12 @@
 -- ============================================================================
 -- GameUI.lua — 贪玩渣渣灰 完整 UI 系统
 -- 暗黑地牢风角色选择 + NanoVG 圆球 HP/MP + 开门过渡 + 技能栏 + 飘字
+-- + 菜单/背包按钮 + 背包面板 + 施法条 + 伤害数字弹跳
 -- ============================================================================
 
 local UI = require("urhox-libs/UI")
 local CharacterClass = require("scripts.CharacterClass")
+local Inventory = require("scripts.Inventory")
 require "urhox-libs.UI.GameHUD"
 
 local GameUI = {}
@@ -35,10 +37,25 @@ local nvgFontId = -1
 -- ============================================================================
 local doorState = {
     active = false,
-    progress = 0,     -- 0=关闭, 1=完全打开
+    progress = 0,
     duration = 2.2,
     onComplete = nil,
 }
+
+-- ============================================================================
+-- 施法条状态（由 main.lua 设置）
+-- ============================================================================
+local castBarState = {
+    active = false,
+    progress = 0,    -- 0~1
+    skillName = "",
+    isCharging = false, -- 法师蓄力状态
+}
+
+-- ============================================================================
+-- 相机引用（用于世界坐标→屏幕坐标）
+-- ============================================================================
+local cameraRef = nil
 
 -- ============================================================================
 -- UI 状态
@@ -54,6 +71,8 @@ local uiState = {
     hudRoot = nil,
     selectRoot = nil,
     refs = {},
+    bagOpen = false,     -- 背包面板是否打开
+    bagRoot = nil,       -- 背包面板 UI root
 }
 
 GameUI.state = uiState
@@ -74,7 +93,7 @@ function GameUI.InitUI()
 end
 
 -- ============================================================================
--- 初始化 NanoVG (HP/MP 圆球 + 开门过渡)
+-- 初始化 NanoVG (HP/MP 圆球 + 开门过渡 + 伤害飘字)
 -- ============================================================================
 function GameUI.InitNanoVG()
     nvgCtx = nvgCreate(1)
@@ -94,6 +113,32 @@ function HandleNanoVGRender(eventType, eventData)
 end
 
 -- ============================================================================
+-- 设置相机引用（world→screen 转换）
+-- ============================================================================
+function GameUI.SetCamera(cam)
+    cameraRef = cam
+end
+
+-- ============================================================================
+-- 施法条控制
+-- ============================================================================
+function GameUI.ShowCastBar(skillName, isCharging)
+    castBarState.active = true
+    castBarState.progress = 0
+    castBarState.skillName = skillName or ""
+    castBarState.isCharging = isCharging or false
+end
+
+function GameUI.UpdateCastBar(progress)
+    castBarState.progress = progress
+end
+
+function GameUI.HideCastBar()
+    castBarState.active = false
+    castBarState.progress = 0
+end
+
+-- ============================================================================
 -- NanoVG 主渲染
 -- ============================================================================
 function GameUI._RenderNanoVG()
@@ -104,6 +149,16 @@ function GameUI._RenderNanoVG()
     -- 绘制 HP/MP 圆球 (仅游戏阶段)
     if uiState.phase == "playing" and uiState.player then
         GameUI._DrawOrbs(nvgCtx, sw, sh)
+    end
+
+    -- 绘制伤害飘字
+    if uiState.phase == "playing" and cameraRef then
+        GameUI._DrawFloatingTexts(nvgCtx, sw, sh)
+    end
+
+    -- 绘制施法条
+    if castBarState.active and uiState.phase == "playing" then
+        GameUI._DrawCastBar(nvgCtx, sw, sh)
     end
 
     -- 绘制开门过渡
@@ -151,9 +206,7 @@ function GameUI._DrawOrbs(ctx, sw, sh)
         nvgSave(ctx)
         local fillH = 2 * r * hpProg
         local clipY = cy + r - fillH
-        -- 先裁剪到左半圆
         nvgScissor(ctx, cx - r, cy - r, r, 2 * r)
-        -- 再裁剪到液面高度
         nvgIntersectScissor(ctx, cx - r, clipY, r, fillH)
 
         nvgBeginPath(ctx)
@@ -164,7 +217,6 @@ function GameUI._DrawOrbs(ctx, sw, sh)
         nvgFillPaint(ctx, hpGrad)
         nvgFill(ctx)
 
-        -- 液面高光
         nvgBeginPath(ctx)
         nvgEllipse(ctx, cx - r * 0.25, clipY + 2 * scale, r * 0.35, 2 * scale)
         nvgFillColor(ctx, nvgRGBA(255, 255, 255, 30))
@@ -178,9 +230,7 @@ function GameUI._DrawOrbs(ctx, sw, sh)
         nvgSave(ctx)
         local fillH = 2 * r * mpProg
         local clipY = cy + r - fillH
-        -- 裁剪到右半圆
         nvgScissor(ctx, cx, cy - r, r, 2 * r)
-        -- 裁剪到液面高度
         nvgIntersectScissor(ctx, cx, clipY, r, fillH)
 
         nvgBeginPath(ctx)
@@ -191,7 +241,6 @@ function GameUI._DrawOrbs(ctx, sw, sh)
         nvgFillPaint(ctx, mpGrad)
         nvgFill(ctx)
 
-        -- 液面高光
         nvgBeginPath(ctx)
         nvgEllipse(ctx, cx + r * 0.25, clipY + 2 * scale, r * 0.35, 2 * scale)
         nvgFillColor(ctx, nvgRGBA(255, 255, 255, 30))
@@ -208,7 +257,7 @@ function GameUI._DrawOrbs(ctx, sw, sh)
     nvgStrokeWidth(ctx, 1.2 * scale)
     nvgStroke(ctx)
 
-    -- 玻璃反光（左上月牙 + 右上月牙）
+    -- 玻璃反光
     nvgBeginPath(ctx)
     nvgEllipse(ctx, cx - r * 0.28, cy - r * 0.35, r * 0.18, r * 0.12)
     nvgFillColor(ctx, nvgRGBA(255, 255, 255, 25))
@@ -237,15 +286,12 @@ function GameUI._DrawOrbs(ctx, sw, sh)
         nvgFontSize(ctx, math.floor(11 * scale))
         nvgTextAlign(ctx, NVG_ALIGN_CENTER + NVG_ALIGN_MIDDLE)
 
-        -- 左侧 HP 数值
         nvgFillColor(ctx, nvgRGBA(255, 200, 180, 230))
         nvgText(ctx, cx - r * 0.32, cy, tostring(math.floor(player.hp)), nil)
 
-        -- 右侧 MP 数值
         nvgFillColor(ctx, nvgRGBA(180, 210, 255, 230))
         nvgText(ctx, cx + r * 0.32, cy, tostring(math.floor(player.mp)), nil)
 
-        -- 底部标签
         nvgFontSize(ctx, math.floor(8 * scale))
         nvgFillColor(ctx, nvgRGBA(190, 75, 55, 150))
         nvgText(ctx, cx - r * 0.35, cy + r + 9 * scale, "HP", nil)
@@ -255,11 +301,124 @@ function GameUI._DrawOrbs(ctx, sw, sh)
 end
 
 -- ============================================================================
+-- 伤害飘字 NanoVG 渲染（物理弹跳动画）
+-- ============================================================================
+function GameUI._DrawFloatingTexts(ctx, sw, sh)
+    if nvgFontId < 0 or not cameraRef then return end
+
+    local scale = sh / 720
+    nvgFontFaceId(ctx, nvgFontId)
+
+    for _, ft in ipairs(uiState.floatingTexts) do
+        local t = ft.timer
+        local dur = ft.duration
+
+        -- 世界坐标 → 屏幕坐标
+        local worldPos = ft.worldPos + Vector3(0, 1.5, 0)
+        local screenPos = cameraRef:WorldToScreenPoint(worldPos)
+
+        -- screenPos.x/y 是 0~1 归一化坐标
+        local sx = screenPos.x * sw
+        local sy = screenPos.y * sh
+
+        -- 物理弹跳: 初速上方 -180, 重力 +350
+        local vy0 = -180 * scale / 720
+        local gravity = 350 * scale / 720
+        local offsetY = (vy0 * t + 0.5 * gravity * t * t) * 720
+
+        -- 水平随机偏移（每个飘字固定方向）
+        local offsetX = ft.offsetX * scale * t * 30
+
+        sy = sy + offsetY
+
+        -- 缩放动画: 开始 1.8x 快速回落到 1.0x
+        local popTime = 0.15
+        local scaleAnim = 1.0
+        if t < popTime then
+            scaleAnim = 1.8 - 0.8 * (t / popTime)
+        end
+
+        -- 透明度: 最后 0.4 秒淡出
+        local alpha = 1.0
+        local fadeStart = dur - 0.4
+        if t > fadeStart then
+            alpha = 1.0 - (t - fadeStart) / 0.4
+        end
+        alpha = math.max(0, math.min(1, alpha))
+
+        -- 字体大小
+        local baseSize = ft.isCrit and 22 or 16
+        local fontSize = math.floor(baseSize * scale * scaleAnim)
+        nvgFontSize(ctx, fontSize)
+        nvgTextAlign(ctx, NVG_ALIGN_CENTER + NVG_ALIGN_MIDDLE)
+
+        local c = ft.color
+        local a = math.floor(c[4] * alpha)
+
+        -- 描边（黑色阴影）
+        nvgFillColor(ctx, nvgRGBA(0, 0, 0, math.floor(a * 0.7)))
+        nvgText(ctx, sx + offsetX + 1.5 * scale, sy + 1.5 * scale, ft.text, nil)
+
+        -- 正文
+        nvgFillColor(ctx, nvgRGBA(c[1], c[2], c[3], a))
+        nvgText(ctx, sx + offsetX, sy, ft.text, nil)
+    end
+end
+
+-- ============================================================================
+-- 施法条绘制
+-- ============================================================================
+function GameUI._DrawCastBar(ctx, sw, sh)
+    local scale = sh / 720
+    local barW = math.floor(180 * scale)
+    local barH = math.floor(14 * scale)
+    local bx = (sw - barW) / 2
+    local by = sh * 0.55
+
+    -- 背景
+    nvgBeginPath(ctx)
+    nvgRoundedRect(ctx, bx, by, barW, barH, 4 * scale)
+    nvgFillColor(ctx, nvgRGBA(10, 8, 6, 200))
+    nvgFill(ctx)
+
+    -- 填充
+    local fillW = barW * castBarState.progress
+    if fillW > 0 then
+        nvgBeginPath(ctx)
+        nvgRoundedRect(ctx, bx, by, fillW, barH, 4 * scale)
+        if castBarState.isCharging then
+            -- 蓄力模式: 蓝色脉冲
+            local pulse = 0.7 + 0.3 * math.sin(castBarState.progress * math.pi * 6)
+            local pAlpha = math.floor(220 * pulse)
+            nvgFillColor(ctx, nvgRGBA(60, 140, 255, pAlpha))
+        else
+            nvgFillColor(ctx, nvgRGBA(220, 180, 60, 220))
+        end
+        nvgFill(ctx)
+    end
+
+    -- 边框
+    nvgBeginPath(ctx)
+    nvgRoundedRect(ctx, bx, by, barW, barH, 4 * scale)
+    nvgStrokeColor(ctx, nvgRGBA(140, 120, 80, 180))
+    nvgStrokeWidth(ctx, 1.5 * scale)
+    nvgStroke(ctx)
+
+    -- 技能名
+    if nvgFontId >= 0 and castBarState.skillName ~= "" then
+        nvgFontFaceId(ctx, nvgFontId)
+        nvgFontSize(ctx, math.floor(10 * scale))
+        nvgTextAlign(ctx, NVG_ALIGN_CENTER + NVG_ALIGN_MIDDLE)
+        nvgFillColor(ctx, nvgRGBA(255, 240, 200, 230))
+        nvgText(ctx, sw / 2, by + barH / 2, castBarState.skillName, nil)
+    end
+end
+
+-- ============================================================================
 -- 开门过渡绘制
 -- ============================================================================
 function GameUI._DrawDoorTransition(ctx, sw, sh)
     local p = doorState.progress
-    -- Ease out cubic
     local ep = 1 - (1 - p) * (1 - p) * (1 - p)
 
     local halfW = sw / 2
@@ -276,13 +435,11 @@ function GameUI._DrawDoorTransition(ctx, sw, sh)
         nvgFillPaint(ctx, leftGrad)
         nvgFill(ctx)
 
-        -- 左门右侧石质边框
         nvgBeginPath(ctx)
         nvgRect(ctx, leftW - 6, 0, 6, sh)
         nvgFillColor(ctx, nvgRGBA(70, 58, 42, 220))
         nvgFill(ctx)
 
-        -- 左门铆钉装饰
         local boltSpacing = sh / 6
         for i = 1, 5 do
             local by = boltSpacing * i
@@ -309,13 +466,11 @@ function GameUI._DrawDoorTransition(ctx, sw, sh)
         nvgFillPaint(ctx, rightGrad)
         nvgFill(ctx)
 
-        -- 右门左侧石质边框
         nvgBeginPath(ctx)
         nvgRect(ctx, rightX, 0, 6, sh)
         nvgFillColor(ctx, nvgRGBA(70, 58, 42, 220))
         nvgFill(ctx)
 
-        -- 右门铆钉装饰
         local boltSpacing = sh / 6
         for i = 1, 5 do
             local by = boltSpacing * i
@@ -330,7 +485,7 @@ function GameUI._DrawDoorTransition(ctx, sw, sh)
         end
     end
 
-    -- 中缝光线（门开中间漏出的光）
+    -- 中缝光线
     if ep > 0.02 and ep < 0.95 then
         local beamW = openOffset * 0.5
         local beamAlpha = math.floor(200 * (1 - ep))
@@ -343,7 +498,6 @@ function GameUI._DrawDoorTransition(ctx, sw, sh)
         nvgFillPaint(ctx, beamGrad)
         nvgFill(ctx)
 
-        -- 对称的另一半
         nvgBeginPath(ctx)
         nvgRect(ctx, halfW - beamW / 2, 0, beamW, sh)
         local beamGrad2 = nvgLinearGradient(ctx,
@@ -354,7 +508,6 @@ function GameUI._DrawDoorTransition(ctx, sw, sh)
         nvgFill(ctx)
     end
 
-    -- 上方兽头装饰线（门框顶部）
     if ep < 0.85 then
         local topAlpha = math.floor(255 * (1 - ep / 0.85))
         nvgBeginPath(ctx)
@@ -385,6 +538,8 @@ end
 function GameUI.ShowClassSelect(onSelected)
     uiState.phase = "select"
     uiState.onClassSelected = onSelected
+    uiState.bagOpen = false
+    uiState.bagRoot = nil
 
     local classOrder = {"warrior", "mage", "taoist"}
     local classIcons = {
@@ -418,7 +573,6 @@ function GameUI.ShowClassSelect(onSelected)
             borderWidth = 2,
             borderColor = {60, 50, 38, 200},
             children = {
-                -- 职业图标（深色底 + 发光边框圆）
                 UI.Panel {
                     width = 88, height = 88,
                     borderRadius = 44,
@@ -435,14 +589,12 @@ function GameUI.ShowClassSelect(onSelected)
                         },
                     },
                 },
-                -- 职业名（金色）
                 UI.Label {
                     text = cls.name,
                     fontSize = 22,
                     fontColor = {210, 180, 75, 255},
                     marginTop = 14,
                 },
-                -- 职业描述（暗色）
                 UI.Label {
                     text = classDescLines[classId],
                     fontSize = 11,
@@ -450,7 +602,6 @@ function GameUI.ShowClassSelect(onSelected)
                     marginTop = 6,
                     textAlign = "center",
                 },
-                -- 分隔线
                 UI.Panel {
                     width = "80%",
                     height = 1,
@@ -458,7 +609,6 @@ function GameUI.ShowClassSelect(onSelected)
                     marginTop = 12,
                     marginBottom = 8,
                 },
-                -- 属性
                 UI.Label {
                     text = "生命 " .. cls.baseHP,
                     fontSize = 11,
@@ -470,7 +620,6 @@ function GameUI.ShowClassSelect(onSelected)
                     fontColor = {140, 130, 115, 160},
                     marginTop = 3,
                 },
-                -- 选择按钮（石质暗色风格）
                 UI.Button {
                     label = "进入山海",
                     marginTop = 16,
@@ -502,7 +651,6 @@ function GameUI.ShowClassSelect(onSelected)
         justifyContent = "center",
         alignItems = "center",
         children = {
-            -- 标题
             UI.Label {
                 text = "贪玩渣渣灰",
                 fontSize = 36,
@@ -515,7 +663,6 @@ function GameUI.ShowClassSelect(onSelected)
                 fontColor = {110, 100, 85, 170},
                 marginBottom = 30,
             },
-            -- 三张卡片横排
             UI.Panel {
                 flexDirection = "row",
                 gap = 18,
@@ -538,6 +685,7 @@ end
 function GameUI.ShowGameHUD(player)
     uiState.phase = "playing"
     uiState.player = player
+    uiState.bagOpen = false
 
     -- 初始化 GameHUD (摇杆)
     GameHUD.Initialize()
@@ -551,14 +699,11 @@ function GameUI.ShowGameHUD(player)
         height = "100%",
         pointerEvents = "box-none",
         children = {
-            -- 左上角：角色等级信息（HP/MP 由 NanoVG 绘制）
             GameUI._CreatePlayerInfo(player),
-            -- 右下角：技能栏
             GameUI._CreateSkillBar(player),
-            -- 左下角：药瓶快捷键
             GameUI._CreatePotions(player),
-            -- 右上角：小地图占位 + 击杀
             GameUI._CreateMiniMapArea(player),
+            GameUI._CreateTopButtons(),
         },
     }
 
@@ -568,7 +713,7 @@ function GameUI.ShowGameHUD(player)
 end
 
 -- ============================================================================
--- 左上角 - 角色信息面板（简化版，HP/MP 由 NanoVG 绘制）
+-- 左上角 - 角色信息面板
 -- ============================================================================
 function GameUI._CreatePlayerInfo(player)
     local classDef = CharacterClass.Classes[player.classId]
@@ -590,7 +735,6 @@ function GameUI._CreatePlayerInfo(player)
         borderWidth = 1,
         borderColor = {55, 45, 35, 100},
         children = {
-            -- 职业标识 + 等级
             UI.Panel {
                 flexDirection = "row",
                 alignItems = "center",
@@ -621,7 +765,6 @@ function GameUI._CreatePlayerInfo(player)
                     end)(),
                 },
             },
-            -- EXP 条（窄条）
             (function()
                 local bar = UI.ProgressBar {
                     width = "100%",
@@ -640,7 +783,62 @@ function GameUI._CreatePlayerInfo(player)
 end
 
 -- ============================================================================
--- 右下角 - 技能栏 (弧形排列)
+-- 右上角 - 菜单/背包按钮
+-- ============================================================================
+function GameUI._CreateTopButtons()
+    return UI.Panel {
+        id = "topButtons",
+        position = "absolute",
+        top = 100, right = 12,
+        alignItems = "flex-end",
+        gap = 8,
+        children = {
+            -- 背包按钮
+            UI.Panel {
+                width = 44, height = 44,
+                borderRadius = 8,
+                backgroundColor = {30, 25, 20, 220},
+                borderWidth = 2,
+                borderColor = {120, 100, 60, 180},
+                justifyContent = "center",
+                alignItems = "center",
+                onPointerUp = function()
+                    if GameUI.onBagToggle then GameUI.onBagToggle() end
+                end,
+                children = {
+                    UI.Label {
+                        text = "包",
+                        fontSize = 16,
+                        fontColor = {210, 180, 80, 255},
+                    },
+                },
+            },
+            -- 返回主菜单按钮
+            UI.Panel {
+                width = 44, height = 44,
+                borderRadius = 8,
+                backgroundColor = {30, 20, 18, 220},
+                borderWidth = 2,
+                borderColor = {140, 60, 50, 160},
+                justifyContent = "center",
+                alignItems = "center",
+                onPointerUp = function()
+                    if GameUI.onMenuPressed then GameUI.onMenuPressed() end
+                end,
+                children = {
+                    UI.Label {
+                        text = "退",
+                        fontSize = 16,
+                        fontColor = {200, 90, 70, 255},
+                    },
+                },
+            },
+        },
+    }
+end
+
+-- ============================================================================
+-- 右下角 - 技能栏
 -- ============================================================================
 function GameUI._CreateSkillBar(player)
     local classDef = CharacterClass.Classes[player.classId]
@@ -754,7 +952,6 @@ function GameUI._CreateSkillBar(player)
     }
 end
 
--- 技能等级墨点
 function GameUI._CreateLevelDots(level)
     local dots = {}
     for i = 1, 3 do
@@ -873,26 +1070,235 @@ function GameUI._CreateMiniMapArea(player)
 end
 
 -- ============================================================================
+-- 背包/装备面板 (全屏遮罩)
+-- ============================================================================
+function GameUI.ShowBagPanel(player)
+    if uiState.bagOpen then return end
+    uiState.bagOpen = true
+
+    local inv = Inventory.playerData
+    local SLOT = Inventory.SLOT
+    local RARITY = Inventory.RARITY
+
+    -- 构建装备槽
+    local slotNames = {
+        { slot = SLOT.WEAPON,   label = "武器" },
+        { slot = SLOT.ARMOR,    label = "防具" },
+        { slot = SLOT.RING,     label = "戒指" },
+        { slot = SLOT.NECKLACE, label = "项链" },
+    }
+
+    local equipSlots = {}
+    for _, s in ipairs(slotNames) do
+        local item = inv.equipped[s.slot]
+        local itemName = item and item.name or "空"
+        local rarity = item and RARITY[item.rarity] or nil
+        local nameColor = rarity and rarity.color or {100, 100, 100, 150}
+        local borderColor = rarity and {rarity.color[1], rarity.color[2], rarity.color[3], 120} or {50, 45, 38, 120}
+
+        table.insert(equipSlots, UI.Panel {
+            width = 110, height = 60,
+            backgroundColor = {20, 16, 14, 220},
+            borderRadius = 4,
+            borderWidth = 1,
+            borderColor = borderColor,
+            paddingVertical = 6,
+            paddingHorizontal = 8,
+            children = {
+                UI.Label {
+                    text = s.label,
+                    fontSize = 9,
+                    fontColor = {140, 130, 115, 160},
+                },
+                UI.Label {
+                    text = itemName,
+                    fontSize = 12,
+                    fontColor = nameColor,
+                    marginTop = 3,
+                },
+                item and UI.Label {
+                    text = (item.atk > 0 and ("攻+" .. item.atk) or "") ..
+                           (item.def > 0 and (" 防+" .. item.def) or "") ..
+                           (item.hp > 0 and (" 血+" .. item.hp) or ""),
+                    fontSize = 9,
+                    fontColor = {160, 155, 140, 150},
+                    marginTop = 2,
+                } or nil,
+            },
+        })
+    end
+
+    -- 构建背包格子
+    local bagItems = {}
+    for i = 1, 20 do
+        local item = inv.bag[i]
+        local itemName = item and string.sub(item.name, 1, 6) or ""
+        local rarity = item and RARITY[item.rarity] or nil
+        local nameColor = rarity and rarity.color or {80, 80, 80, 80}
+        local bgColor = item and {25, 20, 18, 240} or {18, 15, 12, 150}
+        local borderColor = rarity and {rarity.color[1], rarity.color[2], rarity.color[3], 80} or {40, 35, 30, 80}
+
+        table.insert(bagItems, UI.Panel {
+            width = 52, height = 52,
+            backgroundColor = bgColor,
+            borderRadius = 3,
+            borderWidth = 1,
+            borderColor = borderColor,
+            justifyContent = "center",
+            alignItems = "center",
+            children = {
+                UI.Label {
+                    text = itemName,
+                    fontSize = 9,
+                    fontColor = nameColor,
+                    textAlign = "center",
+                },
+            },
+        })
+    end
+
+    -- 面板整体
+    uiState.bagRoot = UI.Panel {
+        id = "bagOverlay",
+        width = "100%",
+        height = "100%",
+        backgroundColor = {0, 0, 0, 160},
+        justifyContent = "center",
+        alignItems = "center",
+        children = {
+            UI.Panel {
+                width = 360, height = 420,
+                backgroundColor = {16, 12, 10, 245},
+                borderRadius = 8,
+                borderWidth = 2,
+                borderColor = {80, 65, 45, 180},
+                padding = 16,
+                children = {
+                    -- 标题栏
+                    UI.Panel {
+                        flexDirection = "row",
+                        justifyContent = "space-between",
+                        width = "100%",
+                        marginBottom = 12,
+                        children = {
+                            UI.Label {
+                                text = "装备 / 背包",
+                                fontSize = 16,
+                                fontColor = {210, 185, 80, 255},
+                            },
+                            UI.Label {
+                                text = "金币: " .. inv.gold,
+                                fontSize = 13,
+                                fontColor = {255, 215, 80, 220},
+                            },
+                        },
+                    },
+                    -- 装备区
+                    UI.Panel {
+                        flexDirection = "row",
+                        flexWrap = "wrap",
+                        gap = 6,
+                        marginBottom = 12,
+                        children = equipSlots,
+                    },
+                    -- 分隔线
+                    UI.Panel {
+                        width = "100%", height = 1,
+                        backgroundColor = {60, 50, 38, 100},
+                        marginBottom = 10,
+                    },
+                    -- 背包标题
+                    UI.Label {
+                        text = "背包 (" .. #inv.bag .. "/20)",
+                        fontSize = 11,
+                        fontColor = {140, 130, 115, 160},
+                        marginBottom = 6,
+                    },
+                    -- 背包格子
+                    UI.Panel {
+                        flexDirection = "row",
+                        flexWrap = "wrap",
+                        gap = 4,
+                        children = bagItems,
+                    },
+                    -- 关闭按钮
+                    UI.Panel {
+                        width = "100%",
+                        alignItems = "center",
+                        marginTop = 12,
+                        children = {
+                            UI.Button {
+                                label = "关闭",
+                                width = 100, height = 34,
+                                backgroundColor = {50, 40, 30, 240},
+                                borderRadius = 4,
+                                borderWidth = 1,
+                                borderColor = {95, 80, 58, 180},
+                                fontSize = 13,
+                                fontColor = {210, 195, 155, 255},
+                                onClick = function()
+                                    GameUI.HideBagPanel()
+                                end,
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    }
+
+    UI.SetRoot(uiState.bagRoot)
+    print("[GameUI] Bag panel opened")
+end
+
+function GameUI.HideBagPanel()
+    if not uiState.bagOpen then return end
+    uiState.bagOpen = false
+    uiState.bagRoot = nil
+    -- 恢复 HUD
+    if uiState.hudRoot then
+        UI.SetRoot(uiState.hudRoot)
+    end
+    print("[GameUI] Bag panel closed")
+end
+
+function GameUI.IsBagOpen()
+    return uiState.bagOpen
+end
+
+-- ============================================================================
 -- HUD 更新
 -- ============================================================================
 function GameUI.UpdateHUD(player, dt)
-    if uiState.phase ~= "playing" or not uiState.hudRoot then return end
+    if uiState.phase ~= "playing" then return end
+    -- 如果背包打开，不更新 HUD widget（但 NanoVG 仍然绘制）
+    if uiState.bagOpen then
+        uiState.player = player
+        -- 开门动画仍需更新
+        if doorState.active then
+            doorState.progress = doorState.progress + dt / doorState.duration
+            if doorState.progress >= 1 then
+                doorState.progress = 1
+                doorState.active = false
+                if doorState.onComplete then doorState.onComplete() end
+            end
+        end
+        GameUI._UpdateFloatingTexts(dt)
+        return
+    end
+
+    if not uiState.hudRoot then return end
 
     local refs = uiState.refs
-
-    -- HP/MP 圆球由 NanoVG 实时绘制, 这里只更新 player 引用即可
     uiState.player = player
 
-    -- EXP 条
     if refs.expBar then refs.expBar:SetValue(player.exp / math.max(1, player.expToNext)) end
 
-    -- 等级标签
     if refs.playerLevel then
         local classDef = CharacterClass.Classes[player.classId]
         refs.playerLevel:SetText("Lv." .. player.level .. " " .. classDef.name)
     end
 
-    -- 技能冷却显示
     for i = 1, 6 do
         local sb = uiState.skillButtons[i]
         if sb and sb.skill then
@@ -927,13 +1333,15 @@ end
 -- ============================================================================
 -- 伤害飘字系统
 -- ============================================================================
-function GameUI.AddFloatingText(text, worldPos, color)
+function GameUI.AddFloatingText(text, worldPos, color, isCrit)
     table.insert(uiState.floatingTexts, {
         text = text,
         worldPos = worldPos,
         color = color or {255, 255, 255, 255},
         timer = 0,
         duration = 1.2,
+        isCrit = isCrit or false,
+        offsetX = (math.random() - 0.5) * 2, -- 随机水平偏移方向 -1~1
     })
 end
 
@@ -982,11 +1390,13 @@ function GameUI.GetJoystick()
 end
 
 -- ============================================================================
--- 技能/药瓶回调 (由 main.lua 设置)
+-- 技能/药瓶/菜单/背包回调 (由 main.lua 设置)
 -- ============================================================================
 GameUI.onSkillPressed = nil
 GameUI.onUseHpPotion = nil
 GameUI.onUseMpPotion = nil
+GameUI.onMenuPressed = nil
+GameUI.onBagToggle = nil
 
 -- ============================================================================
 -- 清理

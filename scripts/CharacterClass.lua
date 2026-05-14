@@ -78,7 +78,7 @@ CharacterClass.Classes = {
                 slot = 1, cooldown = 0, manaCost = 0,
                 unlockLevels = {7, 13, 19},
                 damage = {100, 120, 150},
-                range = 1.5,
+                range = 1.5, castTime = 0.15,
             },
             -- 2. 攻杀剑术
             {
@@ -87,7 +87,7 @@ CharacterClass.Classes = {
                 slot = 2, cooldown = 8, manaCost = 10,
                 unlockLevels = {22, 25, 29},
                 damage = {250, 320, 420},
-                range = 1.8,
+                range = 1.8, castTime = 0.25,
             },
             -- 3. 刺杀剑术
             {
@@ -123,7 +123,7 @@ CharacterClass.Classes = {
                 slot = 6, cooldown = 25, manaCost = 25,
                 unlockLevels = {38, 42, 47},
                 damage = {450, 570, 680},
-                range = 2.0, isUltimate = true,
+                range = 2.0, isUltimate = true, castTime = 0.35,
             },
             -- 7. 真气护盾 (可替换装配)
             {
@@ -164,7 +164,7 @@ CharacterClass.Classes = {
                 slot = 1, cooldown = 0, manaCost = 0,
                 unlockLevels = {7, 13, 19},
                 damage = {90, 110, 140},
-                range = 6.0, projectileSpeed = 12,
+                range = 6.0, projectileSpeed = 12, castTime = 0.25,
             },
             -- 2. 地狱火
             {
@@ -173,7 +173,7 @@ CharacterClass.Classes = {
                 slot = 2, cooldown = 7, manaCost = 15,
                 unlockLevels = {18, 24, 31},
                 damage = {160, 200, 260},
-                range = 5.0, maxTargets = {3, 4, 5},
+                range = 5.0, maxTargets = {3, 4, 5}, castTime = 0.45,
             },
             -- 3. 雷电术
             {
@@ -191,7 +191,7 @@ CharacterClass.Classes = {
                 slot = 4, cooldown = 10, manaCost = 22,
                 unlockLevels = {25, 30, 36},
                 damage = {200, 260, 340},
-                range = 6.0, aoeRadius = 3.0,
+                range = 6.0, aoeRadius = 3.0, castTime = 0.50,
             },
             -- 5. 火墙
             {
@@ -201,7 +201,7 @@ CharacterClass.Classes = {
                 unlockLevels = {27, 33, 39},
                 damage = {60, 80, 100}, -- 每秒伤害
                 duration = {5, 7, 9},
-                range = 6.0, aoeRadius = 2.0,
+                range = 6.0, aoeRadius = 2.0, castTime = 0.55,
             },
             -- 6. 冰咆哮 (终极技)
             {
@@ -210,7 +210,7 @@ CharacterClass.Classes = {
                 slot = 6, cooldown = 28, manaCost = 35,
                 unlockLevels = {40, 44, 48},
                 damage = {350, 480, 580},
-                range = 6.0, aoeRadius = 3.5, isUltimate = true,
+                range = 6.0, aoeRadius = 3.5, isUltimate = true, castTime = 1.0,
             },
             -- 7. 魔法盾 (可替换装配)
             {
@@ -251,7 +251,7 @@ CharacterClass.Classes = {
                 slot = 1, cooldown = 0, manaCost = 0,
                 unlockLevels = {7, 13, 19},
                 damage = {85, 105, 130},
-                range = 6.0, projectileSpeed = 10,
+                range = 6.0, projectileSpeed = 10, castTime = 0.18,
             },
             -- 2. 召唤骷髅 (召唤2只骷髅兵)
             {
@@ -310,7 +310,7 @@ CharacterClass.Classes = {
                 duration = {30, 40, 55},
                 summonCount = 1,
                 summonType = "holy",
-                range = 2.0, isUltimate = true,
+                range = 2.0, isUltimate = true, castTime = 0.60,
             },
             -- 7. 治愈术 (可替换装配 — 自保技能)
             {
