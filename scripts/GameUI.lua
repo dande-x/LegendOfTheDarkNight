@@ -152,6 +152,11 @@ function GameUI._RenderNanoVG()
         GameUI._DrawOrbs(nvgCtx, sw, sh)
     end
 
+    -- 绘制敌人头顶血条
+    if uiState.phase == "playing" and cameraRef then
+        GameUI._DrawEnemyHealthBars(nvgCtx, sw, sh)
+    end
+
     -- 绘制伤害飘字
     if uiState.phase == "playing" and cameraRef then
         GameUI._DrawFloatingTexts(nvgCtx, sw, sh)
@@ -355,6 +360,80 @@ end
 -- ============================================================================
 -- 伤害飘字 NanoVG 渲染（物理弹跳动画）
 -- ============================================================================
+-- ============================================================================
+-- 敌人头顶血条 (黑框红条+白色数字)
+-- ============================================================================
+function GameUI._DrawEnemyHealthBars(ctx, sw, sh)
+    if nvgFontId < 0 or not cameraRef then return end
+
+    local Combat = require("scripts.Combat")
+    local enemies = Combat.enemies
+    if not enemies or #enemies == 0 then return end
+
+    local scale = sh / 720
+    local barW = math.floor(48 * scale)
+    local barH = math.floor(5 * scale)
+    local borderW = math.floor(1 * scale)
+    local fontSize = math.max(8, math.floor(10 * scale))
+    local yOffset = math.floor(18 * scale)  -- 血条在头顶上方的偏移
+
+    nvgFontFaceId(ctx, nvgFontId)
+    nvgFontSize(ctx, fontSize)
+    nvgTextAlign(ctx, NVG_ALIGN_CENTER + NVG_ALIGN_BOTTOM)
+
+    for _, e in ipairs(enemies) do
+        if e.node and e.hp > 0 then
+            -- 头顶位置 (角色高度约1.5m)
+            local headPos = e.node.position + Vector3(0, 1.8, 0)
+            local screenPos = cameraRef:WorldToScreenPoint(headPos)
+
+            -- 不在屏幕内则跳过
+            if screenPos.z > 0 and screenPos.x > -0.1 and screenPos.x < 1.1
+                and screenPos.y > -0.1 and screenPos.y < 1.1 then
+
+                local sx = screenPos.x * sw
+                local sy = screenPos.y * sh - yOffset
+
+                local hpRatio = math.max(0, math.min(1, e.hp / e.maxHP))
+
+                -- 黑色背景框
+                nvgBeginPath(ctx)
+                nvgRoundedRect(ctx, sx - barW / 2 - borderW, sy - barH / 2 - borderW,
+                    barW + borderW * 2, barH + borderW * 2, 2 * scale)
+                nvgFillColor(ctx, nvgRGBA(0, 0, 0, 200))
+                nvgFill(ctx)
+
+                -- 红色血条
+                if hpRatio > 0 then
+                    local fillW = math.max(1, barW * hpRatio)
+                    nvgBeginPath(ctx)
+                    nvgRoundedRect(ctx, sx - barW / 2, sy - barH / 2,
+                        fillW, barH, 1.5 * scale)
+
+                    -- 血量低变黄/红
+                    if hpRatio > 0.5 then
+                        nvgFillColor(ctx, nvgRGBA(200, 40, 40, 230))
+                    elseif hpRatio > 0.25 then
+                        nvgFillColor(ctx, nvgRGBA(220, 140, 30, 230))
+                    else
+                        nvgFillColor(ctx, nvgRGBA(220, 50, 50, 255))
+                    end
+                    nvgFill(ctx)
+                end
+
+                -- 白色数字（HP/MaxHP）
+                local hpText = tostring(math.floor(e.hp))
+                -- 阴影
+                nvgFillColor(ctx, nvgRGBA(0, 0, 0, 180))
+                nvgText(ctx, sx + 1, sy - barH / 2 - 2 * scale + 1, hpText, nil)
+                -- 正文
+                nvgFillColor(ctx, nvgRGBA(255, 255, 255, 240))
+                nvgText(ctx, sx, sy - barH / 2 - 2 * scale, hpText, nil)
+            end
+        end
+    end
+end
+
 function GameUI._DrawFloatingTexts(ctx, sw, sh)
     if nvgFontId < 0 or not cameraRef then return end
 
