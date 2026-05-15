@@ -209,7 +209,7 @@ end
 function OnClassSelected(classId)
     print("[main] Selected class: " .. classId)
 
-    player_ = CharacterClass.CreatePlayer(classId, 7)
+    player_ = CharacterClass.CreatePlayer(classId, 1)
     CreatePlayerNode(classId)
     GameUI.ShowGameHUD(player_)
 
@@ -294,6 +294,30 @@ function OnClassSelected(classId)
     -- 返回主菜单回调
     GameUI.onMenuPressed = function()
         ReturnToMainMenu()
+    end
+
+    -- Debug 等级调整回调
+    GameUI.onDebugLevelChange = function(delta)
+        if not player_ then return end
+        local newLevel = player_.level + delta
+        if newLevel < 1 then newLevel = 1 end
+        if newLevel > 50 then newLevel = 50 end
+        if newLevel == player_.level then return end
+
+        local classDef = CharacterClass.Classes[player_.classId]
+        local g = classDef.growth
+        player_.level = newLevel
+        player_.maxHP = classDef.baseHP + g.hp * (newLevel - 1)
+        player_.maxMP = classDef.baseMP + g.mp * (newLevel - 1)
+        player_.atk   = classDef.baseATK + g.atk * (newLevel - 1)
+        player_.def   = classDef.baseDEF + g.def * (newLevel - 1)
+        player_.hp = player_.maxHP
+        player_.mp = player_.maxMP
+        player_.expToNext = 50 + newLevel * 60
+        player_.exp = 0
+        print("[Debug] Level set to " .. newLevel)
+        -- 刷新技能栏（解锁状态可能变化）
+        GameUI.ShowGameHUD(player_)
     end
 
     -- 背包切换回调

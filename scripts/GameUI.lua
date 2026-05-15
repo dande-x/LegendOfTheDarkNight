@@ -904,6 +904,62 @@ function GameUI._CreateTopButtons()
                     },
                 },
             },
+            -- Debug 面板：调整等级
+            UI.Panel {
+                width = 44,
+                borderRadius = 8,
+                backgroundColor = {20, 30, 20, 220},
+                borderWidth = 2,
+                borderColor = {60, 140, 60, 160},
+                alignItems = "center",
+                paddingTop = 4, paddingBottom = 4,
+                gap = 2,
+                children = {
+                    UI.Label {
+                        text = "DBG",
+                        fontSize = 9,
+                        fontColor = {120, 200, 120, 180},
+                    },
+                    -- +等级按钮
+                    UI.Panel {
+                        width = 36, height = 22,
+                        borderRadius = 4,
+                        backgroundColor = {50, 100, 50, 200},
+                        justifyContent = "center",
+                        alignItems = "center",
+                        onPointerUp = function()
+                            if GameUI.onDebugLevelChange then GameUI.onDebugLevelChange(1) end
+                        end,
+                        children = {
+                            UI.Label { text = "Lv+", fontSize = 11, fontColor = {180, 255, 180, 255} },
+                        },
+                    },
+                    -- 当前等级显示
+                    (function()
+                        local lbl = UI.Label {
+                            text = "Lv.1",
+                            fontSize = 11,
+                            fontColor = {200, 220, 200, 255},
+                        }
+                        uiState.debugLevelLabel = lbl
+                        return lbl
+                    end)(),
+                    -- -等级按钮
+                    UI.Panel {
+                        width = 36, height = 22,
+                        borderRadius = 4,
+                        backgroundColor = {100, 50, 50, 200},
+                        justifyContent = "center",
+                        alignItems = "center",
+                        onPointerUp = function()
+                            if GameUI.onDebugLevelChange then GameUI.onDebugLevelChange(-1) end
+                        end,
+                        children = {
+                            UI.Label { text = "Lv-", fontSize = 11, fontColor = {255, 180, 180, 255} },
+                        },
+                    },
+                },
+            },
         },
     }
 end
@@ -1677,6 +1733,11 @@ function GameUI.UpdateHUD(player, dt)
         end
     end
 
+    -- 更新 debug 等级标签
+    if uiState.debugLevelLabel and player then
+        uiState.debugLevelLabel:SetText("Lv." .. player.level)
+    end
+
     GameUI._UpdateFloatingTexts(dt)
 end
 
@@ -1746,6 +1807,7 @@ GameUI.onMenuPressed = nil
 GameUI.onBagToggle = nil
 GameUI.onSkillPanelToggle = nil
 GameUI.onSkillPanelClosed = nil
+GameUI.onDebugLevelChange = nil  -- function(delta) : +1 升级, -1 降级
 
 -- ============================================================================
 -- 清理
