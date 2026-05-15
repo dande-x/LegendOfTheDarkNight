@@ -382,7 +382,7 @@ function GameUI._DrawEnemyHealthBars(ctx, sw, sh)
     nvgTextAlign(ctx, NVG_ALIGN_CENTER + NVG_ALIGN_BOTTOM)
 
     for _, e in ipairs(enemies) do
-        if e.node and e.hp > 0 then
+        if e.node and e.hp and e.maxHP and e.hp > 0 then
             -- 头顶位置 (角色高度约1.5m)
             local headPos = e.node.position + Vector3(0, 1.8, 0)
             local screenPos = cameraRef:WorldToScreenPoint(headPos)
