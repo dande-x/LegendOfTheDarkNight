@@ -147,10 +147,7 @@ function GameUI._RenderNanoVG()
     local sh = graphics.height
     nvgBeginFrame(nvgCtx, sw, sh, 1.0)
 
-    -- 绘制 HP/MP 圆球 + EXP 条 (仅游戏阶段，左下角)
-    if uiState.phase == "playing" and uiState.player then
-        GameUI._DrawOrbs(nvgCtx, sw, sh)
-    end
+    -- HP/MP 圆球已移除（用户要求去掉）
 
     -- 绘制敌人头顶血条
     if uiState.phase == "playing" and cameraRef then
@@ -807,6 +804,10 @@ function GameUI.ShowGameHUD(player)
     GameHUD.Initialize()
     local hud = GameHUD.Create({})
     uiState.joystick = hud.joystick
+    -- 隐藏 WASD 按键提示（保留键盘响应）
+    if hud.joystick then
+        hud.joystick.showKeyHints = false
+    end
 
     local hudRoot = UI.Panel {
         id = "gameHUD",
