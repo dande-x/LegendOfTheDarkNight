@@ -152,9 +152,13 @@ function GameUI._RenderNanoVG()
         GameUI._DrawOrbs(nvgCtx, sw, sh)
     end
 
-    -- 绘制敌人头顶血条
+    -- 绘制敌人头顶血条（pcall 保护，防止崩溃阻断 nvgEndFrame）
     if uiState.phase == "playing" and cameraRef then
-        GameUI._DrawEnemyHealthBars(nvgCtx, sw, sh)
+        local ok, err = pcall(GameUI._DrawEnemyHealthBars, nvgCtx, sw, sh)
+        if not ok and not _hpBarErrorLogged then
+            print("[GameUI] EnemyHealthBars error: " .. tostring(err))
+            _hpBarErrorLogged = true
+        end
     end
 
     -- 绘制伤害飘字
