@@ -147,7 +147,10 @@ function GameUI._RenderNanoVG()
     local sh = graphics.height
     nvgBeginFrame(nvgCtx, sw, sh, 1.0)
 
-    -- HP/MP 圆球已移除（用户要求去掉）
+    -- 绘制 HP/MP 圆球 + EXP 条 (仅游戏阶段，左下角)
+    if uiState.phase == "playing" and uiState.player then
+        GameUI._DrawOrbs(nvgCtx, sw, sh)
+    end
 
     -- 绘制敌人头顶血条
     if uiState.phase == "playing" and cameraRef then
@@ -816,7 +819,6 @@ function GameUI.ShowGameHUD(player)
         pointerEvents = "box-none",
         children = {
             GameUI._CreateSkillBar(player),
-            GameUI._CreatePotions(player),
             GameUI._CreateMiniMapArea(player),
             GameUI._CreateTopButtons(),
         },
