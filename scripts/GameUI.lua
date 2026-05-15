@@ -155,9 +155,12 @@ function GameUI._RenderNanoVG()
     -- 绘制敌人头顶血条（pcall 保护，防止崩溃阻断 nvgEndFrame）
     if uiState.phase == "playing" and cameraRef then
         local ok, err = pcall(GameUI._DrawEnemyHealthBars, nvgCtx, sw, sh)
-        if not ok and not _hpBarErrorLogged then
-            print("[GameUI] EnemyHealthBars error: " .. tostring(err))
-            _hpBarErrorLogged = true
+        if not ok then
+            if not _hpBarErrorCount then _hpBarErrorCount = 0 end
+            _hpBarErrorCount = _hpBarErrorCount + 1
+            if _hpBarErrorCount <= 5 then
+                print("[GameUI] EnemyHealthBars error #" .. _hpBarErrorCount .. ": " .. tostring(err))
+            end
         end
     end
 
@@ -373,6 +376,12 @@ function GameUI._DrawEnemyHealthBars(ctx, sw, sh)
     local Combat = require("scripts.Combat")
     local enemies = Combat.enemies
     if not enemies or #enemies == 0 then return end
+
+    -- [DEBUG] 一次性打印确认函数进入
+    if not _hpBarDebugPrinted then
+        _hpBarDebugPrinted = true
+        print("[DEBUG] _DrawEnemyHealthBars: enemies=" .. #enemies .. " fontId=" .. nvgFontId)
+    end
 
     local scale = sh / 720
     local barW = math.floor(48 * scale)
