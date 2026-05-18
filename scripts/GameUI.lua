@@ -384,15 +384,15 @@ function GameUI._DrawEnemyHealthBars(ctx, sw, sh)
     end
 
     local scale = sh / 720
-    local barW = math.floor(48 * scale)
-    local barH = math.floor(5 * scale)
+    local barW = math.floor(60 * scale)
+    local barH = math.floor(12 * scale)
     local borderW = math.floor(1 * scale)
     local fontSize = math.max(8, math.floor(10 * scale))
-    local yOffset = math.floor(18 * scale)  -- 血条在头顶上方的偏移
+    local yOffset = math.floor(22 * scale)  -- 血条在头顶上方的偏移
 
     nvgFontFaceId(ctx, nvgFontId)
     nvgFontSize(ctx, fontSize)
-    nvgTextAlign(ctx, NVG_ALIGN_CENTER + NVG_ALIGN_BOTTOM)
+    nvgTextAlign(ctx, NVG_ALIGN_CENTER + NVG_ALIGN_MIDDLE)
 
     for _, e in ipairs(enemies) do
         if e.node and e.hp and e.maxHP and e.hp > 0 then
@@ -435,14 +435,14 @@ function GameUI._DrawEnemyHealthBars(ctx, sw, sh)
                     nvgFill(ctx)
                 end
 
-                -- 白色数字（HP/MaxHP）
-                local hpText = tostring(math.floor(e.hp))
+                -- 白色数字居中显示 (当前/总量)
+                local hpText = math.floor(e.hp) .. "/" .. math.floor(e.maxHP)
                 -- 阴影
-                nvgFillColor(ctx, nvgRGBA(0, 0, 0, 180))
-                nvgText(ctx, sx + 1, sy - barH / 2 - 2 * scale + 1, hpText, nil)
+                nvgFillColor(ctx, nvgRGBA(0, 0, 0, 200))
+                nvgText(ctx, sx + 1, sy + 1, hpText, nil)
                 -- 正文
                 nvgFillColor(ctx, nvgRGBA(255, 255, 255, 240))
-                nvgText(ctx, sx, sy - barH / 2 - 2 * scale, hpText, nil)
+                nvgText(ctx, sx, sy, hpText, nil)
             end
         end
     end
