@@ -751,7 +751,7 @@ function GameUI.ShowClassSelect(onSelected)
                     marginTop = 3,
                 },
                 UI.Button {
-                    label = "进入山海",
+                    text = "进入山海",
                     marginTop = 16,
                     width = 130,
                     height = 40,
@@ -1457,7 +1457,7 @@ function GameUI.ShowSkillPanel(player)
                         marginTop = 10,
                         children = {
                             UI.Button {
-                                label = "确认并关闭",
+                                text = "确认并关闭",
                                 width = 120, height = 34,
                                 backgroundColor = {50, 40, 30, 240},
                                 borderRadius = 4,
@@ -1656,7 +1656,7 @@ function GameUI.ShowBagPanel(player)
                         marginTop = 12,
                         children = {
                             UI.Button {
-                                label = "关闭",
+                                text = "关闭",
                                 width = 100, height = 34,
                                 backgroundColor = {50, 40, 30, 240},
                                 borderRadius = 4,
