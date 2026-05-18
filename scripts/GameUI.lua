@@ -398,10 +398,11 @@ function GameUI._DrawEnemyHealthBars(ctx, sw, sh)
         if e.node and e.hp and e.maxHP and e.hp > 0 then
             -- 头顶位置 (角色高度约1.5m)
             local headPos = e.node.position + Vector3(0, 1.8, 0)
+            -- WorldToScreenPoint 返回 Vector2 (x,y 归一化坐标，0~1)
             local screenPos = cameraRef:WorldToScreenPoint(headPos)
 
             -- 不在屏幕内则跳过
-            if screenPos.z > 0 and screenPos.x > -0.1 and screenPos.x < 1.1
+            if screenPos.x > -0.1 and screenPos.x < 1.1
                 and screenPos.y > -0.1 and screenPos.y < 1.1 then
 
                 local sx = screenPos.x * sw
