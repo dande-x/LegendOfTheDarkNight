@@ -970,6 +970,124 @@ function Combat.UpdateGroundItems(dt, playerNode)
 end
 
 -- ============================================================================
+-- 碰撞分离：防止实体重叠
+-- ============================================================================
+local SEPARATION_RADIUS_ENEMY  = 0.9   -- 敌人碰撞半径
+local SEPARATION_RADIUS_SUMMON = 0.6   -- 召唤物碰撞半径
+local SEPARATION_RADIUS_PLAYER = 0.5   -- 玩家碰撞半径
+local SEPARATION_STRENGTH      = 8.0   -- 分离推力强度
+
+--- 对两个实体做分离推力，返回 A 应施加的偏移
+local function SeparatePair(posA, radiusA, posB, radiusB, strength, dt)
+    local dx = posA.x - posB.x
+    local dz = posA.z - posB.z
+    local distSq = dx * dx + dz * dz
+    local minDist = radiusA + radiusB
+    if distSq >= minDist * minDist or distSq < 0.0001 then
+        return 0, 0
+    end
+    local dist = math.sqrt(distSq)
+    local overlap = minDist - dist
+    local nx, nz = dx / dist, dz / dist
+    local push = overlap * strength * dt
+    return nx * push, nz * push
+end
+
+function Combat.ResolveSeparation(dt, playerNode)
+    if not playerNode then return end
+    local playerPos = playerNode.position
+    local playerPushX, playerPushZ = 0, 0
+
+    -- 1) 敌人之间互相分离
+    for i = 1, #enemies do
+        local a = enemies[i]
+        if a.state ~= "dead" then
+            local aPos = a.node.position
+            for j = i + 1, #enemies do
+                local b = enemies[j]
+                if b.state ~= "dead" then
+                    local bPos = b.node.position
+                    local ox, oz = SeparatePair(aPos, SEPARATION_RADIUS_ENEMY,
+                        bPos, SEPARATION_RADIUS_ENEMY, SEPARATION_STRENGTH, dt)
+                    if ox ~= 0 or oz ~= 0 then
+                        a.node.position = Vector3(aPos.x + ox, aPos.y, aPos.z + oz)
+                        b.node.position = Vector3(bPos.x - ox, bPos.y, bPos.z - oz)
+                        aPos = a.node.position
+                    end
+                end
+            end
+        end
+    end
+
+    -- 2) 敌人与玩家分离（只推敌人）
+    for _, e in ipairs(enemies) do
+        if e.state ~= "dead" then
+            local ePos = e.node.position
+            local ox, oz = SeparatePair(ePos, SEPARATION_RADIUS_ENEMY,
+                playerPos, SEPARATION_RADIUS_PLAYER, SEPARATION_STRENGTH, dt)
+            if ox ~= 0 or oz ~= 0 then
+                e.node.position = Vector3(ePos.x + ox, ePos.y, ePos.z + oz)
+                playerPushX = playerPushX - ox * 0.3
+                playerPushZ = playerPushZ - oz * 0.3
+            end
+        end
+    end
+
+    -- 3) 召唤物之间互相分离
+    for i = 1, #summons do
+        local a = summons[i]
+        local aPos = a.node.position
+        for j = i + 1, #summons do
+            local b = summons[j]
+            local bPos = b.node.position
+            local ox, oz = SeparatePair(aPos, SEPARATION_RADIUS_SUMMON,
+                bPos, SEPARATION_RADIUS_SUMMON, SEPARATION_STRENGTH, dt)
+            if ox ~= 0 or oz ~= 0 then
+                a.node.position = Vector3(aPos.x + ox, aPos.y, aPos.z + oz)
+                b.node.position = Vector3(bPos.x - ox, bPos.y, bPos.z - oz)
+                aPos = a.node.position
+            end
+        end
+    end
+
+    -- 4) 召唤物与敌人分离（各推一半）
+    for _, s in ipairs(summons) do
+        local sPos = s.node.position
+        for _, e in ipairs(enemies) do
+            if e.state ~= "dead" then
+                local ePos = e.node.position
+                local ox, oz = SeparatePair(sPos, SEPARATION_RADIUS_SUMMON,
+                    ePos, SEPARATION_RADIUS_ENEMY, SEPARATION_STRENGTH, dt)
+                if ox ~= 0 or oz ~= 0 then
+                    s.node.position = Vector3(sPos.x + ox * 0.5, sPos.y, sPos.z + oz * 0.5)
+                    e.node.position = Vector3(ePos.x - ox * 0.5, ePos.y, ePos.z - oz * 0.5)
+                    sPos = s.node.position
+                end
+            end
+        end
+    end
+
+    -- 5) 召唤物与玩家分离（只推召唤物）
+    for _, s in ipairs(summons) do
+        local sPos = s.node.position
+        local ox, oz = SeparatePair(sPos, SEPARATION_RADIUS_SUMMON,
+            playerPos, SEPARATION_RADIUS_PLAYER, SEPARATION_STRENGTH, dt)
+        if ox ~= 0 or oz ~= 0 then
+            s.node.position = Vector3(sPos.x + ox, sPos.y, sPos.z + oz)
+        end
+    end
+
+    -- 6) 将玩家的微弱反推应用（被敌人挤时轻微后退）
+    if playerPushX ~= 0 or playerPushZ ~= 0 then
+        playerNode.position = Vector3(
+            playerPos.x + playerPushX,
+            playerPos.y,
+            playerPos.z + playerPushZ
+        )
+    end
+end
+
+-- ============================================================================
 -- 工具函数
 -- ============================================================================
 function Combat.FindNearestEnemy(pos, maxRange)
@@ -993,6 +1111,7 @@ function Combat.Update(scene, dt, playerNode, player)
     Combat.UpdateProjectiles(dt)
     Combat.UpdateAOEZones(dt)
     Combat.UpdateSummons(dt, playerNode)
+    Combat.ResolveSeparation(dt, playerNode)
     Combat.UpdateVisuals(scene, dt)
     Combat.UpdateSpawner(scene, dt, playerNode, player)
     Combat.UpdateGroundItems(dt, playerNode)
