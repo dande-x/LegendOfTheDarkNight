@@ -129,14 +129,15 @@ function Combat.SpawnEnemy(scene, playerPos, playerLevel)
     headModel:SetMaterial(CreatePBR(def.color, 0.05, 0.6))
     headModel.castShadows = true
 
-    -- 敌人 kinematic 碰撞体
+    -- 敌人动态碰撞体
     local rbody = enemyNode:CreateComponent("RigidBody")
     rbody.mass = 1.0
-    rbody.kinematic = true
     rbody.collisionLayer = 4          -- AI 层
     rbody.collisionMask = 1 | 2 | 4   -- 与地形(1)、玩家(2)、其他AI(4)碰撞
     rbody.angularFactor = Vector3(0, 0, 0)
-    rbody.friction = 0.0
+    rbody.linearFactor = Vector3(1, 0, 1)   -- 锁定 Y 轴
+    rbody.friction = 0.5
+    rbody.linearDamping = 0.1
     local colShape = enemyNode:CreateComponent("CollisionShape")
     local capsuleH = 1.2 * def.scale
     local capsuleD = 0.6 * def.scale
@@ -314,12 +315,6 @@ function Combat.UpdateEnemies(dt, playerNode, player)
                     end
                 end
             end
-        end
-
-        -- 保持 Y=0（俯视角）
-        local ePos = e.node.position
-        if math.abs(ePos.y) > 0.01 then
-            e.node.position = Vector3(ePos.x, 0, ePos.z)
         end
 
         ::continue::
@@ -716,14 +711,15 @@ function Combat.SpawnSummon(scene, playerPos, atk, duration, isHoly, summonType)
     headModel:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
     headModel:SetMaterial(mat)
 
-    -- 召唤物 kinematic 碰撞体
+    -- 召唤物动态碰撞体
     local sBody = summonNode:CreateComponent("RigidBody")
     sBody.mass = 1.0
-    sBody.kinematic = true
     sBody.collisionLayer = 4          -- AI 层（与敌人同层，互相碰撞）
     sBody.collisionMask = 1 | 2 | 4   -- 与地形(1)、玩家(2)、其他AI(4)碰撞
     sBody.angularFactor = Vector3(0, 0, 0)
-    sBody.friction = 0.0
+    sBody.linearFactor = Vector3(1, 0, 1)   -- 锁定 Y 轴
+    sBody.friction = 0.5
+    sBody.linearDamping = 0.1
     local sShape = summonNode:CreateComponent("CollisionShape")
     local sCapsuleH = vis.bodyScale * 2.5
     local sCapsuleD = vis.bodyScale * 1.2
@@ -805,12 +801,6 @@ function Combat.UpdateSummons(dt, playerNode)
                 else
                     if sBody then sBody:SetLinearVelocity(Vector3.ZERO) end
                 end
-            end
-
-            -- 保持 Y=0
-            local curPos = s.node.position
-            if math.abs(curPos.y) > 0.01 then
-                s.node.position = Vector3(curPos.x, 0, curPos.z)
             end
         end
     end

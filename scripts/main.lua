@@ -578,16 +578,16 @@ function CreatePlayerNode(classId)
     headModel:SetMaterial(headMat)
     headModel.castShadows = true
 
-    -- 玩家 kinematic 碰撞体（胶囊体，不受重力，不旋转）
+    -- 玩家动态碰撞体（胶囊体，无重力，不旋转，锁 Y）
     local body = playerNode_:CreateComponent("RigidBody")
     body.mass = 1.0
-    body.kinematic = true
     body.collisionLayer = 2          -- 玩家层
     body.collisionMask = 1 | 4       -- 与地形(1)和AI(4)碰撞
     body.angularFactor = Vector3(0, 0, 0)  -- 禁止物理旋转
-    body.friction = 0.0
+    body.linearFactor = Vector3(1, 0, 1)   -- 锁定 Y 轴
+    body.friction = 0.5
+    body.linearDamping = 0.1
     local shape = playerNode_:CreateComponent("CollisionShape")
-    -- 胶囊体：直径0.5m 高1.4m，中心在 y=0.7 处
     shape:SetCapsule(0.5, 1.4, Vector3(0, 0.7, 0))
 
     if classId == "warrior" then
@@ -735,12 +735,6 @@ function UpdatePlayerMovement(dt)
     -- 使用 SetLinearVelocity 让物理引擎处理碰撞
     if body then
         body:SetLinearVelocity(moveDir * speed)
-    end
-
-    -- 保持 Y=0（俯视角不需要高度变化）
-    local pos = playerNode_.position
-    if math.abs(pos.y) > 0.01 then
-        playerNode_.position = Vector3(pos.x, 0, pos.z)
     end
 
     local angle = math.atan2(moveDir.x, moveDir.z)
