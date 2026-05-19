@@ -97,13 +97,17 @@ function CreateScene()
     scene_:CreateComponent("Octree")
     scene_:CreateComponent("DebugRenderer")
 
+    -- 添加物理世界（俯视角不需要重力）
+    local physicsWorld = scene_:CreateComponent("PhysicsWorld")
+    physicsWorld.gravity = Vector3(0, 0, 0)
+
     local lightGroupFile = cache:GetResource("XMLFile", "LightGroup/Dusk.xml")
     local lightGroup = scene_:CreateChild("LightGroup")
     lightGroup:LoadXML(lightGroupFile:GetRoot())
 
     CreateFloor()
     CreateSceneDecorations()
-    print("[main] Scene created")
+    print("[main] Scene created (with PhysicsWorld)")
 end
 
 function CreateFloor()
@@ -121,6 +125,8 @@ function CreateFloor()
     floorMat:SetShaderParameter("Roughness", Variant(0.85))
     floorModel:SetMaterial(floorMat)
     floorModel.castShadows = false
+
+    -- 地面不需要物理碰撞体（俯视角 2.5D，角色不会掉落）
 end
 
 function CreateSceneDecorations()
@@ -148,6 +154,15 @@ function CreateSceneDecorations()
         mat:SetShaderParameter("Roughness", Variant(0.9))
         model:SetMaterial(mat)
         model.castShadows = true
+
+        -- 静态碰撞体（石头）
+        local body = stoneNode:CreateComponent("RigidBody")
+        body.mass = 0  -- 静态
+        body.collisionLayer = 1   -- 地形层
+        body.collisionMask = 6    -- 与玩家(2)和AI(4)碰撞
+        local shape = stoneNode:CreateComponent("CollisionShape")
+        -- Sphere model 原始尺寸 1m 直径, 节点 scale 已应用
+        shape:SetSphere(1.0)
     end
 
     local pillarPositions = {
@@ -170,6 +185,15 @@ function CreateSceneDecorations()
         mat:SetShaderParameter("Roughness", Variant(0.7))
         model:SetMaterial(mat)
         model.castShadows = true
+
+        -- 静态碰撞体（柱子）
+        local body = pillarNode:CreateComponent("RigidBody")
+        body.mass = 0  -- 静态
+        body.collisionLayer = 1   -- 地形层
+        body.collisionMask = 6    -- 与玩家(2)和AI(4)碰撞
+        local shape = pillarNode:CreateComponent("CollisionShape")
+        -- Cylinder model 原始尺寸 1m直径×1m高, 节点 scale 已应用
+        shape:SetCylinder(1.0, 1.0)
     end
 end
 
@@ -554,6 +578,18 @@ function CreatePlayerNode(classId)
     headModel:SetMaterial(headMat)
     headModel.castShadows = true
 
+    -- 玩家 kinematic 碰撞体（胶囊体，不受重力，不旋转）
+    local body = playerNode_:CreateComponent("RigidBody")
+    body.mass = 1.0
+    body.kinematic = true
+    body.collisionLayer = 2          -- 玩家层
+    body.collisionMask = 1 | 4       -- 与地形(1)和AI(4)碰撞
+    body.angularFactor = Vector3(0, 0, 0)  -- 禁止物理旋转
+    body.friction = 0.0
+    local shape = playerNode_:CreateComponent("CollisionShape")
+    -- 胶囊体：直径0.5m 高1.4m，中心在 y=0.7 处
+    shape:SetCapsule(0.5, 1.4, Vector3(0, 0.7, 0))
+
     if classId == "warrior" then
         local swordNode = playerNode_:CreateChild("Sword")
         swordNode.position = Vector3(0.5, 0.6, 0.2)
@@ -681,7 +717,13 @@ function UpdatePlayerMovement(dt)
 
     local x, z = joystick:getMovement()
 
+    local body = playerNode_:GetComponent("RigidBody")
+
     if math.abs(x) < 0.01 and math.abs(z) < 0.01 then
+        -- 停止移动时清零速度
+        if body then
+            body:SetLinearVelocity(Vector3.ZERO)
+        end
         return
     end
 
@@ -689,7 +731,17 @@ function UpdatePlayerMovement(dt)
     moveDir = moveDir:Normalized()
 
     local speed = player_.moveSpeed
-    playerNode_.position = playerNode_.position + moveDir * speed * dt
+
+    -- 使用 SetLinearVelocity 让物理引擎处理碰撞
+    if body then
+        body:SetLinearVelocity(moveDir * speed)
+    end
+
+    -- 保持 Y=0（俯视角不需要高度变化）
+    local pos = playerNode_.position
+    if math.abs(pos.y) > 0.01 then
+        playerNode_.position = Vector3(pos.x, 0, pos.z)
+    end
 
     local angle = math.atan2(moveDir.x, moveDir.z)
     playerNode_.rotation = Quaternion(math.deg(angle), Vector3.UP)

@@ -129,6 +129,19 @@ function Combat.SpawnEnemy(scene, playerPos, playerLevel)
     headModel:SetMaterial(CreatePBR(def.color, 0.05, 0.6))
     headModel.castShadows = true
 
+    -- 敌人 kinematic 碰撞体
+    local rbody = enemyNode:CreateComponent("RigidBody")
+    rbody.mass = 1.0
+    rbody.kinematic = true
+    rbody.collisionLayer = 4          -- AI 层
+    rbody.collisionMask = 1 | 2 | 4   -- 与地形(1)、玩家(2)、其他AI(4)碰撞
+    rbody.angularFactor = Vector3(0, 0, 0)
+    rbody.friction = 0.0
+    local colShape = enemyNode:CreateComponent("CollisionShape")
+    local capsuleH = 1.2 * def.scale
+    local capsuleD = 0.6 * def.scale
+    colShape:SetCapsule(capsuleD, capsuleH, Vector3(0, capsuleH * 0.5, 0))
+
     local enemy = {
         node = enemyNode,
         name = def.name,
@@ -227,6 +240,8 @@ function Combat.UpdateEnemies(dt, playerNode, player)
         -- 状态机
         e.attackTimer = math.max(0, e.attackTimer - dt)
 
+        local eBody = e.node:GetComponent("RigidBody")
+
         if e.state == "patrol" then
             -- 巡逻：随机走动
             if dist < e.chaseRange then
@@ -243,10 +258,13 @@ function Combat.UpdateEnemies(dt, playerNode, player)
                 dir.y = 0
                 if dir:Length() > 0.5 then
                     dir = dir:Normalized()
-                    e.node.position = pos + dir * e.speed * 0.5 * dt
-                    -- 朝向移动方向
+                    if eBody then
+                        eBody:SetLinearVelocity(dir * e.speed * 0.5)
+                    end
                     local angle = math.atan2(dir.x, dir.z)
                     e.node.rotation = Quaternion(math.deg(angle), Vector3.UP)
+                else
+                    if eBody then eBody:SetLinearVelocity(Vector3.ZERO) end
                 end
             end
 
@@ -254,17 +272,23 @@ function Combat.UpdateEnemies(dt, playerNode, player)
             -- 追击玩家
             if dist > e.chaseRange * 1.5 then
                 e.state = "patrol"
+                if eBody then eBody:SetLinearVelocity(Vector3.ZERO) end
             elseif dist <= e.attackRange then
                 e.state = "attack"
+                if eBody then eBody:SetLinearVelocity(Vector3.ZERO) end
             else
                 local dir = toPlayer:Normalized()
-                e.node.position = pos + dir * e.speed * dt
+                if eBody then
+                    eBody:SetLinearVelocity(dir * e.speed)
+                end
                 local angle = math.atan2(dir.x, dir.z)
                 e.node.rotation = Quaternion(math.deg(angle), Vector3.UP)
             end
 
         elseif e.state == "attack" then
-            -- 攻击玩家
+            -- 攻击玩家（站定攻击）
+            if eBody then eBody:SetLinearVelocity(Vector3.ZERO) end
+
             if dist > e.attackRange * 1.5 then
                 e.state = "chase"
             else
@@ -285,12 +309,17 @@ function Combat.UpdateEnemies(dt, playerNode, player)
                     player.hp = math.max(0, player.hp - dmg)
                     e.attackTimer = e.attackCD
 
-                    -- 返回伤害信息用于飘字
                     if Combat.onEnemyAttack then
                         Combat.onEnemyAttack(e, dmg, playerPos)
                     end
                 end
             end
+        end
+
+        -- 保持 Y=0（俯视角）
+        local ePos = e.node.position
+        if math.abs(ePos.y) > 0.01 then
+            e.node.position = Vector3(ePos.x, 0, ePos.z)
         end
 
         ::continue::
@@ -687,6 +716,19 @@ function Combat.SpawnSummon(scene, playerPos, atk, duration, isHoly, summonType)
     headModel:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
     headModel:SetMaterial(mat)
 
+    -- 召唤物 kinematic 碰撞体
+    local sBody = summonNode:CreateComponent("RigidBody")
+    sBody.mass = 1.0
+    sBody.kinematic = true
+    sBody.collisionLayer = 4          -- AI 层（与敌人同层，互相碰撞）
+    sBody.collisionMask = 1 | 2 | 4   -- 与地形(1)、玩家(2)、其他AI(4)碰撞
+    sBody.angularFactor = Vector3(0, 0, 0)
+    sBody.friction = 0.0
+    local sShape = summonNode:CreateComponent("CollisionShape")
+    local sCapsuleH = vis.bodyScale * 2.5
+    local sCapsuleD = vis.bodyScale * 1.2
+    sShape:SetCapsule(sCapsuleD, sCapsuleH, Vector3(0, sCapsuleH * 0.5, 0))
+
     table.insert(summons, {
         node = summonNode,
         atk = atk,
@@ -723,23 +765,20 @@ function Combat.UpdateSummons(dt, playerNode)
         else
             s.attackTimer = math.max(0, s.attackTimer - dt)
 
-            -- 跟随玩家（松散跟随，不同召唤兽散开）
+            local sBody = s.node:GetComponent("RigidBody")
             local sPos = s.node.position
             local toPlayer = playerPos - sPos
             toPlayer.y = 0
             local distToPlayer = toPlayer:Length()
             local followSpeed = (s.summonType == "wolf") and 5.5 or 4.0
-            if distToPlayer > 3.5 then
-                toPlayer = toPlayer:Normalized()
-                s.node.position = sPos + toPlayer * followSpeed * dt
-            end
 
-            -- 攻击最近的敌人
+            local moved = false
+
+            -- 攻击最近的敌人（优先级高于跟随）
             local chaseRange = (s.summonType == "wolf") and 6.0 or 4.5
             if s.attackTimer <= 0 then
                 local nearestEnemy, nearDist = Combat.FindNearestEnemy(s.node.position, chaseRange)
                 if nearestEnemy then
-                    -- 追向敌人
                     local dir = nearestEnemy.node.position - s.node.position
                     dir.y = 0
                     local eDist = dir:Length()
@@ -750,10 +789,28 @@ function Combat.UpdateSummons(dt, playerNode)
                     if eDist <= 2.0 then
                         Combat.DealDamage(nearestEnemy, s.atk, nil)
                         s.attackTimer = s.attackCD
+                        if sBody then sBody:SetLinearVelocity(Vector3.ZERO) end
                     else
-                        s.node.position = sPos + dir * followSpeed * dt
+                        if sBody then sBody:SetLinearVelocity(dir * followSpeed) end
                     end
+                    moved = true
                 end
+            end
+
+            -- 跟随玩家（松散跟随）
+            if not moved then
+                if distToPlayer > 3.5 then
+                    local dir = toPlayer:Normalized()
+                    if sBody then sBody:SetLinearVelocity(dir * followSpeed) end
+                else
+                    if sBody then sBody:SetLinearVelocity(Vector3.ZERO) end
+                end
+            end
+
+            -- 保持 Y=0
+            local curPos = s.node.position
+            if math.abs(curPos.y) > 0.01 then
+                s.node.position = Vector3(curPos.x, 0, curPos.z)
             end
         end
     end
@@ -970,124 +1027,6 @@ function Combat.UpdateGroundItems(dt, playerNode)
 end
 
 -- ============================================================================
--- 碰撞分离：防止实体重叠
--- ============================================================================
-local SEPARATION_RADIUS_ENEMY  = 0.9   -- 敌人碰撞半径
-local SEPARATION_RADIUS_SUMMON = 0.6   -- 召唤物碰撞半径
-local SEPARATION_RADIUS_PLAYER = 0.5   -- 玩家碰撞半径
-local SEPARATION_STRENGTH      = 8.0   -- 分离推力强度
-
---- 对两个实体做分离推力，返回 A 应施加的偏移
-local function SeparatePair(posA, radiusA, posB, radiusB, strength, dt)
-    local dx = posA.x - posB.x
-    local dz = posA.z - posB.z
-    local distSq = dx * dx + dz * dz
-    local minDist = radiusA + radiusB
-    if distSq >= minDist * minDist or distSq < 0.0001 then
-        return 0, 0
-    end
-    local dist = math.sqrt(distSq)
-    local overlap = minDist - dist
-    local nx, nz = dx / dist, dz / dist
-    local push = overlap * strength * dt
-    return nx * push, nz * push
-end
-
-function Combat.ResolveSeparation(dt, playerNode)
-    if not playerNode then return end
-    local playerPos = playerNode.position
-    local playerPushX, playerPushZ = 0, 0
-
-    -- 1) 敌人之间互相分离
-    for i = 1, #enemies do
-        local a = enemies[i]
-        if a.state ~= "dead" then
-            local aPos = a.node.position
-            for j = i + 1, #enemies do
-                local b = enemies[j]
-                if b.state ~= "dead" then
-                    local bPos = b.node.position
-                    local ox, oz = SeparatePair(aPos, SEPARATION_RADIUS_ENEMY,
-                        bPos, SEPARATION_RADIUS_ENEMY, SEPARATION_STRENGTH, dt)
-                    if ox ~= 0 or oz ~= 0 then
-                        a.node.position = Vector3(aPos.x + ox, aPos.y, aPos.z + oz)
-                        b.node.position = Vector3(bPos.x - ox, bPos.y, bPos.z - oz)
-                        aPos = a.node.position
-                    end
-                end
-            end
-        end
-    end
-
-    -- 2) 敌人与玩家分离（只推敌人）
-    for _, e in ipairs(enemies) do
-        if e.state ~= "dead" then
-            local ePos = e.node.position
-            local ox, oz = SeparatePair(ePos, SEPARATION_RADIUS_ENEMY,
-                playerPos, SEPARATION_RADIUS_PLAYER, SEPARATION_STRENGTH, dt)
-            if ox ~= 0 or oz ~= 0 then
-                e.node.position = Vector3(ePos.x + ox, ePos.y, ePos.z + oz)
-                playerPushX = playerPushX - ox * 0.3
-                playerPushZ = playerPushZ - oz * 0.3
-            end
-        end
-    end
-
-    -- 3) 召唤物之间互相分离
-    for i = 1, #summons do
-        local a = summons[i]
-        local aPos = a.node.position
-        for j = i + 1, #summons do
-            local b = summons[j]
-            local bPos = b.node.position
-            local ox, oz = SeparatePair(aPos, SEPARATION_RADIUS_SUMMON,
-                bPos, SEPARATION_RADIUS_SUMMON, SEPARATION_STRENGTH, dt)
-            if ox ~= 0 or oz ~= 0 then
-                a.node.position = Vector3(aPos.x + ox, aPos.y, aPos.z + oz)
-                b.node.position = Vector3(bPos.x - ox, bPos.y, bPos.z - oz)
-                aPos = a.node.position
-            end
-        end
-    end
-
-    -- 4) 召唤物与敌人分离（各推一半）
-    for _, s in ipairs(summons) do
-        local sPos = s.node.position
-        for _, e in ipairs(enemies) do
-            if e.state ~= "dead" then
-                local ePos = e.node.position
-                local ox, oz = SeparatePair(sPos, SEPARATION_RADIUS_SUMMON,
-                    ePos, SEPARATION_RADIUS_ENEMY, SEPARATION_STRENGTH, dt)
-                if ox ~= 0 or oz ~= 0 then
-                    s.node.position = Vector3(sPos.x + ox * 0.5, sPos.y, sPos.z + oz * 0.5)
-                    e.node.position = Vector3(ePos.x - ox * 0.5, ePos.y, ePos.z - oz * 0.5)
-                    sPos = s.node.position
-                end
-            end
-        end
-    end
-
-    -- 5) 召唤物与玩家分离（只推召唤物）
-    for _, s in ipairs(summons) do
-        local sPos = s.node.position
-        local ox, oz = SeparatePair(sPos, SEPARATION_RADIUS_SUMMON,
-            playerPos, SEPARATION_RADIUS_PLAYER, SEPARATION_STRENGTH, dt)
-        if ox ~= 0 or oz ~= 0 then
-            s.node.position = Vector3(sPos.x + ox, sPos.y, sPos.z + oz)
-        end
-    end
-
-    -- 6) 将玩家的微弱反推应用（被敌人挤时轻微后退）
-    if playerPushX ~= 0 or playerPushZ ~= 0 then
-        playerNode.position = Vector3(
-            playerPos.x + playerPushX,
-            playerPos.y,
-            playerPos.z + playerPushZ
-        )
-    end
-end
-
--- ============================================================================
 -- 工具函数
 -- ============================================================================
 function Combat.FindNearestEnemy(pos, maxRange)
@@ -1111,7 +1050,6 @@ function Combat.Update(scene, dt, playerNode, player)
     Combat.UpdateProjectiles(dt)
     Combat.UpdateAOEZones(dt)
     Combat.UpdateSummons(dt, playerNode)
-    Combat.ResolveSeparation(dt, playerNode)
     Combat.UpdateVisuals(scene, dt)
     Combat.UpdateSpawner(scene, dt, playerNode, player)
     Combat.UpdateGroundItems(dt, playerNode)
