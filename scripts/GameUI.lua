@@ -312,55 +312,174 @@ function GameUI._DrawOrbs(ctx, sw, sh)
         nvgText(ctx, cx + r * 0.35, cy + r + 9 * scale, "MP", nil)
     end
 
-    -- ======== 等级标签 (球上方) ========
+    -- ======== 龙头经验条 (球下方) ========
+    local expProg = player.exp / math.max(1, player.expToNext)
+
+    -- 布局参数
+    local dragonSize = math.floor(20 * scale)  -- 龙头整体大小
+    local barW = math.floor(100 * scale)
+    local barH = math.floor(8 * scale)
+    local lvFontSize = math.floor(11 * scale)
+    local expFontSize = math.floor(7 * scale)
+
+    -- 整体位于球正下方居中
+    local totalW = dragonSize + barW + 4 * scale  -- 龙头 + 间距 + 条
+    local startX = cx - totalW / 2
+    local barY = cy + r + math.floor(16 * scale)
+    local barCenterY = barY + barH / 2
+
+    -- ---- Lv.n 标签 (龙头上方) ----
     if nvgFontId >= 0 then
         nvgFontFaceId(ctx, nvgFontId)
-        nvgFontSize(ctx, math.floor(12 * scale))
+        nvgFontSize(ctx, lvFontSize)
         nvgTextAlign(ctx, NVG_ALIGN_CENTER + NVG_ALIGN_BOTTOM)
 
-        -- 暗底衬托
-        nvgFillColor(ctx, nvgRGBA(0, 0, 0, 140))
-        nvgText(ctx, cx + 1, cy - r - 4 * scale + 1, "Lv." .. player.level, nil)
-        -- 文字
-        nvgFillColor(ctx, nvgRGBA(210, 195, 160, 255))
-        nvgText(ctx, cx, cy - r - 4 * scale, "Lv." .. player.level, nil)
+        local lvX = startX + dragonSize / 2
+        local lvY = barY - 2 * scale
+
+        -- 暗底
+        nvgFillColor(ctx, nvgRGBA(0, 0, 0, 160))
+        nvgText(ctx, lvX + 1, lvY + 1, "Lv." .. player.level, nil)
+        -- 金色文字
+        nvgFillColor(ctx, nvgRGBA(255, 215, 100, 255))
+        nvgText(ctx, lvX, lvY, "Lv." .. player.level, nil)
     end
 
-    -- ======== 经验条 (球下方) ========
-    local expProg = player.exp / math.max(1, player.expToNext)
-    local barW = math.floor(90 * scale)
-    local barH = math.floor(6 * scale)
-    local barX = cx - barW / 2
-    local barY = cy + r + math.floor(18 * scale)
+    -- ---- 龙头 (NanoVG 矢量绘制) ----
+    local dhCx = startX + dragonSize / 2        -- 龙头中心 X
+    local dhCy = barCenterY                     -- 龙头中心 Y（与经验条垂直居中）
+    local dhs = dragonSize / 2                  -- 半径
+
+    -- 龙头轮廓 (梯形头部)
+    nvgBeginPath(ctx)
+    nvgMoveTo(ctx, dhCx - dhs * 0.7, dhCy - dhs * 0.85)  -- 左上
+    nvgLineTo(ctx, dhCx + dhs * 0.3, dhCy - dhs * 0.7)    -- 右上
+    nvgLineTo(ctx, dhCx + dhs * 1.0, dhCy - dhs * 0.15)   -- 右上嘴角
+    nvgLineTo(ctx, dhCx + dhs * 1.0, dhCy + dhs * 0.15)   -- 右下嘴角（嘴巴张开）
+    nvgLineTo(ctx, dhCx + dhs * 0.3, dhCy + dhs * 0.7)    -- 右下
+    nvgLineTo(ctx, dhCx - dhs * 0.7, dhCy + dhs * 0.85)   -- 左下
+    nvgClosePath(ctx)
+
+    -- 龙头渐变填充 (深绿→暗绿)
+    local headGrad = nvgLinearGradient(ctx,
+        dhCx - dhs, dhCy - dhs, dhCx + dhs, dhCy + dhs,
+        nvgRGBA(60, 120, 50, 240),
+        nvgRGBA(30, 70, 25, 250))
+    nvgFillPaint(ctx, headGrad)
+    nvgFill(ctx)
+
+    -- 龙头边框
+    nvgStrokeColor(ctx, nvgRGBA(180, 160, 80, 200))
+    nvgStrokeWidth(ctx, 1.5 * scale)
+    nvgStroke(ctx)
+
+    -- 龙眼 (亮黄色)
+    nvgBeginPath(ctx)
+    nvgCircle(ctx, dhCx - dhs * 0.1, dhCy - dhs * 0.3, dhs * 0.18)
+    nvgFillColor(ctx, nvgRGBA(255, 220, 50, 255))
+    nvgFill(ctx)
+    -- 瞳孔
+    nvgBeginPath(ctx)
+    nvgCircle(ctx, dhCx - dhs * 0.05, dhCy - dhs * 0.3, dhs * 0.08)
+    nvgFillColor(ctx, nvgRGBA(20, 10, 0, 255))
+    nvgFill(ctx)
+
+    -- 龙角 (头顶两个小角)
+    nvgBeginPath(ctx)
+    nvgMoveTo(ctx, dhCx - dhs * 0.4, dhCy - dhs * 0.8)
+    nvgLineTo(ctx, dhCx - dhs * 0.55, dhCy - dhs * 1.3)
+    nvgLineTo(ctx, dhCx - dhs * 0.15, dhCy - dhs * 0.7)
+    nvgClosePath(ctx)
+    nvgFillColor(ctx, nvgRGBA(180, 140, 50, 230))
+    nvgFill(ctx)
+
+    nvgBeginPath(ctx)
+    nvgMoveTo(ctx, dhCx + dhs * 0.05, dhCy - dhs * 0.7)
+    nvgLineTo(ctx, dhCx - dhs * 0.05, dhCy - dhs * 1.15)
+    nvgLineTo(ctx, dhCx + dhs * 0.25, dhCy - dhs * 0.6)
+    nvgClosePath(ctx)
+    nvgFillColor(ctx, nvgRGBA(180, 140, 50, 230))
+    nvgFill(ctx)
+
+    -- 龙鼻孔
+    nvgBeginPath(ctx)
+    nvgCircle(ctx, dhCx + dhs * 0.45, dhCy - dhs * 0.2, dhs * 0.07)
+    nvgFillColor(ctx, nvgRGBA(20, 50, 15, 200))
+    nvgFill(ctx)
+    nvgBeginPath(ctx)
+    nvgCircle(ctx, dhCx + dhs * 0.55, dhCy - dhs * 0.1, dhs * 0.06)
+    nvgFillColor(ctx, nvgRGBA(20, 50, 15, 200))
+    nvgFill(ctx)
+
+    -- ---- 龙嘴"吐出"的火焰过渡 ----
+    local mouthX = dhCx + dhs * 1.0  -- 嘴巴右端
+    local flameW = 6 * scale          -- 火焰过渡宽度
+    local barStartX = mouthX          -- 经验条从嘴巴开始
+
+    -- 火焰渐变 (嘴巴到经验条之间的过渡)
+    nvgBeginPath(ctx)
+    nvgMoveTo(ctx, mouthX - 2 * scale, barCenterY - barH * 0.8)
+    nvgLineTo(ctx, mouthX + flameW, barCenterY - barH / 2)
+    nvgLineTo(ctx, mouthX + flameW, barCenterY + barH / 2)
+    nvgLineTo(ctx, mouthX - 2 * scale, barCenterY + barH * 0.8)
+    nvgClosePath(ctx)
+    local flameGrad = nvgLinearGradient(ctx,
+        mouthX, barCenterY, mouthX + flameW, barCenterY,
+        nvgRGBA(255, 120, 20, 200),
+        nvgRGBA(210, 180, 80, 180))
+    nvgFillPaint(ctx, flameGrad)
+    nvgFill(ctx)
+
+    -- ---- 经验条主体 ----
+    local actualBarX = barStartX + flameW - 1 * scale
+    local actualBarW = barW - (actualBarX - (startX + dragonSize))
 
     -- 经验条背景
     nvgBeginPath(ctx)
-    nvgRoundedRect(ctx, barX, barY, barW, barH, 3 * scale)
-    nvgFillColor(ctx, nvgRGBA(15, 12, 10, 200))
+    nvgRoundedRect(ctx, actualBarX, barY, actualBarW, barH, 2 * scale)
+    nvgFillColor(ctx, nvgRGBA(15, 12, 10, 220))
     nvgFill(ctx)
 
-    -- 经验条填充
+    -- 经验条填充 (金色渐变)
     if expProg > 0 then
+        local fillW = math.max(2 * scale, actualBarW * expProg)
         nvgBeginPath(ctx)
-        nvgRoundedRect(ctx, barX, barY, barW * expProg, barH, 3 * scale)
-        nvgFillColor(ctx, nvgRGBA(210, 180, 80, 220))
+        nvgRoundedRect(ctx, actualBarX, barY, fillW, barH, 2 * scale)
+        local expGrad = nvgLinearGradient(ctx,
+            actualBarX, barY, actualBarX + fillW, barY + barH,
+            nvgRGBA(255, 210, 60, 240),
+            nvgRGBA(210, 160, 40, 220))
+        nvgFillPaint(ctx, expGrad)
+        nvgFill(ctx)
+
+        -- 高光条
+        nvgBeginPath(ctx)
+        nvgRoundedRect(ctx, actualBarX + 1 * scale, barY + 1 * scale,
+            fillW - 2 * scale, barH * 0.35, 1 * scale)
+        nvgFillColor(ctx, nvgRGBA(255, 255, 200, 40))
         nvgFill(ctx)
     end
 
     -- 经验条边框
     nvgBeginPath(ctx)
-    nvgRoundedRect(ctx, barX, barY, barW, barH, 3 * scale)
-    nvgStrokeColor(ctx, nvgRGBA(120, 100, 60, 140))
+    nvgRoundedRect(ctx, actualBarX, barY, actualBarW, barH, 2 * scale)
+    nvgStrokeColor(ctx, nvgRGBA(160, 130, 60, 180))
     nvgStrokeWidth(ctx, 1.0 * scale)
     nvgStroke(ctx)
 
-    -- EXP 文字
+    -- EXP 百分比文字 (经验条内部右侧)
     if nvgFontId >= 0 then
-        nvgFontSize(ctx, math.floor(8 * scale))
-        nvgTextAlign(ctx, NVG_ALIGN_CENTER + NVG_ALIGN_TOP)
-        nvgFillColor(ctx, nvgRGBA(210, 180, 80, 180))
-        nvgText(ctx, cx, barY + barH + 2 * scale,
-            "EXP " .. math.floor(expProg * 100) .. "%", nil)
+        nvgFontFaceId(ctx, nvgFontId)
+        nvgFontSize(ctx, expFontSize)
+        nvgTextAlign(ctx, NVG_ALIGN_RIGHT + NVG_ALIGN_MIDDLE)
+        -- 阴影
+        nvgFillColor(ctx, nvgRGBA(0, 0, 0, 180))
+        nvgText(ctx, actualBarX + actualBarW - 3 * scale + 1, barCenterY + 1,
+            math.floor(expProg * 100) .. "%", nil)
+        -- 文字
+        nvgFillColor(ctx, nvgRGBA(255, 240, 180, 230))
+        nvgText(ctx, actualBarX + actualBarW - 3 * scale, barCenterY,
+            math.floor(expProg * 100) .. "%", nil)
     end
 end
 
@@ -394,16 +513,27 @@ function GameUI._DrawEnemyHealthBars(ctx, sw, sh)
     nvgFontSize(ctx, fontSize)
     nvgTextAlign(ctx, NVG_ALIGN_CENTER + NVG_ALIGN_MIDDLE)
 
+    -- 获取相机节点前方向量，用于判断敌人是否在相机前方
+    local camNode = cameraRef:GetNode()
+    local camPos = camNode.worldPosition
+    local camForward = camNode.worldDirection  -- 相机朝向
+
     for _, e in ipairs(enemies) do
         if e.node and e.hp and e.maxHP and e.hp > 0 then
             -- 头顶位置 (角色高度约1.5m)
             local headPos = e.node.position + Vector3(0, 1.8, 0)
+
+            -- 检查敌人是否在相机前方（点积 > 0 表示在前方）
+            local toEnemy = headPos - camPos
+            local dot = toEnemy:DotProduct(camForward)
+            if dot <= 0 then goto continue_enemy end
+
             -- WorldToScreenPoint 返回 Vector2 (x,y 归一化坐标，0~1)
             local screenPos = cameraRef:WorldToScreenPoint(headPos)
 
             -- 不在屏幕内则跳过
-            if screenPos.x > -0.1 and screenPos.x < 1.1
-                and screenPos.y > -0.1 and screenPos.y < 1.1 then
+            if screenPos.x > -0.05 and screenPos.x < 1.05
+                and screenPos.y > -0.05 and screenPos.y < 1.05 then
 
                 local sx = screenPos.x * sw
                 local sy = screenPos.y * sh - yOffset
@@ -445,6 +575,7 @@ function GameUI._DrawEnemyHealthBars(ctx, sw, sh)
                 nvgText(ctx, sx, sy, hpText, nil)
             end
         end
+        ::continue_enemy::
     end
 end
 
