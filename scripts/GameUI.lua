@@ -1313,43 +1313,43 @@ local function _BuildSkillTabContent(player)
             width = "100%",
             flexDirection = "row",
             alignItems = "center",
-            paddingVertical = 8,
-            paddingHorizontal = 10,
-            backgroundColor = equippedSlot > 0 and {35, 30, 25, 200} or {20, 16, 14, 180},
-            borderRadius = 4,
+            paddingVertical = 10,
+            paddingHorizontal = 12,
+            backgroundColor = equippedSlot > 0 and {38, 32, 26, 210} or {22, 18, 15, 190},
+            borderRadius = 6,
             borderWidth = equippedSlot > 0 and 1 or 0,
-            borderColor = equippedSlot > 0 and {clr[1], clr[2], clr[3], 80} or {0,0,0,0},
+            borderColor = equippedSlot > 0 and {clr[1], clr[2], clr[3], 100} or {0,0,0,0},
             children = {
                 UI.Panel {
-                    width = 130,
+                    flex = 1, flexShrink = 1,
                     children = {
                         UI.Panel {
                             flexDirection = "row", alignItems = "center", gap = 6,
                             children = {
-                                UI.Label { text = skill.name, fontSize = 13, fontColor = nameColor },
-                                UI.Label { text = "[" .. typeName .. "]", fontSize = 9, fontColor = {140, 130, 115, 140} },
+                                UI.Label { text = skill.name, fontSize = 15, fontColor = nameColor, fontWeight = "bold" },
+                                UI.Label { text = "[" .. typeName .. "]", fontSize = 11, fontColor = {155, 145, 125, 170} },
                             },
                         },
-                        UI.Label { text = skill.desc or "", fontSize = 9, fontColor = descColor, marginTop = 2 },
-                        UI.Label { text = unlockText, fontSize = 9, fontColor = {180, 160, 80, 180}, marginTop = 2 },
+                        UI.Label { text = skill.desc or "", fontSize = 11, fontColor = descColor, marginTop = 3 },
+                        UI.Label { text = unlockText, fontSize = 11, fontColor = {200, 180, 80, 200}, marginTop = 3 },
                     },
                 },
                 UI.Panel {
                     width = 70, alignItems = "center",
                     children = {
-                        UI.Label { text = skill.manaCost > 0 and ("耗蓝 " .. skill.manaCost) or "免费", fontSize = 9, fontColor = {100, 160, 220, 180} },
-                        UI.Label { text = skill.cooldown > 0 and ("CD " .. skill.cooldown .. "s") or "", fontSize = 9, fontColor = {160, 140, 100, 140}, marginTop = 2 },
+                        UI.Label { text = skill.manaCost > 0 and ("蓝 " .. skill.manaCost) or "免费", fontSize = 11, fontColor = {110, 170, 230, 210} },
+                        UI.Label { text = skill.cooldown > 0 and ("CD " .. skill.cooldown .. "s") or "", fontSize = 11, fontColor = {175, 160, 115, 170}, marginTop = 2 },
                     },
                 },
                 UI.Panel {
-                    width = 80, alignItems = "center",
+                    width = 72, alignItems = "center",
                     children = {
-                        UI.Label { text = statusText, fontSize = 10, fontColor = statusColor },
+                        UI.Label { text = statusText, fontSize = 12, fontColor = statusColor },
                         not locked and UI.Panel {
-                            width = 60, height = 26, borderRadius = 4,
-                            backgroundColor = equippedSlot > 0 and {60, 30, 25, 220} or {30, 45, 30, 220},
+                            width = 62, height = 28, borderRadius = 5,
+                            backgroundColor = equippedSlot > 0 and {60, 30, 25, 220} or {30, 48, 30, 220},
                             borderWidth = 1,
-                            borderColor = equippedSlot > 0 and {160, 70, 60, 160} or {80, 140, 80, 160},
+                            borderColor = equippedSlot > 0 and {170, 75, 60, 170} or {85, 150, 85, 170},
                             justifyContent = "center", alignItems = "center", marginTop = 4,
                             onPointerUp = function()
                                 if equippedSlot > 0 then
@@ -1371,8 +1371,8 @@ local function _BuildSkillTabContent(player)
                             children = {
                                 UI.Label {
                                     text = equippedSlot > 0 and "卸下" or "装备",
-                                    fontSize = 10,
-                                    fontColor = equippedSlot > 0 and {200, 90, 70, 255} or {120, 200, 120, 255},
+                                    fontSize = 12,
+                                    fontColor = equippedSlot > 0 and {210, 95, 75, 255} or {130, 210, 130, 255},
                                 },
                             },
                         } or nil,
@@ -1383,7 +1383,7 @@ local function _BuildSkillTabContent(player)
     end
 
     return UI.Panel {
-        width = "100%", height = 340, overflow = "scroll", gap = 4,
+        width = "100%", flexShrink = 1, overflow = "scroll", gap = 6,
         children = skillRows,
     }
 end
@@ -1401,48 +1401,59 @@ local function _BuildBagTabContent(player)
         { slot = SLOT.NECKLACE, label = "项链" },
     }
 
+    -- 装备格子：2列布局，每格足够容纳名称+属性
     local equipSlots = {}
     for _, s in ipairs(slotNames) do
         local item = inv.equipped[s.slot]
         local itemName = item and item.name or "空"
         local rarity = item and RARITY[item.rarity] or nil
-        local nameColor = rarity and rarity.color or {100, 100, 100, 150}
-        local borderClr = rarity and {rarity.color[1], rarity.color[2], rarity.color[3], 120} or {50, 45, 38, 120}
+        local nameColor = rarity and rarity.color or {120, 115, 105, 180}
+        local borderClr = rarity and {rarity.color[1], rarity.color[2], rarity.color[3], 140} or {55, 50, 42, 140}
+
+        -- 属性文字
+        local statParts = {}
+        if item then
+            if item.atk > 0 then table.insert(statParts, "攻+" .. item.atk) end
+            if item.def > 0 then table.insert(statParts, "防+" .. item.def) end
+            if item.hp  > 0 then table.insert(statParts, "血+" .. item.hp) end
+        end
+        local statText = table.concat(statParts, " ")
 
         table.insert(equipSlots, UI.Panel {
-            width = 110, height = 60,
-            backgroundColor = {20, 16, 14, 220},
-            borderRadius = 4, borderWidth = 1, borderColor = borderClr,
-            paddingVertical = 6, paddingHorizontal = 8,
+            flex = 1, minWidth = 140, height = 72,
+            backgroundColor = {24, 20, 16, 230},
+            borderRadius = 6, borderWidth = 1, borderColor = borderClr,
+            paddingVertical = 8, paddingHorizontal = 10,
+            justifyContent = "center",
             children = {
-                UI.Label { text = s.label, fontSize = 9, fontColor = {140, 130, 115, 160} },
-                UI.Label { text = itemName, fontSize = 12, fontColor = nameColor, marginTop = 3 },
-                item and UI.Label {
-                    text = (item.atk > 0 and ("攻+" .. item.atk) or "") ..
-                           (item.def > 0 and (" 防+" .. item.def) or "") ..
-                           (item.hp > 0 and (" 血+" .. item.hp) or ""),
-                    fontSize = 9, fontColor = {160, 155, 140, 150}, marginTop = 2,
+                UI.Label { text = s.label, fontSize = 12, fontColor = {170, 160, 140, 200} },
+                UI.Label { text = itemName, fontSize = 15, fontColor = nameColor, marginTop = 4, fontWeight = "bold" },
+                statText ~= "" and UI.Label {
+                    text = statText,
+                    fontSize = 12, fontColor = {190, 185, 165, 200}, marginTop = 3,
                 } or nil,
             },
         })
     end
 
+    -- 背包格子
     local bagItems = {}
     for i = 1, 20 do
         local item = inv.bag[i]
-        local itemName = item and string.sub(item.name, 1, 6) or ""
+        local itemName = item and item.name or ""
         local rarity = item and RARITY[item.rarity] or nil
-        local nameColor = rarity and rarity.color or {80, 80, 80, 80}
-        local bgColor = item and {25, 20, 18, 240} or {18, 15, 12, 150}
-        local borderClr = rarity and {rarity.color[1], rarity.color[2], rarity.color[3], 80} or {40, 35, 30, 80}
+        local nameColor = rarity and rarity.color or {80, 80, 80, 100}
+        local bgColor = item and {28, 24, 20, 240} or {20, 17, 14, 160}
+        local borderClr = rarity and {rarity.color[1], rarity.color[2], rarity.color[3], 100} or {45, 40, 35, 100}
 
         table.insert(bagItems, UI.Panel {
-            width = 52, height = 52,
-            backgroundColor = bgColor, borderRadius = 3,
+            width = 64, height = 64,
+            backgroundColor = bgColor, borderRadius = 4,
             borderWidth = 1, borderColor = borderClr,
             justifyContent = "center", alignItems = "center",
+            paddingHorizontal = 4,
             children = {
-                UI.Label { text = itemName, fontSize = 9, fontColor = nameColor, textAlign = "center" },
+                UI.Label { text = itemName, fontSize = 12, fontColor = nameColor, textAlign = "center" },
             },
         })
     end
@@ -1450,14 +1461,21 @@ local function _BuildBagTabContent(player)
     return UI.Panel {
         width = "100%", flexShrink = 1, overflow = "scroll",
         children = {
-            -- 装备区标题
-            UI.Label { text = "金币: " .. inv.gold, fontSize = 11, fontColor = {255, 215, 80, 220}, marginBottom = 6 },
-            UI.Panel { flexDirection = "row", flexWrap = "wrap", gap = 6, marginBottom = 10, children = equipSlots },
+            -- 金币
+            UI.Panel {
+                flexDirection = "row", alignItems = "center", gap = 6, marginBottom = 8,
+                children = {
+                    UI.Label { text = "💰", fontSize = 16 },
+                    UI.Label { text = tostring(inv.gold), fontSize = 16, fontColor = {255, 220, 80, 255}, fontWeight = "bold" },
+                },
+            },
+            -- 装备区 2 列
+            UI.Panel { flexDirection = "row", flexWrap = "wrap", gap = 8, marginBottom = 12, children = equipSlots },
             -- 分隔线
-            UI.Panel { width = "100%", height = 1, backgroundColor = {60, 50, 38, 100}, marginBottom = 8 },
+            UI.Panel { width = "100%", height = 1, backgroundColor = {70, 60, 42, 120}, marginBottom = 10 },
             -- 背包区
-            UI.Label { text = "背包 (" .. #inv.bag .. "/20)", fontSize = 11, fontColor = {140, 130, 115, 160}, marginBottom = 6 },
-            UI.Panel { flexDirection = "row", flexWrap = "wrap", gap = 4, children = bagItems },
+            UI.Label { text = "背包 (" .. #inv.bag .. "/20)", fontSize = 14, fontColor = {180, 170, 150, 220}, marginBottom = 8 },
+            UI.Panel { flexDirection = "row", flexWrap = "wrap", gap = 6, children = bagItems },
         },
     }
 end
@@ -1479,10 +1497,10 @@ function GameUI.ShowCharacterPanel(player, tab)
     local function makeTab(label, tabId)
         local active = (activeTab == tabId)
         return UI.Panel {
-            flex = 1, height = 32, borderRadius = 4,
-            backgroundColor = active and {50, 42, 30, 240} or {25, 20, 16, 180},
-            borderWidth = active and 1 or 0,
-            borderColor = {150, 125, 55, 160},
+            flex = 1, height = 36, borderRadius = 6,
+            backgroundColor = active and {55, 45, 30, 245} or {28, 22, 18, 190},
+            borderWidth = active and 1.5 or 0,
+            borderColor = {160, 130, 55, 180},
             justifyContent = "center", alignItems = "center",
             onPointerUp = function()
                 if activeTab ~= tabId then
@@ -1493,8 +1511,9 @@ function GameUI.ShowCharacterPanel(player, tab)
             children = {
                 UI.Label {
                     text = label,
-                    fontSize = 13,
-                    fontColor = active and {240, 215, 100, 255} or {140, 130, 115, 180},
+                    fontSize = 15,
+                    fontColor = active and {245, 220, 105, 255} or {160, 150, 130, 200},
+                    fontWeight = active and "bold" or "normal",
                 },
             },
         }
@@ -1515,44 +1534,44 @@ function GameUI.ShowCharacterPanel(player, tab)
         justifyContent = "center", alignItems = "center",
         children = {
             UI.Panel {
-                width = 400, height = 500,
+                width = 440, maxHeight = "85%",
                 backgroundColor = {16, 12, 10, 248},
-                borderRadius = 8, borderWidth = 2,
-                borderColor = {100, 80, 40, 180},
-                padding = 14,
+                borderRadius = 10, borderWidth = 2,
+                borderColor = {110, 90, 45, 190},
+                padding = 18,
                 children = {
                     -- 标题栏
                     UI.Panel {
-                        flexDirection = "row", justifyContent = "space-between",
-                        width = "100%", marginBottom = 8,
+                        flexDirection = "row", justifyContent = "space-between", alignItems = "center",
+                        width = "100%", marginBottom = 10,
                         children = {
-                            UI.Label { text = "角色 — " .. classDef.name, fontSize = 16, fontColor = {210, 185, 80, 255} },
-                            UI.Label { text = "Lv." .. player.level, fontSize = 13, fontColor = {180, 170, 150, 200} },
+                            UI.Label { text = "角色 — " .. classDef.name, fontSize = 18, fontColor = {230, 200, 85, 255}, fontWeight = "bold" },
+                            UI.Label { text = "Lv." .. player.level, fontSize = 15, fontColor = {200, 190, 170, 220} },
                         },
                     },
                     -- Tab 栏
                     UI.Panel {
-                        flexDirection = "row", width = "100%", gap = 6, marginBottom = 10,
+                        flexDirection = "row", width = "100%", gap = 8, marginBottom = 12,
                         children = {
                             makeTab("技能", "skill"),
                             makeTab("背包", "bag"),
                         },
                     },
                     -- 分隔线
-                    UI.Panel { width = "100%", height = 1, backgroundColor = {60, 50, 38, 100}, marginBottom = 8 },
+                    UI.Panel { width = "100%", height = 1, backgroundColor = {70, 60, 42, 120}, marginBottom = 10 },
                     -- 内容区
                     content,
                     -- 关闭按钮
                     UI.Panel {
-                        width = "100%", alignItems = "center", marginTop = 10,
+                        width = "100%", alignItems = "center", marginTop = 12,
                         children = {
                             UI.Button {
                                 text = "关闭",
-                                width = 110, height = 34,
+                                width = 120, height = 38,
                                 backgroundColor = {50, 40, 30, 240},
-                                borderRadius = 4, borderWidth = 1,
-                                borderColor = {95, 80, 58, 180},
-                                fontSize = 13, fontColor = {210, 195, 155, 255},
+                                borderRadius = 6, borderWidth = 1,
+                                borderColor = {100, 85, 60, 190},
+                                fontSize = 15, fontColor = {220, 205, 165, 255},
                                 onClick = function()
                                     GameUI.HideCharacterPanel()
                                     if GameUI.onCharacterPanelClosed then
