@@ -191,7 +191,7 @@ function GameUI._DrawOrbs(ctx, sw, sh)
 
     local r  = math.floor(52 * scale)
     local cx = math.floor(72 * scale)
-    local cy = sh - math.floor(125 * scale)  -- 左下角（上移，为经验条留空间）
+    local cy = sh - math.floor(105 * scale)  -- 左下角
 
     local hpProg = math.max(0, math.min(1, player.hp / math.max(1, player.maxHP)))
     local mpProg = math.max(0, math.min(1, player.mp / math.max(1, player.maxMP)))
@@ -306,162 +306,103 @@ function GameUI._DrawOrbs(ctx, sw, sh)
         nvgText(ctx, cx + r * 0.32, cy, tostring(math.floor(player.mp)), nil)
     end
 
-    -- ======== 等级徽章 + 经验条 (球下方) ========
+    -- ======== 等级标签(嵌在球底) + 经验条(紧贴球下) ========
     local expProg = player.exp / math.max(1, player.expToNext)
-
-    -- 布局参数
-    local badgeR = math.floor(18 * scale)       -- 徽章半径
-    local barW = math.floor(155 * scale)        -- 经验条宽度
-    local barH = math.floor(14 * scale)         -- 经验条高度
-    local lvFontSize = math.floor(16 * scale)   -- 等级字号（加大）
     local expFontSize = math.floor(10 * scale)
 
-    -- 徽章中心在球的正下方（紧贴球底）
-    local badgeCx = cx
-    local badgeCy = cy + r + math.floor(6 * scale) + badgeR
-    -- 经验条在徽章右侧
-    local barX = badgeCx + badgeR + math.floor(6 * scale)
-    local barY = badgeCy - barH / 2
-    local barCenterY = badgeCy
+    -- ---- 等级标签：药丸形，嵌在球底部边缘 ----
+    local lvText = "Lv." .. player.level
+    local lvFontSize = math.floor(13 * scale)
+    local pillH = math.floor(18 * scale)
+    local pillW = math.floor(46 * scale)
+    local pillX = cx - pillW / 2
+    local pillY = cy + r - pillH * 0.45  -- 向上嵌入球底边缘
 
-    -- ---- 经验条主体（先画，徽章覆盖在上面） ----
-
-    -- 经验条外框阴影
+    -- 药丸底色（深色）
     nvgBeginPath(ctx)
-    nvgRoundedRect(ctx, barX - 1, barY - 1, barW + 2, barH + 2, (barH / 2) + 1)
-    nvgFillColor(ctx, nvgRGBA(0, 0, 0, 100))
+    nvgRoundedRect(ctx, pillX, pillY, pillW, pillH, pillH / 2)
+    nvgFillColor(ctx, nvgRGBA(18, 14, 10, 245))
     nvgFill(ctx)
 
-    -- 经验条背景（深色凹槽感）
+    -- 药丸金色边框
+    nvgBeginPath(ctx)
+    nvgRoundedRect(ctx, pillX, pillY, pillW, pillH, pillH / 2)
+    nvgStrokeColor(ctx, nvgRGBA(200, 170, 60, 210))
+    nvgStrokeWidth(ctx, 1.8 * scale)
+    nvgStroke(ctx)
+
+    -- 等级文字
+    if nvgFontId >= 0 then
+        nvgFontFaceId(ctx, nvgFontId)
+        nvgFontSize(ctx, lvFontSize)
+        nvgTextAlign(ctx, NVG_ALIGN_CENTER + NVG_ALIGN_MIDDLE)
+        -- 阴影
+        nvgFillColor(ctx, nvgRGBA(0, 0, 0, 200))
+        nvgText(ctx, cx + 1, pillY + pillH / 2 + 1, lvText, nil)
+        -- 金色文字
+        nvgFillColor(ctx, nvgRGBA(255, 225, 100, 255))
+        nvgText(ctx, cx, pillY + pillH / 2, lvText, nil)
+    end
+
+    -- ---- 经验条：紧贴球下方，宽度与球直径一致 ----
+    local barW = r * 2 + math.floor(16 * scale)  -- 略宽于球直径
+    local barH = math.floor(8 * scale)            -- 薄条
+    local barX = cx - barW / 2
+    local barY = cy + r + pillH * 0.55 + math.floor(4 * scale)
+    local barCenterY = barY + barH / 2
+
+    -- 外框阴影
+    nvgBeginPath(ctx)
+    nvgRoundedRect(ctx, barX - 1, barY - 1, barW + 2, barH + 2, (barH / 2) + 1)
+    nvgFillColor(ctx, nvgRGBA(0, 0, 0, 80))
+    nvgFill(ctx)
+
+    -- 经验条背景（深色凹槽）
     nvgBeginPath(ctx)
     nvgRoundedRect(ctx, barX, barY, barW, barH, barH / 2)
     local barBgGrad = nvgLinearGradient(ctx, barX, barY, barX, barY + barH,
-        nvgRGBA(12, 10, 8, 230),
-        nvgRGBA(22, 18, 14, 240))
+        nvgRGBA(8, 6, 5, 220),
+        nvgRGBA(20, 16, 12, 230))
     nvgFillPaint(ctx, barBgGrad)
     nvgFill(ctx)
 
-    -- 经验条填充（金色渐变 + 圆角）
+    -- 经验条填充（金色渐变）
     if expProg > 0 then
-        local fillW = math.max(barH * 0.5, barW * expProg)
+        local fillW = math.max(barH * 0.6, barW * expProg)
         nvgBeginPath(ctx)
         nvgRoundedRect(ctx, barX, barY, fillW, barH, barH / 2)
         local expGrad = nvgLinearGradient(ctx, barX, barY, barX, barY + barH,
             nvgRGBA(255, 225, 80, 245),
-            nvgRGBA(200, 150, 30, 230))
+            nvgRGBA(195, 145, 25, 225))
         nvgFillPaint(ctx, expGrad)
         nvgFill(ctx)
 
-        -- 顶部高光条
+        -- 顶部高光
         nvgBeginPath(ctx)
-        nvgRoundedRect(ctx, barX + 2 * scale, barY + 1.5 * scale,
-            fillW - 4 * scale, barH * 0.32, barH * 0.16)
-        nvgFillColor(ctx, nvgRGBA(255, 255, 220, 55))
+        nvgRoundedRect(ctx, barX + 2 * scale, barY + 1 * scale,
+            fillW - 4 * scale, barH * 0.35, barH * 0.17)
+        nvgFillColor(ctx, nvgRGBA(255, 255, 220, 50))
         nvgFill(ctx)
-
-        -- 尾端发光点
-        if fillW > barH then
-            nvgBeginPath(ctx)
-            nvgCircle(ctx, barX + fillW - barH * 0.35, barCenterY, barH * 0.22)
-            nvgFillColor(ctx, nvgRGBA(255, 255, 200, 45))
-            nvgFill(ctx)
-        end
     end
 
     -- 经验条边框
     nvgBeginPath(ctx)
     nvgRoundedRect(ctx, barX, barY, barW, barH, barH / 2)
-    nvgStrokeColor(ctx, nvgRGBA(140, 115, 55, 160))
-    nvgStrokeWidth(ctx, 1.2 * scale)
+    nvgStrokeColor(ctx, nvgRGBA(130, 105, 45, 140))
+    nvgStrokeWidth(ctx, 1.0 * scale)
     nvgStroke(ctx)
 
-    -- EXP 百分比文字（经验条内右侧）
+    -- EXP 百分比（经验条右侧外面）
     if nvgFontId >= 0 then
         nvgFontFaceId(ctx, nvgFontId)
         nvgFontSize(ctx, expFontSize)
-        nvgTextAlign(ctx, NVG_ALIGN_RIGHT + NVG_ALIGN_MIDDLE)
-        -- 阴影
-        nvgFillColor(ctx, nvgRGBA(0, 0, 0, 200))
-        nvgText(ctx, barX + barW - 5 * scale + 1, barCenterY + 1,
+        nvgTextAlign(ctx, NVG_ALIGN_LEFT + NVG_ALIGN_MIDDLE)
+        nvgFillColor(ctx, nvgRGBA(0, 0, 0, 150))
+        nvgText(ctx, barX + barW + 5 * scale + 1, barCenterY + 1,
             math.floor(expProg * 100) .. "%", nil)
-        -- 正文
-        nvgFillColor(ctx, nvgRGBA(255, 245, 200, 240))
-        nvgText(ctx, barX + barW - 5 * scale, barCenterY,
+        nvgFillColor(ctx, nvgRGBA(210, 195, 130, 210))
+        nvgText(ctx, barX + barW + 5 * scale, barCenterY,
             math.floor(expProg * 100) .. "%", nil)
-    end
-
-    -- ---- 等级徽章（圆形金色盾徽，覆盖在经验条左端） ----
-
-    -- 外圈发光
-    nvgBeginPath(ctx)
-    nvgCircle(ctx, badgeCx, badgeCy, badgeR + 4 * scale)
-    local badgeGlow = nvgRadialGradient(ctx, badgeCx, badgeCy, badgeR - 2, badgeR + 6 * scale,
-        nvgRGBA(255, 200, 60, 40),
-        nvgRGBA(255, 180, 40, 0))
-    nvgFillPaint(ctx, badgeGlow)
-    nvgFill(ctx)
-
-    -- 外圈深色底环
-    nvgBeginPath(ctx)
-    nvgCircle(ctx, badgeCx, badgeCy, badgeR + 1.5 * scale)
-    nvgFillColor(ctx, nvgRGBA(30, 25, 18, 250))
-    nvgFill(ctx)
-
-    -- 徽章主体（金色径向渐变）
-    nvgBeginPath(ctx)
-    nvgCircle(ctx, badgeCx, badgeCy, badgeR)
-    local badgeGrad = nvgRadialGradient(ctx, badgeCx, badgeCy - badgeR * 0.3,
-        badgeR * 0.15, badgeR * 0.9,
-        nvgRGBA(255, 225, 100, 250),
-        nvgRGBA(160, 110, 30, 240))
-    nvgFillPaint(ctx, badgeGrad)
-    nvgFill(ctx)
-
-    -- 内圈深色凹槽
-    nvgBeginPath(ctx)
-    nvgCircle(ctx, badgeCx, badgeCy, badgeR - 3 * scale)
-    local innerGrad = nvgRadialGradient(ctx, badgeCx, badgeCy - badgeR * 0.15,
-        badgeR * 0.05, badgeR * 0.7,
-        nvgRGBA(45, 35, 20, 240),
-        nvgRGBA(25, 20, 12, 250))
-    nvgFillPaint(ctx, innerGrad)
-    nvgFill(ctx)
-
-    -- 玻璃高光
-    nvgBeginPath(ctx)
-    nvgEllipse(ctx, badgeCx - badgeR * 0.15, badgeCy - badgeR * 0.35,
-        badgeR * 0.4, badgeR * 0.18)
-    nvgFillColor(ctx, nvgRGBA(255, 255, 240, 30))
-    nvgFill(ctx)
-
-    -- 金色边框
-    nvgBeginPath(ctx)
-    nvgCircle(ctx, badgeCx, badgeCy, badgeR)
-    nvgStrokeColor(ctx, nvgRGBA(220, 180, 70, 220))
-    nvgStrokeWidth(ctx, 2.0 * scale)
-    nvgStroke(ctx)
-
-    -- 等级数字（大号金色，居中在徽章内）
-    if nvgFontId >= 0 then
-        nvgFontFaceId(ctx, nvgFontId)
-        nvgTextAlign(ctx, NVG_ALIGN_CENTER + NVG_ALIGN_MIDDLE)
-
-        -- 等级数字
-        nvgFontSize(ctx, lvFontSize)
-        -- 深色描边/阴影
-        nvgFillColor(ctx, nvgRGBA(0, 0, 0, 200))
-        nvgText(ctx, badgeCx + 1, badgeCy + 1, tostring(player.level), nil)
-        -- 金色正文
-        nvgFillColor(ctx, nvgRGBA(255, 230, 120, 255))
-        nvgText(ctx, badgeCx, badgeCy, tostring(player.level), nil)
-
-        -- "LV" 小标签在徽章正上方
-        nvgFontSize(ctx, math.floor(9 * scale))
-        nvgTextAlign(ctx, NVG_ALIGN_CENTER + NVG_ALIGN_BOTTOM)
-        nvgFillColor(ctx, nvgRGBA(0, 0, 0, 160))
-        nvgText(ctx, badgeCx + 1, badgeCy - badgeR - 3 * scale + 1, "LV", nil)
-        nvgFillColor(ctx, nvgRGBA(220, 195, 100, 220))
-        nvgText(ctx, badgeCx, badgeCy - badgeR - 3 * scale, "LV", nil)
     end
 end
 
