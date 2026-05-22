@@ -191,7 +191,7 @@ function GameUI._DrawOrbs(ctx, sw, sh)
 
     local r  = math.floor(52 * scale)
     local cx = math.floor(72 * scale)
-    local cy = sh - math.floor(95 * scale)  -- 左下角
+    local cy = sh - math.floor(125 * scale)  -- 左下角（上移，为经验条留空间）
 
     local hpProg = math.max(0, math.min(1, player.hp / math.max(1, player.maxHP)))
     local mpProg = math.max(0, math.min(1, player.mp / math.max(1, player.maxMP)))
@@ -304,12 +304,6 @@ function GameUI._DrawOrbs(ctx, sw, sh)
 
         nvgFillColor(ctx, nvgRGBA(180, 210, 255, 230))
         nvgText(ctx, cx + r * 0.32, cy, tostring(math.floor(player.mp)), nil)
-
-        nvgFontSize(ctx, math.floor(10 * scale))
-        nvgFillColor(ctx, nvgRGBA(190, 75, 55, 150))
-        nvgText(ctx, cx - r * 0.35, cy + r + 11 * scale, "HP", nil)
-        nvgFillColor(ctx, nvgRGBA(70, 140, 210, 150))
-        nvgText(ctx, cx + r * 0.35, cy + r + 11 * scale, "MP", nil)
     end
 
     -- ======== 等级徽章 + 经验条 (球下方) ========
@@ -322,9 +316,9 @@ function GameUI._DrawOrbs(ctx, sw, sh)
     local lvFontSize = math.floor(16 * scale)   -- 等级字号（加大）
     local expFontSize = math.floor(10 * scale)
 
-    -- 徽章中心在球的正下方
+    -- 徽章中心在球的正下方（紧贴球底）
     local badgeCx = cx
-    local badgeCy = cy + r + math.floor(22 * scale) + badgeR
+    local badgeCy = cy + r + math.floor(6 * scale) + badgeR
     -- 经验条在徽章右侧
     local barX = badgeCx + badgeR + math.floor(6 * scale)
     local barY = badgeCy - barH / 2
