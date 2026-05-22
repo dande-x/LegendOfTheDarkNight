@@ -241,8 +241,8 @@ function OnClassSelected(classId)
     GameUI.onSkillPressed = function(slot, skill)
         if isDead then return end
         if castState.active then return end  -- 施法中不可再按
-        if GameUI.IsBagOpen() then return end -- 背包打开时不放技能
-        if GameUI.IsSkillPanelOpen() then return end -- 技能面板打开时不放技能
+        if GameUI.IsCharacterPanelOpen() then return end -- 角色面板打开时不放技能
+        if GameUI.IsSystemPanelOpen() then return end -- 系统面板打开时不放技能
 
         if not skill then return end
         local canCast, reason = CharacterClass.CanCastSkill(player_, skill)
@@ -344,26 +344,26 @@ function OnClassSelected(classId)
         GameUI.ShowGameHUD(player_)
     end
 
-    -- 背包切换回调
-    GameUI.onBagToggle = function()
-        if GameUI.IsBagOpen() then
-            GameUI.HideBagPanel()
+    -- 角色面板切换回调
+    GameUI.onCharacterPanelToggle = function()
+        if GameUI.IsCharacterPanelOpen() then
+            GameUI.HideCharacterPanel()
         else
-            GameUI.ShowBagPanel(player_)
+            GameUI.ShowCharacterPanel(player_, "skill")
         end
     end
 
-    -- 技能面板回调
-    GameUI.onSkillPanelToggle = function()
-        if GameUI.IsSkillPanelOpen() then
-            GameUI.HideSkillPanel()
+    -- 系统面板切换回调
+    GameUI.onSystemPanelToggle = function()
+        if GameUI.IsSystemPanelOpen() then
+            GameUI.HideSystemPanel()
         else
-            GameUI.ShowSkillPanel(player_)
+            GameUI.ShowSystemPanel()
         end
     end
 
-    GameUI.onSkillPanelClosed = function()
-        -- 技能面板关闭后刷新 HUD 技能栏
+    GameUI.onCharacterPanelClosed = function()
+        -- 角色面板关闭后刷新 HUD 技能栏
         GameUI.RefreshSkillButtons(player_)
     end
 
@@ -436,12 +436,12 @@ function ReturnToMainMenu()
     GameUI.HideCastBar()
     ShowChargeGlow(false)
 
-    -- 关闭背包和技能面板
-    if GameUI.IsBagOpen() then
-        GameUI.HideBagPanel()
+    -- 关闭角色面板和系统面板
+    if GameUI.IsCharacterPanelOpen() then
+        GameUI.HideCharacterPanel()
     end
-    if GameUI.IsSkillPanelOpen() then
-        GameUI.HideSkillPanel()
+    if GameUI.IsSystemPanelOpen() then
+        GameUI.HideSystemPanel()
     end
 
     -- 清理战斗实体
