@@ -189,9 +189,9 @@ function GameUI._DrawOrbs(ctx, sw, sh)
     local scale = sh / 720
     local player = uiState.player
 
-    local r  = math.floor(38 * scale)
-    local cx = math.floor(55 * scale)
-    local cy = sh - math.floor(75 * scale)  -- 左下角
+    local r  = math.floor(52 * scale)
+    local cx = math.floor(72 * scale)
+    local cy = sh - math.floor(95 * scale)  -- 左下角
 
     local hpProg = math.max(0, math.min(1, player.hp / math.max(1, player.maxHP)))
     local mpProg = math.max(0, math.min(1, player.mp / math.max(1, player.maxMP)))
@@ -296,7 +296,7 @@ function GameUI._DrawOrbs(ctx, sw, sh)
     -- 数值文字
     if nvgFontId >= 0 then
         nvgFontFaceId(ctx, nvgFontId)
-        nvgFontSize(ctx, math.floor(11 * scale))
+        nvgFontSize(ctx, math.floor(15 * scale))
         nvgTextAlign(ctx, NVG_ALIGN_CENTER + NVG_ALIGN_MIDDLE)
 
         nvgFillColor(ctx, nvgRGBA(255, 200, 180, 230))
@@ -305,27 +305,27 @@ function GameUI._DrawOrbs(ctx, sw, sh)
         nvgFillColor(ctx, nvgRGBA(180, 210, 255, 230))
         nvgText(ctx, cx + r * 0.32, cy, tostring(math.floor(player.mp)), nil)
 
-        nvgFontSize(ctx, math.floor(8 * scale))
+        nvgFontSize(ctx, math.floor(10 * scale))
         nvgFillColor(ctx, nvgRGBA(190, 75, 55, 150))
-        nvgText(ctx, cx - r * 0.35, cy + r + 9 * scale, "HP", nil)
+        nvgText(ctx, cx - r * 0.35, cy + r + 11 * scale, "HP", nil)
         nvgFillColor(ctx, nvgRGBA(70, 140, 210, 150))
-        nvgText(ctx, cx + r * 0.35, cy + r + 9 * scale, "MP", nil)
+        nvgText(ctx, cx + r * 0.35, cy + r + 11 * scale, "MP", nil)
     end
 
     -- ======== 龙头经验条 (球下方) ========
     local expProg = player.exp / math.max(1, player.expToNext)
 
     -- 布局参数
-    local dragonSize = math.floor(20 * scale)  -- 龙头整体大小
-    local barW = math.floor(100 * scale)
-    local barH = math.floor(8 * scale)
-    local lvFontSize = math.floor(11 * scale)
-    local expFontSize = math.floor(7 * scale)
+    local dragonSize = math.floor(30 * scale)  -- 龙头整体大小
+    local barW = math.floor(140 * scale)
+    local barH = math.floor(12 * scale)
+    local lvFontSize = math.floor(14 * scale)
+    local expFontSize = math.floor(10 * scale)
 
     -- 整体位于球正下方居中
     local totalW = dragonSize + barW + 4 * scale  -- 龙头 + 间距 + 条
     local startX = cx - totalW / 2
-    local barY = cy + r + math.floor(16 * scale)
+    local barY = cy + r + math.floor(18 * scale)
     local barCenterY = barY + barH / 2
 
     -- ---- Lv.n 标签 (龙头上方) ----
@@ -503,11 +503,11 @@ function GameUI._DrawEnemyHealthBars(ctx, sw, sh)
     end
 
     local scale = sh / 720
-    local barW = math.floor(60 * scale)
-    local barH = math.floor(12 * scale)
-    local borderW = math.floor(1 * scale)
-    local fontSize = math.max(8, math.floor(10 * scale))
-    local yOffset = math.floor(22 * scale)  -- 血条在头顶上方的偏移
+    local barW = math.floor(80 * scale)
+    local barH = math.floor(14 * scale)
+    local borderW = math.floor(1.5 * scale)
+    local fontSize = math.max(10, math.floor(13 * scale))
+    local yOffset = math.floor(28 * scale)  -- 血条在头顶上方的偏移
 
     nvgFontFaceId(ctx, nvgFontId)
     nvgFontSize(ctx, fontSize)
