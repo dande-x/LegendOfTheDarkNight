@@ -898,54 +898,11 @@ function GameUI.ShowGameHUD(player)
 end
 
 -- ============================================================================
--- 右上角按钮 (菜单 + 背包 + 技能)
+-- 右上角按钮（由 _CreateTopRightArea 统一管理，不再单独创建）
 -- ============================================================================
 function GameUI._CreateTopButtons()
-    local function makeBtn(icon, iconColor, borderColor, size, onTap)
-        return UI.Panel {
-            width = size, height = size,
-            borderRadius = size / 2,
-            backgroundColor = {16, 14, 12, 210},
-            borderWidth = 1.5,
-            borderColor = borderColor,
-            justifyContent = "center",
-            alignItems = "center",
-            onPointerUp = onTap,
-            children = {
-                UI.Label {
-                    text = icon,
-                    fontSize = math.floor(size * 0.36),
-                    fontColor = iconColor,
-                },
-            },
-        }
-    end
-
-    local btnSize = 42
-
-    return UI.Panel {
-        id = "topButtons",
-        position = "absolute",
-        top = 80, right = 12,
-        alignItems = "flex-end",
-        gap = 8,
-        children = {
-            -- 角色按钮（技能+背包）
-            makeBtn("角色",
-                {230, 200, 90, 255},
-                {150, 125, 50, 180},
-                btnSize,
-                function() if GameUI.onCharacterPanelToggle then GameUI.onCharacterPanelToggle() end end
-            ),
-            -- 系统按钮（退出+DBG）
-            makeBtn("系统",
-                {170, 165, 155, 240},
-                {100, 95, 80, 160},
-                btnSize,
-                function() if GameUI.onSystemPanelToggle then GameUI.onSystemPanelToggle() end end
-            ),
-        },
-    }
+    -- 已合并到 _CreateTopRightArea，返回空容器
+    return UI.Panel { width = 0, height = 0 }
 end
 
 -- ============================================================================
@@ -1132,88 +1089,101 @@ end
 -- 右上角 - 小地图 + 信息
 -- ============================================================================
 function GameUI._CreateMiniMapArea(player)
-    -- 小地图圆形（缩小，精致边框）
+    -- ── 整合右上角：小地图 + 信息条 + 角色/系统按钮 ──
+
+    -- 小地图圆形（深底 + 金色外圈 + 十字准星 + 指北标）
+    local mapSize = 64
     local miniMap = UI.Panel {
-        width = 56, height = 56,
-        borderRadius = 28,
-        backgroundColor = {10, 8, 6, 200},
+        width = mapSize, height = mapSize,
+        borderRadius = mapSize / 2,
+        backgroundColor = {18, 22, 18, 220},
         borderWidth = 2,
-        borderColor = {140, 115, 55, 160},
+        borderColor = {150, 125, 55, 180},
         justifyContent = "center",
         alignItems = "center",
         children = {
-            -- 内圈装饰
+            -- 内圈（模拟地图区域）
             UI.Panel {
-                width = 48, height = 48,
-                borderRadius = 24,
+                width = mapSize - 10, height = mapSize - 10,
+                borderRadius = (mapSize - 10) / 2,
                 borderWidth = 1,
-                borderColor = {100, 85, 40, 80},
+                borderColor = {80, 90, 70, 100},
+                justifyContent = "center",
+                alignItems = "center",
+                children = {
+                    -- 十字准星（竖线）
+                    UI.Panel {
+                        position = "absolute",
+                        width = 1, height = 20,
+                        backgroundColor = {100, 130, 90, 80},
+                    },
+                    -- 十字准星（横线）
+                    UI.Panel {
+                        position = "absolute",
+                        width = 20, height = 1,
+                        backgroundColor = {100, 130, 90, 80},
+                    },
+                    -- 玩家标记点（中心亮点）
+                    UI.Panel {
+                        width = 6, height = 6,
+                        borderRadius = 3,
+                        backgroundColor = {80, 220, 120, 255},
+                    },
+                },
+            },
+            -- 指北标 N
+            UI.Panel {
+                position = "absolute",
+                top = 3,
                 justifyContent = "center",
                 alignItems = "center",
                 children = {
                     UI.Label {
-                        text = "MAP",
-                        fontSize = 11,
-                        fontColor = {140, 125, 80, 150},
+                        text = "N",
+                        fontSize = 8,
+                        fontColor = {220, 200, 100, 200},
+                        fontWeight = "bold",
                     },
                 },
             },
         },
     }
 
-    -- 信息条面板（击杀 + 金币，暗底横条）
+    -- 信息条（击杀 + 金币，紧凑横排）
     local infoBar = UI.Panel {
         flexDirection = "row",
         alignItems = "center",
-        backgroundColor = {12, 10, 8, 180},
-        borderRadius = 6,
+        backgroundColor = {16, 14, 10, 190},
+        borderRadius = 10,
         borderWidth = 1,
-        borderColor = {80, 65, 35, 100},
+        borderColor = {90, 75, 40, 120},
         paddingLeft = 8, paddingRight = 10,
-        paddingTop = 4, paddingBottom = 4,
-        gap = 12,
-        marginTop = 6,
+        paddingTop = 3, paddingBottom = 3,
+        gap = 10,
+        marginTop = 4,
         children = {
-            -- 击杀信息
+            -- 击杀
             UI.Panel {
-                flexDirection = "row",
-                alignItems = "center",
-                gap = 4,
+                flexDirection = "row", alignItems = "center", gap = 3,
                 children = {
-                    -- 刀剑图标（用文字模拟）
-                    UI.Label {
-                        text = "⚔",
-                        fontSize = 12,
-                        fontColor = {180, 70, 50, 220},
-                    },
+                    UI.Label { text = "⚔", fontSize = 11, fontColor = {200, 80, 60, 230} },
                     (function()
                         local lbl = UI.Label {
-                            text = "0",
-                            fontSize = 12,
-                            fontColor = {200, 180, 160, 220},
+                            text = "0", fontSize = 11, fontColor = {210, 190, 170, 230},
                         }
                         uiState.refs.killCount = lbl
                         return lbl
                     end)(),
                 },
             },
-            -- 金币信息
+            -- 金币
             UI.Panel {
-                flexDirection = "row",
-                alignItems = "center",
-                gap = 4,
+                flexDirection = "row", alignItems = "center", gap = 3,
                 children = {
-                    -- 金币图标
-                    UI.Label {
-                        text = "💰",
-                        fontSize = 12,
-                        fontColor = {255, 200, 50, 240},
-                    },
+                    UI.Label { text = "💰", fontSize = 11, fontColor = {255, 210, 60, 240} },
                     (function()
                         local lbl = UI.Label {
-                            text = "0",
-                            fontSize = 12,
-                            fontColor = {255, 220, 100, 230},
+                            text = "0", fontSize = 11, fontColor = {255, 225, 110, 240},
                         }
                         uiState.refs.goldLabel = lbl
                         return lbl
@@ -1223,14 +1193,60 @@ function GameUI._CreateMiniMapArea(player)
         },
     }
 
+    -- 功能按钮行（角色 + 系统，横排）
+    local function makeBtn(label, labelColor, bgColor, borderColor, onTap)
+        return UI.Panel {
+            flexDirection = "row",
+            alignItems = "center",
+            justifyContent = "center",
+            paddingLeft = 10, paddingRight = 10,
+            paddingTop = 5, paddingBottom = 5,
+            borderRadius = 12,
+            backgroundColor = bgColor,
+            borderWidth = 1,
+            borderColor = borderColor,
+            onPointerUp = onTap,
+            children = {
+                UI.Label {
+                    text = label,
+                    fontSize = 11,
+                    fontColor = labelColor,
+                    fontWeight = "bold",
+                },
+            },
+        }
+    end
+
+    local btnRow = UI.Panel {
+        flexDirection = "row",
+        justifyContent = "center",
+        gap = 6,
+        marginTop = 4,
+        children = {
+            makeBtn("角色",
+                {240, 215, 100, 255},
+                {30, 26, 20, 210},
+                {140, 115, 50, 160},
+                function() if GameUI.onCharacterPanelToggle then GameUI.onCharacterPanelToggle() end end
+            ),
+            makeBtn("系统",
+                {180, 175, 165, 240},
+                {30, 28, 24, 200},
+                {90, 85, 70, 140},
+                function() if GameUI.onSystemPanelToggle then GameUI.onSystemPanelToggle() end end
+            ),
+        },
+    }
+
     return UI.Panel {
         id = "topRight",
         position = "absolute",
-        top = 12, right = 12,
-        alignItems = "flex-end",
+        top = 10, right = 10,
+        alignItems = "center",
         children = {
             miniMap,
             infoBar,
+            btnRow,
         },
     }
 end
