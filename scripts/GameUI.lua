@@ -1394,6 +1394,12 @@ local function _BuildBagTabContent(player)
     local SLOT = Inventory.SLOT
     local RARITY = Inventory.RARITY
 
+    -- 刷新面板的辅助函数
+    local function refreshPanel()
+        GameUI.HideCharacterPanel()
+        GameUI.ShowCharacterPanel(player, "bag")
+    end
+
     local slotNames = {
         { slot = SLOT.WEAPON,   label = "武器" },
         { slot = SLOT.ARMOR,    label = "防具" },
@@ -1401,14 +1407,15 @@ local function _BuildBagTabContent(player)
         { slot = SLOT.NECKLACE, label = "项链" },
     }
 
-    -- 装备格子：2列布局，每格足够容纳名称+属性
+    -- 装备格子：2列布局，点击已装备物品可卸下
     local equipSlots = {}
     for _, s in ipairs(slotNames) do
         local item = inv.equipped[s.slot]
         local itemName = item and item.name or "空"
         local rarity = item and RARITY[item.rarity] or nil
-        local nameColor = rarity and rarity.color or {120, 115, 105, 180}
-        local borderClr = rarity and {rarity.color[1], rarity.color[2], rarity.color[3], 140} or {55, 50, 42, 140}
+        local nameColor = rarity and rarity.color or {100, 95, 85, 150}
+        local borderClr = rarity and {rarity.color[1], rarity.color[2], rarity.color[3], 160} or {55, 50, 42, 120}
+        local bgColor = item and {30, 25, 18, 240} or {24, 20, 16, 200}
 
         -- 属性文字
         local statParts = {}
@@ -1419,63 +1426,107 @@ local function _BuildBagTabContent(player)
         end
         local statText = table.concat(statParts, " ")
 
+        -- 提示文字
+        local hintText = item and "点击卸下" or ""
+
+        local capturedSlot = s.slot
+        local capturedItem = item
         table.insert(equipSlots, UI.Panel {
-            flex = 1, minWidth = 140, height = 72,
-            backgroundColor = {24, 20, 16, 230},
-            borderRadius = 6, borderWidth = 1, borderColor = borderClr,
-            paddingVertical = 8, paddingHorizontal = 10,
+            flex = 1, minWidth = 155, height = 88,
+            backgroundColor = bgColor,
+            borderRadius = 8, borderWidth = 1.5, borderColor = borderClr,
+            paddingVertical = 10, paddingHorizontal = 12,
             justifyContent = "center",
+            onPointerUp = capturedItem and function()
+                -- 卸下装备：移入背包
+                if #inv.bag < 20 then
+                    table.insert(inv.bag, capturedItem)
+                    inv.equipped[capturedSlot] = nil
+                    Inventory.RecalcBonus()
+                    refreshPanel()
+                end
+            end or nil,
             children = {
                 UI.Label { text = s.label, fontSize = 12, fontColor = {170, 160, 140, 200} },
                 UI.Label { text = itemName, fontSize = 15, fontColor = nameColor, marginTop = 4, fontWeight = "bold" },
                 statText ~= "" and UI.Label {
                     text = statText,
-                    fontSize = 12, fontColor = {190, 185, 165, 200}, marginTop = 3,
+                    fontSize = 12, fontColor = {200, 195, 175, 220}, marginTop = 3,
+                } or nil,
+                hintText ~= "" and UI.Label {
+                    text = hintText,
+                    fontSize = 10, fontColor = {140, 200, 140, 160}, marginTop = 3,
                 } or nil,
             },
         })
     end
 
-    -- 背包格子
+    -- 背包格子：点击物品可装备
     local bagItems = {}
     for i = 1, 20 do
         local item = inv.bag[i]
         local itemName = item and item.name or ""
         local rarity = item and RARITY[item.rarity] or nil
         local nameColor = rarity and rarity.color or {80, 80, 80, 100}
-        local bgColor = item and {28, 24, 20, 240} or {20, 17, 14, 160}
-        local borderClr = rarity and {rarity.color[1], rarity.color[2], rarity.color[3], 100} or {45, 40, 35, 100}
+        local bgColor = item and {32, 28, 22, 240} or {20, 17, 14, 140}
+        local borderClr = rarity and {rarity.color[1], rarity.color[2], rarity.color[3], 120} or {45, 40, 35, 80}
 
+        -- 属性简要
+        local briefStat = ""
+        if item then
+            local parts = {}
+            if item.atk > 0 then table.insert(parts, "攻" .. item.atk) end
+            if item.def > 0 then table.insert(parts, "防" .. item.def) end
+            if item.hp  > 0 then table.insert(parts, "血" .. item.hp) end
+            briefStat = table.concat(parts, " ")
+        end
+
+        local capturedItem = item
         table.insert(bagItems, UI.Panel {
-            width = 64, height = 64,
-            backgroundColor = bgColor, borderRadius = 4,
+            width = 72, height = 80,
+            backgroundColor = bgColor, borderRadius = 6,
             borderWidth = 1, borderColor = borderClr,
             justifyContent = "center", alignItems = "center",
-            paddingHorizontal = 4,
+            paddingHorizontal = 4, paddingVertical = 4,
+            onPointerUp = capturedItem and function()
+                -- 装备物品（自动替换旧装备到背包）
+                Inventory.EquipItem(capturedItem, player.classId)
+                refreshPanel()
+            end or nil,
             children = {
-                UI.Label { text = itemName, fontSize = 12, fontColor = nameColor, textAlign = "center" },
+                UI.Label { text = itemName, fontSize = 12, fontColor = nameColor, textAlign = "center", fontWeight = item and "bold" or nil },
+                briefStat ~= "" and UI.Label {
+                    text = briefStat,
+                    fontSize = 9, fontColor = {180, 175, 160, 180}, marginTop = 2, textAlign = "center",
+                } or nil,
+                item and UI.Label {
+                    text = "装备", fontSize = 9, fontColor = {120, 190, 120, 150}, marginTop = 2,
+                } or nil,
             },
         })
     end
 
     return UI.Panel {
         width = "100%", flexShrink = 1, overflow = "scroll",
+        paddingHorizontal = 4,
         children = {
             -- 金币
             UI.Panel {
-                flexDirection = "row", alignItems = "center", gap = 6, marginBottom = 8,
+                flexDirection = "row", alignItems = "center", gap = 8, marginBottom = 12,
                 children = {
-                    UI.Label { text = "💰", fontSize = 16 },
-                    UI.Label { text = tostring(inv.gold), fontSize = 16, fontColor = {255, 220, 80, 255}, fontWeight = "bold" },
+                    UI.Label { text = "💰", fontSize = 18 },
+                    UI.Label { text = tostring(inv.gold), fontSize = 18, fontColor = {255, 220, 80, 255}, fontWeight = "bold" },
                 },
             },
+            -- 装备区标题
+            UI.Label { text = "已装备", fontSize = 14, fontColor = {200, 190, 160, 220}, marginBottom = 8 },
             -- 装备区 2 列
-            UI.Panel { flexDirection = "row", flexWrap = "wrap", gap = 8, marginBottom = 12, children = equipSlots },
+            UI.Panel { flexDirection = "row", flexWrap = "wrap", gap = 10, marginBottom = 16, children = equipSlots },
             -- 分隔线
-            UI.Panel { width = "100%", height = 1, backgroundColor = {70, 60, 42, 120}, marginBottom = 10 },
-            -- 背包区
-            UI.Label { text = "背包 (" .. #inv.bag .. "/20)", fontSize = 14, fontColor = {180, 170, 150, 220}, marginBottom = 8 },
-            UI.Panel { flexDirection = "row", flexWrap = "wrap", gap = 6, children = bagItems },
+            UI.Panel { width = "100%", height = 1, backgroundColor = {80, 70, 50, 130}, marginBottom = 12 },
+            -- 背包区标题
+            UI.Label { text = "背包 (" .. #inv.bag .. "/20)", fontSize = 14, fontColor = {200, 190, 160, 220}, marginBottom = 10 },
+            UI.Panel { flexDirection = "row", flexWrap = "wrap", gap = 8, children = bagItems },
         },
     }
 end
