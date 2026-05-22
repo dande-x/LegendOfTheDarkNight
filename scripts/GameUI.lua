@@ -901,125 +901,109 @@ end
 -- 右上角按钮 (菜单 + 背包 + 技能)
 -- ============================================================================
 function GameUI._CreateTopButtons()
+    -- 通用按钮工厂：暗金边框圆形按钮
+    local function makeBtn(icon, iconColor, borderColor, size, onTap)
+        return UI.Panel {
+            width = size, height = size,
+            borderRadius = size / 2,
+            backgroundColor = {16, 14, 12, 210},
+            borderWidth = 1.5,
+            borderColor = borderColor,
+            justifyContent = "center",
+            alignItems = "center",
+            onPointerUp = onTap,
+            children = {
+                UI.Label {
+                    text = icon,
+                    fontSize = math.floor(size * 0.38),
+                    fontColor = iconColor,
+                },
+            },
+        }
+    end
+
+    local btnSize = 40
+
     return UI.Panel {
         id = "topButtons",
         position = "absolute",
-        top = 100, right = 12,
+        top = 80, right = 12,
         alignItems = "flex-end",
-        gap = 8,
+        gap = 6,
         children = {
-            -- 技能配置按钮
+            -- 技能配置
+            makeBtn("技",
+                {110, 175, 245, 255},
+                {70, 110, 170, 180},
+                btnSize,
+                function() if GameUI.onSkillPanelToggle then GameUI.onSkillPanelToggle() end end
+            ),
+            -- 背包
+            makeBtn("包",
+                {215, 185, 85, 255},
+                {130, 110, 50, 170},
+                btnSize,
+                function() if GameUI.onBagToggle then GameUI.onBagToggle() end end
+            ),
+            -- 返回
+            makeBtn("退",
+                {210, 95, 75, 255},
+                {140, 60, 45, 150},
+                btnSize,
+                function() if GameUI.onMenuPressed then GameUI.onMenuPressed() end end
+            ),
+            -- Debug 面板（紧凑横向）
             UI.Panel {
-                width = 44, height = 44,
-                borderRadius = 8,
-                backgroundColor = {25, 25, 35, 220},
-                borderWidth = 2,
-                borderColor = {80, 120, 180, 180},
-                justifyContent = "center",
+                borderRadius = 6,
+                backgroundColor = {14, 18, 14, 200},
+                borderWidth = 1,
+                borderColor = {55, 120, 55, 120},
                 alignItems = "center",
-                onPointerUp = function()
-                    if GameUI.onSkillPanelToggle then GameUI.onSkillPanelToggle() end
-                end,
-                children = {
-                    UI.Label {
-                        text = "技",
-                        fontSize = 16,
-                        fontColor = {100, 170, 240, 255},
-                    },
-                },
-            },
-            -- 背包按钮
-            UI.Panel {
-                width = 44, height = 44,
-                borderRadius = 8,
-                backgroundColor = {30, 25, 20, 220},
-                borderWidth = 2,
-                borderColor = {120, 100, 60, 180},
-                justifyContent = "center",
-                alignItems = "center",
-                onPointerUp = function()
-                    if GameUI.onBagToggle then GameUI.onBagToggle() end
-                end,
-                children = {
-                    UI.Label {
-                        text = "包",
-                        fontSize = 16,
-                        fontColor = {210, 180, 80, 255},
-                    },
-                },
-            },
-            -- 返回主菜单按钮
-            UI.Panel {
-                width = 44, height = 44,
-                borderRadius = 8,
-                backgroundColor = {30, 20, 18, 220},
-                borderWidth = 2,
-                borderColor = {140, 60, 50, 160},
-                justifyContent = "center",
-                alignItems = "center",
-                onPointerUp = function()
-                    if GameUI.onMenuPressed then GameUI.onMenuPressed() end
-                end,
-                children = {
-                    UI.Label {
-                        text = "退",
-                        fontSize = 16,
-                        fontColor = {200, 90, 70, 255},
-                    },
-                },
-            },
-            -- Debug 面板：调整等级
-            UI.Panel {
-                width = 44,
-                borderRadius = 8,
-                backgroundColor = {20, 30, 20, 220},
-                borderWidth = 2,
-                borderColor = {60, 140, 60, 160},
-                alignItems = "center",
-                paddingTop = 4, paddingBottom = 4,
+                paddingTop = 3, paddingBottom = 3,
+                paddingLeft = 3, paddingRight = 3,
                 gap = 2,
                 children = {
                     UI.Label {
                         text = "DBG",
-                        fontSize = 9,
-                        fontColor = {120, 200, 120, 180},
+                        fontSize = 8,
+                        fontColor = {100, 180, 100, 150},
                     },
-                    -- +等级按钮
+                    -- Lv+ 按钮
                     UI.Panel {
-                        width = 36, height = 22,
+                        width = 34, height = 18,
                         borderRadius = 4,
-                        backgroundColor = {50, 100, 50, 200},
+                        backgroundColor = {40, 80, 40, 200},
                         justifyContent = "center",
                         alignItems = "center",
                         onPointerUp = function()
                             if GameUI.onDebugLevelChange then GameUI.onDebugLevelChange(1) end
                         end,
                         children = {
-                            UI.Label { text = "Lv+", fontSize = 11, fontColor = {180, 255, 180, 255} },
+                            UI.Label { text = "Lv+", fontSize = 9, fontColor = {160, 240, 160, 255} },
                         },
                     },
-                    -- 当前等级显示
+                    -- 当前等级
                     (function()
                         local lbl = UI.Label {
                             text = "Lv.1",
-                            fontSize = 11,
-                            fontColor = {200, 220, 200, 255},
+                            fontSize = 9,
+                            fontColor = {180, 200, 180, 230},
                         }
                         uiState.debugLevelLabel = lbl
                         return lbl
                     end)(),
-                    -- -等级按钮
+                    -- Lv- 按钮
                     UI.Panel {
-                        width = 36, height = 22,
+                        width = 34, height = 18,
                         borderRadius = 4,
-                        backgroundColor = {100, 50, 50, 200},
+                        backgroundColor = {80, 40, 40, 200},
                         justifyContent = "center",
                         alignItems = "center",
                         onPointerUp = function()
                             if GameUI.onDebugLevelChange then GameUI.onDebugLevelChange(-1) end
                         end,
                         children = {
-                            UI.Label { text = "Lv-", fontSize = 11, fontColor = {255, 180, 180, 255} },
+                            UI.Label { text = "Lv-", fontSize = 9, fontColor = {240, 160, 160, 255} },
                         },
                     },
                 },
@@ -1212,50 +1196,105 @@ end
 -- 右上角 - 小地图 + 信息
 -- ============================================================================
 function GameUI._CreateMiniMapArea(player)
+    -- 小地图圆形（缩小，精致边框）
+    local miniMap = UI.Panel {
+        width = 56, height = 56,
+        borderRadius = 28,
+        backgroundColor = {10, 8, 6, 200},
+        borderWidth = 2,
+        borderColor = {140, 115, 55, 160},
+        justifyContent = "center",
+        alignItems = "center",
+        children = {
+            -- 内圈装饰
+            UI.Panel {
+                width = 48, height = 48,
+                borderRadius = 24,
+                borderWidth = 1,
+                borderColor = {100, 85, 40, 80},
+                justifyContent = "center",
+                alignItems = "center",
+                children = {
+                    UI.Label {
+                        text = "MAP",
+                        fontSize = 11,
+                        fontColor = {140, 125, 80, 150},
+                    },
+                },
+            },
+        },
+    }
+
+    -- 信息条面板（击杀 + 金币，暗底横条）
+    local infoBar = UI.Panel {
+        flexDirection = "row",
+        alignItems = "center",
+        backgroundColor = {12, 10, 8, 180},
+        borderRadius = 6,
+        borderWidth = 1,
+        borderColor = {80, 65, 35, 100},
+        paddingLeft = 8, paddingRight = 10,
+        paddingTop = 4, paddingBottom = 4,
+        gap = 12,
+        marginTop = 6,
+        children = {
+            -- 击杀信息
+            UI.Panel {
+                flexDirection = "row",
+                alignItems = "center",
+                gap = 4,
+                children = {
+                    -- 刀剑图标（用文字模拟）
+                    UI.Label {
+                        text = "⚔",
+                        fontSize = 12,
+                        fontColor = {180, 70, 50, 220},
+                    },
+                    (function()
+                        local lbl = UI.Label {
+                            text = "0",
+                            fontSize = 12,
+                            fontColor = {200, 180, 160, 220},
+                        }
+                        uiState.refs.killCount = lbl
+                        return lbl
+                    end)(),
+                },
+            },
+            -- 金币信息
+            UI.Panel {
+                flexDirection = "row",
+                alignItems = "center",
+                gap = 4,
+                children = {
+                    -- 金币图标
+                    UI.Label {
+                        text = "💰",
+                        fontSize = 12,
+                        fontColor = {255, 200, 50, 240},
+                    },
+                    (function()
+                        local lbl = UI.Label {
+                            text = "0",
+                            fontSize = 12,
+                            fontColor = {255, 220, 100, 230},
+                        }
+                        uiState.refs.goldLabel = lbl
+                        return lbl
+                    end)(),
+                },
+            },
+        },
+    }
+
     return UI.Panel {
         id = "topRight",
         position = "absolute",
         top = 12, right = 12,
         alignItems = "flex-end",
         children = {
-            UI.Panel {
-                width = 80, height = 80,
-                borderRadius = 40,
-                backgroundColor = {15, 12, 10, 160},
-                borderWidth = 1,
-                borderColor = {55, 45, 35, 100},
-                justifyContent = "center",
-                alignItems = "center",
-                children = {
-                    UI.Label {
-                        text = "MAP",
-                        fontSize = 10,
-                        fontColor = {90, 85, 75, 120},
-                    },
-                },
-            },
-            (function()
-                local lbl = UI.Label {
-                    text = "击杀: 0",
-                    fontSize = 11,
-                    fontColor = {170, 160, 140, 180},
-                    marginTop = 8,
-                    textAlign = "right",
-                }
-                uiState.refs.killCount = lbl
-                return lbl
-            end)(),
-            (function()
-                local lbl = UI.Label {
-                    text = "金币: 0",
-                    fontSize = 11,
-                    fontColor = {255, 215, 80, 200},
-                    marginTop = 4,
-                    textAlign = "right",
-                }
-                uiState.refs.goldLabel = lbl
-                return lbl
-            end)(),
+            miniMap,
+            infoBar,
         },
     }
 end
@@ -1843,14 +1882,14 @@ end
 function GameUI.UpdateKillCount(count)
     local label = uiState.refs.killCount
     if label then
-        label:SetText("击杀: " .. count)
+        label:SetText(tostring(count))
     end
 end
 
 function GameUI.UpdateGold(gold)
     local label = uiState.refs.goldLabel
     if label then
-        label:SetText("金币: " .. gold)
+        label:SetText(tostring(gold))
     end
 end
 
