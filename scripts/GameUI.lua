@@ -1427,10 +1427,10 @@ local function _BuildBagTabContent(player)
         local capturedSlot = s.slot
         local capturedItem = item
         table.insert(equipCells, UI.Panel {
-            flex = 1, height = 68, overflow = "hidden",
+            flex = 1, minHeight = 76,
             backgroundColor = bgColor,
             borderRadius = 6, borderWidth = 1, borderColor = borderClr,
-            paddingVertical = 6, paddingHorizontal = 8,
+            paddingVertical = 8, paddingHorizontal = 10,
             onPointerUp = capturedItem and function()
                 if #inv.bag < 20 then
                     table.insert(inv.bag, capturedItem)
@@ -1444,15 +1444,15 @@ local function _BuildBagTabContent(player)
                 UI.Label {
                     text = item and item.name or "空",
                     fontSize = 13, fontWeight = item and "bold" or nil,
-                    fontColor = nameColor, marginTop = 2,
+                    fontColor = nameColor, marginTop = 4,
                 },
                 item and UI.Label {
                     text = statText ~= "" and statText or "—",
-                    fontSize = 10, fontColor = {185, 180, 160, 200}, marginTop = 1,
+                    fontSize = 10, fontColor = {185, 180, 160, 200}, marginTop = 3,
                 } or nil,
                 item and UI.Label {
                     text = "▼卸下",
-                    fontSize = 9, fontColor = {120, 200, 120, 160}, marginTop = 1,
+                    fontSize = 9, fontColor = {120, 200, 120, 160}, marginTop = 3,
                 } or nil,
             },
         })
