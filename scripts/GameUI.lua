@@ -1432,11 +1432,11 @@ local function _BuildBagTabContent(player)
         local capturedSlot = s.slot
         local capturedItem = item
         table.insert(equipSlots, UI.Panel {
-            flex = 1, minWidth = 155, height = 88,
+            flex = 1, minWidth = 155,
             backgroundColor = bgColor,
             borderRadius = 8, borderWidth = 1.5, borderColor = borderClr,
             paddingVertical = 10, paddingHorizontal = 12,
-            justifyContent = "center",
+            justifyContent = "center", overflow = "hidden",
             onPointerUp = capturedItem and function()
                 -- 卸下装备：移入背包
                 if #inv.bag < 20 then
