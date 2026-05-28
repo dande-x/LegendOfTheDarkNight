@@ -416,7 +416,9 @@ function CharacterClass.LevelUp(player)
     local classDef = CharacterClass.Classes[player.classId]
     local g = classDef.growth
     player.level = player.level + 1
-    player.maxHP = classDef.baseHP + g.hp * (player.level - 1)
+    local Inventory = require("Inventory")
+    local bonusHP = Inventory.playerData.bonusHP or 0
+    player.maxHP = classDef.baseHP + g.hp * (player.level - 1) + bonusHP
     player.maxMP = classDef.baseMP + g.mp * (player.level - 1)
     player.atk   = classDef.baseATK + g.atk * (player.level - 1)
     player.def   = classDef.baseDEF + g.def * (player.level - 1)
