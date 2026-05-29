@@ -30,31 +30,33 @@ PlayerAnim.animState = animState
 PlayerAnim.hitFeedback = hitFeedback
 
 -- ============================================================================
--- 人形骨架配置（相对 playerNode 的子节点）
+-- 人形骨架配置
+-- 关键设计：bone 节点 scale 始终为 (1,1,1)，仅管理旋转+位置
+--          视觉网格放在 bone 的子节点 "mesh" 中带独立 scale
 -- ============================================================================
 local BONE_DEFS = {
     -- 躯干
-    pelvis   = { parent = nil,       pos = {0, 0.5, 0},    scale = {0.35, 0.22, 0.22}, model = "Box" },
-    chest    = { parent = "pelvis",  pos = {0, 0.35, 0},   scale = {0.42, 0.30, 0.25}, model = "Box" },
+    pelvis   = { parent = nil,       pos = {0, 0.50, 0},   meshScale = {0.35, 0.22, 0.22}, model = "Box" },
+    chest    = { parent = "pelvis",  pos = {0, 0.22, 0},   meshScale = {0.42, 0.32, 0.25}, model = "Box" },
     -- 头部
-    neck     = { parent = "chest",   pos = {0, 0.20, 0},   scale = {0.10, 0.10, 0.10}, model = "Cylinder" },
-    head     = { parent = "neck",    pos = {0, 0.18, 0},   scale = {0.28, 0.28, 0.28}, model = "Sphere" },
-    -- 左臂
-    lUpperArm = { parent = "chest",  pos = {-0.28, 0.12, 0}, scale = {0.10, 0.22, 0.10}, model = "Cylinder" },
-    lForeArm  = { parent = "lUpperArm", pos = {0, -0.22, 0}, scale = {0.08, 0.20, 0.08}, model = "Cylinder" },
-    lHand     = { parent = "lForeArm", pos = {0, -0.20, 0}, scale = {0.09, 0.06, 0.12}, model = "Box" },
+    neck     = { parent = "chest",   pos = {0, 0.20, 0},   meshScale = {0.08, 0.10, 0.08}, model = "Cylinder" },
+    head     = { parent = "neck",    pos = {0, 0.15, 0},   meshScale = {0.26, 0.26, 0.26}, model = "Sphere" },
+    -- 左臂（pivot 在肩膀处）
+    lUpperArm = { parent = "chest",  pos = {-0.26, 0.10, 0}, meshScale = {0.09, 0.20, 0.09}, model = "Cylinder", meshOffset = {0, -0.10, 0} },
+    lForeArm  = { parent = "lUpperArm", pos = {0, -0.22, 0}, meshScale = {0.07, 0.18, 0.07}, model = "Cylinder", meshOffset = {0, -0.09, 0} },
+    lHand     = { parent = "lForeArm", pos = {0, -0.19, 0},  meshScale = {0.08, 0.05, 0.10}, model = "Box" },
     -- 右臂
-    rUpperArm = { parent = "chest",  pos = {0.28, 0.12, 0},  scale = {0.10, 0.22, 0.10}, model = "Cylinder" },
-    rForeArm  = { parent = "rUpperArm", pos = {0, -0.22, 0}, scale = {0.08, 0.20, 0.08}, model = "Cylinder" },
-    rHand     = { parent = "rForeArm", pos = {0, -0.20, 0},  scale = {0.09, 0.06, 0.12}, model = "Box" },
-    -- 左腿
-    lThigh   = { parent = "pelvis", pos = {-0.12, -0.05, 0}, scale = {0.12, 0.26, 0.12}, model = "Cylinder" },
-    lShin    = { parent = "lThigh", pos = {0, -0.26, 0},     scale = {0.10, 0.24, 0.10}, model = "Cylinder" },
-    lFoot    = { parent = "lShin",  pos = {0, -0.24, 0.04},  scale = {0.10, 0.06, 0.16}, model = "Box" },
+    rUpperArm = { parent = "chest",  pos = {0.26, 0.10, 0},  meshScale = {0.09, 0.20, 0.09}, model = "Cylinder", meshOffset = {0, -0.10, 0} },
+    rForeArm  = { parent = "rUpperArm", pos = {0, -0.22, 0}, meshScale = {0.07, 0.18, 0.07}, model = "Cylinder", meshOffset = {0, -0.09, 0} },
+    rHand     = { parent = "rForeArm", pos = {0, -0.19, 0},  meshScale = {0.08, 0.05, 0.10}, model = "Box" },
+    -- 左腿（pivot 在胯部）
+    lThigh   = { parent = "pelvis", pos = {-0.11, -0.05, 0}, meshScale = {0.11, 0.24, 0.11}, model = "Cylinder", meshOffset = {0, -0.12, 0} },
+    lShin    = { parent = "lThigh", pos = {0, -0.26, 0},     meshScale = {0.09, 0.22, 0.09}, model = "Cylinder", meshOffset = {0, -0.11, 0} },
+    lFoot    = { parent = "lShin",  pos = {0, -0.24, 0.03},  meshScale = {0.09, 0.05, 0.15}, model = "Box" },
     -- 右腿
-    rThigh   = { parent = "pelvis", pos = {0.12, -0.05, 0},  scale = {0.12, 0.26, 0.12}, model = "Cylinder" },
-    rShin    = { parent = "rThigh", pos = {0, -0.26, 0},     scale = {0.10, 0.24, 0.10}, model = "Cylinder" },
-    rFoot    = { parent = "rShin",  pos = {0, -0.24, 0.04},  scale = {0.10, 0.06, 0.16}, model = "Box" },
+    rThigh   = { parent = "pelvis", pos = {0.11, -0.05, 0},  meshScale = {0.11, 0.24, 0.11}, model = "Cylinder", meshOffset = {0, -0.12, 0} },
+    rShin    = { parent = "rThigh", pos = {0, -0.26, 0},     meshScale = {0.09, 0.22, 0.09}, model = "Cylinder", meshOffset = {0, -0.11, 0} },
+    rFoot    = { parent = "rShin",  pos = {0, -0.24, 0.03},  meshScale = {0.09, 0.05, 0.15}, model = "Box" },
 }
 
 -- 构建顺序（确保父节点先创建）
@@ -82,11 +84,19 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors)
         local def = BONE_DEFS[name]
         local parentNode = def.parent and bones[def.parent] or playerNode
 
-        local node = parentNode:CreateChild(name)
-        node.position = Vector3(def.pos[1], def.pos[2], def.pos[3])
-        node.scale = Vector3(def.scale[1], def.scale[2], def.scale[3])
+        -- bone 节点：scale 始终 (1,1,1)，仅承载 position + rotation
+        local boneNode = parentNode:CreateChild(name)
+        boneNode.position = Vector3(def.pos[1], def.pos[2], def.pos[3])
+        -- 不设 scale！默认 (1,1,1)
 
-        local model = node:CreateComponent("StaticModel")
+        -- mesh 子节点：承载视觉模型 + 独立 scale
+        local meshNode = boneNode:CreateChild(name .. "_mesh")
+        if def.meshOffset then
+            meshNode.position = Vector3(def.meshOffset[1], def.meshOffset[2], def.meshOffset[3])
+        end
+        meshNode.scale = Vector3(def.meshScale[1], def.meshScale[2], def.meshScale[3])
+
+        local model = meshNode:CreateComponent("StaticModel")
         model:SetModel(cache:GetResource("Model", "Models/" .. def.model .. ".mdl"))
 
         -- 材质分配：头/手/脖子=肤色，其余=铠甲色
@@ -101,7 +111,6 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors)
             mat:SetShaderParameter("Roughness", Variant(0.7))
             mat:SetShaderParameter("Metallic", Variant(0.0))
         elseif isLeg then
-            -- 腿部稍暗
             local legColor = Color(armorColor.r * 0.7, armorColor.g * 0.7, armorColor.b * 0.7, 1.0)
             mat:SetShaderParameter("MatDiffColor", Variant(legColor))
             mat:SetShaderParameter("Roughness", Variant(0.5))
@@ -110,7 +119,6 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors)
             mat:SetShaderParameter("MatDiffColor", Variant(armorColor))
             mat:SetShaderParameter("Roughness", Variant(0.4))
             mat:SetShaderParameter("Metallic", Variant(0.4))
-            -- 胸甲加一点自发光
             if name == "chest" then
                 mat:SetShaderParameter("MatEmissiveColor", Variant(Color(armorColor.r * 0.15, armorColor.g * 0.15, armorColor.b * 0.15)))
             end
@@ -118,7 +126,7 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors)
 
         model:SetMaterial(mat)
         model.castShadows = true
-        bones[name] = node
+        bones[name] = boneNode
     end
 
     -- 添加职业特有装饰
