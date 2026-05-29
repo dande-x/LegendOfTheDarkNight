@@ -7,6 +7,7 @@
 local UI = require("urhox-libs/UI")
 local CharacterClass = require("scripts.CharacterClass")
 local Inventory = require("scripts.Inventory")
+local PlayerAnim = require("scripts.PlayerAnim")
 require "urhox-libs.UI.GameHUD"
 
 local GameUI = {}
@@ -178,6 +179,14 @@ function GameUI._RenderNanoVG()
     -- 绘制开门过渡
     if doorState.active then
         GameUI._DrawDoorTransition(nvgCtx, sw, sh)
+    end
+
+    -- 命中闪光（全屏白色半透明瞬闪）
+    if uiState.phase == "playing" and PlayerAnim.IsFlashing() then
+        nvgBeginPath(nvgCtx)
+        nvgRect(nvgCtx, 0, 0, sw, sh)
+        nvgFillColor(nvgCtx, nvgRGBA(255, 255, 255, 40))
+        nvgFill(nvgCtx)
     end
 
     nvgEndFrame(nvgCtx)

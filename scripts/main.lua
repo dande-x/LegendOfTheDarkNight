@@ -8,6 +8,7 @@ local CharacterClass = require("scripts.CharacterClass")
 local GameUI = require("scripts.GameUI")
 local Combat = require("scripts.Combat")
 local Inventory = require("scripts.Inventory")
+local PlayerAnim = require("scripts.PlayerAnim")
 require "urhox-libs.UI.GameHUD"
 
 -- ============================================================================
@@ -222,6 +223,9 @@ end
 function UpdateCamera(dt)
     if not playerNode_ then return end
     local targetPos = playerNode_.position + CAM_OFFSET
+    -- 打击感屏幕震动
+    local shakeOffset = PlayerAnim.GetCameraShakeOffset()
+    targetPos = targetPos + shakeOffset
     local currentPos = cameraNode_.position
     local lerpSpeed = 5.0
     cameraNode_.position = currentPos + (targetPos - currentPos) * math.min(1.0, lerpSpeed * dt)
@@ -281,6 +285,10 @@ function OnClassSelected(classId)
         castState.elapsed = 0
         castState.windupDuration = windup
         castState.recoveryDuration = recovery
+
+        -- 播放对应攻击动画
+        local animName = PlayerAnim.GetAnimForSkillType(skill.type)
+        PlayerAnim.Play(animName)
 
         -- 显示施法条
         local isCharging = (player_.classId == "mage" and windup >= 0.3)
@@ -537,7 +545,16 @@ function UpdateCastState(dt)
             ShowChargeGlow(false)
 
             local ok, result = Combat.CastSkill(scene_, player_, playerNode_, castState.slot)
-            if not ok then
+            if ok then
+                -- 技能命中，触发打击感
+                local intensity = 1.0
+                if castState.skill.type == "melee" or castState.skill.type == "aoe" then
+                    intensity = 1.5  -- 近战/AOE 打击感更强
+                elseif castState.skill.type == "summon" then
+                    intensity = 0.8
+                end
+                PlayerAnim.TriggerHitFeedback(intensity)
+            else
                 print("[main] Cast failed after windup: " .. result)
             end
 
@@ -556,7 +573,7 @@ function UpdateCastState(dt)
 end
 
 -- ============================================================================
--- 玩家角色节点
+-- 玩家角色节点（人形骨架）
 -- ============================================================================
 function CreatePlayerNode(classId)
     local classDef = CharacterClass.Classes[classId]
@@ -565,37 +582,8 @@ function CreatePlayerNode(classId)
     playerNode_ = scene_:CreateChild("Player")
     playerNode_.position = Vector3(0, 0, 0)
 
-    -- 身体
-    local bodyNode = playerNode_:CreateChild("Body")
-    bodyNode.position = Vector3(0, 0.5, 0)
-    bodyNode.scale = Vector3(0.5, 1.0, 0.5)
-    local bodyModel = bodyNode:CreateComponent("StaticModel")
-    bodyModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
-
-    local bodyMat = Material:new()
-    bodyMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
-    bodyMat:SetShaderParameter("MatDiffColor", Variant(color))
-    bodyMat:SetShaderParameter("MatSpecColor", Variant(Color(0.4, 0.4, 0.4, 1.0)))
-    bodyMat:SetShaderParameter("Metallic", Variant(0.15))
-    bodyMat:SetShaderParameter("Roughness", Variant(0.5))
-    bodyModel:SetMaterial(bodyMat)
-    bodyModel.castShadows = true
-
-    -- 头部
-    local headNode = playerNode_:CreateChild("Head")
-    headNode.position = Vector3(0, 1.2, 0)
-    headNode.scale = Vector3(0.3, 0.3, 0.3)
-    local headModel = headNode:CreateComponent("StaticModel")
-    headModel:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
-
-    local headMat = Material:new()
-    headMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
-    headMat:SetShaderParameter("MatDiffColor", Variant(C.Cream))
-    headMat:SetShaderParameter("MatSpecColor", Variant(Color(0.3, 0.3, 0.3, 1.0)))
-    headMat:SetShaderParameter("Metallic", Variant(0.0))
-    headMat:SetShaderParameter("Roughness", Variant(0.6))
-    headModel:SetMaterial(headMat)
-    headModel.castShadows = true
+    -- 使用 PlayerAnim 创建人形骨架
+    PlayerAnim.CreateSkeleton(playerNode_, classId, color, C)
 
     -- 玩家动态碰撞体（胶囊体，无重力，不旋转，锁 Y）
     local body = playerNode_:CreateComponent("RigidBody")
@@ -609,50 +597,8 @@ function CreatePlayerNode(classId)
     local shape = playerNode_:CreateComponent("CollisionShape")
     shape:SetCapsule(0.5, 1.4, Vector3(0, 0.7, 0))
 
-    if classId == "warrior" then
-        local swordNode = playerNode_:CreateChild("Sword")
-        swordNode.position = Vector3(0.5, 0.6, 0.2)
-        swordNode.scale = Vector3(0.08, 0.6, 0.08)
-        swordNode.rotation = Quaternion(30, Vector3.FORWARD)
-        local swordModel = swordNode:CreateComponent("StaticModel")
-        swordModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
-        local swordMat = Material:new()
-        swordMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
-        swordMat:SetShaderParameter("MatDiffColor", Variant(Color(0.7, 0.7, 0.75, 1.0)))
-        swordMat:SetShaderParameter("Metallic", Variant(0.9))
-        swordMat:SetShaderParameter("Roughness", Variant(0.2))
-        swordModel:SetMaterial(swordMat)
-        swordModel.castShadows = true
-
-    elseif classId == "mage" then
-        local staffNode = playerNode_:CreateChild("Staff")
-        staffNode.position = Vector3(0, 1.6, 0)
-        staffNode.scale = Vector3(0.15, 0.15, 0.15)
-        local staffModel = staffNode:CreateComponent("StaticModel")
-        staffModel:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
-        local staffMat = Material:new()
-        staffMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
-        staffMat:SetShaderParameter("MatDiffColor", Variant(C.Azure))
-        staffMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.3, 0.5, 0.8)))
-        staffMat:SetShaderParameter("Metallic", Variant(0.0))
-        staffMat:SetShaderParameter("Roughness", Variant(0.3))
-        staffModel:SetMaterial(staffMat)
-
-    elseif classId == "taoist" then
-        local bagua = playerNode_:CreateChild("Bagua")
-        bagua.position = Vector3(0, 0.8, -0.3)
-        bagua.scale = Vector3(0.5, 0.5, 0.05)
-        bagua.rotation = Quaternion(90, Vector3.RIGHT)
-        local baguaModel = bagua:CreateComponent("StaticModel")
-        baguaModel:SetModel(cache:GetResource("Model", "Models/Torus.mdl"))
-        local baguaMat = Material:new()
-        baguaMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
-        baguaMat:SetShaderParameter("MatDiffColor", Variant(C.Gold))
-        baguaMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.5, 0.4, 0.2)))
-        baguaMat:SetShaderParameter("Metallic", Variant(0.3))
-        baguaMat:SetShaderParameter("Roughness", Variant(0.4))
-        baguaModel:SetMaterial(baguaMat)
-    end
+    -- 初始化动画为 idle
+    PlayerAnim.Play("idle")
 end
 
 -- ============================================================================
@@ -720,6 +666,15 @@ function HandleUpdate(eventType, eventData)
 
     -- 战斗系统更新
     Combat.Update(scene_, dt, playerNode_, player_)
+
+    -- 骨骼动画更新
+    local joystick = GameUI.GetJoystick()
+    local isMoving = false
+    if joystick then
+        local jx, jz = joystick:getMovement()
+        isMoving = math.abs(jx) > 0.01 or math.abs(jz) > 0.01
+    end
+    PlayerAnim.Update(dt, isMoving)
 
     -- 相机跟随
     UpdateCamera(dt)
