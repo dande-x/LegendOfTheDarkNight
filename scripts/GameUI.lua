@@ -1037,55 +1037,82 @@ end
 -- 左下角 - 药瓶快捷键（球的右侧偏移）
 -- ============================================================================
 function GameUI._CreatePotions(player)
+    local Inventory = require("Inventory")
+    local hpCount = Inventory.GetPotionCount("hp")
+    local mpCount = Inventory.GetPotionCount("mp")
+
+    local function makePotion(kind, label, count, bgColor, borderColor, iconColor, glowColor)
+        local countLabel = UI.Label {
+            id = "potion_" .. kind .. "_count",
+            text = tostring(count),
+            fontSize = 11,
+            fontColor = {255, 255, 255, 240},
+            fontWeight = "bold",
+        }
+        uiState.refs["potion_" .. kind .. "_count"] = countLabel
+
+        return UI.Panel {
+            width = 52, height = 52,
+            borderRadius = 12,
+            backgroundColor = bgColor,
+            borderWidth = 1.5,
+            borderColor = borderColor,
+            justifyContent = "center",
+            alignItems = "center",
+            onPointerUp = function()
+                if kind == "hp" then
+                    if GameUI.onUseHpPotion then GameUI.onUseHpPotion() end
+                else
+                    if GameUI.onUseMpPotion then GameUI.onUseMpPotion() end
+                end
+            end,
+            children = {
+                -- 药水图标
+                UI.Label {
+                    text = label,
+                    fontSize = 16,
+                    fontColor = iconColor,
+                    fontWeight = "bold",
+                },
+                -- 数量角标
+                UI.Panel {
+                    position = "absolute",
+                    bottom = 2, right = 2,
+                    minWidth = 18, height = 16,
+                    borderRadius = 8,
+                    backgroundColor = {0, 0, 0, 180},
+                    justifyContent = "center",
+                    alignItems = "center",
+                    paddingHorizontal = 3,
+                    children = { countLabel },
+                },
+            },
+        }
+    end
+
     return UI.Panel {
         id = "potions",
         position = "absolute",
-        left = 120, bottom = 55,
-        flexDirection = "column",
-        gap = 10,
+        left = 10, bottom = 175,
+        flexDirection = "row",
+        gap = 8,
         children = {
-            UI.Panel {
-                width = 48, height = 48,
-                borderRadius = 24,
-                backgroundColor = {40, 15, 15, 210},
-                borderWidth = 2,
-                borderColor = {160, 55, 45, 200},
-                justifyContent = "center",
-                alignItems = "center",
-                onPointerUp = function()
-                    if GameUI.onUseHpPotion then GameUI.onUseHpPotion() end
-                end,
-                children = {
-                    UI.Label {
-                        text = "HP",
-                        fontSize = 12,
-                        fontColor = {210, 75, 60, 255},
-                        fontWeight = "bold",
-                    },
-                },
-            },
-            UI.Panel {
-                width = 48, height = 48,
-                borderRadius = 24,
-                backgroundColor = {15, 15, 40, 210},
-                borderWidth = 2,
-                borderColor = {55, 110, 170, 200},
-                justifyContent = "center",
-                alignItems = "center",
-                onPointerUp = function()
-                    if GameUI.onUseMpPotion then GameUI.onUseMpPotion() end
-                end,
-                children = {
-                    UI.Label {
-                        text = "MP",
-                        fontSize = 12,
-                        fontColor = {65, 130, 195, 255},
-                        fontWeight = "bold",
-                    },
-                },
-            },
+            makePotion("hp", "HP", hpCount,
+                {50, 12, 12, 200}, {180, 60, 50, 180},
+                {240, 90, 70, 255}, {255, 80, 60, 40}),
+            makePotion("mp", "MP", mpCount,
+                {12, 15, 50, 200}, {55, 100, 180, 180},
+                {80, 150, 230, 255}, {60, 120, 255, 40}),
         },
     }
+end
+
+-- ============================================================================
+-- 药水数量动态更新
+-- ============================================================================
+function GameUI.UpdatePotionCount(kind, count)
+    local ref = uiState.refs["potion_" .. kind .. "_count"]
+    if ref then ref:SetText(tostring(count)) end
 end
 
 -- ============================================================================
@@ -1394,6 +1421,7 @@ end
 --- 构建背包 Tab 内容
 local function _BuildBagTabContent(player)
     local inv = Inventory.playerData
+    if not inv.potions then inv.potions = { hp = 5, mp = 3 } end
     local SLOT = Inventory.SLOT
     local RARITY = Inventory.RARITY
 
@@ -1521,6 +1549,53 @@ local function _BuildBagTabContent(player)
             -- 装备区（4格一行）
             UI.Label { text = "装备栏", fontSize = 12, fontColor = {180, 170, 145, 200}, marginBottom = 6 },
             UI.Panel { flexDirection = "row", gap = 6, marginBottom = 14, children = equipCells },
+            -- 分隔
+            UI.Panel { width = "100%", height = 1, backgroundColor = {65, 58, 42, 100}, marginBottom = 10 },
+            -- 药水区
+            UI.Panel {
+                flexDirection = "row", gap = 10, marginBottom = 12, alignItems = "center",
+                children = {
+                    UI.Label { text = "药水", fontSize = 12, fontColor = {180, 170, 145, 200} },
+                    -- HP 药水购买
+                    UI.Panel {
+                        flexDirection = "row", alignItems = "center", gap = 4,
+                        paddingHorizontal = 8, paddingVertical = 5,
+                        backgroundColor = {60, 18, 18, 180}, borderRadius = 8,
+                        borderWidth = 1, borderColor = {160, 60, 50, 150},
+                        onPointerUp = function()
+                            local ok, msg = Inventory.BuyPotion("hp")
+                            if ok then
+                                GameUI.UpdatePotionCount("hp", Inventory.GetPotionCount("hp"))
+                            end
+                            refreshPanel()
+                        end,
+                        children = {
+                            UI.Label { text = "血药", fontSize = 11, fontColor = {240, 100, 80, 255}, fontWeight = "bold" },
+                            UI.Label { text = inv.potions.hp .. "/" .. Inventory.POTION_CONFIG.hp.max, fontSize = 10, fontColor = {200, 190, 170, 200} },
+                            UI.Label { text = "💰" .. Inventory.POTION_CONFIG.hp.price, fontSize = 10, fontColor = {255, 215, 70, 220} },
+                        },
+                    },
+                    -- MP 药水购买
+                    UI.Panel {
+                        flexDirection = "row", alignItems = "center", gap = 4,
+                        paddingHorizontal = 8, paddingVertical = 5,
+                        backgroundColor = {18, 18, 60, 180}, borderRadius = 8,
+                        borderWidth = 1, borderColor = {55, 100, 170, 150},
+                        onPointerUp = function()
+                            local ok, msg = Inventory.BuyPotion("mp")
+                            if ok then
+                                GameUI.UpdatePotionCount("mp", Inventory.GetPotionCount("mp"))
+                            end
+                            refreshPanel()
+                        end,
+                        children = {
+                            UI.Label { text = "蓝药", fontSize = 11, fontColor = {80, 150, 230, 255}, fontWeight = "bold" },
+                            UI.Label { text = inv.potions.mp .. "/" .. Inventory.POTION_CONFIG.mp.max, fontSize = 10, fontColor = {200, 190, 170, 200} },
+                            UI.Label { text = "💰" .. Inventory.POTION_CONFIG.mp.price, fontSize = 10, fontColor = {255, 215, 70, 220} },
+                        },
+                    },
+                },
+            },
             -- 分隔
             UI.Panel { width = "100%", height = 1, backgroundColor = {65, 58, 42, 100}, marginBottom = 10 },
             -- 背包区

@@ -154,6 +154,14 @@ local playerData = {
 Inventory.playerData = playerData
 
 -- ============================================================================
+-- 药水配置
+-- ============================================================================
+Inventory.POTION_CONFIG = {
+    hp = { max = 10, price = 40, healRatio = 0.35, dropChance = 0.15, label = "血药" },
+    mp = { max = 8,  price = 60, healRatio = 0.45, dropChance = 0.10, label = "蓝药" },
+}
+
+-- ============================================================================
 -- 初始化
 -- ============================================================================
 function Inventory.Init()
@@ -168,7 +176,57 @@ function Inventory.Init()
     playerData.bonusAtk = 0
     playerData.bonusDef = 0
     playerData.bonusHP  = 0
+    playerData.potions = { hp = 5, mp = 3 }
     print("[Inventory] Initialized")
+end
+
+-- ============================================================================
+-- 药水系统
+-- ============================================================================
+
+--- 使用药水，返回 true 表示成功
+---@param kind "hp"|"mp"
+---@return boolean
+function Inventory.UsePotion(kind)
+    if not playerData.potions then playerData.potions = { hp = 5, mp = 3 } end
+    if (playerData.potions[kind] or 0) <= 0 then return false end
+    playerData.potions[kind] = playerData.potions[kind] - 1
+    return true
+end
+
+--- 获取药水数量
+---@param kind "hp"|"mp"
+---@return number
+function Inventory.GetPotionCount(kind)
+    if not playerData.potions then playerData.potions = { hp = 5, mp = 3 } end
+    return playerData.potions[kind] or 0
+end
+
+--- 购买药水，扣金币，返回 true 表示成功
+---@param kind "hp"|"mp"
+---@return boolean, string
+function Inventory.BuyPotion(kind)
+    local cfg = Inventory.POTION_CONFIG[kind]
+    if not cfg then return false, "无效类型" end
+    if not playerData.potions then playerData.potions = { hp = 5, mp = 3 } end
+    if playerData.potions[kind] >= cfg.max then return false, "已满" end
+    if playerData.gold < cfg.price then return false, "金币不足" end
+    playerData.gold = playerData.gold - cfg.price
+    playerData.potions[kind] = playerData.potions[kind] + 1
+    return true, ""
+end
+
+--- 击杀掉落药水判定（在 RollDrop 之后额外调用）
+function Inventory.RollPotionDrop()
+    if not playerData.potions then playerData.potions = { hp = 5, mp = 3 } end
+    local dropped = {}
+    for kind, cfg in pairs(Inventory.POTION_CONFIG) do
+        if math.random() < cfg.dropChance and playerData.potions[kind] < cfg.max then
+            playerData.potions[kind] = playerData.potions[kind] + 1
+            table.insert(dropped, cfg.label)
+        end
+    end
+    return dropped
 end
 
 -- ============================================================================

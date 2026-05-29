@@ -294,25 +294,35 @@ function OnClassSelected(classId)
         print("[main] Cast start: " .. skill.name .. " windup=" .. string.format("%.2f", windup))
     end
 
-    -- 药瓶回调
+    -- 药瓶回调（消耗制）
     GameUI.onUseHpPotion = function()
         if isDead or hpPotionCD > 0 then return end
         if castState.active then return end
-        local heal = player_.maxHP * 0.3
+        if not Inventory.UsePotion("hp") then
+            GameUI.AddFloatingText("血药已空", playerNode_.position, {200, 200, 200, 200})
+            return
+        end
+        local cfg = Inventory.POTION_CONFIG.hp
+        local heal = player_.maxHP * cfg.healRatio
         player_.hp = math.min(player_.maxHP, player_.hp + heal)
         hpPotionCD = HP_POTION_CD
+        GameUI.UpdatePotionCount("hp", Inventory.GetPotionCount("hp"))
         GameUI.AddFloatingText("+" .. math.floor(heal), playerNode_.position, {100, 255, 100, 255})
-        print("[main] Used HP potion, healed " .. math.floor(heal))
     end
 
     GameUI.onUseMpPotion = function()
         if isDead or mpPotionCD > 0 then return end
         if castState.active then return end
-        local restore = player_.maxMP * 0.4
+        if not Inventory.UsePotion("mp") then
+            GameUI.AddFloatingText("蓝药已空", playerNode_.position, {200, 200, 200, 200})
+            return
+        end
+        local cfg = Inventory.POTION_CONFIG.mp
+        local restore = player_.maxMP * cfg.healRatio
         player_.mp = math.min(player_.maxMP, player_.mp + restore)
         mpPotionCD = MP_POTION_CD
+        GameUI.UpdatePotionCount("mp", Inventory.GetPotionCount("mp"))
         GameUI.AddFloatingText("+" .. math.floor(restore), playerNode_.position, {100, 180, 255, 255})
-        print("[main] Used MP potion, restored " .. math.floor(restore))
     end
 
     -- 返回主菜单回调
@@ -393,6 +403,15 @@ function OnClassSelected(classId)
         -- 装备掉落到地面
         if droppedItem then
             Combat.SpawnGroundItem(scene_, deathPos, droppedItem)
+        end
+        -- 药水掉落判定
+        local potionDrops = Inventory.RollPotionDrop()
+        for _, name in ipairs(potionDrops) do
+            GameUI.AddFloatingText("+" .. name, deathPos + Vector3(0, 0.8, 0), {180, 255, 180, 255})
+        end
+        if #potionDrops > 0 then
+            GameUI.UpdatePotionCount("hp", Inventory.GetPotionCount("hp"))
+            GameUI.UpdatePotionCount("mp", Inventory.GetPotionCount("mp"))
         end
     end
 
