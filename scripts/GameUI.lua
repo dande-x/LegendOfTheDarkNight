@@ -887,6 +887,7 @@ function GameUI.ShowGameHUD(player)
         pointerEvents = "box-none",
         children = {
             GameUI._CreateSkillBar(player),
+            GameUI._CreatePotions(player),
             GameUI._CreateMiniMapArea(player),
             GameUI._CreateTopButtons(),
         },
@@ -1039,13 +1040,13 @@ function GameUI._CreatePotions(player)
     return UI.Panel {
         id = "potions",
         position = "absolute",
-        left = 115, bottom = 50,
+        left = 120, bottom = 55,
         flexDirection = "column",
-        gap = 8,
+        gap = 10,
         children = {
             UI.Panel {
-                width = 40, height = 40,
-                borderRadius = 20,
+                width = 48, height = 48,
+                borderRadius = 24,
                 backgroundColor = {40, 15, 15, 210},
                 borderWidth = 2,
                 borderColor = {160, 55, 45, 200},
@@ -1057,14 +1058,15 @@ function GameUI._CreatePotions(player)
                 children = {
                     UI.Label {
                         text = "HP",
-                        fontSize = 10,
+                        fontSize = 12,
                         fontColor = {210, 75, 60, 255},
+                        fontWeight = "bold",
                     },
                 },
             },
             UI.Panel {
-                width = 40, height = 40,
-                borderRadius = 20,
+                width = 48, height = 48,
+                borderRadius = 24,
                 backgroundColor = {15, 15, 40, 210},
                 borderWidth = 2,
                 borderColor = {55, 110, 170, 200},
@@ -1076,8 +1078,9 @@ function GameUI._CreatePotions(player)
                 children = {
                     UI.Label {
                         text = "MP",
-                        fontSize = 10,
+                        fontSize = 12,
                         fontColor = {65, 130, 195, 255},
+                        fontWeight = "bold",
                     },
                 },
             },
@@ -1199,9 +1202,9 @@ function GameUI._CreateMiniMapArea(player)
             flexDirection = "row",
             alignItems = "center",
             justifyContent = "center",
-            paddingLeft = 10, paddingRight = 10,
-            paddingTop = 5, paddingBottom = 5,
-            borderRadius = 12,
+            paddingLeft = 14, paddingRight = 14,
+            paddingTop = 8, paddingBottom = 8,
+            borderRadius = 14,
             backgroundColor = bgColor,
             borderWidth = 1,
             borderColor = borderColor,
@@ -1209,7 +1212,7 @@ function GameUI._CreateMiniMapArea(player)
             children = {
                 UI.Label {
                     text = label,
-                    fontSize = 11,
+                    fontSize = 13,
                     fontColor = labelColor,
                     fontWeight = "bold",
                 },
@@ -1478,11 +1481,11 @@ local function _BuildBagTabContent(player)
 
         local capturedItem = item
         table.insert(bagCells, UI.Panel {
-            width = 60, height = 64, overflow = "hidden",
+            width = 66, height = 70, overflow = "hidden",
             backgroundColor = bgColor, borderRadius = 5,
             borderWidth = 1, borderColor = borderClr,
             justifyContent = "center", alignItems = "center",
-            paddingHorizontal = 3, paddingVertical = 3,
+            paddingHorizontal = 4, paddingVertical = 4,
             onPointerUp = capturedItem and function()
                 Inventory.EquipItem(capturedItem, player.classId)
                 refreshPanel()
@@ -1713,33 +1716,32 @@ function GameUI.ShowSystemPanel()
                         children = {
                             UI.Label { text = "调试", fontSize = 10, fontColor = {100, 170, 100, 150} },
                             UI.Panel {
-                                flexDirection = "row", gap = 8, alignItems = "center",
+                                flexDirection = "row", gap = 10, alignItems = "center",
                                 children = {
                                     UI.Panel {
-                                        width = 50, height = 26, borderRadius = 4,
+                                        width = 60, height = 36, borderRadius = 6,
                                         backgroundColor = {40, 75, 40, 220},
                                         justifyContent = "center", alignItems = "center",
                                         onPointerUp = function()
                                             if GameUI.onDebugLevelChange then GameUI.onDebugLevelChange(1) end
-                                            -- 刷新面板显示
                                             GameUI.HideSystemPanel()
                                             GameUI.ShowSystemPanel()
                                         end,
                                         children = {
-                                            UI.Label { text = "Lv+", fontSize = 11, fontColor = {160, 240, 160, 255} },
+                                            UI.Label { text = "Lv+", fontSize = 13, fontColor = {160, 240, 160, 255} },
                                         },
                                     },
                                     (function()
                                         local lbl = UI.Label {
                                             text = "Lv." .. (uiState.player and uiState.player.level or 1),
-                                            fontSize = 12,
+                                            fontSize = 14,
                                             fontColor = {200, 210, 200, 240},
                                         }
                                         uiState.debugLevelLabel = lbl
                                         return lbl
                                     end)(),
                                     UI.Panel {
-                                        width = 50, height = 26, borderRadius = 4,
+                                        width = 60, height = 36, borderRadius = 6,
                                         backgroundColor = {75, 40, 40, 220},
                                         justifyContent = "center", alignItems = "center",
                                         onPointerUp = function()
@@ -1748,7 +1750,7 @@ function GameUI.ShowSystemPanel()
                                             GameUI.ShowSystemPanel()
                                         end,
                                         children = {
-                                            UI.Label { text = "Lv-", fontSize = 11, fontColor = {240, 160, 160, 255} },
+                                            UI.Label { text = "Lv-", fontSize = 13, fontColor = {240, 160, 160, 255} },
                                         },
                                     },
                                 },
@@ -1758,11 +1760,11 @@ function GameUI.ShowSystemPanel()
                     -- 关闭按钮
                     UI.Button {
                         text = "关闭",
-                        width = 100, height = 32,
+                        width = 130, height = 40,
                         backgroundColor = {40, 35, 28, 240},
-                        borderRadius = 4, borderWidth = 1,
+                        borderRadius = 6, borderWidth = 1,
                         borderColor = {80, 70, 50, 160},
-                        fontSize = 13, fontColor = {180, 170, 145, 240},
+                        fontSize = 15, fontColor = {180, 170, 145, 240},
                         onClick = function()
                             GameUI.HideSystemPanel()
                         end,
