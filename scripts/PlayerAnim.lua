@@ -155,10 +155,10 @@ function PlayerAnim._AddClassDecoration(playerNode, classId, colors)
         bones.sword = sword
 
     elseif classId == "mage" then
-        -- 右手持法杖（粗实木杖 + 顶部大宝珠）
+        -- 右手持法杖（短杖 + 顶部发光球）
         local staff = bones.rHand:CreateChild("Staff")
         staff.position = Vector3(0, -0.05, 0)
-        staff.scale = Vector3(0.055, 1.05, 0.055)  -- 粗壮杖身
+        staff.scale = Vector3(0.05, 0.65, 0.05)  -- 短杖
         local model = staff:CreateComponent("StaticModel")
         model:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
         local mat = Material:new()
@@ -192,18 +192,18 @@ function PlayerAnim._AddClassDecoration(playerNode, classId, colors)
         crownMat:SetShaderParameter("Metallic", Variant(0.85))
         crownMat:SetShaderParameter("Roughness", Variant(0.2))
         crownModel:SetMaterial(crownMat)
-        -- 顶部发光宝珠
+        -- 顶部发光宝珠（大而亮）
         local orb = staff:CreateChild("StaffOrb")
-        orb.position = Vector3(0, 0.54, 0)
-        orb.scale = Vector3(2.2, 2.2, 2.2)
+        orb.position = Vector3(0, 0.52, 0)
+        orb.scale = Vector3(3.2, 3.2, 3.2)  -- 醒目大球
         local orbModel = orb:CreateComponent("StaticModel")
         orbModel:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
         local orbMat = Material:new()
         orbMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
-        orbMat:SetShaderParameter("MatDiffColor", Variant(colors.Azure))
-        orbMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.4, 0.6, 1.0)))
+        orbMat:SetShaderParameter("MatDiffColor", Variant(Color(0.3, 0.6, 1.0, 1.0)))
+        orbMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.8, 1.2, 2.0)))  -- 强发光
         orbMat:SetShaderParameter("Metallic", Variant(0.0))
-        orbMat:SetShaderParameter("Roughness", Variant(0.15))
+        orbMat:SetShaderParameter("Roughness", Variant(0.1))
         orbModel:SetMaterial(orbMat)
         bones.staff = staff
 
