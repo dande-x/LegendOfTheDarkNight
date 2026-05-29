@@ -150,6 +150,7 @@ function GameUI._RenderNanoVG()
     -- 绘制 HP/MP 圆球 + EXP 条 (仅游戏阶段，左下角)
     if uiState.phase == "playing" and uiState.player then
         GameUI._DrawOrbs(nvgCtx, sw, sh)
+        GameUI._DrawPotionCD(nvgCtx, sw, sh)
     end
 
     -- 绘制敌人头顶血条（pcall 保护，防止崩溃阻断 nvgEndFrame）
@@ -403,6 +404,57 @@ function GameUI._DrawOrbs(ctx, sw, sh)
         nvgFillColor(ctx, nvgRGBA(210, 195, 130, 210))
         nvgText(ctx, barX + barW + 5 * scale, barCenterY,
             math.floor(expProg * 100) .. "%", nil)
+    end
+end
+
+-- ============================================================================
+-- 药瓶 CD 转圈动画 (NanoVG 半透明扇形遮罩)
+-- ============================================================================
+function GameUI._DrawPotionCD(ctx, sw, sh)
+    local cd = GameUI.potionCD
+    if not cd then return end
+
+    local scale = sh / 720
+    -- 药瓶 UI: left=22, bottom=175, 每个50px, gap=10
+    local btnSize = 50 * scale
+    local gap = 10 * scale
+    local baseLeft = 22 * scale
+    local baseBottom = 175 * scale
+
+    local potions = {
+        { ratio = cd.hp, idx = 0 },
+        { ratio = cd.mp, idx = 1 },
+    }
+
+    for _, p in ipairs(potions) do
+        if p.ratio > 0.01 then
+            local cx = baseLeft + p.idx * (btnSize + gap) + btnSize * 0.5
+            local cy = sh - baseBottom - btnSize * 0.5
+            local r = btnSize * 0.5
+
+            -- 顺时针扇形遮罩: 从顶部开始，按 CD 比例覆盖
+            local startAngle = -math.pi * 0.5
+            local endAngle = startAngle + math.pi * 2 * p.ratio
+
+            nvgSave(ctx)
+            nvgBeginPath(ctx)
+            nvgMoveTo(ctx, cx, cy)
+            nvgArc(ctx, cx, cy, r, startAngle, endAngle, NVG_CW)
+            nvgClosePath(ctx)
+            nvgFillColor(ctx, nvgRGBA(0, 0, 0, 160))
+            nvgFill(ctx)
+
+            -- 前沿发光线
+            local edgeX = cx + math.cos(endAngle) * r
+            local edgeY = cy + math.sin(endAngle) * r
+            nvgBeginPath(ctx)
+            nvgMoveTo(ctx, cx, cy)
+            nvgLineTo(ctx, edgeX, edgeY)
+            nvgStrokeColor(ctx, nvgRGBA(255, 255, 255, 120))
+            nvgStrokeWidth(ctx, 1.5 * scale)
+            nvgStroke(ctx)
+            nvgRestore(ctx)
+        end
     end
 end
 
@@ -1044,14 +1096,19 @@ function GameUI._CreatePotions(player)
         local countLabel = UI.Label {
             id = "potion_" .. kind .. "_count",
             text = tostring(count),
-            fontSize = 12,
-            fontColor = cfg.numColor,
+            fontSize = 14,
+            fontColor = {255, 255, 255, 255},
             fontWeight = "bold",
         }
         uiState.refs["potion_" .. kind .. "_count"] = countLabel
 
         return UI.Panel {
-            width = 44, height = 58,
+            width = 50, height = 50,
+            borderRadius = 25,
+            backgroundColor = cfg.bodyBg,
+            borderWidth = 2.5,
+            borderColor = cfg.rimColor,
+            justifyContent = "center",
             alignItems = "center",
             onPointerUp = function()
                 if kind == "hp" then
@@ -1061,54 +1118,22 @@ function GameUI._CreatePotions(player)
                 end
             end,
             children = {
-                -- 外发光圈
+                -- 液体内圈
                 UI.Panel {
-                    width = 40, height = 40,
-                    borderRadius = 20,
-                    backgroundColor = cfg.glowBg,
-                    justifyContent = "center",
-                    alignItems = "center",
-                    children = {
-                        -- 主瓶身（圆形）
-                        UI.Panel {
-                            width = 34, height = 34,
-                            borderRadius = 17,
-                            backgroundColor = cfg.bodyBg,
-                            borderWidth = 2,
-                            borderColor = cfg.rimColor,
-                            justifyContent = "center",
-                            alignItems = "center",
-                            children = {
-                                -- 瓶内液体色块
-                                UI.Panel {
-                                    width = 22, height = 22,
-                                    borderRadius = 11,
-                                    backgroundColor = cfg.liquidColor,
-                                    justifyContent = "center",
-                                    alignItems = "center",
-                                    children = {
-                                        -- 高光点
-                                        UI.Panel {
-                                            position = "absolute",
-                                            top = 4, left = 5,
-                                            width = 6, height = 4,
-                                            borderRadius = 3,
-                                            backgroundColor = cfg.highlight,
-                                        },
-                                        -- 标签文字
-                                        UI.Label {
-                                            text = cfg.icon,
-                                            fontSize = 10,
-                                            fontColor = cfg.textColor,
-                                            fontWeight = "bold",
-                                        },
-                                    },
-                                },
-                            },
-                        },
-                    },
+                    position = "absolute",
+                    width = 36, height = 36,
+                    borderRadius = 18,
+                    backgroundColor = cfg.liquidColor,
                 },
-                -- 数量（瓶身下方）
+                -- 高光
+                UI.Panel {
+                    position = "absolute",
+                    top = 8, left = 10,
+                    width = 10, height = 6,
+                    borderRadius = 4,
+                    backgroundColor = cfg.highlight,
+                },
+                -- 数量（白色居中）
                 countLabel,
             },
         }
@@ -1117,29 +1142,21 @@ function GameUI._CreatePotions(player)
     return UI.Panel {
         id = "potions",
         position = "absolute",
-        left = 12, bottom = 170,
+        left = 22, bottom = 175,
         flexDirection = "row",
-        gap = 6,
+        gap = 10,
         children = {
             makePotion("hp", hpCount, {
-                icon       = "♥",
-                glowBg     = {80, 20, 15, 100},
-                bodyBg     = {30, 8, 8, 240},
-                rimColor   = {190, 55, 40, 220},
-                liquidColor = {160, 30, 25, 230},
-                highlight  = {255, 180, 160, 150},
-                textColor  = {255, 220, 210, 255},
-                numColor   = {240, 130, 110, 255},
+                bodyBg     = {35, 8, 8, 230},
+                rimColor   = {200, 60, 45, 230},
+                liquidColor = {150, 28, 22, 210},
+                highlight  = {255, 180, 160, 120},
             }),
             makePotion("mp", mpCount, {
-                icon       = "✦",
-                glowBg     = {15, 25, 80, 100},
-                bodyBg     = {8, 10, 35, 240},
-                rimColor   = {50, 100, 200, 220},
-                liquidColor = {25, 60, 160, 230},
-                highlight  = {160, 200, 255, 150},
-                textColor  = {210, 230, 255, 255},
-                numColor   = {110, 170, 240, 255},
+                bodyBg     = {8, 10, 40, 230},
+                rimColor   = {50, 110, 210, 230},
+                liquidColor = {22, 50, 150, 210},
+                highlight  = {160, 200, 255, 120},
             }),
         },
     }

@@ -31,8 +31,8 @@ local CAM_FOV = 45
 -- 药瓶系统
 local hpPotionCD = 0
 local mpPotionCD = 0
-local HP_POTION_CD = 8
-local MP_POTION_CD = 8
+local HP_POTION_CD = 1.0
+local MP_POTION_CD = 1.0
 
 -- 玩家死亡
 local deathTimer = 0
@@ -703,6 +703,11 @@ function HandleUpdate(eventType, eventData)
     CharacterClass.UpdateCooldowns(player_, dt)
     if hpPotionCD > 0 then hpPotionCD = math.max(0, hpPotionCD - dt) end
     if mpPotionCD > 0 then mpPotionCD = math.max(0, mpPotionCD - dt) end
+    -- 暴露 CD 进度给 UI 绘制
+    GameUI.potionCD = {
+        hp = hpPotionCD / HP_POTION_CD,
+        mp = mpPotionCD / MP_POTION_CD,
+    }
 
     -- 装备加成应用
     local inv = Inventory.playerData
