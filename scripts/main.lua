@@ -25,9 +25,10 @@ local player_ = nil
 local C = CharacterClass.Colors
 
 -- 俯视角相机参数
-local CAM_OFFSET = Vector3(0, 12, -7)
-local CAM_PITCH = 60
-local CAM_FOV = 45
+-- 斜45度视角（类传奇/暗黑风格，能看清人形角色）
+local CAM_OFFSET = Vector3(0, 8, -10)
+local CAM_PITCH = 40
+local CAM_FOV = 40
 
 -- 药瓶系统
 local hpPotionCD = 0
