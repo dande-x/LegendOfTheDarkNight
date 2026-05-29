@@ -155,51 +155,99 @@ function PlayerAnim._AddClassDecoration(playerNode, classId, colors)
         bones.sword = sword
 
     elseif classId == "mage" then
-        -- 右手持法杖
+        -- 右手持法杖（粗实木杖 + 顶部大宝珠）
         local staff = bones.rHand:CreateChild("Staff")
-        staff.position = Vector3(0, -0.1, 0)
-        staff.scale = Vector3(0.03, 0.9, 0.03)
+        staff.position = Vector3(0, -0.05, 0)
+        staff.scale = Vector3(0.055, 1.05, 0.055)  -- 粗壮杖身
         local model = staff:CreateComponent("StaticModel")
         model:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
         local mat = Material:new()
         mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
-        mat:SetShaderParameter("MatDiffColor", Variant(Color(0.3, 0.2, 0.15, 1.0)))
-        mat:SetShaderParameter("Roughness", Variant(0.6))
-        mat:SetShaderParameter("Metallic", Variant(0.1))
+        mat:SetShaderParameter("MatDiffColor", Variant(Color(0.35, 0.22, 0.12, 1.0)))
+        mat:SetShaderParameter("Roughness", Variant(0.55))
+        mat:SetShaderParameter("Metallic", Variant(0.05))
         model:SetMaterial(mat)
         model.castShadows = true
-        -- 法杖顶部宝珠
+        -- 杖身中段金属环箍
+        local ring = staff:CreateChild("StaffRing")
+        ring.position = Vector3(0, 0.25, 0)
+        ring.scale = Vector3(1.6, 0.12, 1.6)
+        local ringModel = ring:CreateComponent("StaticModel")
+        ringModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+        local ringMat = Material:new()
+        ringMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
+        ringMat:SetShaderParameter("MatDiffColor", Variant(Color(0.85, 0.72, 0.2, 1.0)))
+        ringMat:SetShaderParameter("Metallic", Variant(0.9))
+        ringMat:SetShaderParameter("Roughness", Variant(0.2))
+        ringModel:SetMaterial(ringMat)
+        -- 顶部宝珠托座
+        local crown = staff:CreateChild("StaffCrown")
+        crown.position = Vector3(0, 0.48, 0)
+        crown.scale = Vector3(2.0, 0.2, 2.0)
+        local crownModel = crown:CreateComponent("StaticModel")
+        crownModel:SetModel(cache:GetResource("Model", "Models/Cone.mdl"))
+        local crownMat = Material:new()
+        crownMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
+        crownMat:SetShaderParameter("MatDiffColor", Variant(Color(0.85, 0.72, 0.2, 1.0)))
+        crownMat:SetShaderParameter("Metallic", Variant(0.85))
+        crownMat:SetShaderParameter("Roughness", Variant(0.2))
+        crownModel:SetMaterial(crownMat)
+        -- 顶部发光宝珠
         local orb = staff:CreateChild("StaffOrb")
-        orb.position = Vector3(0, 0.52, 0)
-        orb.scale = Vector3(2.5, 2.5, 2.5)
+        orb.position = Vector3(0, 0.54, 0)
+        orb.scale = Vector3(2.2, 2.2, 2.2)
         local orbModel = orb:CreateComponent("StaticModel")
         orbModel:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
         local orbMat = Material:new()
         orbMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
         orbMat:SetShaderParameter("MatDiffColor", Variant(colors.Azure))
-        orbMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.3, 0.5, 0.9)))
+        orbMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.4, 0.6, 1.0)))
         orbMat:SetShaderParameter("Metallic", Variant(0.0))
-        orbMat:SetShaderParameter("Roughness", Variant(0.2))
+        orbMat:SetShaderParameter("Roughness", Variant(0.15))
         orbModel:SetMaterial(orbMat)
         bones.staff = staff
 
     elseif classId == "taoist" then
-        -- 左手持拂尘（圆环）
-        local whisk = bones.lHand:CreateChild("Whisk")
-        whisk.position = Vector3(0, -0.08, 0)
-        whisk.scale = Vector3(0.12, 0.12, 0.03)
-        whisk.rotation = Quaternion(90, Vector3.RIGHT)
-        local model = whisk:CreateComponent("StaticModel")
-        model:SetModel(cache:GetResource("Model", "Models/Torus.mdl"))
-        local mat = Material:new()
-        mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
-        mat:SetShaderParameter("MatDiffColor", Variant(colors.Gold))
-        mat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.4, 0.35, 0.15)))
-        mat:SetShaderParameter("Metallic", Variant(0.5))
-        mat:SetShaderParameter("Roughness", Variant(0.3))
-        model:SetMaterial(mat)
-        model.castShadows = true
-        bones.whisk = whisk
+        -- 右手持拂尘（木柄 + 丝穗）
+        local whiskHandle = bones.rHand:CreateChild("WhiskHandle")
+        whiskHandle.position = Vector3(0, -0.05, 0)
+        whiskHandle.scale = Vector3(0.035, 0.85, 0.035)  -- 细长木柄
+        local handleModel = whiskHandle:CreateComponent("StaticModel")
+        handleModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+        local handleMat = Material:new()
+        handleMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
+        handleMat:SetShaderParameter("MatDiffColor", Variant(Color(0.45, 0.3, 0.15, 1.0)))
+        handleMat:SetShaderParameter("Roughness", Variant(0.6))
+        handleMat:SetShaderParameter("Metallic", Variant(0.05))
+        handleModel:SetMaterial(handleMat)
+        handleModel.castShadows = true
+        -- 柄顶金属环
+        local topRing = whiskHandle:CreateChild("TopRing")
+        topRing.position = Vector3(0, 0.48, 0)
+        topRing.scale = Vector3(2.0, 0.15, 2.0)
+        local topRingModel = topRing:CreateComponent("StaticModel")
+        topRingModel:SetModel(cache:GetResource("Model", "Models/Torus.mdl"))
+        local topRingMat = Material:new()
+        topRingMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
+        topRingMat:SetShaderParameter("MatDiffColor", Variant(colors.Gold))
+        topRingMat:SetShaderParameter("Metallic", Variant(0.85))
+        topRingMat:SetShaderParameter("Roughness", Variant(0.2))
+        topRingMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.3, 0.25, 0.05)))
+        topRingModel:SetMaterial(topRingMat)
+        -- 丝穗（用拉长的球体模拟飘逸感）
+        local tassel = whiskHandle:CreateChild("Tassel")
+        tassel.position = Vector3(0, 0.55, 0)
+        tassel.scale = Vector3(1.8, 3.5, 1.8)  -- 椭圆形丝穗
+        local tasselModel = tassel:CreateComponent("StaticModel")
+        tasselModel:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
+        local tasselMat = Material:new()
+        tasselMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+        tasselMat:SetShaderParameter("MatDiffColor", Variant(Color(0.95, 0.95, 0.92, 0.7)))
+        tasselMat:SetShaderParameter("Roughness", Variant(0.9))
+        tasselMat:SetShaderParameter("Metallic", Variant(0.0))
+        tasselMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.15, 0.2, 0.1)))
+        tasselModel:SetMaterial(tasselMat)
+        bones.whisk = whiskHandle
     end
 end
 
