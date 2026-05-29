@@ -1037,27 +1037,21 @@ end
 -- 左下角 - 药瓶快捷键（球的右侧偏移）
 -- ============================================================================
 function GameUI._CreatePotions(player)
-    local Inventory = require("Inventory")
     local hpCount = Inventory.GetPotionCount("hp")
     local mpCount = Inventory.GetPotionCount("mp")
 
-    local function makePotion(kind, label, count, bgColor, borderColor, iconColor, glowColor)
+    local function makePotion(kind, count, cfg)
         local countLabel = UI.Label {
             id = "potion_" .. kind .. "_count",
             text = tostring(count),
-            fontSize = 11,
-            fontColor = {255, 255, 255, 240},
+            fontSize = 12,
+            fontColor = cfg.numColor,
             fontWeight = "bold",
         }
         uiState.refs["potion_" .. kind .. "_count"] = countLabel
 
         return UI.Panel {
-            width = 52, height = 52,
-            borderRadius = 12,
-            backgroundColor = bgColor,
-            borderWidth = 1.5,
-            borderColor = borderColor,
-            justifyContent = "center",
+            width = 44, height = 58,
             alignItems = "center",
             onPointerUp = function()
                 if kind == "hp" then
@@ -1067,25 +1061,55 @@ function GameUI._CreatePotions(player)
                 end
             end,
             children = {
-                -- 药水图标
-                UI.Label {
-                    text = label,
-                    fontSize = 16,
-                    fontColor = iconColor,
-                    fontWeight = "bold",
-                },
-                -- 数量角标
+                -- 外发光圈
                 UI.Panel {
-                    position = "absolute",
-                    bottom = 2, right = 2,
-                    minWidth = 18, height = 16,
-                    borderRadius = 8,
-                    backgroundColor = {0, 0, 0, 180},
+                    width = 40, height = 40,
+                    borderRadius = 20,
+                    backgroundColor = cfg.glowBg,
                     justifyContent = "center",
                     alignItems = "center",
-                    paddingHorizontal = 3,
-                    children = { countLabel },
+                    children = {
+                        -- 主瓶身（圆形）
+                        UI.Panel {
+                            width = 34, height = 34,
+                            borderRadius = 17,
+                            backgroundColor = cfg.bodyBg,
+                            borderWidth = 2,
+                            borderColor = cfg.rimColor,
+                            justifyContent = "center",
+                            alignItems = "center",
+                            children = {
+                                -- 瓶内液体色块
+                                UI.Panel {
+                                    width = 22, height = 22,
+                                    borderRadius = 11,
+                                    backgroundColor = cfg.liquidColor,
+                                    justifyContent = "center",
+                                    alignItems = "center",
+                                    children = {
+                                        -- 高光点
+                                        UI.Panel {
+                                            position = "absolute",
+                                            top = 4, left = 5,
+                                            width = 6, height = 4,
+                                            borderRadius = 3,
+                                            backgroundColor = cfg.highlight,
+                                        },
+                                        -- 标签文字
+                                        UI.Label {
+                                            text = cfg.icon,
+                                            fontSize = 10,
+                                            fontColor = cfg.textColor,
+                                            fontWeight = "bold",
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    },
                 },
+                -- 数量（瓶身下方）
+                countLabel,
             },
         }
     end
@@ -1093,16 +1117,30 @@ function GameUI._CreatePotions(player)
     return UI.Panel {
         id = "potions",
         position = "absolute",
-        left = 10, bottom = 175,
+        left = 12, bottom = 170,
         flexDirection = "row",
-        gap = 8,
+        gap = 6,
         children = {
-            makePotion("hp", "HP", hpCount,
-                {50, 12, 12, 200}, {180, 60, 50, 180},
-                {240, 90, 70, 255}, {255, 80, 60, 40}),
-            makePotion("mp", "MP", mpCount,
-                {12, 15, 50, 200}, {55, 100, 180, 180},
-                {80, 150, 230, 255}, {60, 120, 255, 40}),
+            makePotion("hp", hpCount, {
+                icon       = "♥",
+                glowBg     = {80, 20, 15, 100},
+                bodyBg     = {30, 8, 8, 240},
+                rimColor   = {190, 55, 40, 220},
+                liquidColor = {160, 30, 25, 230},
+                highlight  = {255, 180, 160, 150},
+                textColor  = {255, 220, 210, 255},
+                numColor   = {240, 130, 110, 255},
+            }),
+            makePotion("mp", mpCount, {
+                icon       = "✦",
+                glowBg     = {15, 25, 80, 100},
+                bodyBg     = {8, 10, 35, 240},
+                rimColor   = {50, 100, 200, 220},
+                liquidColor = {25, 60, 160, 230},
+                highlight  = {160, 200, 255, 150},
+                textColor  = {210, 230, 255, 255},
+                numColor   = {110, 170, 240, 255},
+            }),
         },
     }
 end
