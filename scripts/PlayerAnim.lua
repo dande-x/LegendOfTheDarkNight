@@ -140,8 +140,8 @@ function PlayerAnim._AddClassDecoration(playerNode, classId, colors)
     if classId == "warrior" then
         -- 右手持大剑
         local sword = bones.rHand:CreateChild("Sword")
-        sword.position = Vector3(0, -0.15, 0)
-        sword.scale = Vector3(0.8, 5.0, 0.4)  -- 相对于手的比例
+        sword.position = Vector3(0, -0.25, 0)
+        sword.scale = Vector3(0.04, 0.7, 0.015)  -- 窄长剑身
         local model = sword:CreateComponent("StaticModel")
         model:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
         local mat = Material:new()
@@ -158,7 +158,7 @@ function PlayerAnim._AddClassDecoration(playerNode, classId, colors)
         -- 右手持法杖
         local staff = bones.rHand:CreateChild("Staff")
         staff.position = Vector3(0, -0.1, 0)
-        staff.scale = Vector3(0.5, 7.0, 0.5)
+        staff.scale = Vector3(0.03, 0.9, 0.03)
         local model = staff:CreateComponent("StaticModel")
         model:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
         local mat = Material:new()
@@ -170,8 +170,8 @@ function PlayerAnim._AddClassDecoration(playerNode, classId, colors)
         model.castShadows = true
         -- 法杖顶部宝珠
         local orb = staff:CreateChild("StaffOrb")
-        orb.position = Vector3(0, 0.55, 0)
-        orb.scale = Vector3(1.8, 0.25, 1.8)
+        orb.position = Vector3(0, 0.52, 0)
+        orb.scale = Vector3(2.5, 2.5, 2.5)
         local orbModel = orb:CreateComponent("StaticModel")
         orbModel:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
         local orbMat = Material:new()
@@ -186,8 +186,8 @@ function PlayerAnim._AddClassDecoration(playerNode, classId, colors)
     elseif classId == "taoist" then
         -- 左手持拂尘（圆环）
         local whisk = bones.lHand:CreateChild("Whisk")
-        whisk.position = Vector3(0, -0.1, 0)
-        whisk.scale = Vector3(2.0, 2.0, 0.4)
+        whisk.position = Vector3(0, -0.08, 0)
+        whisk.scale = Vector3(0.12, 0.12, 0.03)
         whisk.rotation = Quaternion(90, Vector3.RIGHT)
         local model = whisk:CreateComponent("StaticModel")
         model:SetModel(cache:GetResource("Model", "Models/Torus.mdl"))
