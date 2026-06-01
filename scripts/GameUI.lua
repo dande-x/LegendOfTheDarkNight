@@ -424,11 +424,14 @@ function GameUI._DrawPotionCD(ctx, sw, sh)
     if not cd then return end
 
     local scale = sh / 720
-    -- 药瓶 UI: left=135, bottom=115, 每个62px, gap=12
-    local btnSize = 62 * scale
-    local gap = 12 * scale
-    local baseLeft = 135 * scale
-    local baseBottom = 115 * scale
+    local dpr = graphics:GetDPR()
+    -- 药瓶位置与 _CreatePotions 保持一致（NanoVG 用物理像素，= UI逻辑值 * dpr）
+    local potionSize = math.max(36, 44 * scale / dpr) * dpr  -- 物理像素
+    local potionGap = 8 * scale
+    local baseLeft = (72 + 52 + 8) * scale    -- 球右边缘 + 间距 (物理像素)
+    local baseBottom = (105 - 12) * scale     -- 球中心偏下 (物理像素)
+    local btnSize = potionSize
+    local gap = potionGap
 
     local potions = {
         { ratio = cd.hp, idx = 0 },
@@ -1101,21 +1104,35 @@ function GameUI._CreatePotions(player)
     local hpCount = Inventory.GetPotionCount("hp")
     local mpCount = Inventory.GetPotionCount("mp")
 
+    -- 计算缩放系数，与 NanoVG 血量球保持一致
+    local physH = graphics:GetHeight()
+    local dpr = graphics:GetDPR()
+    local uiScale = physH / (720 * dpr)  -- NanoVG 用 physH/720，UI 用逻辑像素需除以 dpr
+
+    -- 血量球参数 (来自 _DrawOrbs): cx=72*scale, r=52*scale
+    -- 药瓶放在球右边缘再偏移一点
+    local potionSize = math.floor(math.max(36, 44 * uiScale))
+    local innerSize = math.floor(potionSize * 0.74)
+    local potionLeft = math.floor((72 + 52 + 8) * uiScale)   -- 球右边缘 + 间距
+    local potionBottom = math.floor((105 - 12) * uiScale)     -- 球中心偏下
+    local potionGap = math.floor(8 * uiScale)
+    local potionFontSize = math.max(12, math.floor(14 * uiScale))
+
     local function makePotion(kind, count, cfg)
         local countLabel = UI.Label {
             id = "potion_" .. kind .. "_count",
             text = tostring(count),
-            fontSize = 16,
+            fontSize = potionFontSize,
             fontColor = {255, 255, 255, 255},
             fontWeight = "bold",
         }
         uiState.refs["potion_" .. kind .. "_count"] = countLabel
 
         return UI.Panel {
-            width = 62, height = 62,
-            borderRadius = 31,
+            width = potionSize, height = potionSize,
+            borderRadius = math.floor(potionSize / 2),
             backgroundColor = cfg.bodyBg,
-            borderWidth = 3,
+            borderWidth = math.max(2, math.floor(2.5 * uiScale)),
             borderColor = cfg.rimColor,
             justifyContent = "center",
             alignItems = "center",
@@ -1130,16 +1147,18 @@ function GameUI._CreatePotions(player)
                 -- 液体内圈
                 UI.Panel {
                     position = "absolute",
-                    width = 46, height = 46,
-                    borderRadius = 23,
+                    width = innerSize, height = innerSize,
+                    borderRadius = math.floor(innerSize / 2),
                     backgroundColor = cfg.liquidColor,
                 },
                 -- 高光
                 UI.Panel {
                     position = "absolute",
-                    top = 10, left = 12,
-                    width = 12, height = 8,
-                    borderRadius = 5,
+                    top = math.floor(potionSize * 0.16),
+                    left = math.floor(potionSize * 0.2),
+                    width = math.floor(potionSize * 0.2),
+                    height = math.floor(potionSize * 0.12),
+                    borderRadius = math.floor(potionSize * 0.08),
                     backgroundColor = cfg.highlight,
                 },
                 -- 数量（白色居中）
@@ -1151,9 +1170,9 @@ function GameUI._CreatePotions(player)
     return UI.Panel {
         id = "potions",
         position = "absolute",
-        left = 135, bottom = 115,
+        left = potionLeft, bottom = potionBottom,
         flexDirection = "row",
-        gap = 12,
+        gap = potionGap,
         children = {
             makePotion("hp", hpCount, {
                 bodyBg     = {35, 8, 8, 230},
