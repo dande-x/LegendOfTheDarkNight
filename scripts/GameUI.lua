@@ -424,14 +424,14 @@ function GameUI._DrawPotionCD(ctx, sw, sh)
     if not cd then return end
 
     local scale = sh / 720
-    local dpr = graphics:GetDPR()
-    -- 药瓶位置与 _CreatePotions 保持一致（NanoVG 用物理像素，= UI逻辑值 * dpr）
-    local potionSize = math.max(36, 44 * scale / dpr) * dpr  -- 物理像素
-    local potionGap = 8 * scale
-    local baseLeft = (72 + 52 + 8) * scale    -- 球右边缘 + 间距 (物理像素)
-    local baseBottom = (105 - 12) * scale     -- 球中心偏下 (物理像素)
-    local btnSize = potionSize
-    local gap = potionGap
+    local uiSysScale = UI.GetScale()
+    -- 药瓶位置与 _CreatePotions 保持一致
+    -- 物理像素 = UI base pixels × uiSysScale = (X * scale / uiSysScale) * uiSysScale = X * scale
+    local btnSize = math.max(30 * uiSysScale, 38 * scale)  -- 匹配 potionSize (含下限)
+    local gap = math.max(4 * uiSysScale, 6 * scale)
+    local baseLeft = (72 + 52 + 10) * scale  -- 物理像素 (匹配 potionLeft)
+    -- 球心距底 = 105*scale, 药瓶垂直居中于球心
+    local baseBottom = 105 * scale - btnSize / 2  -- 药瓶底边距屏幕底 (物理像素)
 
     local potions = {
         { ratio = cd.hp, idx = 0 },
@@ -1104,19 +1104,23 @@ function GameUI._CreatePotions(player)
     local hpCount = Inventory.GetPotionCount("hp")
     local mpCount = Inventory.GetPotionCount("mp")
 
-    -- 计算缩放系数，与 NanoVG 血量球保持一致
+    -- 正确的坐标转换：NanoVG 设计单位 → UI base pixels
+    -- NanoVG 使用 physScale = graphics.height / 720 (物理像素)
+    -- UI 系统使用 UI.GetScale() 作为内部缩放 (base pixels × scale = 物理像素)
+    -- 转换系数: toUI = physScale / uiSysScale
     local physH = graphics:GetHeight()
-    local dpr = graphics:GetDPR()
-    local uiScale = physH / (720 * dpr)  -- NanoVG 用 physH/720，UI 用逻辑像素需除以 dpr
+    local physScale = physH / 720               -- NanoVG 缩放系数
+    local uiSysScale = UI.GetScale()            -- UI 系统缩放系数
+    local toUI = physScale / uiSysScale         -- NanoVG 设计单位 → UI base pixels
 
-    -- 血量球参数 (来自 _DrawOrbs): cx=72*scale, r=52*scale
-    -- 药瓶放在球右边缘再偏移一点
-    local potionSize = math.floor(math.max(36, 44 * uiScale))
+    -- 血量球参数 (来自 _DrawOrbs): cx=72, r=52, cy_from_bottom=105 (NanoVG 设计单位)
+    -- 药瓶放在球右边缘右侧
+    local potionSize = math.floor(math.max(30, 38 * toUI))
     local innerSize = math.floor(potionSize * 0.74)
-    local potionLeft = math.floor((72 + 52 + 8) * uiScale)   -- 球右边缘 + 间距
-    local potionBottom = math.floor((105 - 12) * uiScale)     -- 球中心偏下
-    local potionGap = math.floor(8 * uiScale)
-    local potionFontSize = math.max(12, math.floor(14 * uiScale))
+    local potionLeft = math.floor((72 + 52 + 10) * toUI)     -- 球右边缘 + 间距
+    local potionBottom = math.floor(105 * toUI - potionSize / 2)  -- 垂直居中于球心
+    local potionGap = math.floor(math.max(4, 6 * toUI))
+    local potionFontSize = math.max(11, math.floor(13 * toUI))
 
     local function makePotion(kind, count, cfg)
         local countLabel = UI.Label {
@@ -1132,7 +1136,7 @@ function GameUI._CreatePotions(player)
             width = potionSize, height = potionSize,
             borderRadius = math.floor(potionSize / 2),
             backgroundColor = cfg.bodyBg,
-            borderWidth = math.max(2, math.floor(2.5 * uiScale)),
+            borderWidth = math.max(2, math.floor(2.5 * toUI)),
             borderColor = cfg.rimColor,
             justifyContent = "center",
             alignItems = "center",
