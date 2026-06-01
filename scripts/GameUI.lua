@@ -424,11 +424,11 @@ function GameUI._DrawPotionCD(ctx, sw, sh)
     if not cd then return end
 
     local scale = sh / 720
-    -- 药瓶 UI: left=22, bottom=175, 每个50px, gap=10
-    local btnSize = 50 * scale
-    local gap = 10 * scale
-    local baseLeft = 22 * scale
-    local baseBottom = 175 * scale
+    -- 药瓶 UI: left=135, bottom=115, 每个62px, gap=12
+    local btnSize = 62 * scale
+    local gap = 12 * scale
+    local baseLeft = 135 * scale
+    local baseBottom = 115 * scale
 
     local potions = {
         { ratio = cd.hp, idx = 0 },
@@ -1105,17 +1105,17 @@ function GameUI._CreatePotions(player)
         local countLabel = UI.Label {
             id = "potion_" .. kind .. "_count",
             text = tostring(count),
-            fontSize = 14,
+            fontSize = 16,
             fontColor = {255, 255, 255, 255},
             fontWeight = "bold",
         }
         uiState.refs["potion_" .. kind .. "_count"] = countLabel
 
         return UI.Panel {
-            width = 50, height = 50,
-            borderRadius = 25,
+            width = 62, height = 62,
+            borderRadius = 31,
             backgroundColor = cfg.bodyBg,
-            borderWidth = 2.5,
+            borderWidth = 3,
             borderColor = cfg.rimColor,
             justifyContent = "center",
             alignItems = "center",
@@ -1130,16 +1130,16 @@ function GameUI._CreatePotions(player)
                 -- 液体内圈
                 UI.Panel {
                     position = "absolute",
-                    width = 36, height = 36,
-                    borderRadius = 18,
+                    width = 46, height = 46,
+                    borderRadius = 23,
                     backgroundColor = cfg.liquidColor,
                 },
                 -- 高光
                 UI.Panel {
                     position = "absolute",
-                    top = 8, left = 10,
-                    width = 10, height = 6,
-                    borderRadius = 4,
+                    top = 10, left = 12,
+                    width = 12, height = 8,
+                    borderRadius = 5,
                     backgroundColor = cfg.highlight,
                 },
                 -- 数量（白色居中）
@@ -1151,9 +1151,9 @@ function GameUI._CreatePotions(player)
     return UI.Panel {
         id = "potions",
         position = "absolute",
-        left = 22, bottom = 175,
+        left = 135, bottom = 115,
         flexDirection = "row",
-        gap = 10,
+        gap = 12,
         children = {
             makePotion("hp", hpCount, {
                 bodyBg     = {35, 8, 8, 230},
