@@ -3,9 +3,11 @@
     Install ai-dev-kit skills into a target agent's discovery directory.
 
 .DESCRIPTION
-    Source:  <workspace>\skills\<name>\
-    Target:  <workspace>\.<tool>\skills\<name>\ (directory junction -> source,
-             with hard-copy fallback)
+    Phase 1: Move skills from <workspace>\skills\ to <workspace>\.installer\skills\,
+             filtering out platform-excluded skills listed in
+             <workspace>\.installer\local-skill-filter.json under the "win32" key.
+    Phase 2: Create directory junctions from <workspace>\.<tool>\skills\<name>\
+             pointing to <workspace>\.installer\skills\<name>\ (hard-copy fallback).
 
     Junctions don't require admin or Developer Mode and are atomic from the
     Claude/Codex/Cursor/Gemini agents' point of view. The agents read through
@@ -34,10 +36,88 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $SupportedTools = @('claude', 'codex', 'cursor', 'gemini')
+$PlatformKey = 'win32'
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Workspace = Split-Path -Parent $ScriptDir
-$Source = Join-Path $Workspace 'skills'
+$RawSource = Join-Path $Workspace 'skills'
+$InstallerDir = Join-Path $Workspace '.installer'
+$Source = Join-Path $InstallerDir 'skills'
+$FilterConfig = Join-Path $InstallerDir 'local-skill-filter.json'
+
+# --------------------------------------------------------------------------- #
+# Phase 1: Move skills/ -> .installer/skills/ with platform filtering
+# --------------------------------------------------------------------------- #
+
+function Get-ExcludedSkills {
+    if (-not (Test-Path $FilterConfig)) { return @() }
+
+    try {
+        $config = Get-Content -Raw -Encoding UTF8 -Path $FilterConfig | ConvertFrom-Json
+        $excludeSkills = $config.exclude_skills
+        if ($null -eq $excludeSkills) { return @() }
+
+        $platformList = $excludeSkills.$PlatformKey
+        if ($null -eq $platformList) { return @() }
+
+        # ConvertFrom-Json may return a single string instead of an array when
+        # the JSON array has exactly one element. Wrap in @() to normalize.
+        return @($platformList)
+    }
+    catch {
+        Write-Host "[install-skills] WARNING: failed to parse $FilterConfig - skipping filter"
+        return @()
+    }
+}
+
+function Move-SkillsToInstaller {
+    # Already moved in a previous run (path does not exist).
+    if (-not (Test-Path $RawSource)) { return }
+    # Path exists but is not a directory (edge case).
+    if (-not (Test-Path $RawSource -PathType Container)) { return }
+
+    $excludedSet = @{}
+    foreach ($name in (Get-ExcludedSkills)) { $excludedSet[$name] = $true }
+
+    if (-not (Test-Path $Source)) {
+        New-Item -ItemType Directory -Force -Path $Source | Out-Null
+    }
+
+    $filtered = 0
+    Get-ChildItem -Path $RawSource -Directory | ForEach-Object {
+        $name = $_.Name
+        if ($excludedSet.ContainsKey($name)) {
+            $filtered++
+            return  # skip this skill
+        }
+        $dest = Join-Path $Source $name
+        if (Test-Path $dest) {
+            cmd /c "rmdir /S /Q `"$dest`"" 2>&1 | Out-Null
+        }
+        Move-Item -Force -Path $_.FullName -Destination $dest
+    }
+
+    # Also move non-directory files (e.g. README) if any.
+    Get-ChildItem -Path $RawSource -File | ForEach-Object {
+        Move-Item -Force -Path $_.FullName -Destination (Join-Path $Source $_.Name)
+    }
+
+    # Remove the top-level skills/ directory, including any excluded skill
+    # directories left behind — they are not needed on this platform.
+    if (Test-Path $RawSource) {
+        Remove-Item -Force -Recurse -Path $RawSource -ErrorAction SilentlyContinue
+    }
+
+    if ($filtered -gt 0) {
+        Write-Host "[install-skills] filtered $filtered skill(s) for platform=$PlatformKey"
+    }
+}
+
+Move-SkillsToInstaller
+
+# --------------------------------------------------------------------------- #
+# Phase 2: Create junctions from .installer/skills/ to .<tool>/skills/
+# --------------------------------------------------------------------------- #
 
 function Install-ForTool {
     param([string]$ToolName)

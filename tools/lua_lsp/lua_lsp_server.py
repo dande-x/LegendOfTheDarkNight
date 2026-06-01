@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Lua LSP 服务器
-监视 LuaScripts 目录，使用 lua-language-server 进行语法检测
+监视 LuaScripts 目录，使用 EmmyLua Language Server 进行语法检测
 """
 
 import os
@@ -10,12 +10,15 @@ import sys
 import json
 import time
 import re
+import copy
+import itertools
 import subprocess
 import threading
 import logging
 import argparse
 import atexit
 import signal
+import traceback
 from pathlib import Path
 from typing import Dict, List, Optional
 from urllib.parse import unquote, urlparse
@@ -28,11 +31,70 @@ try:
 except ImportError:
     WATCHDOG_AVAILABLE = False
     Observer = None
-    FileSystemEventHandler = None
+    class FileSystemEventHandler:
+        pass
 
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 import math
+
+# ========== EmmyLuaLS 默认配置 ==========
+
+EMMYLUA_OVERRIDE_CONFIG = {
+    "runtime": {
+        "version": "Lua5.4",
+        "requireLikeFunction": ["tolua"],
+        "special": {
+            "tolua": "require",
+        },
+    },
+    "workspace": {},
+    "diagnostics": {
+        "enable": True,
+        "globals": ["tolua"],
+        "severity": {
+            # --- 跟默认一致，不 override ---
+            # "undefined-global": "error",          # 默认 error
+            # "unused": "hint",                     # 默认 hint
+            # "unbalanced-assignments": "warning",  # 默认 warning
+            # "cast-type-mismatch": "warning",      # 默认 warning
+
+            # --- 提升到 error（默认 warning）---
+            "undefined-field": "error",
+            "missing-parameter": "error",
+            "param-type-mismatch": "error",
+            "assign-type-mismatch": "error",
+            "return-type-mismatch": "error",
+            "type-not-found": "error",
+            "undefined-doc-param": "error",
+            "circle-doc-class": "error",
+            "inject-field": "error",
+            "access-invisible": "error",
+            "enum-value-mismatch": "error",
+            "duplicate-index": "error",
+            "require-module-not-visible": "error",
+            "attribute-param-type-mismatch": "error",
+            "generic-constraint-mismatch": "error",
+
+            # --- 待提升 ---
+            # "unresolved-require": "error", # 默认 warning
+            # "redundant-parameter": "error", # 默认 warning
+            # "read-only": "error",
+
+
+            # --- 调整级别 ---
+            "duplicate-set-field": "hint",   # 默认 warning → hint
+            "redefined-local": "warning",    # 默认 hint → warning
+            "call-non-callable": "warning",  # ScriptObject() 有 __call 但类型未声明，待强化声明后改 error
+        },
+    },
+    "completion": {
+        "autoRequire": False,
+    },
+    "hint": {
+        "enable": True,
+    },
+}
 
 # ========== 分页工具函数 ==========
 
@@ -384,57 +446,74 @@ class LuaFileWatcher(FileSystemEventHandler):
             sorted_items = sorted(self.last_check.items(), key=lambda x: x[1], reverse=True)
             self.last_check = dict(sorted_items[:100])
 
+    def _matches_watch_pattern(self, path: str) -> bool:
+        """检查文件是否匹配 emmylua_ls 注册的监视模式"""
+        fname = os.path.basename(path)
+        for pattern in self.server._watch_patterns:
+            # "**/*.lua" → 匹配 .lua 后缀
+            if pattern.startswith('**/*.') and fname.endswith(pattern[4:]):
+                return True
+            # "**/.luarc.json" → 匹配文件名
+            if pattern.startswith('**/') and not pattern.startswith('**/*.') and fname == pattern[3:]:
+                return True
+        # registerCapability 还没收到时兜底匹配 .lua
+        if not self.server._watch_patterns:
+            return fname.endswith('.lua')
+        return False
+
+    def _notify_watched_file(self, file_path: str, change_type: int):
+        """通过 didChangeWatchedFiles 通知 emmylua_ls"""
+        uri = Path(file_path).resolve().as_uri()
+        self.server._send_message({
+            "jsonrpc": "2.0",
+            "method": "workspace/didChangeWatchedFiles",
+            "params": {
+                "changes": [{"uri": uri, "type": change_type}]
+            }
+        })
+
     def on_modified(self, event):
-        if event.is_directory:
+        if event.is_directory or not self._matches_watch_pattern(event.src_path):
             return
 
-        if not event.src_path.endswith('.lua'):
-            return
-
-        # 防抖处理
         current_time = time.time()
         if event.src_path in self.last_check:
             if current_time - self.last_check[event.src_path] < self.debounce_time:
                 return
-
         self.last_check[event.src_path] = current_time
-        self._cleanup_old_entries()  # 定期清理
+        self._cleanup_old_entries()
         logger.info(f"检测到文件变化: {event.src_path}")
-        
-        # 等待文件写入完成
+
         if self._wait_for_file_ready(event.src_path):
-            self.server.check_file(event.src_path)
+            if event.src_path.endswith('.lua'):
+                self.server.check_file(event.src_path)
+            self._notify_watched_file(event.src_path, 2)  # Changed
         else:
             logger.warning(f"文件可能正在被占用，跳过检查: {event.src_path}")
-    
-    def on_created(self, event):
-        if event.is_directory:
-            return
 
-        if not event.src_path.endswith('.lua'):
+    def on_created(self, event):
+        if event.is_directory or not self._matches_watch_pattern(event.src_path):
             return
 
         logger.info(f"检测到新文件: {event.src_path}")
-
-        # 等待文件复制完成（新文件需要更长时间）
         time.sleep(self.file_settle_time)
 
         if self._wait_for_file_ready(event.src_path):
-            self.server.check_file(event.src_path)
-            self._cleanup_old_entries()  # 清理旧记录
+            if event.src_path.endswith('.lua'):
+                self.server.check_file(event.src_path)
+            self._notify_watched_file(event.src_path, 1)  # Created
+            self._cleanup_old_entries()
         else:
             logger.warning(f"文件可能正在被复制，跳过检查: {event.src_path}")
 
     def on_deleted(self, event):
-        """文件删除时关闭并清理"""
-        if event.is_directory:
-            return
-
-        if not event.src_path.endswith('.lua'):
+        if event.is_directory or not self._matches_watch_pattern(event.src_path):
             return
 
         logger.info(f"检测到文件删除: {event.src_path}")
-        self.server.close_file(event.src_path)
+        if event.src_path.endswith('.lua'):
+            self.server.close_file(event.src_path)
+        self._notify_watched_file(event.src_path, 3)  # Deleted
 
 
 class LuaLSPServer:
@@ -448,43 +527,54 @@ class LuaLSPServer:
         self.output_file = output_file
         self.errors_only_file = errors_only_file
         self.mode = mode  # 运行模式: "watch" 或 "check"
-        self._lsp_path = lsp_path  # 用户指定的 lua-language-server 路径
+        self._lsp_path = lsp_path
         self.diagnostics: Dict[str, List] = {}
         self.lsp_process: Optional[subprocess.Popen] = None
-        self.message_id = 0
+        self._id_counter = itertools.count(1)
         self.running = False
         self.lock = threading.Lock()
-        self.opened_files: Dict[str, int] = {}  # 跟踪已打开文件的版本号
-        self.use_color = sys.stdout.isatty()  # 检测是否在终端中运行
+        self.opened_files: Dict[str, int] = {}
+        self.use_color = sys.stdout.isatty()
+        # emmylua_ls 通过 client/registerCapability 注册的文件监视模式
+        self._watch_patterns: List[str] = []
+        self._restart_count = 0
+        self._write_lock = threading.Lock()
 
         # HTTP RPC 代理相关
-        self._pending_requests: Dict[int, dict] = {}  # id -> {event, result}
+        self._pending_requests: Dict[int, dict] = {}
         self._pending_lock = threading.Lock()
-        self.http_port = 0  # 0 表示不启用 HTTP 服务
+        self.http_port = 0
 
-        # 从 .luarc.json 读取 .emmylua 路径
+        # 从 .luarc.json / .emmyrc.json 读取 .emmylua 路径
         self.emmylua_dir = self._find_emmylua_dir()
-        
-        # 查找 lua-language-server 可执行文件
-        self.lsp_executable = self._find_lsp_executable()
-        
-        if not self.lsp_executable:
-            logger.error("未找到 lua-language-server，请确保已安装")
+
+        # 查找可执行文件
+        self.lsp_executable = self._find_executable('emmylua_ls')
+        self.check_executable = self._find_executable('emmylua_check')
+
+        if self.mode == 'check' and not self.check_executable:
+            logger.error("未找到 emmylua_check，请确保已安装")
             sys.exit(1)
-        
-        logger.info(f"使用 LSP: {self.lsp_executable}")
+        if self.mode == 'watch' and not self.lsp_executable:
+            logger.error("未找到 emmylua_ls，请确保已安装")
+            sys.exit(1)
+
+        exe = self.check_executable if self.mode == 'check' else self.lsp_executable
+        logger.info(f"使用 LSP: {exe}")
         logger.info(f"监视目录: {self.lua_scripts_dir}")
         logger.info(f"EmmyLua 类型: {self.emmylua_dir}")
     
     def _find_emmylua_dir(self) -> Path:
-        """从 .luarc.json 读取 .emmylua 路径"""
+        """从配置文件读取 .emmylua 路径"""
         # 如果指定了配置文件路径，优先使用
         if self.config_path and self.config_path.exists():
             luarc_path = self.config_path
             logger.info(f"使用指定的配置文件: {luarc_path}")
         else:
             luarc_path = self.lua_scripts_dir / ".luarc.json"
-        
+            if not luarc_path.exists():
+                luarc_path = self.lua_scripts_dir / ".emmyrc.json"
+
         if luarc_path.exists():
             try:
                 # 使用 utf-8-sig 自动处理 BOM
@@ -519,40 +609,98 @@ class LuaLSPServer:
                 logger.error(f"读取 .luarc.json 失败: {e}")
         else:
             logger.warning(f".luarc.json 不存在: {luarc_path}")
-        
-        # 默认返回 lua_scripts_dir/.emmylua
+
+        # fallback：向上查找 .emmylua 目录
+        for candidate in [self.lua_scripts_dir / '.emmylua',
+                          self.lua_scripts_dir.parent / '.emmylua',
+                          self.lua_scripts_dir.parent.parent / '.emmylua']:
+            if candidate.exists():
+                return candidate.resolve()
         return self.lua_scripts_dir / ".emmylua"
     
-    def _find_lsp_executable(self) -> Optional[str]:
-        """查找 lua-language-server 可执行文件"""
-        # 1. 优先使用用户指定的路径
+    def _load_override_config(self) -> dict:
+        """加载 override 配置：优先读脚本同目录的 .emmyrc.override.json，否则用内联"""
+        override_file = Path(__file__).resolve().parent / '.emmyrc.override.json'
+        if override_file.exists():
+            try:
+                with open(override_file, 'r', encoding='utf-8-sig') as f:
+                    config = json.load(f)
+                logger.info(f"使用外部 override 配置: {override_file}")
+                return config
+            except Exception as e:
+                logger.warning(f"读取 override 配置失败，回退到内联: {e}")
+        return copy.deepcopy(EMMYLUA_OVERRIDE_CONFIG)
+
+    def _normalize_project_severity(self, override: dict):
+        """读项目 .luarc.json/.emmyrc.json 的 severity，转小写合入 override"""
+        for name in ['.luarc.json', '.emmyrc.json']:
+            config_file = self.lua_scripts_dir / name
+            if config_file.exists():
+                try:
+                    with open(config_file, 'r', encoding='utf-8-sig') as f:
+                        project = json.load(f)
+                    severity = project.get('diagnostics', {}).get('severity', {})
+                    if severity:
+                        override_sev = override.setdefault('diagnostics', {}).setdefault('severity', {})
+                        for code, level in severity.items():
+                            if code not in override_sev and isinstance(level, str):
+                                override_sev[code] = level.lower()
+                except Exception:
+                    pass
+                break
+
+    def _resolve_workspace_paths(self) -> dict:
+        """基于 lua_scripts_dir 解析 library/packages 路径（相对路径）"""
+        ws = self.lua_scripts_dir
+        result = {}
+
+        # library: .emmylua 声明目录（绝对路径，../相对路径在emmylua_check中不可靠）
+        library = []
+        for candidate in [ws / '.emmylua', ws.parent / '.emmylua', ws.parent.parent / '.emmylua']:
+            if candidate.exists():
+                library.append(str(candidate.resolve()))
+                break
+        if library:
+            result['library'] = library
+
+        # packages: urhox-libs 库目录（绝对路径，../相对路径在emmylua_check中有bug）
+        packages = []
+        for candidate in [ws / 'urhox-libs', ws.parent / 'urhox-libs', ws.parent.parent / 'urhox-libs']:
+            if candidate.exists():
+                packages.append(str(candidate.resolve()))
+                break
+        if packages:
+            result['packages'] = packages
+
+        return result
+
+    def _find_executable(self, name: str) -> Optional[str]:
+        """查找可执行文件 (emmylua_ls / emmylua_check)"""
+        exe_name = f'{name}.exe' if os.name == 'nt' else name
+
+        # 1. 用户指定路径（仅当文件名匹配时使用）
         if self._lsp_path:
             lsp_path = Path(self._lsp_path)
-            if lsp_path.exists():
+            if lsp_path.exists() and lsp_path.stem == name:
                 return str(lsp_path.resolve())
-            else:
-                logger.warning(f"指定的 lua-language-server 路径不存在: {self._lsp_path}")
-                logger.warning("将尝试从系统 PATH 中查找 lua-language-server")
 
-        # 2. 检查本地安装目录（install_lua_lsp.sh 安装位置）
+        # 2. 本地安装目录
         script_dir = Path(__file__).resolve().parent
-        local_bin = script_dir / 'bin' / 'bin' / 'lua-language-server'
+        local_bin = script_dir / 'bin' / exe_name
         if local_bin.exists():
-            logger.info(f"使用本地安装的 lua-language-server: {local_bin}")
             return str(local_bin)
 
         # 3. 从 PATH 中查找
         try:
             cmd = 'which' if os.name != 'nt' else 'where'
-            result = subprocess.run([cmd, 'lua-language-server'],
+            result = subprocess.run([cmd, exe_name],
                                   capture_output=True, text=True, shell=False)
             if result.returncode == 0:
-                return result.stdout.strip().split('\n')[0]
-        except Exception as e:
-            logger.error(f"查找 lua-language-server 失败: {e}")
+                return result.stdout.strip().split('\n')[0].strip()
+        except Exception:
+            pass
 
-        # 4. 如果都找不到，直接返回命令名（假设在 PATH 中）
-        return 'lua-language-server'
+        return None
     
     def start(self):
         """启动 LSP 服务器（根据模式选择）"""
@@ -562,7 +710,7 @@ class LuaLSPServer:
             self.start_watch_mode()
     
     def start_check_mode(self):
-        """单次检查模式（使用 lua-language-server --check）"""
+        """单次检查模式（使用 emmylua_check）"""
         if self.use_color:
             logger.info(f"\n{Color.CYAN}{'='*60}{Color.RESET}")
             logger.info(f"{Color.BOLD}🔍 执行单次检查...{Color.RESET}")
@@ -571,145 +719,98 @@ class LuaLSPServer:
             logger.info(f"\n{'='*60}")
             logger.info(f"🔍 执行单次检查...")
             logger.info(f"{'='*60}")
-        
+
         try:
-            # 检查 .luarc.json 是否存在
-            if self.config_path and self.config_path.exists():
-                luarc_path = self.config_path
-                logger.info(f"✅ 使用配置文件: {luarc_path}")
+            if os.name == 'nt':
+                config_cache_dir = os.path.join(os.environ.get('TEMP', 'C:/Temp'), 'emmylua-check-cache')
             else:
-                luarc_path = self.lua_scripts_dir / ".luarc.json"
-                if not luarc_path.exists():
-                    logger.warning(f".luarc.json 不存在于 {self.lua_scripts_dir}")
-                    logger.warning("lua-language-server --check 可能需要配置文件才能正常工作")
-                    logger.info("建议创建 .luarc.json 文件，或使用 --configpath 指定配置文件")
-                    logger.info("配置文件内容示例：")
-                    logger.info('{')
-                    logger.info('  "runtime.version": "Lua 5.4",')
-                    logger.info('  "diagnostics.globals": ["your_globals"],')
-                    logger.info('  "workspace.library": [".emmylua"]')
-                    logger.info('}')
-            
-            # 尝试使用 JSON 格式（更可靠）
-            use_json = True  # 默认使用 JSON 格式
-            
-            try:
-                # 使用脚本所在目录存放 check.json
-                script_dir = Path(__file__).parent.resolve()
-                check_json_path = script_dir / 'check.json'
-                
-                logger.info(f"使用 JSON 格式输出")
-                logger.debug(f"JSON 输出: {check_json_path}")
-                
-                # 删除旧的 check.json（如果存在）
-                if check_json_path.exists():
-                    check_json_path.unlink()
-                
-                # 执行 lua-language-server --check 使用 JSON 格式
-                cmd = [
-                    self.lsp_executable,
-                    '--check', str(self.lua_scripts_dir),
-                    '--check_format=json',
-                    '--checklevel=Warning',
-                    f'--logpath={script_dir}',
-                ]
-                
-                # 如果指定了配置文件路径，添加到命令中
-                if self.config_path and self.config_path.exists():
-                    cmd.append(f'--configpath={self.config_path}')
-                    logger.info(f"使用配置: {self.config_path}")
-                
-                logger.info(f"执行命令: {' '.join(cmd)}")
-                
-                result = subprocess.run(
-                    cmd,
-                    capture_output=True,
-                    text=True,
-                    encoding='utf-8',
-                    timeout=300  # 5分钟超时
-                )
-                
-                logger.debug(f"命令退出码: {result.returncode}")
-                
-                # 等待文件生成（有时需要一点时间）
-                max_wait = 5  # 最多等待5秒
-                for i in range(max_wait * 10):
-                    if check_json_path.exists():
+                config_cache_dir = '/tmp/emmylua-check-cache'
+            os.makedirs(config_cache_dir, exist_ok=True)
+
+            ts = int(time.time() * 1000)
+            check_json_path = Path(config_cache_dir) / f'check-{ts}.json'
+
+            override = self._load_override_config()
+            override['workspace'] = self._resolve_workspace_paths()
+            self._normalize_project_severity(override)
+            override = {k: v for k, v in override.items() if not k.startswith('$')}
+
+            override_config_path = os.path.join(config_cache_dir, f'override-{ts}.json')
+            with open(override_config_path, 'w', encoding='utf-8') as f:
+                json.dump(override, f, indent=2)
+
+            # 构建 --config 参数：项目配置在前（base），override 在后（覆盖）
+            # emmylua_check 按顺序 deep merge 多个配置文件
+            config_files = []
+            if self.config_path and self.config_path.exists():
+                config_files.append(str(self.config_path))
+            else:
+                for name in ['.emmyrc.json', '.luarc.json']:
+                    candidate = self.lua_scripts_dir / name
+                    if candidate.exists():
+                        config_files.append(str(candidate))
                         break
-                    time.sleep(0.1)
-                
-                if check_json_path.exists():
-                    logger.info(f"读取 JSON 结果: {check_json_path}")
-                    with open(check_json_path, 'r', encoding='utf-8') as f:
-                        json_content = f.read()
-                    
-                    logger.debug(f"JSON 内容长度: {len(json_content)}")
-                    
-                    # 解析 JSON 格式
-                    self._parse_json_output(json_content)
-                else:
-                    logger.warning(f"未找到 JSON 输出文件: {check_json_path}")
-                    logger.info("回退到文本格式解析")
-                    use_json = False
-                    
-            except Exception as e:
-                logger.warning(f"JSON 格式处理失败: {e}")
-                logger.info("回退到文本格式")
-                use_json = False
-            
-            # 如果 JSON 失败，回退到文本格式
-            if not use_json:
-                logger.info(f"执行命令: {self.lsp_executable} --check {self.lua_scripts_dir}")
-                
-                # 设置环境变量禁用颜色输出（跨平台）
-                env = os.environ.copy()
-                env['NO_COLOR'] = '1'
-                env['TERM'] = 'dumb'
-                
-                result = subprocess.run(
-                    [self.lsp_executable, '--check', str(self.lua_scripts_dir), '--check_format=pretty'],
-                    capture_output=True,
-                    text=True,
-                    encoding='utf-8',
-                    timeout=300,
-                    env=env
-                )
-            
-                logger.debug(f"命令退出码: {result.returncode}")
-                
-                # 调试：输出原始结果（仅 DEBUG 模式）
-                if logger.isEnabledFor(logging.DEBUG):
-                    if result.stdout:
-                        logger.debug(f"stdout 长度: {len(result.stdout)}")
-                        logger.debug(f"stdout 前 500 字符:\n{result.stdout[:500]}")
-                    if result.stderr:
-                        logger.debug(f"stderr 长度: {len(result.stderr)}")
-                        logger.debug(f"stderr 前 500 字符:\n{result.stderr[:500]}")
-                
-                # 解析文本输出
+            config_files.append(override_config_path)
+
+            # 构建 emmylua_check 命令
+            cmd = [
+                self.check_executable,
+                str(self.lua_scripts_dir),
+                '--output-format', 'json',
+                '--output', str(check_json_path),
+                '--config', ','.join(config_files),
+            ]
+
+            if logger.isEnabledFor(logging.DEBUG):
+                cmd.append('--verbose')
+
+            logger.info(f"执行命令: {' '.join(cmd)}")
+
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                encoding='utf-8',
+                timeout=300
+            )
+
+            logger.debug(f"命令退出码: {result.returncode}")
+
+            # 清理临时 override 配置
+            Path(override_config_path).unlink(missing_ok=True)
+
+            if check_json_path.exists():
+                with open(check_json_path, 'r', encoding='utf-8') as f:
+                    json_content = f.read()
+                check_json_path.unlink(missing_ok=True)
+
+                logger.debug(f"JSON 内容长度: {len(json_content)}")
+                self._parse_json_output(json_content)
+            elif result.stdout or result.stderr:
+                logger.info("JSON 输出文件未生成，回退到文本格式解析")
                 self._parse_check_output(result.stdout, result.stderr)
-            
+
             # 保存诊断结果
             with self.lock:
                 self._save_diagnostics()
                 self._save_errors_only()
-            
+
             # 输出摘要
             with self.lock:
                 summary = DiagnosticFormatter.format_summary(self.diagnostics, use_color=self.use_color)
                 logger.info(summary)
-            
+
             if self.use_color:
                 logger.info(f"{Color.GREEN}✓ 检查完成{Color.RESET}")
             else:
                 logger.info("✓ 检查完成")
-            
+
         except subprocess.TimeoutExpired:
             logger.error("检查超时（超过5分钟）")
             sys.exit(1)
         except Exception as e:
             logger.error(f"检查失败: {e}")
-            import traceback
+
             logger.error(traceback.format_exc())
             sys.exit(1)
     
@@ -726,11 +827,11 @@ class LuaLSPServer:
         
         # 检查是否为空输出
         if not output.strip():
-            logger.warning("lua-language-server --check 返回空输出")
+            logger.warning("emmylua_check 返回空输出")
             logger.info("提示：这可能意味着：")
             logger.info("  1. 没有找到任何 Lua 文件")
-            logger.info("  2. 需要在工作区创建 .luarc.json 配置文件")
-            logger.info("  3. lua-language-server 版本不支持 --check 参数")
+            logger.info("  2. 配置文件有误")
+            logger.info("  3. emmylua_check 版本不兼容")
             return
         
         # 显示前几行原始输出用于调试（仅在 DEBUG 模式）
@@ -746,7 +847,7 @@ class LuaLSPServer:
             logger.info("检测到 JSON 格式输出，尝试解析...")
             try:
                 json_data = json.loads(output)
-                self._parse_json_diagnostics(json_data)
+                self._parse_json_output(output)
                 return
             except json.JSONDecodeError as e:
                 logger.warning(f"JSON 解析失败: {e}")
@@ -772,7 +873,7 @@ class LuaLSPServer:
                 logger.debug(f"跳过: {line[:80]}")
                 continue
             
-            # 解析诊断行（lua-language-server --check 的输出格式）
+            # 解析诊断行（emmylua_check 文本输出格式）
             diagnostic = self._parse_check_line(line)
             if diagnostic:
                 logger.debug(f"成功解析 [{i}]: {diagnostic}")
@@ -818,34 +919,35 @@ class LuaLSPServer:
     
     def _parse_json_output(self, json_content: str):
         """解析 JSON 格式的 check 输出
-        
-        lua-language-server check.json 格式: { "file_uri": [{diagnostics}] }
+
+        emmylua_check 格式: [ {"file": "path", "diagnostics": [{LSP Diagnostic}]} ]
         """
         try:
             data = json.loads(json_content)
-            
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f"JSON 数据: {len(data)} 个文件")
-            
-            if not isinstance(data, dict):
-                logger.warning(f"意外的 JSON 格式: {type(data)}")
-                return
-            
-            # lua-language-server 格式: { "file_uri": [ {diagnostics} ] }
-            for file_uri, diagnostics in data.items():
-                if not isinstance(diagnostics, list):
-                    continue
-                    
-                if diagnostics:
-                    file_path = self._uri_to_path(file_uri)
+
+            # emmylua_check: 数组格式 [{file, diagnostics}]
+            if isinstance(data, list):
+                for entry in data:
+                    file_path_raw = entry.get('file', '')
+                    diagnostics = entry.get('diagnostics', [])
+                    if not diagnostics:
+                        continue
+                    # 标准化路径
+                    try:
+                        file_path = str(Path(file_path_raw).resolve())
+                    except Exception:
+                        file_path = file_path_raw
                     logger.info(f"文件: {os.path.basename(file_path)}, 诊断数: {len(diagnostics)}")
-                    
                     for diag in diagnostics:
                         self._process_json_diagnostic(file_path, diag)
-            
+
+            else:
+                logger.warning(f"意外的 JSON 格式: {type(data)}")
+                return
+
             total_issues = sum(len(diags) for diags in self.diagnostics.values())
             logger.info(f"解析完成: {len(self.diagnostics)} 个文件, {total_issues} 个问题")
-            
+
         except json.JSONDecodeError as e:
             logger.error(f"JSON 解析失败: {e}")
             if logger.isEnabledFor(logging.DEBUG):
@@ -853,14 +955,11 @@ class LuaLSPServer:
         except Exception as e:
             logger.error(f"处理 JSON 时出错: {e}")
             if logger.isEnabledFor(logging.DEBUG):
-                import traceback
+    
                 logger.debug(traceback.format_exc())
     
     def _uri_to_path(self, uri: str) -> str:
         """转换 URI 到本地文件路径（标准化格式）"""
-        # file:///g%3A/Workspace/... -> G:\Workspace\...
-        from urllib.parse import unquote, urlparse
-
         parsed = urlparse(uri)
         path = unquote(parsed.path)
 
@@ -899,7 +998,7 @@ class LuaLSPServer:
     def _process_json_diagnostic(self, file_path: str, diag: dict):
         """处理单个 JSON 诊断项（check 模式）"""
         try:
-            # lua-language-server JSON 已经是 LSP 标准格式
+            # LSP 标准格式
             # 只需要确保字段完整性
             lsp_diagnostic = {
                 'severity': diag.get('severity', 1),
@@ -916,7 +1015,7 @@ class LuaLSPServer:
         except Exception as e:
             logger.error(f"处理诊断项失败: {e}")
             logger.debug(f"诊断数据: {diag}")
-            import traceback
+
             logger.debug(traceback.format_exc())
     
     def _parse_check_line(self, line: str) -> dict:
@@ -985,12 +1084,13 @@ class LuaLSPServer:
             else:
                 severity = 1  # 默认错误
             
-            # 步骤6: 提取错误码（圆括号中的内容）
+            # 步骤6: 提取错误码（圆括号或方括号中的内容）
             code = ''
             code_match = re.search(r'\(([^)]+)\)$', message)
+            if not code_match:
+                code_match = re.search(r'\[([^\]]+)\]$', message)
             if code_match:
                 code = code_match.group(1)
-                # 从消息中移除错误码部分
                 message = message[:code_match.start()].strip()
             
             result = {
@@ -1006,7 +1106,7 @@ class LuaLSPServer:
             
         except Exception as e:
             logger.debug(f"✗ 解析异常: {line[:100]} - {e}")
-            import traceback
+
             logger.debug(traceback.format_exc())
             return None
     
@@ -1019,10 +1119,14 @@ class LuaLSPServer:
         
         logger.info("正在启动 Lua LSP 服务器...")
         self.running = True
-        
-        # 启动 lua-language-server 进程
-        self._start_lsp_process()
-        
+
+        # 启动 emmylua_ls 进程（首次启动失败则退出）
+        try:
+            self._start_lsp_process()
+        except Exception as e:
+            logger.error(f"首次启动 emmylua_ls 失败: {e}")
+            sys.exit(1)
+
         # 初始化 LSP 连接
         self._initialize_lsp()
 
@@ -1062,8 +1166,7 @@ class LuaLSPServer:
             logger.debug(f"杀死进程 {pid} 时出错: {e}")
 
     def _start_lsp_process(self):
-        """启动 lua-language-server 进程"""
-        # 如果有旧进程，先清理
+        """启动 emmylua_ls 进程"""
         if self.lsp_process and self.lsp_process.poll() is None:
             logger.info(f"清理旧的 LSP 进程 (PID: {self.lsp_process.pid})")
             self._kill_process_tree(self.lsp_process.pid)
@@ -1071,116 +1174,15 @@ class LuaLSPServer:
             time.sleep(0.3)
 
         try:
-            # 使用临时目录作为日志和缓存路径
-            if os.name == 'nt':
-                lsp_cache_dir = os.path.join(os.environ.get('TEMP', 'C:/Temp'), 'lua-lsp-cache')
-            else:
-                lsp_cache_dir = '/tmp/lua-lsp-cache'
-            os.makedirs(lsp_cache_dir, exist_ok=True)
-
-            # 读取原有 .luarc.json 配置并合并
-            override_config = {}
-            if self.config_path and self.config_path.exists():
-                luarc_path = self.config_path
-            else:
-                luarc_path = self.lua_scripts_dir / ".luarc.json"
-
-            if luarc_path.exists():
-                try:
-                    with open(luarc_path, 'r', encoding='utf-8-sig') as f:
-                        override_config = json.load(f)
-                    logger.info(f"已加载原有配置: {luarc_path}")
-                except Exception as e:
-                    logger.warning(f"读取原配置失败: {e}")
-
-            # 确保 diagnostics 字段存在
-            if "diagnostics" not in override_config:
-                override_config["diagnostics"] = {}
-
-            # lua-language-server 全量诊断列表（硬编码）
-            ALL_DIAGNOSTICS = [
-                "ambiguity-1", "ambiguous-syntax", "args-after-dots", "assign-type-mismatch",
-                "await-in-sync", "cast-local-type", "cast-type-mismatch", "circle-doc-class",
-                "close-non-object", "code-after-break", "codestyle-check", "count-down-loop",
-                "deprecated", "different-requires", "discard-returns", "doc-field-no-class",
-                "duplicate-doc-alias", "duplicate-doc-field", "duplicate-doc-param",
-                "duplicate-index", "duplicate-params", "duplicate-set-field", "empty-block",
-                "global-in-nil-env", "incomplete-signature-doc", "inject-field", "invisible",
-                "lowercase-global", "luadoc-miss-alias-extends", "luadoc-miss-alias-name",
-                "luadoc-miss-arg-name", "luadoc-miss-class-extends-name", "luadoc-miss-class-name",
-                "luadoc-miss-cname", "luadoc-miss-diag-mode", "luadoc-miss-diag-name",
-                "luadoc-miss-field-extends", "luadoc-miss-field-name", "luadoc-miss-fun-args-doc",
-                "luadoc-miss-local-name", "luadoc-miss-module-name", "luadoc-miss-operator-name",
-                "luadoc-miss-param-name", "luadoc-miss-return-name", "luadoc-miss-see-name",
-                "luadoc-miss-sign-name", "luadoc-miss-symbol", "luadoc-miss-type-name",
-                "luadoc-miss-vararg-type", "luadoc-miss-version", "missing-fields",
-                "missing-parameter", "missing-return", "missing-return-value", "need-check-nil",
-                "newfield-call", "newline-call", "no-unknown", "not-yieldable", "param-type-mismatch",
-                "redefined-label", "redefined-local", "redundant-parameter", "redundant-return",
-                "redundant-return-value", "redundant-value", "return-type-mismatch", "spell-check",
-                "trailing-space", "unbalanced-assignments", "undefined-doc-class", "undefined-doc-name",
-                "undefined-doc-param", "undefined-env-child", "undefined-field", "undefined-global",
-                "unknown-attribute", "unknown-cast-variable", "unknown-diag-code", "unknown-operator",
-                "unreachable-code", "unused-function", "unused-label", "unused-local", "unused-vararg"
-            ]
-
-            # 从原配置中提取 Error 级别诊断
-            error_diagnostics = set()
-            if "severity" in override_config.get("diagnostics", {}):
-                original_severity = override_config["diagnostics"]["severity"]
-                for key, value in original_severity.items():
-                    if value == "Error":
-                        error_diagnostics.add(key)
-                        logger.info(f"保留 Error 级别诊断: {key}")
-
-            # 全量列表 - Error 列表 = disable 列表
-            disable_list = [d for d in ALL_DIAGNOSTICS if d not in error_diagnostics]
-
-            # 只保留 Error 的 severity
-            override_config["diagnostics"]["severity"] = {k: "Error" for k in error_diagnostics} if error_diagnostics else {
-                "undefined-global": "Error"  # 兜底
-            }
-
-            # 全局禁用所有诊断组
-            override_config["diagnostics"]["groupSeverity"] = {
-                "ambiguity": "Fallback",
-                "await": "Fallback",
-                "codestyle": "Fallback",
-                "duplicate": "Fallback",
-                "global": "Fallback",
-                "luadoc": "Fallback",
-                "redefined": "Fallback",
-                "strict": "Fallback",
-                "strong": "Fallback",
-                "type-check": "Fallback",
-                "unbalanced": "Fallback",
-                "unused": "Fallback"
-            }
-
-            # 清空 neededFileStatus（防止强制启用某些诊断）
-            override_config["diagnostics"]["neededFileStatus"] = {}
-
-            # 使用动态生成的 disable 列表 + 原有的 disable（合并去重）
-            original_disable = override_config["diagnostics"].get("disable", [])
-            override_config["diagnostics"]["disable"] = list(set(disable_list + original_disable))
-
-            # 写入临时配置文件
-            override_config_path = os.path.join(lsp_cache_dir, 'override-config.json')
-            with open(override_config_path, 'w', encoding='utf-8') as f:
-                json.dump(override_config, f, indent=2)
-            logger.info(f"已创建合并配置: {override_config_path}")
-
             lsp_args = [
                 self.lsp_executable,
-                f'--logpath={lsp_cache_dir}/log',
-                f'--metapath={lsp_cache_dir}/meta',
-                f'--loglevel=error',
-                f'--configpath={override_config_path}',
+                '--communication', 'stdio',
+                '--log-level', 'warn',
+                '--log-path', 'none',
+                '--resources-path', 'none',
             ]
             logger.info(f"LSP 启动参数: {' '.join(lsp_args)}")
-            
-            # Unix: start_new_session=True 让子进程成为新进程组的 leader
-            # 这样 os.killpg 才能正确杀死整个进程树
+
             popen_kwargs = {
                 'stdin': subprocess.PIPE,
                 'stdout': subprocess.PIPE,
@@ -1191,22 +1193,19 @@ class LuaLSPServer:
                 popen_kwargs['start_new_session'] = True
 
             self.lsp_process = subprocess.Popen(lsp_args, **popen_kwargs)
-            
-            # 启动输出读取线程
+
             threading.Thread(target=self._read_lsp_output, daemon=True).start()
-            # 启动 stderr 读取线程
             threading.Thread(target=self._read_lsp_stderr, daemon=True).start()
-            
-            logger.info("lua-language-server 进程已启动")
+
+            logger.info("emmylua_ls 进程已启动")
             
             # 等待一小段时间，检查进程是否立即退出
             time.sleep(0.5)
             if self.lsp_process.poll() is not None:
-                logger.error(f"lua-language-server 进程已退出，退出码: {self.lsp_process.returncode}")
-                sys.exit(1)
+                raise RuntimeError(f"emmylua_ls 进程立即退出，退出码: {self.lsp_process.returncode}")
         except Exception as e:
-            logger.error(f"启动 lua-language-server 失败: {e}")
-            sys.exit(1)
+            logger.error(f"启动 emmylua_ls 失败: {e}")
+            raise
     
     def _read_lsp_stderr(self):
         """读取 LSP stderr 输出"""
@@ -1217,45 +1216,63 @@ class LuaLSPServer:
                     break
                 stderr_text = line.decode('utf-8', errors='replace').strip()
                 if stderr_text:
-                    logger.warning(f"LSP stderr: {stderr_text}")
+                    logger.info(f"emmylua_ls: {stderr_text}")
             except Exception as e:
                 logger.error(f"读取 LSP stderr 失败: {e}")
                 break
     
     def _initialize_lsp(self):
         """初始化 LSP 连接"""
-        # 发送 initialize 请求
         init_params = {
+            "processId": os.getpid(),
+            "rootUri": self.lua_scripts_dir.as_uri(),
+            "capabilities": {
+                "textDocument": {
+                    "publishDiagnostics": {}
+                },
+                "workspace": {
+                    "configuration": True,
+                    "didChangeWatchedFiles": {
+                        "dynamicRegistration": True
+                    }
+                }
+            },
+            "workspaceFolders": [{
+                "uri": self.lua_scripts_dir.as_uri(),
+                "name": "LuaScripts"
+            }]
+        }
+
+        # 允许外部 override 的 $initParams 替换，动态字段强制回写
+        override = self._load_override_config()
+        if '$initParams' in override:
+            init_params = override['$initParams']
+            logger.info("init_params 已被 $initParams 替换")
+
+        # 动态字段始终用运行时值
+        init_params['processId'] = os.getpid()
+        init_params['rootUri'] = self.lua_scripts_dir.as_uri()
+        init_params['workspaceFolders'] = [{
+            "uri": self.lua_scripts_dir.as_uri(),
+            "name": "LuaScripts"
+        }]
+
+        self._send_message({
             "jsonrpc": "2.0",
             "id": self._next_id(),
             "method": "initialize",
-            "params": {
-                "processId": os.getpid(),
-                "rootUri": self.lua_scripts_dir.as_uri(),
-                "capabilities": {
-                    "textDocument": {
-                        "publishDiagnostics": {}
-                    }
-                },
-                "workspaceFolders": [{
-                    "uri": self.lua_scripts_dir.as_uri(),
-                    "name": "LuaScripts"
-                }]
-            }
-        }
-        
-        self._send_message(init_params)
-        time.sleep(2)  # 等待初始化完成
-        
-        # 发送 initialized 通知
+            "params": init_params
+        })
+        time.sleep(2)
+
         initialized_notification = {
             "jsonrpc": "2.0",
             "method": "initialized",
             "params": {}
         }
-        
+
         self._send_message(initialized_notification)
-        logger.info("LSP 连接已初始化（使用 --configpath 强制配置）")
+        logger.info("LSP 连接已初始化（配置通过 workspace/configuration 注入）")
     
     def _read_lsp_output(self):
         """读取 LSP 输出"""
@@ -1304,6 +1321,33 @@ class LuaLSPServer:
             except Exception as e:
                 logger.error(f"读取 LSP 输出时出错: {e}")
                 break
+
+        # emmylua_ls 意外退出时自动重启
+        if self.running and self.lsp_process and self.lsp_process.poll() is not None:
+            should_restart = False
+            with self.lock:
+                if not self.running or (self.lsp_process and self.lsp_process.poll() is None):
+                    return
+                self._restart_count += 1
+                if self._restart_count > 3:
+                    logger.error("emmylua_ls 连续崩溃超过 3 次，退出进程")
+                    os._exit(1)
+                exit_code = self.lsp_process.returncode
+                logger.warning(f"emmylua_ls 意外退出 (exit={exit_code})，3 秒后重启 ({self._restart_count}/3)...")
+                should_restart = True
+
+            if should_restart:
+                time.sleep(3)
+                if not self.running:
+                    return
+                try:
+                    self._start_lsp_process()
+                    self._initialize_lsp()
+                    self._check_all_files()
+                    self._restart_count = 0
+                    logger.info("emmylua_ls 已自动重启")
+                except Exception as e:
+                    logger.error(f"自动重启失败: {e}")
     
     def _handle_message(self, message: dict):
         """处理 LSP 消息"""
@@ -1318,8 +1362,44 @@ class LuaLSPServer:
                     logger.debug(f"收到响应: id={msg_id}")
                     return
 
-        # 处理 LSP 主动推送的通知
         method = message.get('method')
+
+        # emmylua_ls 注册文件监视模式，解析 glob 并确认
+        if method == 'client/registerCapability' and msg_id is not None:
+            for reg in message.get('params', {}).get('registrations', []):
+                if reg.get('method') == 'workspace/didChangeWatchedFiles':
+                    watchers = reg.get('registerOptions', {}).get('watchers', [])
+                    self._watch_patterns = [w.get('globPattern', '') for w in watchers
+                                            if isinstance(w.get('globPattern'), str)]
+                    logger.info(f"client/registerCapability: {self._watch_patterns}")
+            self._send_message({
+                "jsonrpc": "2.0",
+                "id": msg_id,
+                "result": None
+            })
+            return
+
+        # emmylua_ls 请求 workspace/configuration 时，返回 override 配置
+        if method == 'workspace/configuration' and msg_id is not None:
+            items = message.get('params', {}).get('items', [])
+            logger.info(f"workspace/configuration 请求: items={json.dumps(items, ensure_ascii=False)}")
+            override = self._load_override_config()
+            override['workspace'] = self._resolve_workspace_paths()
+            # 读项目配置的 severity 值，全转小写合入 override（修复旧 LuaLS 大写问题）
+            self._normalize_project_severity(override)
+            # 剔除 $ 开头的扩展字段，不发给 emmylua_ls
+            override = {k: v for k, v in override.items() if not k.startswith('$')}
+            result = [override] * len(items) if items else [override]
+            self._send_message({
+                "jsonrpc": "2.0",
+                "id": msg_id,
+                "result": result
+            })
+            logger.info(f"workspace/configuration 已响应 override 配置 ({len(items)} items)")
+            logger.info(f"workspace/configuration payload: {json.dumps(result[0], ensure_ascii=False)[:500]}")
+            return
+
+        # 处理 LSP 主动推送的通知
         if method == 'textDocument/publishDiagnostics':
             self._handle_diagnostics(message['params'])
         elif 'error' in message:
@@ -1442,7 +1522,7 @@ class LuaLSPServer:
                         self._send_json({'ok': False, 'error': 'Missing method'})
                         return
 
-                    # 模拟 textDocument/diagnostic（lua-language-server 不支持此接口）
+                    # 模拟 textDocument/diagnostic（从内存诊断缓存返回）
                     if method == 'textDocument/diagnostic':
                         result = self._handle_diagnostic_request(params, page, page_size, page_max_bytes)
                         self._send_json(result)
@@ -1746,18 +1826,16 @@ class LuaLSPServer:
         if not self.lsp_process or not self.lsp_process.stdin:
             return
 
-        # 检查进程是否仍在运行
         if self.lsp_process.poll() is not None:
-            logger.error(f"LSP 进程已退出，退出码: {self.lsp_process.returncode}")
             return
 
         try:
             encoded = LSPProtocol.encode_message(message)
-            self.lsp_process.stdin.write(encoded)
-            self.lsp_process.stdin.flush()
+            with self._write_lock:
+                self.lsp_process.stdin.write(encoded)
+                self.lsp_process.stdin.flush()
         except BrokenPipeError:
-            logger.error("LSP 进程已断开连接 (Broken pipe)")
-            self.running = False
+            logger.warning("LSP 进程已断开连接 (Broken pipe)")
         except Exception as e:
             logger.error(f"发送消息失败: {e}")
 
@@ -1912,17 +1990,16 @@ class LuaLSPServer:
         try:
             while self.running:
                 time.sleep(1)
-        except KeyboardInterrupt:
-            logger.info("收到停止信号")
-            self.stop()
         finally:
             observer.stop()
             observer.join()
     
     def stop(self):
         """停止服务器"""
-        logger.info("正在停止 Lua LSP 服务器...")
+        if not self.running:
+            return
         self.running = False
+        logger.info("正在停止 Lua LSP 服务器...")
 
         if self.lsp_process:
             pid = self.lsp_process.pid
@@ -1965,9 +2042,7 @@ class LuaLSPServer:
         logger.info("Lua LSP 服务器已停止")
     
     def _next_id(self) -> int:
-        """获取下一个消息 ID"""
-        self.message_id += 1
-        return self.message_id
+        return next(self._id_counter)
 
 
 def main():
@@ -1990,8 +2065,11 @@ def main():
                        help='HTTP RPC 代理端口（默认禁用，传入端口号如 9527 启用）',
                        type=int,
                        default=0)
-    parser.add_argument('--lua-language-server',
-                       help='lua-language-server 可执行文件路径（默认从 PATH 查找）',
+    parser.add_argument('--enable-system-log',
+                       help='启用系统日志文件 lua_lsp.log（写到 --output-dir 目录）',
+                       action='store_true')
+    parser.add_argument('--ls-path',
+                       help='emmylua_ls 可执行文件路径（默认从 PATH 查找）',
                        default=None)
     parser.add_argument('--debug',
                        help='启用调试模式（显示详细日志）',
@@ -2002,16 +2080,15 @@ def main():
     
     args = parser.parse_args()
     
-    # 设置日志级别
+    # 设置日志级别（只改 stdout handler，不影响后续添加的文件 handler）
     if args.debug:
         logging.getLogger().setLevel(logging.DEBUG)
         for handler in logging.getLogger().handlers:
             handler.setLevel(logging.DEBUG)
-        logger.debug("调试模式已启用")
     elif args.quiet:
-        logging.getLogger().setLevel(logging.WARNING)
+        logging.getLogger().setLevel(logging.DEBUG)  # root 保持最低，由 handler 各自过滤
         for handler in logging.getLogger().handlers:
-            handler.setLevel(logging.WARNING)
+            handler.setLevel(logging.WARNING)  # stdout 只输出 warning+
     
     # 配置路径
     script_dir = Path(__file__).parent.resolve()
@@ -2036,7 +2113,28 @@ def main():
     
     # 创建输出目录
     output_dir.mkdir(parents=True, exist_ok=True)
-    
+
+    # 追加文件日志到 output_dir
+    # 优先级：--enable-system-log CLI 参数 > .emmyrc.override.json 的 $enableSystemLog
+    override_file = script_dir / '.emmyrc.override.json'
+    override_enable_log = False
+    if override_file.exists():
+        try:
+            with open(override_file, 'r', encoding='utf-8-sig') as f:
+                override_enable_log = json.load(f).get('$enableSystemLog', False)
+        except Exception:
+            pass
+    if args.enable_system_log or override_enable_log:
+        class StripAnsiFormatter(logging.Formatter):
+            _ansi_re = re.compile(r'\x1b\[[0-9;]*m')
+            def format(self, record):
+                msg = super().format(record)
+                return self._ansi_re.sub('', msg)
+
+        file_handler = logging.FileHandler(str(output_dir / "lua_lsp.log"), mode='w', encoding='utf-8')
+        file_handler.setFormatter(StripAnsiFormatter('%(asctime)s - %(process)d - %(levelname)s - %(message)s'))
+        logging.getLogger().addHandler(file_handler)
+
     # 固定的日志文件名
     output_file = str(output_dir / "lua_diagnostics.log")
     errors_file = str(output_dir / "lua_errors.log")
@@ -2048,7 +2146,7 @@ def main():
         errors_only_file=errors_file,
         mode=args.mode,
         config_path=args.configpath,
-        lsp_path=args.lua_language_server
+        lsp_path=args.ls_path
     )
 
     # 设置 HTTP 端口（仅 watch 模式）
@@ -2073,7 +2171,7 @@ def main():
     mode_display = "持续监视模式" if args.mode == "watch" else "单次检查模式"
 
     logger.info(f"\n{Color.BOLD}{Color.GREEN}{'='*60}{Color.RESET}")
-    logger.info(f"{Color.BOLD}{Color.GREEN} Lua LSP 服务器 v1.4.0 ({mode_display}){Color.RESET}")
+    logger.info(f"{Color.BOLD}{Color.GREEN} Lua LSP 服务器 v2.0.0 - EmmyLuaLS ({mode_display}){Color.RESET}")
     logger.info(f"{Color.BOLD}{Color.GREEN}{'='*60}{Color.RESET}")
     logger.info(f"监视目录: {Color.CYAN}{lua_scripts_dir}{Color.RESET}")
     logger.info(f"EmmyLua:  {Color.CYAN}{server.emmylua_dir}{Color.RESET}")
@@ -2083,15 +2181,7 @@ def main():
         logger.info(f"HTTP RPC: {Color.CYAN}http://127.0.0.1:{args.http_port}/rpc{Color.RESET}")
     logger.info(f"{Color.GREEN}{'='*60}{Color.RESET}\n")
     
-    try:
-        server.start()
-    except KeyboardInterrupt:
-        logger.info(f"\n{Color.YELLOW}收到中断信号{Color.RESET}")
-    finally:
-        if args.mode == "watch":
-            server.stop()
-        else:
-            sys.exit(0)
+    server.start()
 
 
 if __name__ == "__main__":

@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # Install ai-dev-kit skills into a target agent's discovery directory.
 #
-# Source:  <workspace>/skills/<name>/
-# Target:  <workspace>/.<tool>/skills/<name>/  (symlink -> source, copy on fallback)
+# Phase 1: Move skills from <workspace>/skills/ to <workspace>/.installer/skills/,
+#           filtering out platform-excluded skills listed in
+#           <workspace>/.installer/local-skill-filter.json (key = "linux" or "darwin").
+# Phase 2: Create symlinks from <workspace>/.<tool>/skills/<name>/
+#           pointing to <workspace>/.installer/skills/<name>/ (copy fallback).
 #
 # Usage:
 #   ./install-skills.sh <claude|codex|cursor|gemini|all>
@@ -30,7 +33,95 @@ SUPPORTED_TOOLS=(claude codex cursor gemini)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE="$(cd "$SCRIPT_DIR/.." && pwd)"
-SOURCE="$WORKSPACE/skills"
+RAW_SOURCE="$WORKSPACE/skills"
+INSTALLER_DIR="$WORKSPACE/.installer"
+SOURCE="$INSTALLER_DIR/skills"
+FILTER_CONFIG="$INSTALLER_DIR/local-skill-filter.json"
+
+# Detect platform key for filter config.
+case "$(uname -s 2>/dev/null)" in
+    Darwin*) PLATFORM_KEY="darwin" ;;
+    *)       PLATFORM_KEY="linux" ;;
+esac
+
+# --------------------------------------------------------------------------- #
+# Phase 1: Move skills/ -> .installer/skills/ with platform filtering
+# --------------------------------------------------------------------------- #
+
+get_excluded_skills() {
+    # Reads exclude_skills.$PLATFORM_KEY from the filter config.
+    # Outputs one skill name per line. Empty output = no filtering.
+    #
+    # Pure bash/sed -- no python3/jq dependency. Works because the config
+    # structure is a simple flat JSON with string arrays.
+    if [[ ! -f "$FILTER_CONFIG" ]]; then
+        return
+    fi
+
+    # Extract the array value for the platform key, then pull out quoted strings.
+    # 1. Collapse the file to one line
+    # 2. Extract everything between "platform_key": [ ... ]
+    # 3. Pull out quoted skill names
+    local content
+    content="$(tr -d '\n\r' < "$FILTER_CONFIG" 2>/dev/null)" || return 0
+    local array
+    array="$(echo "$content" | sed -n 's/.*"'"$PLATFORM_KEY"'"[[:space:]]*:[[:space:]]*\[\([^]]*\)\].*/\1/p' 2>/dev/null)" || return 0
+    if [[ -z "$array" ]]; then
+        return
+    fi
+    echo "$array" | grep -o '"[^"]*"' | sed 's/"//g' || true
+}
+
+move_skills_to_installer() {
+    [[ -d "$RAW_SOURCE" ]] || return 0
+
+    # Build excluded list as a newline-delimited string (bash 3.2 compatible).
+    local excluded_list
+    excluded_list="$(get_excluded_skills)"
+
+    mkdir -p "$SOURCE"
+
+    local filtered=0
+    for skill in "$RAW_SOURCE"/*/; do
+        [[ -d "$skill" ]] || continue
+        local name
+        name="$(basename "$skill")"
+
+        if echo "$excluded_list" | grep -qx "$name" 2>/dev/null; then
+            filtered=$((filtered + 1))
+            continue
+        fi
+
+        # Move skill directory to .installer/skills/.
+        if [[ -e "$SOURCE/$name" ]]; then
+            rm -rf "$SOURCE/$name"
+        fi
+        mv "$skill" "$SOURCE/$name"
+    done
+
+    # Move any remaining files (e.g. README).
+    for file in "$RAW_SOURCE"/*; do
+        [[ -e "$file" ]] || continue
+        [[ -f "$file" ]] && mv "$file" "$SOURCE/$(basename "$file")"
+    done
+
+    # Remove the top-level skills/ directory. If non-empty (excluded skills left
+    # behind), force-remove — excluded skills are not needed on this platform.
+    if ! rmdir "$RAW_SOURCE" 2>/dev/null; then
+        rm -rf "$RAW_SOURCE" 2>/dev/null || true
+        echo "[install-skills] removed excluded skill directories from $RAW_SOURCE"
+    fi
+
+    if [[ $filtered -gt 0 ]]; then
+        echo "[install-skills] filtered $filtered skill(s) for platform=$PLATFORM_KEY"
+    fi
+}
+
+move_skills_to_installer
+
+# --------------------------------------------------------------------------- #
+# Phase 2: Create symlinks from .installer/skills/ to .<tool>/skills/
+# --------------------------------------------------------------------------- #
 
 usage() {
     cat >&2 <<EOF
@@ -86,7 +177,7 @@ install_for() {
 
         # POSIX symlink. (Windows users should use install-skills.ps1 directly;
         # see the dispatcher at the top of this script.)
-        if ln -s "$skill" "$dest" 2>/dev/null; then
+        if ln -s "${skill%/}" "$dest" 2>/dev/null; then
             :
         else
             # Final fallback: hard copy (FAT32, network share, perm issues, etc.)

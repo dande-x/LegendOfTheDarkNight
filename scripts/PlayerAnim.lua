@@ -155,55 +155,91 @@ function PlayerAnim._AddClassDecoration(playerNode, classId, colors)
         bones.sword = sword
 
     elseif classId == "mage" then
-        -- 右手持法杖（短杖 + 顶部发光球）
+        -- 右手持权杖：细长杖身 + 金属环箍 + 月牙托座 + 发光宝珠
         local staff = bones.rHand:CreateChild("Staff")
         staff.position = Vector3(0, -0.05, 0)
-        staff.scale = Vector3(0.05, 0.65, 0.05)  -- 短杖
+        staff.scale = Vector3(0.03, 0.9, 0.03)  -- 细长杖身
         local model = staff:CreateComponent("StaticModel")
         model:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
         local mat = Material:new()
         mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
-        mat:SetShaderParameter("MatDiffColor", Variant(Color(0.35, 0.22, 0.12, 1.0)))
-        mat:SetShaderParameter("Roughness", Variant(0.55))
-        mat:SetShaderParameter("Metallic", Variant(0.05))
+        mat:SetShaderParameter("MatDiffColor", Variant(Color(0.25, 0.15, 0.08, 1.0)))
+        mat:SetShaderParameter("Roughness", Variant(0.45))
+        mat:SetShaderParameter("Metallic", Variant(0.1))
         model:SetMaterial(mat)
         model.castShadows = true
+        -- 杖身底部金属尖端
+        local tip = staff:CreateChild("StaffTip")
+        tip.position = Vector3(0, -0.5, 0)
+        tip.scale = Vector3(1.2, 0.06, 1.2)
+        local tipModel = tip:CreateComponent("StaticModel")
+        tipModel:SetModel(cache:GetResource("Model", "Models/Cone.mdl"))
+        local tipMat = Material:new()
+        tipMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
+        tipMat:SetShaderParameter("MatDiffColor", Variant(Color(0.6, 0.55, 0.45, 1.0)))
+        tipMat:SetShaderParameter("Metallic", Variant(0.7))
+        tipMat:SetShaderParameter("Roughness", Variant(0.3))
+        tipModel:SetMaterial(tipMat)
         -- 杖身中段金属环箍
         local ring = staff:CreateChild("StaffRing")
-        ring.position = Vector3(0, 0.25, 0)
-        ring.scale = Vector3(1.6, 0.12, 1.6)
+        ring.position = Vector3(0, 0.15, 0)
+        ring.scale = Vector3(1.8, 0.08, 1.8)
         local ringModel = ring:CreateComponent("StaticModel")
-        ringModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+        ringModel:SetModel(cache:GetResource("Model", "Models/Torus.mdl"))
         local ringMat = Material:new()
         ringMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
         ringMat:SetShaderParameter("MatDiffColor", Variant(Color(0.85, 0.72, 0.2, 1.0)))
         ringMat:SetShaderParameter("Metallic", Variant(0.9))
-        ringMat:SetShaderParameter("Roughness", Variant(0.2))
+        ringMat:SetShaderParameter("Roughness", Variant(0.15))
+        ringMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.15, 0.12, 0.02)))
         ringModel:SetMaterial(ringMat)
-        -- 顶部宝珠托座
-        local crown = staff:CreateChild("StaffCrown")
-        crown.position = Vector3(0, 0.48, 0)
-        crown.scale = Vector3(2.0, 0.2, 2.0)
-        local crownModel = crown:CreateComponent("StaticModel")
-        crownModel:SetModel(cache:GetResource("Model", "Models/Cone.mdl"))
-        local crownMat = Material:new()
-        crownMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
-        crownMat:SetShaderParameter("MatDiffColor", Variant(Color(0.85, 0.72, 0.2, 1.0)))
-        crownMat:SetShaderParameter("Metallic", Variant(0.85))
-        crownMat:SetShaderParameter("Roughness", Variant(0.2))
-        crownModel:SetMaterial(crownMat)
-        -- 顶部发光宝珠（大而亮）
+        -- 顶部第二环箍（权杖头部）
+        local ring2 = staff:CreateChild("StaffRing2")
+        ring2.position = Vector3(0, 0.42, 0)
+        ring2.scale = Vector3(2.2, 0.08, 2.2)
+        local ring2Model = ring2:CreateComponent("StaticModel")
+        ring2Model:SetModel(cache:GetResource("Model", "Models/Torus.mdl"))
+        local ring2Mat = Material:new()
+        ring2Mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
+        ring2Mat:SetShaderParameter("MatDiffColor", Variant(Color(0.85, 0.72, 0.2, 1.0)))
+        ring2Mat:SetShaderParameter("Metallic", Variant(0.9))
+        ring2Mat:SetShaderParameter("Roughness", Variant(0.15))
+        ring2Mat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.15, 0.12, 0.02)))
+        ring2Model:SetMaterial(ring2Mat)
+        -- 月牙形托座（用两个弧形 Torus 交叉模拟权杖头部笼框）
+        local arc1 = staff:CreateChild("StaffArc1")
+        arc1.position = Vector3(0, 0.48, 0)
+        arc1.scale = Vector3(2.8, 3.5, 2.8)
+        arc1.rotation = Quaternion(0, 0, 0)
+        local arc1Model = arc1:CreateComponent("StaticModel")
+        arc1Model:SetModel(cache:GetResource("Model", "Models/Torus.mdl"))
+        local arcMat = Material:new()
+        arcMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
+        arcMat:SetShaderParameter("MatDiffColor", Variant(Color(0.75, 0.62, 0.18, 1.0)))
+        arcMat:SetShaderParameter("Metallic", Variant(0.85))
+        arcMat:SetShaderParameter("Roughness", Variant(0.2))
+        arcMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.12, 0.10, 0.02)))
+        arc1Model:SetMaterial(arcMat)
+        -- 第二弧（90度旋转）
+        local arc2 = staff:CreateChild("StaffArc2")
+        arc2.position = Vector3(0, 0.48, 0)
+        arc2.scale = Vector3(2.8, 3.5, 2.8)
+        arc2.rotation = Quaternion(90, Vector3.UP)
+        local arc2Model = arc2:CreateComponent("StaticModel")
+        arc2Model:SetModel(cache:GetResource("Model", "Models/Torus.mdl"))
+        arc2Model:SetMaterial(arcMat)
+        -- 中心发光宝珠（被笼框包裹）
         local orb = staff:CreateChild("StaffOrb")
-        orb.position = Vector3(0, 0.52, 0)
-        orb.scale = Vector3(3.2, 3.2, 3.2)  -- 醒目大球
+        orb.position = Vector3(0, 0.48, 0)
+        orb.scale = Vector3(2.0, 2.0, 2.0)
         local orbModel = orb:CreateComponent("StaticModel")
         orbModel:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
         local orbMat = Material:new()
         orbMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
-        orbMat:SetShaderParameter("MatDiffColor", Variant(Color(0.3, 0.6, 1.0, 1.0)))
-        orbMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.8, 1.2, 2.0)))  -- 强发光
+        orbMat:SetShaderParameter("MatDiffColor", Variant(Color(0.2, 0.5, 0.9, 1.0)))
+        orbMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.5, 0.8, 1.5)))
         orbMat:SetShaderParameter("Metallic", Variant(0.0))
-        orbMat:SetShaderParameter("Roughness", Variant(0.1))
+        orbMat:SetShaderParameter("Roughness", Variant(0.05))
         orbModel:SetMaterial(orbMat)
         bones.staff = staff
 
@@ -591,7 +627,7 @@ function PlayerAnim.TriggerHitFeedback(intensity)
     hitFeedback.screenShake = 0.12 * intensity
     hitFeedback.shakeIntensity = 0.15 * intensity
     hitFeedback.hitPause = 0.04 * intensity   -- 顿帧 40ms
-    hitFeedback.flashTimer = 0.1
+    -- 不再触发全屏闪白，仅保留震动和顿帧
 end
 
 -- 获取屏幕震动偏移（供相机使用）
