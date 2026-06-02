@@ -175,36 +175,29 @@ function GameUI._RenderNanoVG()
         GameUI._DrawOrbs(nvgCtx, sw, sh)
     end
 
-    -- 绘制小地图（NanoVG 雷达风格）
-    if uiState.phase == "playing" and playerNodeRef then
-        GameUI._DrawMiniMap(nvgCtx, sw, sh)
-    end
-
-    -- 全屏地图覆盖
-    if mapState.fullMapOpen and playerNodeRef then
-        GameUI._DrawFullMap(nvgCtx, sw, sh)
-    end
-
-    -- 绘制敌人头顶血条（pcall 保护，防止崩溃阻断 nvgEndFrame）
-    if uiState.phase == "playing" and cameraRef then
-        local ok, err = pcall(GameUI._DrawEnemyHealthBars, nvgCtx, sw, sh)
-        if not ok then
-            if not _hpBarErrorCount then _hpBarErrorCount = 0 end
-            _hpBarErrorCount = _hpBarErrorCount + 1
-            if _hpBarErrorCount <= 5 then
-                print("[GameUI] EnemyHealthBars error #" .. _hpBarErrorCount .. ": " .. tostring(err))
+    -- 全屏地图打开时跳过其他 NanoVG 绘制（地图已改用 UI 系统）
+    if not mapState.fullMapOpen then
+        -- 绘制敌人头顶血条（pcall 保护，防止崩溃阻断 nvgEndFrame）
+        if uiState.phase == "playing" and cameraRef then
+            local ok, err = pcall(GameUI._DrawEnemyHealthBars, nvgCtx, sw, sh)
+            if not ok then
+                if not _hpBarErrorCount then _hpBarErrorCount = 0 end
+                _hpBarErrorCount = _hpBarErrorCount + 1
+                if _hpBarErrorCount <= 5 then
+                    print("[GameUI] EnemyHealthBars error #" .. _hpBarErrorCount .. ": " .. tostring(err))
+                end
             end
         end
-    end
 
-    -- 绘制伤害飘字
-    if uiState.phase == "playing" and cameraRef then
-        GameUI._DrawFloatingTexts(nvgCtx, sw, sh)
-    end
+        -- 绘制伤害飘字
+        if uiState.phase == "playing" and cameraRef then
+            GameUI._DrawFloatingTexts(nvgCtx, sw, sh)
+        end
 
-    -- 绘制施法条
-    if castBarState.active and uiState.phase == "playing" then
-        GameUI._DrawCastBar(nvgCtx, sw, sh)
+        -- 绘制施法条
+        if castBarState.active and uiState.phase == "playing" then
+            GameUI._DrawCastBar(nvgCtx, sw, sh)
+        end
     end
 
     -- 绘制开门过渡
@@ -501,325 +494,7 @@ function GameUI._DrawPotionCD(ctx, sw, sh)
     end
 end
 
--- ============================================================================
--- 小地图 NanoVG 渲染（雷达风格，右上角）
--- ============================================================================
-function GameUI._DrawMiniMap(ctx, sw, sh)
-    local scale = sh / 720
-    local uiSysScale = UI.GetScale()
-
-    -- 地图参数（匹配 UI 面板位置: top=10, right=10, size=64 in UI base px）
-    local mapSizeUI = 64
-    local mapSize = mapSizeUI * uiSysScale  -- 物理像素
-    local margin = 10 * uiSysScale
-    local cx = sw - margin - mapSize / 2
-    local cy = margin + mapSize / 2
-    local r = mapSize / 2
-
-    -- 玩家数据
-    local playerPos = playerNodeRef.worldPosition
-    local camNode = cameraRef and cameraRef:GetNode() or nil
-    local camYaw = 0
-    if camNode then
-        camYaw = camNode.worldRotation:YawAngle()
-    end
-    local yawRad = math.rad(-camYaw)  -- NanoVG 旋转方向
-
-    -- 小地图可见范围（米）
-    local viewRange = 35
-
-    nvgSave(ctx)
-
-    -- 圆形裁剪
-    nvgBeginPath(ctx)
-    nvgCircle(ctx, cx, cy, r)
-    nvgFillColor(ctx, nvgRGBA(12, 16, 12, 210))
-    nvgFill(ctx)
-
-    -- 应用圆形裁剪 (使用 scissor)
-    nvgScissor(ctx, cx - r, cy - r, mapSize, mapSize)
-
-    -- 网格线（十字准线）
-    nvgBeginPath(ctx)
-    nvgMoveTo(ctx, cx - r, cy)
-    nvgLineTo(ctx, cx + r, cy)
-    nvgMoveTo(ctx, cx, cy - r)
-    nvgLineTo(ctx, cx, cy + r)
-    nvgStrokeColor(ctx, nvgRGBA(60, 80, 60, 80))
-    nvgStrokeWidth(ctx, 1.0)
-    nvgStroke(ctx)
-
-    -- 范围圆圈
-    nvgBeginPath(ctx)
-    nvgCircle(ctx, cx, cy, r * 0.5)
-    nvgStrokeColor(ctx, nvgRGBA(60, 80, 60, 50))
-    nvgStrokeWidth(ctx, 0.8)
-    nvgStroke(ctx)
-
-    -- 坐标转换：世界坐标 → 小地图像素坐标（以玩家为中心，旋转对齐相机）
-    local function worldToMinimap(wx, wz)
-        local dx = wx - playerPos.x
-        local dz = wz - playerPos.z
-        -- 旋转对齐相机朝向（相机朝向=地图上方）
-        local rx = dx * math.cos(yawRad) - dz * math.sin(yawRad)
-        local rz = dx * math.sin(yawRad) + dz * math.cos(yawRad)
-        -- 缩放到地图像素
-        local px = cx + (rx / viewRange) * r
-        local py = cy - (rz / viewRange) * r  -- Y轴反转（Z正向=屏幕上方）
-        return px, py
-    end
-
-    -- 绘制竞技场边界（圆圈轮廓）
-    local halfArena = mapState.arenaSize / 2
-    -- 四个角的映射来画边界矩形
-    local corners = {
-        {-halfArena, -halfArena}, {halfArena, -halfArena},
-        {halfArena, halfArena}, {-halfArena, halfArena},
-    }
-    nvgBeginPath(ctx)
-    for i, c in ipairs(corners) do
-        local px, py = worldToMinimap(c[1], c[2])
-        if i == 1 then nvgMoveTo(ctx, px, py) else nvgLineTo(ctx, px, py) end
-    end
-    nvgClosePath(ctx)
-    nvgStrokeColor(ctx, nvgRGBA(120, 100, 50, 100))
-    nvgStrokeWidth(ctx, 1.2)
-    nvgStroke(ctx)
-
-    -- 绘制障碍物
-    for _, obs in ipairs(mapState.obstacles) do
-        local px, py = worldToMinimap(obs.x, obs.z)
-        -- 只在可见范围内绘制
-        local dist = math.sqrt((px - cx)^2 + (py - cy)^2)
-        if dist < r - 2 then
-            nvgBeginPath(ctx)
-            if obs.isPillar then
-                nvgRect(ctx, px - 2.5, py - 2.5, 5, 5)
-                nvgFillColor(ctx, nvgRGBA(140, 120, 80, 180))
-            else
-                nvgCircle(ctx, px, py, 2.5)
-                nvgFillColor(ctx, nvgRGBA(100, 95, 85, 160))
-            end
-            nvgFill(ctx)
-        end
-    end
-
-    -- 绘制敌人（红色点）
-    local Combat = require("scripts.Combat")
-    local enemies = Combat.enemies
-    if enemies then
-        for _, e in ipairs(enemies) do
-            if e.node and e.hp and e.hp > 0 then
-                local ePos = e.node.worldPosition
-                local px, py = worldToMinimap(ePos.x, ePos.z)
-                local dist = math.sqrt((px - cx)^2 + (py - cy)^2)
-                if dist < r - 2 then
-                    nvgBeginPath(ctx)
-                    nvgCircle(ctx, px, py, 3.0)
-                    nvgFillColor(ctx, nvgRGBA(220, 50, 40, 220))
-                    nvgFill(ctx)
-                end
-            end
-        end
-    end
-
-    -- 绘制玩家（中心绿色三角，指向前方）
-    nvgSave(ctx)
-    nvgTranslate(ctx, cx, cy)
-    -- 玩家三角（始终朝上，地图已旋转对齐相机）
-    local ts = 5  -- 三角大小
-    nvgBeginPath(ctx)
-    nvgMoveTo(ctx, 0, -ts)
-    nvgLineTo(ctx, -ts * 0.7, ts * 0.6)
-    nvgLineTo(ctx, ts * 0.7, ts * 0.6)
-    nvgClosePath(ctx)
-    nvgFillColor(ctx, nvgRGBA(80, 230, 120, 255))
-    nvgFill(ctx)
-    nvgRestore(ctx)
-
-    nvgResetScissor(ctx)
-
-    -- 金色外圈
-    nvgBeginPath(ctx)
-    nvgCircle(ctx, cx, cy, r)
-    nvgStrokeColor(ctx, nvgRGBA(160, 135, 55, 200))
-    nvgStrokeWidth(ctx, 2.0)
-    nvgStroke(ctx)
-
-    -- 指北标 "N"
-    if nvgFontId >= 0 then
-        -- 计算北方在地图上的方向
-        local northAngle = yawRad - math.pi / 2  -- 北(Z-)在地图圆圈上的角度
-        local nx = cx + math.sin(-yawRad) * (r + 8)
-        local ny = cy - math.cos(-yawRad) * (r + 8)
-        nvgFontFaceId(ctx, nvgFontId)
-        nvgFontSize(ctx, 10 * scale)
-        nvgTextAlign(ctx, NVG_ALIGN_CENTER + NVG_ALIGN_MIDDLE)
-        nvgFillColor(ctx, nvgRGBA(230, 210, 100, 220))
-        nvgText(ctx, nx, ny, "N")
-    end
-
-    nvgRestore(ctx)
-end
-
--- ============================================================================
--- 全屏地图覆盖 (NanoVG)
--- ============================================================================
-function GameUI._DrawFullMap(ctx, sw, sh)
-    local scale = sh / 720
-
-    -- 全屏暗色背景
-    nvgBeginPath(ctx)
-    nvgRect(ctx, 0, 0, sw, sh)
-    nvgFillColor(ctx, nvgRGBA(0, 0, 0, 180))
-    nvgFill(ctx)
-
-    -- 地图区域（居中正方形）
-    local mapSize = math.min(sw, sh) * 0.7
-    local cx = sw / 2
-    local cy = sh / 2
-    local halfMap = mapSize / 2
-    local halfArena = mapState.arenaSize / 2
-
-    -- 地图背景
-    nvgBeginPath(ctx)
-    nvgRoundedRect(ctx, cx - halfMap, cy - halfMap, mapSize, mapSize, 8 * scale)
-    nvgFillColor(ctx, nvgRGBA(18, 22, 18, 240))
-    nvgFill(ctx)
-    nvgStrokeColor(ctx, nvgRGBA(160, 135, 55, 180))
-    nvgStrokeWidth(ctx, 2.5)
-    nvgStroke(ctx)
-
-    -- 坐标转换：世界坐标 → 全图像素（固定朝北，不旋转）
-    local function worldToFullMap(wx, wz)
-        local px = cx + (wx / halfArena) * halfMap
-        local py = cy - (wz / halfArena) * halfMap  -- Z正向=屏幕上方
-        return px, py
-    end
-
-    -- 网格线
-    nvgStrokeColor(ctx, nvgRGBA(50, 65, 50, 60))
-    nvgStrokeWidth(ctx, 0.8)
-    for i = -2, 2 do
-        local gx = cx + (i / 3) * halfMap
-        local gy = cy + (i / 3) * halfMap
-        nvgBeginPath(ctx)
-        nvgMoveTo(ctx, gx, cy - halfMap)
-        nvgLineTo(ctx, gx, cy + halfMap)
-        nvgStroke(ctx)
-        nvgBeginPath(ctx)
-        nvgMoveTo(ctx, cx - halfMap, gy)
-        nvgLineTo(ctx, cx + halfMap, gy)
-        nvgStroke(ctx)
-    end
-
-    -- 绘制障碍物
-    for _, obs in ipairs(mapState.obstacles) do
-        local px, py = worldToFullMap(obs.x, obs.z)
-        nvgBeginPath(ctx)
-        if obs.isPillar then
-            local ps = 5 * scale
-            nvgRect(ctx, px - ps/2, py - ps/2, ps, ps)
-            nvgFillColor(ctx, nvgRGBA(150, 130, 80, 200))
-        else
-            nvgCircle(ctx, px, py, 4 * scale)
-            nvgFillColor(ctx, nvgRGBA(110, 105, 90, 180))
-        end
-        nvgFill(ctx)
-    end
-
-    -- 绘制敌人
-    local Combat = require("scripts.Combat")
-    local enemies = Combat.enemies
-    if enemies then
-        for _, e in ipairs(enemies) do
-            if e.node and e.hp and e.hp > 0 then
-                local ePos = e.node.worldPosition
-                local px, py = worldToFullMap(ePos.x, ePos.z)
-                nvgBeginPath(ctx)
-                nvgCircle(ctx, px, py, 5 * scale)
-                nvgFillColor(ctx, nvgRGBA(220, 50, 40, 230))
-                nvgFill(ctx)
-                -- 血量比例小圈
-                local hpRatio = e.hp / e.maxHP
-                if hpRatio < 1 then
-                    nvgBeginPath(ctx)
-                    nvgCircle(ctx, px, py, 5 * scale * hpRatio)
-                    nvgFillColor(ctx, nvgRGBA(255, 100, 80, 100))
-                    nvgFill(ctx)
-                end
-            end
-        end
-    end
-
-    -- 绘制玩家（绿色三角+方向）
-    local playerPos = playerNodeRef.worldPosition
-    local ppx, ppy = worldToFullMap(playerPos.x, playerPos.z)
-    local camNode = cameraRef and cameraRef:GetNode() or nil
-    local camYaw = 0
-    if camNode then camYaw = camNode.worldRotation:YawAngle() end
-    local yawRad = math.rad(-camYaw)
-
-    nvgSave(ctx)
-    nvgTranslate(ctx, ppx, ppy)
-    nvgRotate(ctx, yawRad)
-    local ts = 8 * scale
-    nvgBeginPath(ctx)
-    nvgMoveTo(ctx, 0, -ts)
-    nvgLineTo(ctx, -ts * 0.7, ts * 0.6)
-    nvgLineTo(ctx, ts * 0.7, ts * 0.6)
-    nvgClosePath(ctx)
-    nvgFillColor(ctx, nvgRGBA(80, 230, 120, 255))
-    nvgFill(ctx)
-    -- 外圈发光
-    nvgBeginPath(ctx)
-    nvgCircle(ctx, 0, 0, ts * 1.5)
-    nvgStrokeColor(ctx, nvgRGBA(80, 230, 120, 80))
-    nvgStrokeWidth(ctx, 1.5)
-    nvgStroke(ctx)
-    nvgRestore(ctx)
-
-    -- 标题和提示
-    if nvgFontId >= 0 then
-        nvgFontFaceId(ctx, nvgFontId)
-        nvgTextAlign(ctx, NVG_ALIGN_CENTER + NVG_ALIGN_TOP)
-        nvgFontSize(ctx, 18 * scale)
-        nvgFillColor(ctx, nvgRGBA(230, 215, 160, 240))
-        nvgText(ctx, cx, cy - halfMap - 30 * scale, "竞技场地图")
-
-        -- 图例
-        nvgTextAlign(ctx, NVG_ALIGN_LEFT + NVG_ALIGN_TOP)
-        nvgFontSize(ctx, 12 * scale)
-        local legendX = cx + halfMap + 12 * scale
-        local legendY = cy - halfMap
-        local legendGap = 18 * scale
-
-        nvgFillColor(ctx, nvgRGBA(80, 230, 120, 255))
-        nvgText(ctx, legendX, legendY, "▲ 玩家")
-        nvgFillColor(ctx, nvgRGBA(220, 50, 40, 255))
-        nvgText(ctx, legendX, legendY + legendGap, "● 敌人")
-        nvgFillColor(ctx, nvgRGBA(120, 115, 90, 255))
-        nvgText(ctx, legendX, legendY + legendGap * 2, "● 石头")
-        nvgFillColor(ctx, nvgRGBA(150, 130, 80, 255))
-        nvgText(ctx, legendX, legendY + legendGap * 3, "■ 石柱")
-
-        -- 关闭提示
-        nvgTextAlign(ctx, NVG_ALIGN_CENTER + NVG_ALIGN_BOTTOM)
-        nvgFontSize(ctx, 14 * scale)
-        nvgFillColor(ctx, nvgRGBA(180, 175, 160, 180))
-        nvgText(ctx, cx, cy + halfMap + 24 * scale, "点击任意位置关闭")
-    end
-
-    -- 指北标
-    if nvgFontId >= 0 then
-        nvgFontFaceId(ctx, nvgFontId)
-        nvgTextAlign(ctx, NVG_ALIGN_CENTER + NVG_ALIGN_BOTTOM)
-        nvgFontSize(ctx, 14 * scale)
-        nvgFillColor(ctx, nvgRGBA(230, 210, 100, 220))
-        nvgText(ctx, cx, cy - halfMap - 4 * scale, "N")
-    end
-end
-
+-- (地图渲染已改用纯 UI 实现，见 _CreateMiniMapArea / _UpdateMiniMapUI / _UpdateFullMapUI)
 -- ============================================================================
 -- 全图 打开/关闭 控制
 -- ============================================================================
@@ -827,7 +502,7 @@ function GameUI._OpenFullMap()
     mapState.fullMapOpen = true
     local overlay = uiState.refs.fullMapOverlay
     if overlay then overlay:SetVisible(true) end
-    -- 隐藏 HUD 其他元素以免遮挡 NanoVG 全图
+    -- 隐藏 HUD 其他元素避免交互干扰
     local skillBar = uiState.hudRoot and uiState.hudRoot:FindById("skillBar")
     local potions = uiState.hudRoot and uiState.hudRoot:FindById("potions")
     local topRight = uiState.hudRoot and uiState.hudRoot:FindById("topRight")
@@ -840,7 +515,7 @@ function GameUI._CloseFullMap()
     mapState.fullMapOpen = false
     local overlay = uiState.refs.fullMapOverlay
     if overlay then overlay:SetVisible(false) end
-    -- 恢复 HUD
+    -- 恢复 HUD 显示
     local skillBar = uiState.hudRoot and uiState.hudRoot:FindById("skillBar")
     local potions = uiState.hudRoot and uiState.hudRoot:FindById("potions")
     local topRight = uiState.hudRoot and uiState.hudRoot:FindById("topRight")
@@ -1335,17 +1010,137 @@ function GameUI.ShowGameHUD(player)
         hud.joystick.showKeyHints = false
     end
 
-    -- 全图关闭遮罩（覆盖全屏，点击关闭。NanoVG 负责绘制地图内容，此面板仅用于遮挡交互+关闭）
+    -- 全屏地图（纯 UI 实现）
+    local FULLMAP_MAX_ENEMIES = 30
+    local fullMapEnemyDots = {}
+    for i = 1, FULLMAP_MAX_ENEMIES do
+        local dot = UI.Panel {
+            position = "absolute",
+            width = 10, height = 10,
+            borderRadius = 5,
+            backgroundColor = {220, 50, 40, 230},
+            visible = false,
+        }
+        fullMapEnemyDots[i] = dot
+    end
+
+    local fullMapObsDots = {}
+    for i, obs in ipairs(mapState.obstacles) do
+        local dot = UI.Panel {
+            position = "absolute",
+            width = 8, height = 8,
+            borderRadius = obs.isPillar and 1 or 4,
+            backgroundColor = obs.isPillar and {150, 130, 80, 200} or {110, 105, 90, 180},
+            visible = false,
+        }
+        fullMapObsDots[i] = dot
+    end
+
+    local fullMapPlayerDot = UI.Panel {
+        position = "absolute",
+        width = 12, height = 12,
+        borderRadius = 2,
+        backgroundColor = {80, 230, 120, 255},
+        borderWidth = 2,
+        borderColor = {80, 230, 120, 80},
+    }
+
+    -- 全图地图区域内容容器
+    local fullMapAreaChildren = {}
+    for _, d in ipairs(fullMapObsDots) do table.insert(fullMapAreaChildren, d) end
+    for _, d in ipairs(fullMapEnemyDots) do table.insert(fullMapAreaChildren, d) end
+    table.insert(fullMapAreaChildren, fullMapPlayerDot)
+
+    -- 全图地图区域（居中正方形）
+    local fullMapArea = UI.Panel {
+        id = "fullmap_area",
+        position = "absolute",
+        backgroundColor = {18, 22, 18, 240},
+        borderWidth = 2,
+        borderColor = {160, 135, 55, 180},
+        borderRadius = 8,
+        children = fullMapAreaChildren,
+    }
+
+    -- 标题
+    local fullMapTitle = UI.Label {
+        text = "竞技场地图",
+        fontSize = 16,
+        fontColor = {230, 215, 160, 240},
+        fontWeight = "bold",
+        marginBottom = 8,
+    }
+
+    -- 图例
+    local fullMapLegend = UI.Panel {
+        flexDirection = "row",
+        gap = 16,
+        marginTop = 8,
+        children = {
+            UI.Panel {
+                flexDirection = "row", alignItems = "center", gap = 4,
+                children = {
+                    UI.Panel { width = 8, height = 8, borderRadius = 2, backgroundColor = {80, 230, 120, 255} },
+                    UI.Label { text = "玩家", fontSize = 11, fontColor = {200, 200, 190, 200} },
+                },
+            },
+            UI.Panel {
+                flexDirection = "row", alignItems = "center", gap = 4,
+                children = {
+                    UI.Panel { width = 8, height = 8, borderRadius = 4, backgroundColor = {220, 50, 40, 230} },
+                    UI.Label { text = "敌人", fontSize = 11, fontColor = {200, 200, 190, 200} },
+                },
+            },
+            UI.Panel {
+                flexDirection = "row", alignItems = "center", gap = 4,
+                children = {
+                    UI.Panel { width = 8, height = 8, borderRadius = 4, backgroundColor = {110, 105, 90, 180} },
+                    UI.Label { text = "石头", fontSize = 11, fontColor = {200, 200, 190, 200} },
+                },
+            },
+            UI.Panel {
+                flexDirection = "row", alignItems = "center", gap = 4,
+                children = {
+                    UI.Panel { width = 8, height = 8, borderRadius = 1, backgroundColor = {150, 130, 80, 200} },
+                    UI.Label { text = "石柱", fontSize = 11, fontColor = {200, 200, 190, 200} },
+                },
+            },
+        },
+    }
+
+    -- 关闭提示
+    local fullMapHint = UI.Label {
+        text = "点击任意位置关闭 | M键切换",
+        fontSize = 12,
+        fontColor = {180, 175, 160, 150},
+        marginTop = 6,
+    }
+
     local fullMapOverlay = UI.Panel {
         id = "fullmap_overlay",
         position = "absolute",
         width = "100%", height = "100%",
+        backgroundColor = {0, 0, 0, 180},
+        justifyContent = "center",
+        alignItems = "center",
         visible = false,
         onPointerUp = function()
             GameUI._CloseFullMap()
         end,
+        children = {
+            fullMapTitle,
+            fullMapArea,
+            fullMapLegend,
+            fullMapHint,
+        },
     }
+
+    -- 保存引用
     uiState.refs.fullMapOverlay = fullMapOverlay
+    uiState.refs.fullMapArea = fullMapArea
+    uiState.refs.fullMapEnemyDots = fullMapEnemyDots
+    uiState.refs.fullMapObsDots = fullMapObsDots
+    uiState.refs.fullMapPlayerDot = fullMapPlayerDot
 
     local hudRoot = UI.Panel {
         id = "gameHUD",
@@ -1625,18 +1420,99 @@ end
 -- 右上角 - 小地图 + 信息
 -- ============================================================================
 function GameUI._CreateMiniMapArea(player)
-    -- ── 整合右上角：小地图 + 信息条 + 角色/系统按钮 ──
+    -- ── 整合右上角：小地图(UI实现) + 信息条 + 角色/系统按钮 ──
 
-    -- 小地图（透明点击区域 —— 实际内容由 NanoVG 绘制）
     local mapSize = 64
+    local mapRadius = mapSize / 2
+
+    -- 预创建小地图元素
+    local MAX_ENEMY_DOTS = 20
+    local enemyDots = {}
+    for i = 1, MAX_ENEMY_DOTS do
+        local dot = UI.Panel {
+            position = "absolute",
+            width = 6, height = 6,
+            borderRadius = 3,
+            backgroundColor = {220, 50, 40, 220},
+            visible = false,
+        }
+        enemyDots[i] = dot
+    end
+
+    -- 障碍物标记（固定数量）
+    local obsDots = {}
+    for i, _ in ipairs(mapState.obstacles) do
+        local dot = UI.Panel {
+            position = "absolute",
+            width = 5, height = 5,
+            borderRadius = 2,
+            backgroundColor = {100, 95, 85, 160},
+            visible = false,
+        }
+        obsDots[i] = dot
+    end
+
+    -- 玩家标记（中心绿色菱形）
+    local playerDot = UI.Panel {
+        position = "absolute",
+        width = 8, height = 8,
+        borderRadius = 1,
+        backgroundColor = {80, 230, 120, 255},
+        left = mapRadius - 4, top = mapRadius - 4,
+    }
+
+    -- 十字准线（水平 + 垂直线）
+    local crossH = UI.Panel {
+        position = "absolute",
+        width = mapSize, height = 1,
+        backgroundColor = {60, 80, 60, 60},
+        top = mapRadius,
+    }
+    local crossV = UI.Panel {
+        position = "absolute",
+        width = 1, height = mapSize,
+        backgroundColor = {60, 80, 60, 60},
+        left = mapRadius,
+    }
+
+    -- 指北标 "N"
+    local northLabel = UI.Label {
+        position = "absolute",
+        text = "N",
+        fontSize = 9,
+        fontColor = {230, 210, 100, 220},
+        top = 2, left = mapRadius - 4,
+    }
+
+    -- 组合所有子元素
+    local mapChildren = { crossH, crossV }
+    for _, d in ipairs(obsDots) do table.insert(mapChildren, d) end
+    for _, d in ipairs(enemyDots) do table.insert(mapChildren, d) end
+    table.insert(mapChildren, playerDot)
+    table.insert(mapChildren, northLabel)
+
+    -- 小地图容器（圆形深色背景 + 金色边框）
     local miniMap = UI.Panel {
-        id = "minimap_click",
+        id = "minimap_ui",
         width = mapSize, height = mapSize,
-        borderRadius = mapSize / 2,
+        borderRadius = mapRadius,
+        backgroundColor = {12, 16, 12, 210},
+        borderWidth = 2,
+        borderColor = {160, 135, 55, 200},
+        overflow = "hidden",
         onPointerUp = function()
             GameUI._OpenFullMap()
         end,
+        children = mapChildren,
     }
+
+    -- 保存引用用于每帧更新
+    uiState.refs.miniMapContainer = miniMap
+    uiState.refs.miniMapEnemyDots = enemyDots
+    uiState.refs.miniMapObsDots = obsDots
+    uiState.refs.miniMapPlayerDot = playerDot
+    uiState.refs.miniMapNorthLabel = northLabel
+    uiState.refs.miniMapSize = mapSize
 
     -- 信息条（击杀 + 金币，紧凑横排）
     local infoBar = UI.Panel {
@@ -2384,6 +2260,10 @@ function GameUI.UpdateHUD(player, dt)
     -- 更新药瓶 CD 遮罩（UI 层）
     GameUI._UpdatePotionCDOverlay()
 
+    -- 更新地图系统（UI 实现）
+    GameUI._UpdateMiniMapUI()
+    GameUI._UpdateFullMapUI()
+
     GameUI._UpdateFloatingTexts(dt)
 end
 
@@ -2409,6 +2289,161 @@ function GameUI._UpdatePotionCDOverlay()
             end
         end
     end
+end
+
+-- ============================================================================
+-- 小地图 UI 更新（每帧调用）
+-- ============================================================================
+function GameUI._UpdateMiniMapUI()
+    if not playerNodeRef then return end
+    local enemyDots = uiState.refs.miniMapEnemyDots
+    local obsDots = uiState.refs.miniMapObsDots
+    local northLabel = uiState.refs.miniMapNorthLabel
+    local mapSize = uiState.refs.miniMapSize
+    if not enemyDots or not mapSize then return end
+
+    local mapRadius = mapSize / 2
+    local viewRange = 35  -- 小地图可视范围（米）
+
+    local playerPos = playerNodeRef.worldPosition
+    local camNode = cameraRef and cameraRef:GetNode() or nil
+    local camYaw = 0
+    if camNode then camYaw = camNode.worldRotation:YawAngle() end
+    local yawRad = math.rad(-camYaw)
+
+    -- 坐标转换：世界坐标 → 小地图内 left/top
+    local function worldToMinimap(wx, wz)
+        local dx = wx - playerPos.x
+        local dz = wz - playerPos.z
+        -- 旋转对齐相机朝向
+        local rx = dx * math.cos(yawRad) - dz * math.sin(yawRad)
+        local rz = dx * math.sin(yawRad) + dz * math.cos(yawRad)
+        -- 缩放到地图像素（中心=mapRadius）
+        local px = mapRadius + (rx / viewRange) * mapRadius
+        local py = mapRadius - (rz / viewRange) * mapRadius
+        return px, py
+    end
+
+    -- 更新障碍物位置
+    for i, obs in ipairs(mapState.obstacles) do
+        local dot = obsDots[i]
+        if dot then
+            local px, py = worldToMinimap(obs.x, obs.z)
+            local dist = math.sqrt((px - mapRadius)^2 + (py - mapRadius)^2)
+            if dist < mapRadius - 3 then
+                dot:SetStyle({ left = math.floor(px - 2.5), top = math.floor(py - 2.5) })
+                dot:SetVisible(true)
+            else
+                dot:SetVisible(false)
+            end
+        end
+    end
+
+    -- 更新敌人位置
+    local Combat = require("scripts.Combat")
+    local enemies = Combat.enemies
+    local eIdx = 0
+    if enemies then
+        for _, e in ipairs(enemies) do
+            if e.node and e.hp and e.hp > 0 then
+                eIdx = eIdx + 1
+                if eIdx > #enemyDots then break end
+                local ePos = e.node.worldPosition
+                local px, py = worldToMinimap(ePos.x, ePos.z)
+                local dist = math.sqrt((px - mapRadius)^2 + (py - mapRadius)^2)
+                local dot = enemyDots[eIdx]
+                if dist < mapRadius - 3 then
+                    dot:SetStyle({ left = math.floor(px - 3), top = math.floor(py - 3) })
+                    dot:SetVisible(true)
+                else
+                    dot:SetVisible(false)
+                end
+            end
+        end
+    end
+    -- 隐藏多余的点
+    for j = eIdx + 1, #enemyDots do
+        enemyDots[j]:SetVisible(false)
+    end
+
+    -- 更新指北标位置（N 在圆的北方方向）
+    if northLabel then
+        local nx = mapRadius + math.sin(-yawRad) * (mapRadius - 8)
+        local ny = mapRadius - math.cos(-yawRad) * (mapRadius - 8)
+        northLabel:SetStyle({ left = math.floor(nx - 4), top = math.floor(ny - 5) })
+    end
+end
+
+-- ============================================================================
+-- 全屏地图 UI 更新（仅在全图打开时调用）
+-- ============================================================================
+function GameUI._UpdateFullMapUI()
+    if not mapState.fullMapOpen or not playerNodeRef then return end
+
+    local fullMapArea = uiState.refs.fullMapArea
+    local enemyDots = uiState.refs.fullMapEnemyDots
+    local obsDots = uiState.refs.fullMapObsDots
+    local playerDot = uiState.refs.fullMapPlayerDot
+    if not fullMapArea or not enemyDots then return end
+
+    -- 获取地图区域的实际尺寸（需要在布局后获取）
+    -- 使用屏幕尺寸的70%作为地图尺寸（与之前NanoVG逻辑一致）
+    local sw = graphics.width / UI.GetScale()
+    local sh = graphics.height / UI.GetScale()
+    local mapSize = math.floor(math.min(sw, sh) * 0.6)
+    local halfMap = mapSize / 2
+    local halfArena = mapState.arenaSize / 2
+
+    -- 设置地图区域尺寸和位置
+    local areaLeft = math.floor((sw - mapSize) / 2)
+    local areaTop = math.floor((sh - mapSize) / 2)
+    fullMapArea:SetStyle({
+        width = mapSize, height = mapSize,
+        left = areaLeft, top = areaTop,
+    })
+
+    -- 坐标转换：世界坐标 → 全图内 left/top
+    local function worldToFullMap(wx, wz)
+        local px = halfMap + (wx / halfArena) * halfMap
+        local py = halfMap - (wz / halfArena) * halfMap
+        return px, py
+    end
+
+    -- 更新障碍物
+    for i, obs in ipairs(mapState.obstacles) do
+        local dot = obsDots[i]
+        if dot then
+            local px, py = worldToFullMap(obs.x, obs.z)
+            dot:SetStyle({ left = math.floor(px - 4), top = math.floor(py - 4) })
+            dot:SetVisible(true)
+        end
+    end
+
+    -- 更新敌人
+    local Combat = require("scripts.Combat")
+    local enemies = Combat.enemies
+    local eIdx = 0
+    if enemies then
+        for _, e in ipairs(enemies) do
+            if e.node and e.hp and e.hp > 0 then
+                eIdx = eIdx + 1
+                if eIdx > #enemyDots then break end
+                local ePos = e.node.worldPosition
+                local px, py = worldToFullMap(ePos.x, ePos.z)
+                local dot = enemyDots[eIdx]
+                dot:SetStyle({ left = math.floor(px - 5), top = math.floor(py - 5) })
+                dot:SetVisible(true)
+            end
+        end
+    end
+    for j = eIdx + 1, #enemyDots do
+        enemyDots[j]:SetVisible(false)
+    end
+
+    -- 更新玩家位置
+    local playerPos = playerNodeRef.worldPosition
+    local ppx, ppy = worldToFullMap(playerPos.x, playerPos.z)
+    playerDot:SetStyle({ left = math.floor(ppx - 6), top = math.floor(ppy - 6) })
 end
 
 -- ============================================================================
