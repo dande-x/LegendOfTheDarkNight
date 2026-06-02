@@ -57,6 +57,24 @@ local castBarState = {
 -- 相机引用（用于世界坐标→屏幕坐标）
 -- ============================================================================
 local cameraRef = nil
+local playerNodeRef = nil  -- 玩家节点引用（用于地图系统）
+
+-- ============================================================================
+-- 地图系统状态
+-- ============================================================================
+local mapState = {
+    fullMapOpen = false,
+    arenaSize = 120,  -- 竞技场边长(米)
+    obstacles = {
+        -- 石头（灰色圆点）
+        { x = 8, z = 12 }, { x = -15, z = 8 }, { x = 20, z = -5 },
+        { x = -10, z = -18 }, { x = 5, z = -25 }, { x = -22, z = 15 },
+        { x = 30, z = 10 }, { x = -5, z = 30 }, { x = 18, z = 22 },
+        -- 柱子（方块标记）
+        { x = 15, z = 15, isPillar = true }, { x = -15, z = 15, isPillar = true },
+        { x = 15, z = -15, isPillar = true }, { x = -15, z = -15, isPillar = true },
+    },
+}
 
 -- ============================================================================
 -- UI 状态
@@ -121,6 +139,10 @@ function GameUI.SetCamera(cam)
     cameraRef = cam
 end
 
+function GameUI.SetPlayerNode(node)
+    playerNodeRef = node
+end
+
 -- ============================================================================
 -- 施法条控制
 -- ============================================================================
@@ -151,7 +173,16 @@ function GameUI._RenderNanoVG()
     -- 绘制 HP/MP 圆球 + EXP 条 (仅游戏阶段，左下角)
     if uiState.phase == "playing" and uiState.player then
         GameUI._DrawOrbs(nvgCtx, sw, sh)
-        GameUI._DrawPotionCD(nvgCtx, sw, sh)
+    end
+
+    -- 绘制小地图（NanoVG 雷达风格）
+    if uiState.phase == "playing" and playerNodeRef then
+        GameUI._DrawMiniMap(nvgCtx, sw, sh)
+    end
+
+    -- 全屏地图覆盖
+    if mapState.fullMapOpen and playerNodeRef then
+        GameUI._DrawFullMap(nvgCtx, sw, sh)
     end
 
     -- 绘制敌人头顶血条（pcall 保护，防止崩溃阻断 nvgEndFrame）
@@ -468,6 +499,366 @@ function GameUI._DrawPotionCD(ctx, sw, sh)
             nvgRestore(ctx)
         end
     end
+end
+
+-- ============================================================================
+-- 小地图 NanoVG 渲染（雷达风格，右上角）
+-- ============================================================================
+function GameUI._DrawMiniMap(ctx, sw, sh)
+    local scale = sh / 720
+    local uiSysScale = UI.GetScale()
+
+    -- 地图参数（匹配 UI 面板位置: top=10, right=10, size=64 in UI base px）
+    local mapSizeUI = 64
+    local mapSize = mapSizeUI * uiSysScale  -- 物理像素
+    local margin = 10 * uiSysScale
+    local cx = sw - margin - mapSize / 2
+    local cy = margin + mapSize / 2
+    local r = mapSize / 2
+
+    -- 玩家数据
+    local playerPos = playerNodeRef.worldPosition
+    local camNode = cameraRef and cameraRef:GetNode() or nil
+    local camYaw = 0
+    if camNode then
+        camYaw = camNode.worldRotation:YawAngle()
+    end
+    local yawRad = math.rad(-camYaw)  -- NanoVG 旋转方向
+
+    -- 小地图可见范围（米）
+    local viewRange = 35
+
+    nvgSave(ctx)
+
+    -- 圆形裁剪
+    nvgBeginPath(ctx)
+    nvgCircle(ctx, cx, cy, r)
+    nvgFillColor(ctx, nvgRGBA(12, 16, 12, 210))
+    nvgFill(ctx)
+
+    -- 应用圆形裁剪 (使用 scissor)
+    nvgScissor(ctx, cx - r, cy - r, mapSize, mapSize)
+
+    -- 网格线（十字准线）
+    nvgBeginPath(ctx)
+    nvgMoveTo(ctx, cx - r, cy)
+    nvgLineTo(ctx, cx + r, cy)
+    nvgMoveTo(ctx, cx, cy - r)
+    nvgLineTo(ctx, cx, cy + r)
+    nvgStrokeColor(ctx, nvgRGBA(60, 80, 60, 80))
+    nvgStrokeWidth(ctx, 1.0)
+    nvgStroke(ctx)
+
+    -- 范围圆圈
+    nvgBeginPath(ctx)
+    nvgCircle(ctx, cx, cy, r * 0.5)
+    nvgStrokeColor(ctx, nvgRGBA(60, 80, 60, 50))
+    nvgStrokeWidth(ctx, 0.8)
+    nvgStroke(ctx)
+
+    -- 坐标转换：世界坐标 → 小地图像素坐标（以玩家为中心，旋转对齐相机）
+    local function worldToMinimap(wx, wz)
+        local dx = wx - playerPos.x
+        local dz = wz - playerPos.z
+        -- 旋转对齐相机朝向（相机朝向=地图上方）
+        local rx = dx * math.cos(yawRad) - dz * math.sin(yawRad)
+        local rz = dx * math.sin(yawRad) + dz * math.cos(yawRad)
+        -- 缩放到地图像素
+        local px = cx + (rx / viewRange) * r
+        local py = cy - (rz / viewRange) * r  -- Y轴反转（Z正向=屏幕上方）
+        return px, py
+    end
+
+    -- 绘制竞技场边界（圆圈轮廓）
+    local halfArena = mapState.arenaSize / 2
+    -- 四个角的映射来画边界矩形
+    local corners = {
+        {-halfArena, -halfArena}, {halfArena, -halfArena},
+        {halfArena, halfArena}, {-halfArena, halfArena},
+    }
+    nvgBeginPath(ctx)
+    for i, c in ipairs(corners) do
+        local px, py = worldToMinimap(c[1], c[2])
+        if i == 1 then nvgMoveTo(ctx, px, py) else nvgLineTo(ctx, px, py) end
+    end
+    nvgClosePath(ctx)
+    nvgStrokeColor(ctx, nvgRGBA(120, 100, 50, 100))
+    nvgStrokeWidth(ctx, 1.2)
+    nvgStroke(ctx)
+
+    -- 绘制障碍物
+    for _, obs in ipairs(mapState.obstacles) do
+        local px, py = worldToMinimap(obs.x, obs.z)
+        -- 只在可见范围内绘制
+        local dist = math.sqrt((px - cx)^2 + (py - cy)^2)
+        if dist < r - 2 then
+            nvgBeginPath(ctx)
+            if obs.isPillar then
+                nvgRect(ctx, px - 2.5, py - 2.5, 5, 5)
+                nvgFillColor(ctx, nvgRGBA(140, 120, 80, 180))
+            else
+                nvgCircle(ctx, px, py, 2.5)
+                nvgFillColor(ctx, nvgRGBA(100, 95, 85, 160))
+            end
+            nvgFill(ctx)
+        end
+    end
+
+    -- 绘制敌人（红色点）
+    local Combat = require("scripts.Combat")
+    local enemies = Combat.enemies
+    if enemies then
+        for _, e in ipairs(enemies) do
+            if e.node and e.hp and e.hp > 0 then
+                local ePos = e.node.worldPosition
+                local px, py = worldToMinimap(ePos.x, ePos.z)
+                local dist = math.sqrt((px - cx)^2 + (py - cy)^2)
+                if dist < r - 2 then
+                    nvgBeginPath(ctx)
+                    nvgCircle(ctx, px, py, 3.0)
+                    nvgFillColor(ctx, nvgRGBA(220, 50, 40, 220))
+                    nvgFill(ctx)
+                end
+            end
+        end
+    end
+
+    -- 绘制玩家（中心绿色三角，指向前方）
+    nvgSave(ctx)
+    nvgTranslate(ctx, cx, cy)
+    -- 玩家三角（始终朝上，地图已旋转对齐相机）
+    local ts = 5  -- 三角大小
+    nvgBeginPath(ctx)
+    nvgMoveTo(ctx, 0, -ts)
+    nvgLineTo(ctx, -ts * 0.7, ts * 0.6)
+    nvgLineTo(ctx, ts * 0.7, ts * 0.6)
+    nvgClosePath(ctx)
+    nvgFillColor(ctx, nvgRGBA(80, 230, 120, 255))
+    nvgFill(ctx)
+    nvgRestore(ctx)
+
+    nvgResetScissor(ctx)
+
+    -- 金色外圈
+    nvgBeginPath(ctx)
+    nvgCircle(ctx, cx, cy, r)
+    nvgStrokeColor(ctx, nvgRGBA(160, 135, 55, 200))
+    nvgStrokeWidth(ctx, 2.0)
+    nvgStroke(ctx)
+
+    -- 指北标 "N"
+    if nvgFontId >= 0 then
+        -- 计算北方在地图上的方向
+        local northAngle = yawRad - math.pi / 2  -- 北(Z-)在地图圆圈上的角度
+        local nx = cx + math.sin(-yawRad) * (r + 8)
+        local ny = cy - math.cos(-yawRad) * (r + 8)
+        nvgFontFaceId(ctx, nvgFontId)
+        nvgFontSize(ctx, 10 * scale)
+        nvgTextAlign(ctx, NVG_ALIGN_CENTER + NVG_ALIGN_MIDDLE)
+        nvgFillColor(ctx, nvgRGBA(230, 210, 100, 220))
+        nvgText(ctx, nx, ny, "N")
+    end
+
+    nvgRestore(ctx)
+end
+
+-- ============================================================================
+-- 全屏地图覆盖 (NanoVG)
+-- ============================================================================
+function GameUI._DrawFullMap(ctx, sw, sh)
+    local scale = sh / 720
+
+    -- 全屏暗色背景
+    nvgBeginPath(ctx)
+    nvgRect(ctx, 0, 0, sw, sh)
+    nvgFillColor(ctx, nvgRGBA(0, 0, 0, 180))
+    nvgFill(ctx)
+
+    -- 地图区域（居中正方形）
+    local mapSize = math.min(sw, sh) * 0.7
+    local cx = sw / 2
+    local cy = sh / 2
+    local halfMap = mapSize / 2
+    local halfArena = mapState.arenaSize / 2
+
+    -- 地图背景
+    nvgBeginPath(ctx)
+    nvgRoundedRect(ctx, cx - halfMap, cy - halfMap, mapSize, mapSize, 8 * scale)
+    nvgFillColor(ctx, nvgRGBA(18, 22, 18, 240))
+    nvgFill(ctx)
+    nvgStrokeColor(ctx, nvgRGBA(160, 135, 55, 180))
+    nvgStrokeWidth(ctx, 2.5)
+    nvgStroke(ctx)
+
+    -- 坐标转换：世界坐标 → 全图像素（固定朝北，不旋转）
+    local function worldToFullMap(wx, wz)
+        local px = cx + (wx / halfArena) * halfMap
+        local py = cy - (wz / halfArena) * halfMap  -- Z正向=屏幕上方
+        return px, py
+    end
+
+    -- 网格线
+    nvgStrokeColor(ctx, nvgRGBA(50, 65, 50, 60))
+    nvgStrokeWidth(ctx, 0.8)
+    for i = -2, 2 do
+        local gx = cx + (i / 3) * halfMap
+        local gy = cy + (i / 3) * halfMap
+        nvgBeginPath(ctx)
+        nvgMoveTo(ctx, gx, cy - halfMap)
+        nvgLineTo(ctx, gx, cy + halfMap)
+        nvgStroke(ctx)
+        nvgBeginPath(ctx)
+        nvgMoveTo(ctx, cx - halfMap, gy)
+        nvgLineTo(ctx, cx + halfMap, gy)
+        nvgStroke(ctx)
+    end
+
+    -- 绘制障碍物
+    for _, obs in ipairs(mapState.obstacles) do
+        local px, py = worldToFullMap(obs.x, obs.z)
+        nvgBeginPath(ctx)
+        if obs.isPillar then
+            local ps = 5 * scale
+            nvgRect(ctx, px - ps/2, py - ps/2, ps, ps)
+            nvgFillColor(ctx, nvgRGBA(150, 130, 80, 200))
+        else
+            nvgCircle(ctx, px, py, 4 * scale)
+            nvgFillColor(ctx, nvgRGBA(110, 105, 90, 180))
+        end
+        nvgFill(ctx)
+    end
+
+    -- 绘制敌人
+    local Combat = require("scripts.Combat")
+    local enemies = Combat.enemies
+    if enemies then
+        for _, e in ipairs(enemies) do
+            if e.node and e.hp and e.hp > 0 then
+                local ePos = e.node.worldPosition
+                local px, py = worldToFullMap(ePos.x, ePos.z)
+                nvgBeginPath(ctx)
+                nvgCircle(ctx, px, py, 5 * scale)
+                nvgFillColor(ctx, nvgRGBA(220, 50, 40, 230))
+                nvgFill(ctx)
+                -- 血量比例小圈
+                local hpRatio = e.hp / e.maxHP
+                if hpRatio < 1 then
+                    nvgBeginPath(ctx)
+                    nvgCircle(ctx, px, py, 5 * scale * hpRatio)
+                    nvgFillColor(ctx, nvgRGBA(255, 100, 80, 100))
+                    nvgFill(ctx)
+                end
+            end
+        end
+    end
+
+    -- 绘制玩家（绿色三角+方向）
+    local playerPos = playerNodeRef.worldPosition
+    local ppx, ppy = worldToFullMap(playerPos.x, playerPos.z)
+    local camNode = cameraRef and cameraRef:GetNode() or nil
+    local camYaw = 0
+    if camNode then camYaw = camNode.worldRotation:YawAngle() end
+    local yawRad = math.rad(-camYaw)
+
+    nvgSave(ctx)
+    nvgTranslate(ctx, ppx, ppy)
+    nvgRotate(ctx, yawRad)
+    local ts = 8 * scale
+    nvgBeginPath(ctx)
+    nvgMoveTo(ctx, 0, -ts)
+    nvgLineTo(ctx, -ts * 0.7, ts * 0.6)
+    nvgLineTo(ctx, ts * 0.7, ts * 0.6)
+    nvgClosePath(ctx)
+    nvgFillColor(ctx, nvgRGBA(80, 230, 120, 255))
+    nvgFill(ctx)
+    -- 外圈发光
+    nvgBeginPath(ctx)
+    nvgCircle(ctx, 0, 0, ts * 1.5)
+    nvgStrokeColor(ctx, nvgRGBA(80, 230, 120, 80))
+    nvgStrokeWidth(ctx, 1.5)
+    nvgStroke(ctx)
+    nvgRestore(ctx)
+
+    -- 标题和提示
+    if nvgFontId >= 0 then
+        nvgFontFaceId(ctx, nvgFontId)
+        nvgTextAlign(ctx, NVG_ALIGN_CENTER + NVG_ALIGN_TOP)
+        nvgFontSize(ctx, 18 * scale)
+        nvgFillColor(ctx, nvgRGBA(230, 215, 160, 240))
+        nvgText(ctx, cx, cy - halfMap - 30 * scale, "竞技场地图")
+
+        -- 图例
+        nvgTextAlign(ctx, NVG_ALIGN_LEFT + NVG_ALIGN_TOP)
+        nvgFontSize(ctx, 12 * scale)
+        local legendX = cx + halfMap + 12 * scale
+        local legendY = cy - halfMap
+        local legendGap = 18 * scale
+
+        nvgFillColor(ctx, nvgRGBA(80, 230, 120, 255))
+        nvgText(ctx, legendX, legendY, "▲ 玩家")
+        nvgFillColor(ctx, nvgRGBA(220, 50, 40, 255))
+        nvgText(ctx, legendX, legendY + legendGap, "● 敌人")
+        nvgFillColor(ctx, nvgRGBA(120, 115, 90, 255))
+        nvgText(ctx, legendX, legendY + legendGap * 2, "● 石头")
+        nvgFillColor(ctx, nvgRGBA(150, 130, 80, 255))
+        nvgText(ctx, legendX, legendY + legendGap * 3, "■ 石柱")
+
+        -- 关闭提示
+        nvgTextAlign(ctx, NVG_ALIGN_CENTER + NVG_ALIGN_BOTTOM)
+        nvgFontSize(ctx, 14 * scale)
+        nvgFillColor(ctx, nvgRGBA(180, 175, 160, 180))
+        nvgText(ctx, cx, cy + halfMap + 24 * scale, "点击任意位置关闭")
+    end
+
+    -- 指北标
+    if nvgFontId >= 0 then
+        nvgFontFaceId(ctx, nvgFontId)
+        nvgTextAlign(ctx, NVG_ALIGN_CENTER + NVG_ALIGN_BOTTOM)
+        nvgFontSize(ctx, 14 * scale)
+        nvgFillColor(ctx, nvgRGBA(230, 210, 100, 220))
+        nvgText(ctx, cx, cy - halfMap - 4 * scale, "N")
+    end
+end
+
+-- ============================================================================
+-- 全图 打开/关闭 控制
+-- ============================================================================
+function GameUI._OpenFullMap()
+    mapState.fullMapOpen = true
+    local overlay = uiState.refs.fullMapOverlay
+    if overlay then overlay:SetVisible(true) end
+    -- 隐藏 HUD 其他元素以免遮挡 NanoVG 全图
+    local skillBar = uiState.hudRoot and uiState.hudRoot:FindById("skillBar")
+    local potions = uiState.hudRoot and uiState.hudRoot:FindById("potions")
+    local topRight = uiState.hudRoot and uiState.hudRoot:FindById("topRight")
+    if skillBar then skillBar:SetVisible(false) end
+    if potions then potions:SetVisible(false) end
+    if topRight then topRight:SetVisible(false) end
+end
+
+function GameUI._CloseFullMap()
+    mapState.fullMapOpen = false
+    local overlay = uiState.refs.fullMapOverlay
+    if overlay then overlay:SetVisible(false) end
+    -- 恢复 HUD
+    local skillBar = uiState.hudRoot and uiState.hudRoot:FindById("skillBar")
+    local potions = uiState.hudRoot and uiState.hudRoot:FindById("potions")
+    local topRight = uiState.hudRoot and uiState.hudRoot:FindById("topRight")
+    if skillBar then skillBar:SetVisible(true) end
+    if potions then potions:SetVisible(true) end
+    if topRight then topRight:SetVisible(true) end
+end
+
+function GameUI.ToggleFullMap()
+    if mapState.fullMapOpen then
+        GameUI._CloseFullMap()
+    else
+        GameUI._OpenFullMap()
+    end
+end
+
+function GameUI.IsFullMapOpen()
+    return mapState.fullMapOpen
 end
 
 -- ============================================================================
@@ -944,6 +1335,18 @@ function GameUI.ShowGameHUD(player)
         hud.joystick.showKeyHints = false
     end
 
+    -- 全图关闭遮罩（覆盖全屏，点击关闭。NanoVG 负责绘制地图内容，此面板仅用于遮挡交互+关闭）
+    local fullMapOverlay = UI.Panel {
+        id = "fullmap_overlay",
+        position = "absolute",
+        width = "100%", height = "100%",
+        visible = false,
+        onPointerUp = function()
+            GameUI._CloseFullMap()
+        end,
+    }
+    uiState.refs.fullMapOverlay = fullMapOverlay
+
     local hudRoot = UI.Panel {
         id = "gameHUD",
         width = "100%",
@@ -954,6 +1357,7 @@ function GameUI.ShowGameHUD(player)
             GameUI._CreatePotions(player),
             GameUI._CreateMiniMapArea(player),
             GameUI._CreateTopButtons(),
+            fullMapOverlay,
         },
     }
 
@@ -1132,6 +1536,19 @@ function GameUI._CreatePotions(player)
         }
         uiState.refs["potion_" .. kind .. "_count"] = countLabel
 
+        -- CD 遮罩（半透明深色圆 + 秒数文字）
+        local cdOverlay = UI.Panel {
+            id = "potion_" .. kind .. "_cd",
+            position = "absolute",
+            width = potionSize, height = potionSize,
+            borderRadius = math.floor(potionSize / 2),
+            backgroundColor = {0, 0, 0, 150},
+            justifyContent = "center",
+            alignItems = "center",
+            visible = false,
+        }
+        uiState.refs["potion_" .. kind .. "_cd"] = cdOverlay
+
         return UI.Panel {
             width = potionSize, height = potionSize,
             borderRadius = math.floor(potionSize / 2),
@@ -1167,6 +1584,8 @@ function GameUI._CreatePotions(player)
                 },
                 -- 数量（白色居中）
                 countLabel,
+                -- CD 遮罩
+                cdOverlay,
             },
         }
     end
@@ -1208,62 +1627,15 @@ end
 function GameUI._CreateMiniMapArea(player)
     -- ── 整合右上角：小地图 + 信息条 + 角色/系统按钮 ──
 
-    -- 小地图圆形（深底 + 金色外圈 + 十字准星 + 指北标）
+    -- 小地图（透明点击区域 —— 实际内容由 NanoVG 绘制）
     local mapSize = 64
     local miniMap = UI.Panel {
+        id = "minimap_click",
         width = mapSize, height = mapSize,
         borderRadius = mapSize / 2,
-        backgroundColor = {18, 22, 18, 220},
-        borderWidth = 2,
-        borderColor = {150, 125, 55, 180},
-        justifyContent = "center",
-        alignItems = "center",
-        children = {
-            -- 内圈（模拟地图区域）
-            UI.Panel {
-                width = mapSize - 10, height = mapSize - 10,
-                borderRadius = (mapSize - 10) / 2,
-                borderWidth = 1,
-                borderColor = {80, 90, 70, 100},
-                justifyContent = "center",
-                alignItems = "center",
-                children = {
-                    -- 十字准星（竖线）
-                    UI.Panel {
-                        position = "absolute",
-                        width = 1, height = 20,
-                        backgroundColor = {100, 130, 90, 80},
-                    },
-                    -- 十字准星（横线）
-                    UI.Panel {
-                        position = "absolute",
-                        width = 20, height = 1,
-                        backgroundColor = {100, 130, 90, 80},
-                    },
-                    -- 玩家标记点（中心亮点）
-                    UI.Panel {
-                        width = 6, height = 6,
-                        borderRadius = 3,
-                        backgroundColor = {80, 220, 120, 255},
-                    },
-                },
-            },
-            -- 指北标 N
-            UI.Panel {
-                position = "absolute",
-                top = 3,
-                justifyContent = "center",
-                alignItems = "center",
-                children = {
-                    UI.Label {
-                        text = "N",
-                        fontSize = 8,
-                        fontColor = {220, 200, 100, 200},
-                        fontWeight = "bold",
-                    },
-                },
-            },
-        },
+        onPointerUp = function()
+            GameUI._OpenFullMap()
+        end,
     }
 
     -- 信息条（击杀 + 金币，紧凑横排）
@@ -2009,7 +2381,34 @@ function GameUI.UpdateHUD(player, dt)
         uiState.debugLevelLabel:SetText("Lv." .. player.level)
     end
 
+    -- 更新药瓶 CD 遮罩（UI 层）
+    GameUI._UpdatePotionCDOverlay()
+
     GameUI._UpdateFloatingTexts(dt)
+end
+
+-- ============================================================================
+-- 药瓶 CD 遮罩更新（UI 实现，覆盖在药瓶按钮上方）
+-- ============================================================================
+function GameUI._UpdatePotionCDOverlay()
+    local cd = GameUI.potionCD
+    if not cd then return end
+
+    local kinds = {"hp", "mp"}
+    for _, kind in ipairs(kinds) do
+        local overlay = uiState.refs["potion_" .. kind .. "_cd"]
+        if overlay then
+            local ratio = cd[kind] or 0
+            if ratio > 0.01 then
+                overlay:SetVisible(true)
+                -- 更新透明度随 CD 比例变化（CD 越满越暗）
+                local alpha = math.floor(120 + 60 * ratio)
+                overlay:SetStyle({ backgroundColor = {0, 0, 0, alpha} })
+            else
+                overlay:SetVisible(false)
+            end
+        end
+    end
 end
 
 -- ============================================================================

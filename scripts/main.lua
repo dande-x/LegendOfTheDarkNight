@@ -219,6 +219,7 @@ function SetupCamera()
 
     -- 把相机引用传给 GameUI 用于世界→屏幕坐标转换
     GameUI.SetCamera(camera)
+    GameUI.SetPlayerNode(playerNode_)
 end
 
 function UpdateCamera(dt)
@@ -307,6 +308,11 @@ function OnClassSelected(classId)
     GameUI.onUseHpPotion = function()
         if isDead or hpPotionCD > 0 then return end
         if castState.active then return end
+        -- 满血时不能使用
+        if player_.hp >= player_.maxHP then
+            GameUI.AddFloatingText("生命已满", playerNode_.position, {200, 200, 200, 180})
+            return
+        end
         if not Inventory.UsePotion("hp") then
             GameUI.AddFloatingText("血药已空", playerNode_.position, {200, 200, 200, 200})
             return
@@ -322,6 +328,11 @@ function OnClassSelected(classId)
     GameUI.onUseMpPotion = function()
         if isDead or mpPotionCD > 0 then return end
         if castState.active then return end
+        -- 满蓝时不能使用
+        if player_.mp >= player_.maxMP then
+            GameUI.AddFloatingText("法力已满", playerNode_.position, {150, 180, 255, 180})
+            return
+        end
         if not Inventory.UsePotion("mp") then
             GameUI.AddFloatingText("蓝药已空", playerNode_.position, {200, 200, 200, 200})
             return
@@ -610,6 +621,13 @@ function HandleUpdate(eventType, eventData)
 
     if not player_ then return end
 
+    -- M 键切换全图 / ESC 键关闭全图
+    if input:GetKeyPress(KEY_M) then
+        GameUI.ToggleFullMap()
+    elseif GameUI.IsFullMapOpen() and input:GetKeyPress(KEY_ESCAPE) then
+        GameUI.ToggleFullMap()
+    end
+
     -- 死亡状态
     if isDead then
         deathTimer = deathTimer - dt
@@ -691,6 +709,8 @@ end
 -- ============================================================================
 function UpdatePlayerMovement(dt)
     if not playerNode_ or isDead then return end
+    -- 全图打开时不移动
+    if GameUI.IsFullMapOpen() then return end
 
     local joystick = GameUI.GetJoystick()
     if not joystick then return end
