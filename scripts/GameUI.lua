@@ -54,10 +54,11 @@ local castBarState = {
 }
 
 -- ============================================================================
--- 相机引用（用于世界坐标→屏幕坐标）
+-- 相机/场景引用
 -- ============================================================================
 local cameraRef = nil
 local playerNodeRef = nil  -- 玩家节点引用（用于地图系统）
+local sceneRef = nil       -- 场景引用（用于暂停 timeScale）
 
 -- ============================================================================
 -- 地图系统状态
@@ -141,6 +142,10 @@ end
 
 function GameUI.SetPlayerNode(node)
     playerNodeRef = node
+end
+
+function GameUI.SetScene(scene)
+    sceneRef = scene
 end
 
 -- ============================================================================
@@ -495,11 +500,23 @@ function GameUI._DrawPotionCD(ctx, sw, sh)
 end
 
 -- (地图渲染已改用纯 UI 实现，见 _CreateMiniMapArea / _UpdateMiniMapUI / _UpdateFullMapUI)
+
+--- 内部：根据面板状态同步 scene.timeScale（真正全局暂停）
+local function _SyncPauseState()
+    if not sceneRef then return end
+    if mapState.fullMapOpen or uiState.charPanelOpen or uiState.systemPanelOpen then
+        sceneRef.timeScale = 0
+    else
+        sceneRef.timeScale = 1
+    end
+end
+
 -- ============================================================================
 -- 全图 打开/关闭 控制
 -- ============================================================================
 function GameUI._OpenFullMap()
     mapState.fullMapOpen = true
+    _SyncPauseState()
     local overlay = uiState.refs.fullMapOverlay
     if overlay then overlay:SetVisible(true) end
     -- 隐藏 HUD 其他元素避免交互干扰
@@ -513,6 +530,7 @@ end
 
 function GameUI._CloseFullMap()
     mapState.fullMapOpen = false
+    _SyncPauseState()
     local overlay = uiState.refs.fullMapOverlay
     if overlay then overlay:SetVisible(false) end
     -- 恢复 HUD 显示
@@ -1391,13 +1409,12 @@ function GameUI._CreateMiniMapArea(player)
     local mapSize = 64
     local mapRadius = mapSize / 2
 
-    -- 玩家标记（中心绿色点）
+    -- 玩家标记（绿色点，位置每帧更新）
     local playerDot = UI.Panel {
         position = "absolute",
         width = 8, height = 8,
         borderRadius = 4,
         backgroundColor = {80, 230, 120, 255},
-        left = mapRadius - 4, top = mapRadius - 4,
     }
 
     -- 竞技场边界（方形，4条边线）
@@ -1889,6 +1906,7 @@ function GameUI.ShowCharacterPanel(player, tab)
         uiState.charPanelRoot = nil
     end
     uiState.charPanelOpen = true
+    _SyncPauseState()
 
     local activeTab = tab or "skill"
     local classDef = CharacterClass.Classes[player.classId]
@@ -1993,6 +2011,7 @@ end
 function GameUI.HideCharacterPanel()
     if not uiState.charPanelOpen then return end
     uiState.charPanelOpen = false
+    _SyncPauseState()
     uiState.charPanelRoot = nil
     if uiState.hudRoot then
         UI.SetRoot(uiState.hudRoot)
@@ -2019,6 +2038,7 @@ function GameUI.ShowSystemPanel()
     if uiState.charPanelOpen then GameUI.HideCharacterPanel() end
     if uiState.systemPanelOpen then return end
     uiState.systemPanelOpen = true
+    _SyncPauseState()
 
     uiState.systemPanelRoot = UI.Panel {
         id = "systemPanelOverlay",
@@ -2131,6 +2151,7 @@ end
 function GameUI.HideSystemPanel()
     if not uiState.systemPanelOpen then return end
     uiState.systemPanelOpen = false
+    _SyncPauseState()
     uiState.systemPanelRoot = nil
     if uiState.hudRoot then
         UI.SetRoot(uiState.hudRoot)
@@ -2237,13 +2258,16 @@ end
 function GameUI._UpdateMiniMapUI()
     if not playerNodeRef then return end
     local northLabel = uiState.refs.miniMapNorthLabel
+    local playerDot = uiState.refs.miniMapPlayerDot
     local mapSize = uiState.refs.miniMapSize
     local border = uiState.refs.miniMapBorder
     if not mapSize then return end
 
     local mapRadius = mapSize / 2
-    local viewRange = 35  -- 小地图可视范围（米）
     local halfArena = mapState.arenaSize / 2
+    -- 留 10% 内边距让边界线在圆内清晰可见
+    local padding = mapSize * 0.08
+    local innerRadius = mapRadius - padding
 
     local playerPos = playerNodeRef.worldPosition
     local camNode = cameraRef and cameraRef:GetNode() or nil
@@ -2251,48 +2275,32 @@ function GameUI._UpdateMiniMapUI()
     if camNode then camYaw = camNode.worldRotation:YawAngle() end
     local yawRad = math.rad(-camYaw)
 
-    -- 坐标转换：世界坐标 → 小地图内 left/top（相机旋转对齐）
+    -- 坐标转换：世界坐标 → 小地图内 left/top（北朝上，不随相机旋转）
     local function worldToMinimap(wx, wz)
-        local dx = wx - playerPos.x
-        local dz = wz - playerPos.z
-        local rx = dx * math.cos(yawRad) - dz * math.sin(yawRad)
-        local rz = dx * math.sin(yawRad) + dz * math.cos(yawRad)
-        local px = mapRadius + (rx / viewRange) * mapRadius
-        local py = mapRadius - (rz / viewRange) * mapRadius
+        local px = mapRadius + (wx / halfArena) * innerRadius
+        local py = mapRadius - (wz / halfArena) * innerRadius
         return px, py
     end
 
-    -- 更新竞技场边界（4条边线随玩家位置移动）
+    -- 更新玩家点位置（玩家不再固定中心，而是在地图内移动）
+    if playerDot then
+        local ppx, ppy = worldToMinimap(playerPos.x, playerPos.z)
+        playerDot:SetStyle({ left = math.floor(ppx - 4), top = math.floor(ppy - 4) })
+    end
+
+    -- 更新竞技场边界（固定方形，显示整个竞技场范围）
     if border then
-        -- 计算4个边界角点在小地图上的位置
-        local tlx, tly = worldToMinimap(-halfArena, halfArena)   -- top-left (北西)
-        local trx, try_ = worldToMinimap(halfArena, halfArena)   -- top-right (北东)
-        local blx, bly = worldToMinimap(-halfArena, -halfArena)  -- bottom-left (南西)
-        local brx, bry = worldToMinimap(halfArena, -halfArena)   -- bottom-right (南东)
+        local tlx, tly = worldToMinimap(-halfArena, halfArena)   -- 左上 (西北)
+        local brx, bry = worldToMinimap(halfArena, -halfArena)   -- 右下 (东南)
+        local bW = math.floor(brx - tlx)
+        local bH = math.floor(bry - tly)
+        local bL = math.floor(tlx)
+        local bT = math.floor(tly)
 
-        -- 上边界（北）: 从 tl 到 tr
-        local topW = math.abs(trx - tlx)
-        local topL = math.min(tlx, trx)
-        local topT = math.min(tly, try_)
-        border.top:SetStyle({ left = math.floor(topL), top = math.floor(topT), width = math.floor(topW) })
-
-        -- 下边界（南）: 从 bl 到 br
-        local botW = math.abs(brx - blx)
-        local botL = math.min(blx, brx)
-        local botT = math.min(bly, bry)
-        border.bot:SetStyle({ left = math.floor(botL), top = math.floor(botT), width = math.floor(botW) })
-
-        -- 左边界（西）: 从 tl 到 bl
-        local leftH = math.abs(bly - tly)
-        local leftL = math.min(tlx, blx)
-        local leftT = math.min(tly, bly)
-        border.left:SetStyle({ left = math.floor(leftL), top = math.floor(leftT), height = math.floor(leftH) })
-
-        -- 右边界（东）: 从 tr 到 br
-        local rightH = math.abs(bry - try_)
-        local rightL = math.min(trx, brx)
-        local rightT = math.min(try_, bry)
-        border.right:SetStyle({ left = math.floor(rightL), top = math.floor(rightT), height = math.floor(rightH) })
+        border.top:SetStyle({ left = bL, top = bT, width = bW })
+        border.bot:SetStyle({ left = bL, top = bT + bH, width = bW })
+        border.left:SetStyle({ left = bL, top = bT, height = bH })
+        border.right:SetStyle({ left = bL + bW, top = bT, height = bH })
     end
 
     -- 更新指北标位置（N 在圆的北方方向）

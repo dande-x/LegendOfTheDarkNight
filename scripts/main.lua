@@ -217,9 +217,10 @@ function SetupCamera()
     renderer:SetViewport(0, viewport)
     renderer.hdrRendering = true
 
-    -- 把相机引用传给 GameUI 用于世界→屏幕坐标转换
+    -- 把相机/场景引用传给 GameUI（用于世界坐标转换 + 暂停控制）
     GameUI.SetCamera(camera)
     GameUI.SetPlayerNode(playerNode_)
+    GameUI.SetScene(scene_)
 end
 
 function UpdateCamera(dt)
