@@ -1033,61 +1033,99 @@ function GameUI.ShowGameHUD(player)
         hud.joystick.showKeyHints = false
     end
 
-    -- 全屏地图（纯 UI 实现 - 仅显示玩家 + 竞技场边界）
+    -- ════════════════════════════════════════════════════════════════
+    -- 全屏地图（纯 UI 实现 - 清晰的竞技场俯瞰图）
+    -- ════════════════════════════════════════════════════════════════
+
+    -- 玩家标记（大号绿色方块 + 白色边框）
     local fullMapPlayerDot = UI.Panel {
         position = "absolute",
-        width = 12, height = 12,
-        borderRadius = 2,
-        backgroundColor = {80, 230, 120, 255},
+        width = 14, height = 14,
+        backgroundColor = {50, 255, 100, 255},
         borderWidth = 2,
-        borderColor = {80, 230, 120, 80},
+        borderColor = {255, 255, 255, 230},
     }
 
-    -- 竞技场边界（全图上的方形边界线）
-    local fmBorderTop = UI.Panel { position = "absolute", height = 2, backgroundColor = {160, 135, 55, 220} }
-    local fmBorderBot = UI.Panel { position = "absolute", height = 2, backgroundColor = {160, 135, 55, 220} }
-    local fmBorderLeft = UI.Panel { position = "absolute", width = 2, backgroundColor = {160, 135, 55, 220} }
-    local fmBorderRight = UI.Panel { position = "absolute", width = 2, backgroundColor = {160, 135, 55, 220} }
+    -- 玩家朝向线（全图）
+    local fullMapPlayerDir = UI.Panel {
+        position = "absolute",
+        width = 3, height = 16,
+        backgroundColor = {50, 255, 100, 220},
+    }
 
-    -- 全图地图区域（居中正方形）
+    -- 网格线（将竞技场分为 4x4 格）── 水平 3 条 + 垂直 3 条
+    local fmGridLines = {}
+    for i = 1, 3 do
+        table.insert(fmGridLines, UI.Panel {
+            position = "absolute", height = 1,
+            backgroundColor = {100, 90, 50, 60},
+        })
+    end
+    for i = 1, 3 do
+        table.insert(fmGridLines, UI.Panel {
+            position = "absolute", width = 1,
+            backgroundColor = {100, 90, 50, 60},
+        })
+    end
+
+    -- 坐标标签（四个角 + 中心）
+    local fmCoordLabels = {}
+    local coordTexts = { "NW", "NE", "SW", "SE", "中心" }
+    for _, txt in ipairs(coordTexts) do
+        table.insert(fmCoordLabels, UI.Label {
+            position = "absolute",
+            text = txt,
+            fontSize = 10,
+            fontColor = {160, 150, 100, 120},
+        })
+    end
+
+    -- 全图子元素组合
+    local fmChildren = {}
+    for _, g in ipairs(fmGridLines) do table.insert(fmChildren, g) end
+    for _, c in ipairs(fmCoordLabels) do table.insert(fmChildren, c) end
+    table.insert(fmChildren, fullMapPlayerDir)
+    table.insert(fmChildren, fullMapPlayerDot)
+
+    -- 全图地图区域（居中正方形，竞技场填充色）
+    -- 不用 position="absolute"，让父容器 flexbox 居中
     local fullMapArea = UI.Panel {
         id = "fullmap_area",
-        position = "absolute",
-        backgroundColor = {18, 22, 18, 240},
-        borderWidth = 2,
-        borderColor = {160, 135, 55, 180},
-        borderRadius = 8,
+        backgroundColor = {25, 38, 25, 245},
+        borderWidth = 3,
+        borderColor = {200, 170, 60, 255},
+        borderRadius = 4,
         overflow = "hidden",
-        children = { fmBorderTop, fmBorderBot, fmBorderLeft, fmBorderRight, fullMapPlayerDot },
+        children = fmChildren,
     }
 
     -- 标题
     local fullMapTitle = UI.Label {
-        text = "竞技场地图",
-        fontSize = 16,
+        text = "竞技场地图 (120m × 120m)",
+        fontSize = 15,
         fontColor = {230, 215, 160, 240},
         fontWeight = "bold",
-        marginBottom = 8,
+        marginBottom = 6,
     }
 
-    -- 图例（仅玩家 + 边界）
+    -- 图例
     local fullMapLegend = UI.Panel {
         flexDirection = "row",
-        gap = 16,
-        marginTop = 8,
+        gap = 20,
+        marginTop = 6,
         children = {
             UI.Panel {
                 flexDirection = "row", alignItems = "center", gap = 4,
                 children = {
-                    UI.Panel { width = 8, height = 8, borderRadius = 2, backgroundColor = {80, 230, 120, 255} },
-                    UI.Label { text = "玩家", fontSize = 11, fontColor = {200, 200, 190, 200} },
+                    UI.Panel { width = 10, height = 10, backgroundColor = {50, 255, 100, 255}, borderWidth = 1, borderColor = {255, 255, 255, 200} },
+                    UI.Label { text = "你的位置", fontSize = 11, fontColor = {200, 200, 190, 220} },
                 },
             },
             UI.Panel {
                 flexDirection = "row", alignItems = "center", gap = 4,
                 children = {
-                    UI.Panel { width = 16, height = 2, backgroundColor = {160, 135, 55, 220} },
-                    UI.Label { text = "竞技场边界", fontSize = 11, fontColor = {200, 200, 190, 200} },
+                    UI.Panel { width = 14, height = 14, backgroundColor = {25, 38, 25, 245}, borderWidth = 2, borderColor = {200, 170, 60, 255} },
+                    UI.Label { text = "竞技场范围", fontSize = 11, fontColor = {200, 200, 190, 220} },
                 },
             },
         },
@@ -1096,9 +1134,9 @@ function GameUI.ShowGameHUD(player)
     -- 关闭提示
     local fullMapHint = UI.Label {
         text = "点击任意位置关闭 | M键切换",
-        fontSize = 12,
+        fontSize = 11,
         fontColor = {180, 175, 160, 150},
-        marginTop = 6,
+        marginTop = 4,
     }
 
     local fullMapOverlay = UI.Panel {
@@ -1124,7 +1162,9 @@ function GameUI.ShowGameHUD(player)
     uiState.refs.fullMapOverlay = fullMapOverlay
     uiState.refs.fullMapArea = fullMapArea
     uiState.refs.fullMapPlayerDot = fullMapPlayerDot
-    uiState.refs.fullMapBorder = { top = fmBorderTop, bot = fmBorderBot, left = fmBorderLeft, right = fmBorderRight }
+    uiState.refs.fullMapPlayerDir = fullMapPlayerDir
+    uiState.refs.fullMapGridLines = fmGridLines
+    uiState.refs.fullMapCoordLabels = fmCoordLabels
 
     local hudRoot = UI.Panel {
         id = "gameHUD",
@@ -1406,57 +1446,74 @@ end
 function GameUI._CreateMiniMapArea(player)
     -- ── 整合右上角：小地图(UI实现) + 信息条 + 角色/系统按钮 ──
 
-    local mapSize = 64
+    local mapSize = 72  -- 稍大一点，更清晰
     local mapRadius = mapSize / 2
+    -- 竞技场在小地图中的区域：留圆边距后居中放一个正方形
+    local arenaPad = 10  -- 圆形外边距
+    local arenaDrawSize = mapSize - arenaPad * 2  -- 竞技场方块的像素尺寸
 
-    -- 玩家标记（绿色点，位置每帧更新）
+    -- ── 竞技场区域（实心方块，明确可见）──
+    local arenaBlock = UI.Panel {
+        position = "absolute",
+        left = arenaPad, top = arenaPad,
+        width = arenaDrawSize, height = arenaDrawSize,
+        backgroundColor = {30, 45, 30, 200},  -- 深绿色填充，与圆形黑色背景有区别
+        borderWidth = 2,
+        borderColor = {200, 170, 60, 255},  -- 金色粗边框，非常醒目
+    }
+
+    -- ── 网格线（将竞技场分为 4 象限，提供空间感知）──
+    local gridH = UI.Panel {
+        position = "absolute",
+        left = arenaPad, top = arenaPad + math.floor(arenaDrawSize / 2),
+        width = arenaDrawSize, height = 1,
+        backgroundColor = {120, 110, 60, 80},
+    }
+    local gridV = UI.Panel {
+        position = "absolute",
+        left = arenaPad + math.floor(arenaDrawSize / 2), top = arenaPad,
+        width = 1, height = arenaDrawSize,
+        backgroundColor = {120, 110, 60, 80},
+    }
+
+    -- ── 玩家箭头（绿色菱形，显示位置）──
     local playerDot = UI.Panel {
         position = "absolute",
         width = 8, height = 8,
-        borderRadius = 4,
-        backgroundColor = {80, 230, 120, 255},
+        backgroundColor = {50, 255, 100, 255},
+        borderWidth = 1,
+        borderColor = {255, 255, 255, 200},
+        -- 45度旋转形成菱形效果（视觉上更像箭头）
     }
 
-    -- 竞技场边界（方形，4条边线）
-    local borderTop = UI.Panel { position = "absolute", height = 1, backgroundColor = {160, 135, 55, 140} }
-    local borderBot = UI.Panel { position = "absolute", height = 1, backgroundColor = {160, 135, 55, 140} }
-    local borderLeft = UI.Panel { position = "absolute", width = 1, backgroundColor = {160, 135, 55, 140} }
-    local borderRight = UI.Panel { position = "absolute", width = 1, backgroundColor = {160, 135, 55, 140} }
-
-    -- 十字准线（水平 + 垂直线）
-    local crossH = UI.Panel {
+    -- ── 玩家朝向指示线（一条短粗线从玩家点延伸）──
+    local playerDir = UI.Panel {
         position = "absolute",
-        width = mapSize, height = 1,
-        backgroundColor = {60, 80, 60, 50},
-        top = mapRadius,
-    }
-    local crossV = UI.Panel {
-        position = "absolute",
-        width = 1, height = mapSize,
-        backgroundColor = {60, 80, 60, 50},
-        left = mapRadius,
+        width = 2, height = 8,
+        backgroundColor = {50, 255, 100, 200},
     }
 
-    -- 指北标 "N"
+    -- ── 指北标 "N"（固定在圆形顶部）──
     local northLabel = UI.Label {
         position = "absolute",
         text = "N",
         fontSize = 9,
-        fontColor = {230, 210, 100, 220},
-        top = 2, left = mapRadius - 4,
+        fontColor = {255, 230, 80, 240},
+        fontWeight = "bold",
+        top = 1, left = mapRadius - 4,
     }
 
-    -- 组合所有子元素
-    local mapChildren = { crossH, crossV, borderTop, borderBot, borderLeft, borderRight, playerDot, northLabel }
+    -- 组合所有子元素（层级：底层区域 → 网格 → 玩家）
+    local mapChildren = { arenaBlock, gridH, gridV, playerDir, playerDot, northLabel }
 
     -- 小地图容器（圆形深色背景 + 金色边框）
     local miniMap = UI.Panel {
         id = "minimap_ui",
         width = mapSize, height = mapSize,
         borderRadius = mapRadius,
-        backgroundColor = {12, 16, 12, 210},
+        backgroundColor = {8, 10, 8, 230},
         borderWidth = 2,
-        borderColor = {160, 135, 55, 200},
+        borderColor = {180, 150, 50, 220},
         overflow = "hidden",
         onPointerUp = function()
             GameUI._OpenFullMap()
@@ -1467,9 +1524,11 @@ function GameUI._CreateMiniMapArea(player)
     -- 保存引用用于每帧更新
     uiState.refs.miniMapContainer = miniMap
     uiState.refs.miniMapPlayerDot = playerDot
+    uiState.refs.miniMapPlayerDir = playerDir
     uiState.refs.miniMapNorthLabel = northLabel
     uiState.refs.miniMapSize = mapSize
-    uiState.refs.miniMapBorder = { top = borderTop, bot = borderBot, left = borderLeft, right = borderRight }
+    uiState.refs.miniMapArenaPad = arenaPad
+    uiState.refs.miniMapArenaDrawSize = arenaDrawSize
 
     -- 信息条（击杀 + 金币，紧凑横排）
     local infoBar = UI.Panel {
@@ -2257,57 +2316,53 @@ end
 -- ============================================================================
 function GameUI._UpdateMiniMapUI()
     if not playerNodeRef then return end
-    local northLabel = uiState.refs.miniMapNorthLabel
     local playerDot = uiState.refs.miniMapPlayerDot
+    local playerDir = uiState.refs.miniMapPlayerDir
     local mapSize = uiState.refs.miniMapSize
-    local border = uiState.refs.miniMapBorder
-    if not mapSize then return end
+    local arenaPad = uiState.refs.miniMapArenaPad
+    local arenaDrawSize = uiState.refs.miniMapArenaDrawSize
+    if not mapSize or not arenaPad or not arenaDrawSize then return end
 
-    local mapRadius = mapSize / 2
-    local halfArena = mapState.arenaSize / 2
-    -- 留 10% 内边距让边界线在圆内清晰可见
-    local padding = mapSize * 0.08
-    local innerRadius = mapRadius - padding
-
+    local halfArena = mapState.arenaSize / 2  -- 60m
     local playerPos = playerNodeRef.worldPosition
-    local camNode = cameraRef and cameraRef:GetNode() or nil
-    local camYaw = 0
-    if camNode then camYaw = camNode.worldRotation:YawAngle() end
-    local yawRad = math.rad(-camYaw)
 
-    -- 坐标转换：世界坐标 → 小地图内 left/top（北朝上，不随相机旋转）
-    local function worldToMinimap(wx, wz)
-        local px = mapRadius + (wx / halfArena) * innerRadius
-        local py = mapRadius - (wz / halfArena) * innerRadius
-        return px, py
-    end
+    -- 玩家世界坐标 → 小地图像素坐标
+    -- 竞技场区域从 (arenaPad, arenaPad) 开始，尺寸为 arenaDrawSize
+    -- 世界 (-60, 60) → 像素 (arenaPad, arenaPad)
+    -- 世界 (60, -60) → 像素 (arenaPad + arenaDrawSize, arenaPad + arenaDrawSize)
+    local normX = (playerPos.x + halfArena) / (halfArena * 2)  -- 0~1
+    local normZ = (halfArena - playerPos.z) / (halfArena * 2)  -- 0~1 (Z 轴向前=北=上)
+    normX = math.max(0, math.min(1, normX))
+    normZ = math.max(0, math.min(1, normZ))
 
-    -- 更新玩家点位置（玩家不再固定中心，而是在地图内移动）
+    local dotX = arenaPad + normX * arenaDrawSize
+    local dotY = arenaPad + normZ * arenaDrawSize
+
+    -- 更新玩家标记位置
     if playerDot then
-        local ppx, ppy = worldToMinimap(playerPos.x, playerPos.z)
-        playerDot:SetStyle({ left = math.floor(ppx - 4), top = math.floor(ppy - 4) })
+        playerDot:SetStyle({ left = math.floor(dotX - 4), top = math.floor(dotY - 4) })
     end
 
-    -- 更新竞技场边界（固定方形，显示整个竞技场范围）
-    if border then
-        local tlx, tly = worldToMinimap(-halfArena, halfArena)   -- 左上 (西北)
-        local brx, bry = worldToMinimap(halfArena, -halfArena)   -- 右下 (东南)
-        local bW = math.floor(brx - tlx)
-        local bH = math.floor(bry - tly)
-        local bL = math.floor(tlx)
-        local bT = math.floor(tly)
-
-        border.top:SetStyle({ left = bL, top = bT, width = bW })
-        border.bot:SetStyle({ left = bL, top = bT + bH, width = bW })
-        border.left:SetStyle({ left = bL, top = bT, height = bH })
-        border.right:SetStyle({ left = bL + bW, top = bT, height = bH })
-    end
-
-    -- 更新指北标位置（N 在圆的北方方向）
-    if northLabel then
-        local nx = mapRadius + math.sin(-yawRad) * (mapRadius - 8)
-        local ny = mapRadius - math.cos(-yawRad) * (mapRadius - 8)
-        northLabel:SetStyle({ left = math.floor(nx - 4), top = math.floor(ny - 5) })
+    -- 更新朝向指示线（从玩家点向前方延伸）
+    if playerDir then
+        local camNode = cameraRef and cameraRef:GetNode() or nil
+        local camYaw = 0
+        if camNode then camYaw = camNode.worldRotation:YawAngle() end
+        -- 朝向线：从玩家点向相机朝向前方偏移
+        local yawRad = math.rad(camYaw)
+        local dirLen = 8
+        -- 前方 = +Z = 地图向上，yaw=0 时朝北（上）
+        local dx = math.sin(yawRad) * dirLen
+        local dy = -math.cos(yawRad) * dirLen
+        local lineX = dotX + dx * (arenaDrawSize / (halfArena * 2))
+        local lineY = dotY + dy * (arenaDrawSize / (halfArena * 2))
+        -- 简化：直接用像素偏移
+        local endX = dotX + math.sin(yawRad) * 6
+        local endY = dotY - math.cos(yawRad) * 6
+        -- 定位朝向线的中心在 (玩家点 → 前方偏移) 之间
+        local midX = (dotX + endX) / 2
+        local midY = (dotY + endY) / 2
+        playerDir:SetStyle({ left = math.floor(midX - 1), top = math.floor(midY - 4) })
     end
 end
 
@@ -2319,46 +2374,73 @@ function GameUI._UpdateFullMapUI()
 
     local fullMapArea = uiState.refs.fullMapArea
     local playerDot = uiState.refs.fullMapPlayerDot
-    local border = uiState.refs.fullMapBorder
+    local playerDir = uiState.refs.fullMapPlayerDir
+    local gridLines = uiState.refs.fullMapGridLines
+    local coordLabels = uiState.refs.fullMapCoordLabels
     if not fullMapArea or not playerDot then return end
 
-    -- 使用屏幕尺寸的60%作为地图尺寸
+    -- 使用屏幕尺寸的 55% 作为地图正方形尺寸
     local sw = graphics.width / UI.GetScale()
     local sh = graphics.height / UI.GetScale()
-    local mapSize = math.floor(math.min(sw, sh) * 0.6)
-    local halfMap = mapSize / 2
-    local halfArena = mapState.arenaSize / 2
+    local mapSize = math.floor(math.min(sw, sh) * 0.55)
+    local halfArena = mapState.arenaSize / 2  -- 60m
 
-    -- 设置地图区域尺寸和位置
-    local areaLeft = math.floor((sw - mapSize) / 2)
-    local areaTop = math.floor((sh - mapSize) / 2)
-    fullMapArea:SetStyle({
-        width = mapSize, height = mapSize,
-        left = areaLeft, top = areaTop,
-    })
+    -- 设置地图区域尺寸（居中由 flexbox 处理，此处只设宽高）
+    fullMapArea:SetStyle({ width = mapSize, height = mapSize })
 
-    -- 竞技场边界在全图中占满整个区域（因为全图就是展示完整竞技场）
-    -- 边界距离地图区域边缘留一点内边距（5%）
-    local padding = math.floor(mapSize * 0.05)
-    local innerSize = mapSize - padding * 2
-    if border then
-        border.top:SetStyle({ left = padding, top = padding, width = innerSize })
-        border.bot:SetStyle({ left = padding, top = padding + innerSize, width = innerSize })
-        border.left:SetStyle({ left = padding, top = padding, height = innerSize })
-        border.right:SetStyle({ left = padding + innerSize, top = padding, height = innerSize })
+    -- 地图内边距（边框内）
+    local pad = math.floor(mapSize * 0.04)
+    local innerSize = mapSize - pad * 2
+
+    -- 更新网格线位置（3 水平 + 3 垂直，分为 4x4 格）
+    if gridLines then
+        for i = 1, 3 do
+            -- 水平线
+            local yPos = pad + math.floor(innerSize * i / 4)
+            gridLines[i]:SetStyle({ left = pad, top = yPos, width = innerSize })
+        end
+        for i = 1, 3 do
+            -- 垂直线
+            local xPos = pad + math.floor(innerSize * i / 4)
+            gridLines[3 + i]:SetStyle({ left = xPos, top = pad, height = innerSize })
+        end
     end
 
-    -- 坐标转换：世界坐标 → 全图内 left/top
-    local function worldToFullMap(wx, wz)
-        local px = padding + (innerSize / 2) + (wx / halfArena) * (innerSize / 2)
-        local py = padding + (innerSize / 2) - (wz / halfArena) * (innerSize / 2)
-        return px, py
+    -- 更新坐标标签位置（NW, NE, SW, SE, 中心）
+    if coordLabels then
+        local offset = 4
+        coordLabels[1]:SetStyle({ left = pad + offset, top = pad + offset })           -- NW
+        coordLabels[2]:SetStyle({ left = pad + innerSize - 18, top = pad + offset })   -- NE
+        coordLabels[3]:SetStyle({ left = pad + offset, top = pad + innerSize - 14 })   -- SW
+        coordLabels[4]:SetStyle({ left = pad + innerSize - 18, top = pad + innerSize - 14 }) -- SE
+        coordLabels[5]:SetStyle({ left = pad + math.floor(innerSize / 2) - 10, top = pad + math.floor(innerSize / 2) - 6 }) -- 中心
     end
 
-    -- 更新玩家位置
+    -- 坐标转换：世界坐标 → 全图像素
     local playerPos = playerNodeRef.worldPosition
-    local ppx, ppy = worldToFullMap(playerPos.x, playerPos.z)
-    playerDot:SetStyle({ left = math.floor(ppx - 6), top = math.floor(ppy - 6) })
+    local normX = (playerPos.x + halfArena) / (halfArena * 2)  -- 0~1
+    local normZ = (halfArena - playerPos.z) / (halfArena * 2)  -- 0~1
+    normX = math.max(0, math.min(1, normX))
+    normZ = math.max(0, math.min(1, normZ))
+
+    local dotX = pad + normX * innerSize
+    local dotY = pad + normZ * innerSize
+
+    -- 更新玩家标记
+    playerDot:SetStyle({ left = math.floor(dotX - 7), top = math.floor(dotY - 7) })
+
+    -- 更新朝向指示线
+    if playerDir then
+        local camNode = cameraRef and cameraRef:GetNode() or nil
+        local camYaw = 0
+        if camNode then camYaw = camNode.worldRotation:YawAngle() end
+        local yawRad = math.rad(camYaw)
+        local endX = dotX + math.sin(yawRad) * 12
+        local endY = dotY - math.cos(yawRad) * 12
+        local midX = (dotX + endX) / 2
+        local midY = (dotY + endY) / 2
+        playerDir:SetStyle({ left = math.floor(midX - 1), top = math.floor(midY - 8) })
+    end
 end
 
 -- ============================================================================
