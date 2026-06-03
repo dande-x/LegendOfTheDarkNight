@@ -1452,45 +1452,46 @@ function GameUI._CreateMiniMapArea(player)
     local arenaPad = 10  -- 圆形外边距
     local arenaDrawSize = mapSize - arenaPad * 2  -- 竞技场方块的像素尺寸
 
-    -- ── 竞技场区域（实心方块，明确可见）──
-    local arenaBlock = UI.Panel {
-        position = "absolute",
-        left = arenaPad, top = arenaPad,
-        width = arenaDrawSize, height = arenaDrawSize,
-        backgroundColor = {30, 45, 30, 200},  -- 深绿色填充，与圆形黑色背景有区别
-        borderWidth = 2,
-        borderColor = {200, 170, 60, 255},  -- 金色粗边框，非常醒目
-    }
-
-    -- ── 网格线（将竞技场分为 4 象限，提供空间感知）──
-    local gridH = UI.Panel {
-        position = "absolute",
-        left = arenaPad, top = arenaPad + math.floor(arenaDrawSize / 2),
-        width = arenaDrawSize, height = 1,
-        backgroundColor = {120, 110, 60, 80},
-    }
-    local gridV = UI.Panel {
-        position = "absolute",
-        left = arenaPad + math.floor(arenaDrawSize / 2), top = arenaPad,
-        width = 1, height = arenaDrawSize,
-        backgroundColor = {120, 110, 60, 80},
-    }
-
-    -- ── 玩家箭头（绿色菱形，显示位置）──
+    -- ── 玩家标记（绿色方块）──
     local playerDot = UI.Panel {
         position = "absolute",
         width = 8, height = 8,
         backgroundColor = {50, 255, 100, 255},
         borderWidth = 1,
         borderColor = {255, 255, 255, 200},
-        -- 45度旋转形成菱形效果（视觉上更像箭头）
     }
 
-    -- ── 玩家朝向指示线（一条短粗线从玩家点延伸）──
+    -- ── 玩家朝向指示线 ──
     local playerDir = UI.Panel {
         position = "absolute",
         width = 2, height = 8,
         backgroundColor = {50, 255, 100, 200},
+    }
+
+    -- ── 网格线（将竞技场分为 4 象限）──
+    local gridH = UI.Panel {
+        position = "absolute",
+        left = 0, top = math.floor(arenaDrawSize / 2),
+        width = arenaDrawSize, height = 1,
+        backgroundColor = {120, 110, 60, 80},
+    }
+    local gridV = UI.Panel {
+        position = "absolute",
+        left = math.floor(arenaDrawSize / 2), top = 0,
+        width = 1, height = arenaDrawSize,
+        backgroundColor = {120, 110, 60, 80},
+    }
+
+    -- ── 竞技场区域（实心方块，包含玩家和网格，overflow裁剪）──
+    local arenaBlock = UI.Panel {
+        position = "absolute",
+        left = arenaPad, top = arenaPad,
+        width = arenaDrawSize, height = arenaDrawSize,
+        backgroundColor = {30, 45, 30, 200},  -- 深绿色填充
+        borderWidth = 2,
+        borderColor = {200, 170, 60, 255},  -- 金色粗边框
+        overflow = "hidden",  -- 裁剪超出边界的玩家标记
+        children = { gridH, gridV, playerDir, playerDot },
     }
 
     -- ── 指北标 "N"（固定在圆形顶部）──
@@ -1503,8 +1504,8 @@ function GameUI._CreateMiniMapArea(player)
         top = 1, left = mapRadius - 4,
     }
 
-    -- 组合所有子元素（层级：底层区域 → 网格 → 玩家）
-    local mapChildren = { arenaBlock, gridH, gridV, playerDir, playerDot, northLabel }
+    -- 组合所有子元素
+    local mapChildren = { arenaBlock, northLabel }
 
     -- 小地图容器（圆形深色背景 + 金色边框）
     local miniMap = UI.Panel {
@@ -2318,48 +2319,36 @@ function GameUI._UpdateMiniMapUI()
     if not playerNodeRef then return end
     local playerDot = uiState.refs.miniMapPlayerDot
     local playerDir = uiState.refs.miniMapPlayerDir
-    local mapSize = uiState.refs.miniMapSize
-    local arenaPad = uiState.refs.miniMapArenaPad
     local arenaDrawSize = uiState.refs.miniMapArenaDrawSize
-    if not mapSize or not arenaPad or not arenaDrawSize then return end
+    if not arenaDrawSize then return end
 
     local halfArena = mapState.arenaSize / 2  -- 60m
     local playerPos = playerNodeRef.worldPosition
 
-    -- 玩家世界坐标 → 小地图像素坐标
-    -- 竞技场区域从 (arenaPad, arenaPad) 开始，尺寸为 arenaDrawSize
-    -- 世界 (-60, 60) → 像素 (arenaPad, arenaPad)
-    -- 世界 (60, -60) → 像素 (arenaPad + arenaDrawSize, arenaPad + arenaDrawSize)
+    -- 玩家世界坐标 → arenaBlock 内部像素坐标（相对于 arenaBlock content area）
+    -- 世界 (-60, +60) → 像素 (0, 0)  左上角=西北
+    -- 世界 (+60, -60) → 像素 (arenaDrawSize, arenaDrawSize)  右下角=东南
     local normX = (playerPos.x + halfArena) / (halfArena * 2)  -- 0~1
-    local normZ = (halfArena - playerPos.z) / (halfArena * 2)  -- 0~1 (Z 轴向前=北=上)
-    normX = math.max(0, math.min(1, normX))
-    normZ = math.max(0, math.min(1, normZ))
+    local normZ = (halfArena - playerPos.z) / (halfArena * 2)  -- 0~1
+    -- 不 clamp，让 overflow:hidden 自动裁剪
 
-    local dotX = arenaPad + normX * arenaDrawSize
-    local dotY = arenaPad + normZ * arenaDrawSize
+    local dotX = normX * arenaDrawSize
+    local dotY = normZ * arenaDrawSize
 
-    -- 更新玩家标记位置
+    -- 更新玩家标记位置（相对于 arenaBlock 内部）
     if playerDot then
         playerDot:SetStyle({ left = math.floor(dotX - 4), top = math.floor(dotY - 4) })
     end
 
-    -- 更新朝向指示线（从玩家点向前方延伸）
+    -- 更新朝向指示线
     if playerDir then
         local camNode = cameraRef and cameraRef:GetNode() or nil
         local camYaw = 0
         if camNode then camYaw = camNode.worldRotation:YawAngle() end
-        -- 朝向线：从玩家点向相机朝向前方偏移
         local yawRad = math.rad(camYaw)
-        local dirLen = 8
-        -- 前方 = +Z = 地图向上，yaw=0 时朝北（上）
-        local dx = math.sin(yawRad) * dirLen
-        local dy = -math.cos(yawRad) * dirLen
-        local lineX = dotX + dx * (arenaDrawSize / (halfArena * 2))
-        local lineY = dotY + dy * (arenaDrawSize / (halfArena * 2))
-        -- 简化：直接用像素偏移
+        -- 从玩家点向前方延伸 6px
         local endX = dotX + math.sin(yawRad) * 6
         local endY = dotY - math.cos(yawRad) * 6
-        -- 定位朝向线的中心在 (玩家点 → 前方偏移) 之间
         local midX = (dotX + endX) / 2
         local midY = (dotY + endY) / 2
         playerDir:SetStyle({ left = math.floor(midX - 1), top = math.floor(midY - 4) })
