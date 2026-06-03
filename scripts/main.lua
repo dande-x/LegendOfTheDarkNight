@@ -628,6 +628,13 @@ function HandleUpdate(eventType, eventData)
         GameUI.ToggleFullMap()
     end
 
+    -- 游戏暂停：打开背包/地图/系统面板时暂停游戏逻辑
+    if GameUI.IsGamePaused() then
+        UpdateCamera(dt)
+        GameUI.UpdateHUD(player_, dt)
+        return
+    end
+
     -- 死亡状态
     if isDead then
         deathTimer = deathTimer - dt
@@ -709,8 +716,8 @@ end
 -- ============================================================================
 function UpdatePlayerMovement(dt)
     if not playerNode_ or isDead then return end
-    -- 全图打开时不移动
-    if GameUI.IsFullMapOpen() then return end
+    -- 暂停时不移动
+    if GameUI.IsGamePaused() then return end
 
     local joystick = GameUI.GetJoystick()
     if not joystick then return end

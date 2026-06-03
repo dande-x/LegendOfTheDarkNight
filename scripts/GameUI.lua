@@ -536,6 +536,11 @@ function GameUI.IsFullMapOpen()
     return mapState.fullMapOpen
 end
 
+--- 判断游戏是否应暂停（任何面板打开时暂停）
+function GameUI.IsGamePaused()
+    return mapState.fullMapOpen or uiState.charPanelOpen or uiState.systemPanelOpen
+end
+
 -- ============================================================================
 -- 伤害飘字 NanoVG 渲染（物理弹跳动画）
 -- ============================================================================
@@ -1010,32 +1015,7 @@ function GameUI.ShowGameHUD(player)
         hud.joystick.showKeyHints = false
     end
 
-    -- 全屏地图（纯 UI 实现）
-    local FULLMAP_MAX_ENEMIES = 30
-    local fullMapEnemyDots = {}
-    for i = 1, FULLMAP_MAX_ENEMIES do
-        local dot = UI.Panel {
-            position = "absolute",
-            width = 10, height = 10,
-            borderRadius = 5,
-            backgroundColor = {220, 50, 40, 230},
-            visible = false,
-        }
-        fullMapEnemyDots[i] = dot
-    end
-
-    local fullMapObsDots = {}
-    for i, obs in ipairs(mapState.obstacles) do
-        local dot = UI.Panel {
-            position = "absolute",
-            width = 8, height = 8,
-            borderRadius = obs.isPillar and 1 or 4,
-            backgroundColor = obs.isPillar and {150, 130, 80, 200} or {110, 105, 90, 180},
-            visible = false,
-        }
-        fullMapObsDots[i] = dot
-    end
-
+    -- 全屏地图（纯 UI 实现 - 仅显示玩家 + 竞技场边界）
     local fullMapPlayerDot = UI.Panel {
         position = "absolute",
         width = 12, height = 12,
@@ -1045,11 +1025,11 @@ function GameUI.ShowGameHUD(player)
         borderColor = {80, 230, 120, 80},
     }
 
-    -- 全图地图区域内容容器
-    local fullMapAreaChildren = {}
-    for _, d in ipairs(fullMapObsDots) do table.insert(fullMapAreaChildren, d) end
-    for _, d in ipairs(fullMapEnemyDots) do table.insert(fullMapAreaChildren, d) end
-    table.insert(fullMapAreaChildren, fullMapPlayerDot)
+    -- 竞技场边界（全图上的方形边界线）
+    local fmBorderTop = UI.Panel { position = "absolute", height = 2, backgroundColor = {160, 135, 55, 220} }
+    local fmBorderBot = UI.Panel { position = "absolute", height = 2, backgroundColor = {160, 135, 55, 220} }
+    local fmBorderLeft = UI.Panel { position = "absolute", width = 2, backgroundColor = {160, 135, 55, 220} }
+    local fmBorderRight = UI.Panel { position = "absolute", width = 2, backgroundColor = {160, 135, 55, 220} }
 
     -- 全图地图区域（居中正方形）
     local fullMapArea = UI.Panel {
@@ -1059,7 +1039,8 @@ function GameUI.ShowGameHUD(player)
         borderWidth = 2,
         borderColor = {160, 135, 55, 180},
         borderRadius = 8,
-        children = fullMapAreaChildren,
+        overflow = "hidden",
+        children = { fmBorderTop, fmBorderBot, fmBorderLeft, fmBorderRight, fullMapPlayerDot },
     }
 
     -- 标题
@@ -1071,7 +1052,7 @@ function GameUI.ShowGameHUD(player)
         marginBottom = 8,
     }
 
-    -- 图例
+    -- 图例（仅玩家 + 边界）
     local fullMapLegend = UI.Panel {
         flexDirection = "row",
         gap = 16,
@@ -1087,22 +1068,8 @@ function GameUI.ShowGameHUD(player)
             UI.Panel {
                 flexDirection = "row", alignItems = "center", gap = 4,
                 children = {
-                    UI.Panel { width = 8, height = 8, borderRadius = 4, backgroundColor = {220, 50, 40, 230} },
-                    UI.Label { text = "敌人", fontSize = 11, fontColor = {200, 200, 190, 200} },
-                },
-            },
-            UI.Panel {
-                flexDirection = "row", alignItems = "center", gap = 4,
-                children = {
-                    UI.Panel { width = 8, height = 8, borderRadius = 4, backgroundColor = {110, 105, 90, 180} },
-                    UI.Label { text = "石头", fontSize = 11, fontColor = {200, 200, 190, 200} },
-                },
-            },
-            UI.Panel {
-                flexDirection = "row", alignItems = "center", gap = 4,
-                children = {
-                    UI.Panel { width = 8, height = 8, borderRadius = 1, backgroundColor = {150, 130, 80, 200} },
-                    UI.Label { text = "石柱", fontSize = 11, fontColor = {200, 200, 190, 200} },
+                    UI.Panel { width = 16, height = 2, backgroundColor = {160, 135, 55, 220} },
+                    UI.Label { text = "竞技场边界", fontSize = 11, fontColor = {200, 200, 190, 200} },
                 },
             },
         },
@@ -1138,9 +1105,8 @@ function GameUI.ShowGameHUD(player)
     -- 保存引用
     uiState.refs.fullMapOverlay = fullMapOverlay
     uiState.refs.fullMapArea = fullMapArea
-    uiState.refs.fullMapEnemyDots = fullMapEnemyDots
-    uiState.refs.fullMapObsDots = fullMapObsDots
     uiState.refs.fullMapPlayerDot = fullMapPlayerDot
+    uiState.refs.fullMapBorder = { top = fmBorderTop, bot = fmBorderBot, left = fmBorderLeft, right = fmBorderRight }
 
     local hudRoot = UI.Panel {
         id = "gameHUD",
@@ -1425,53 +1391,32 @@ function GameUI._CreateMiniMapArea(player)
     local mapSize = 64
     local mapRadius = mapSize / 2
 
-    -- 预创建小地图元素
-    local MAX_ENEMY_DOTS = 20
-    local enemyDots = {}
-    for i = 1, MAX_ENEMY_DOTS do
-        local dot = UI.Panel {
-            position = "absolute",
-            width = 6, height = 6,
-            borderRadius = 3,
-            backgroundColor = {220, 50, 40, 220},
-            visible = false,
-        }
-        enemyDots[i] = dot
-    end
-
-    -- 障碍物标记（固定数量）
-    local obsDots = {}
-    for i, _ in ipairs(mapState.obstacles) do
-        local dot = UI.Panel {
-            position = "absolute",
-            width = 5, height = 5,
-            borderRadius = 2,
-            backgroundColor = {100, 95, 85, 160},
-            visible = false,
-        }
-        obsDots[i] = dot
-    end
-
-    -- 玩家标记（中心绿色菱形）
+    -- 玩家标记（中心绿色点）
     local playerDot = UI.Panel {
         position = "absolute",
         width = 8, height = 8,
-        borderRadius = 1,
+        borderRadius = 4,
         backgroundColor = {80, 230, 120, 255},
         left = mapRadius - 4, top = mapRadius - 4,
     }
+
+    -- 竞技场边界（方形，4条边线）
+    local borderTop = UI.Panel { position = "absolute", height = 1, backgroundColor = {160, 135, 55, 140} }
+    local borderBot = UI.Panel { position = "absolute", height = 1, backgroundColor = {160, 135, 55, 140} }
+    local borderLeft = UI.Panel { position = "absolute", width = 1, backgroundColor = {160, 135, 55, 140} }
+    local borderRight = UI.Panel { position = "absolute", width = 1, backgroundColor = {160, 135, 55, 140} }
 
     -- 十字准线（水平 + 垂直线）
     local crossH = UI.Panel {
         position = "absolute",
         width = mapSize, height = 1,
-        backgroundColor = {60, 80, 60, 60},
+        backgroundColor = {60, 80, 60, 50},
         top = mapRadius,
     }
     local crossV = UI.Panel {
         position = "absolute",
         width = 1, height = mapSize,
-        backgroundColor = {60, 80, 60, 60},
+        backgroundColor = {60, 80, 60, 50},
         left = mapRadius,
     }
 
@@ -1485,11 +1430,7 @@ function GameUI._CreateMiniMapArea(player)
     }
 
     -- 组合所有子元素
-    local mapChildren = { crossH, crossV }
-    for _, d in ipairs(obsDots) do table.insert(mapChildren, d) end
-    for _, d in ipairs(enemyDots) do table.insert(mapChildren, d) end
-    table.insert(mapChildren, playerDot)
-    table.insert(mapChildren, northLabel)
+    local mapChildren = { crossH, crossV, borderTop, borderBot, borderLeft, borderRight, playerDot, northLabel }
 
     -- 小地图容器（圆形深色背景 + 金色边框）
     local miniMap = UI.Panel {
@@ -1508,11 +1449,10 @@ function GameUI._CreateMiniMapArea(player)
 
     -- 保存引用用于每帧更新
     uiState.refs.miniMapContainer = miniMap
-    uiState.refs.miniMapEnemyDots = enemyDots
-    uiState.refs.miniMapObsDots = obsDots
     uiState.refs.miniMapPlayerDot = playerDot
     uiState.refs.miniMapNorthLabel = northLabel
     uiState.refs.miniMapSize = mapSize
+    uiState.refs.miniMapBorder = { top = borderTop, bot = borderBot, left = borderLeft, right = borderRight }
 
     -- 信息条（击杀 + 金币，紧凑横排）
     local infoBar = UI.Panel {
@@ -2296,14 +2236,14 @@ end
 -- ============================================================================
 function GameUI._UpdateMiniMapUI()
     if not playerNodeRef then return end
-    local enemyDots = uiState.refs.miniMapEnemyDots
-    local obsDots = uiState.refs.miniMapObsDots
     local northLabel = uiState.refs.miniMapNorthLabel
     local mapSize = uiState.refs.miniMapSize
-    if not enemyDots or not mapSize then return end
+    local border = uiState.refs.miniMapBorder
+    if not mapSize then return end
 
     local mapRadius = mapSize / 2
     local viewRange = 35  -- 小地图可视范围（米）
+    local halfArena = mapState.arenaSize / 2
 
     local playerPos = playerNodeRef.worldPosition
     local camNode = cameraRef and cameraRef:GetNode() or nil
@@ -2311,59 +2251,48 @@ function GameUI._UpdateMiniMapUI()
     if camNode then camYaw = camNode.worldRotation:YawAngle() end
     local yawRad = math.rad(-camYaw)
 
-    -- 坐标转换：世界坐标 → 小地图内 left/top
+    -- 坐标转换：世界坐标 → 小地图内 left/top（相机旋转对齐）
     local function worldToMinimap(wx, wz)
         local dx = wx - playerPos.x
         local dz = wz - playerPos.z
-        -- 旋转对齐相机朝向
         local rx = dx * math.cos(yawRad) - dz * math.sin(yawRad)
         local rz = dx * math.sin(yawRad) + dz * math.cos(yawRad)
-        -- 缩放到地图像素（中心=mapRadius）
         local px = mapRadius + (rx / viewRange) * mapRadius
         local py = mapRadius - (rz / viewRange) * mapRadius
         return px, py
     end
 
-    -- 更新障碍物位置
-    for i, obs in ipairs(mapState.obstacles) do
-        local dot = obsDots[i]
-        if dot then
-            local px, py = worldToMinimap(obs.x, obs.z)
-            local dist = math.sqrt((px - mapRadius)^2 + (py - mapRadius)^2)
-            if dist < mapRadius - 3 then
-                dot:SetStyle({ left = math.floor(px - 2.5), top = math.floor(py - 2.5) })
-                dot:SetVisible(true)
-            else
-                dot:SetVisible(false)
-            end
-        end
-    end
+    -- 更新竞技场边界（4条边线随玩家位置移动）
+    if border then
+        -- 计算4个边界角点在小地图上的位置
+        local tlx, tly = worldToMinimap(-halfArena, halfArena)   -- top-left (北西)
+        local trx, try_ = worldToMinimap(halfArena, halfArena)   -- top-right (北东)
+        local blx, bly = worldToMinimap(-halfArena, -halfArena)  -- bottom-left (南西)
+        local brx, bry = worldToMinimap(halfArena, -halfArena)   -- bottom-right (南东)
 
-    -- 更新敌人位置
-    local Combat = require("scripts.Combat")
-    local enemies = Combat.enemies
-    local eIdx = 0
-    if enemies then
-        for _, e in ipairs(enemies) do
-            if e.node and e.hp and e.hp > 0 then
-                eIdx = eIdx + 1
-                if eIdx > #enemyDots then break end
-                local ePos = e.node.worldPosition
-                local px, py = worldToMinimap(ePos.x, ePos.z)
-                local dist = math.sqrt((px - mapRadius)^2 + (py - mapRadius)^2)
-                local dot = enemyDots[eIdx]
-                if dist < mapRadius - 3 then
-                    dot:SetStyle({ left = math.floor(px - 3), top = math.floor(py - 3) })
-                    dot:SetVisible(true)
-                else
-                    dot:SetVisible(false)
-                end
-            end
-        end
-    end
-    -- 隐藏多余的点
-    for j = eIdx + 1, #enemyDots do
-        enemyDots[j]:SetVisible(false)
+        -- 上边界（北）: 从 tl 到 tr
+        local topW = math.abs(trx - tlx)
+        local topL = math.min(tlx, trx)
+        local topT = math.min(tly, try_)
+        border.top:SetStyle({ left = math.floor(topL), top = math.floor(topT), width = math.floor(topW) })
+
+        -- 下边界（南）: 从 bl 到 br
+        local botW = math.abs(brx - blx)
+        local botL = math.min(blx, brx)
+        local botT = math.min(bly, bry)
+        border.bot:SetStyle({ left = math.floor(botL), top = math.floor(botT), width = math.floor(botW) })
+
+        -- 左边界（西）: 从 tl 到 bl
+        local leftH = math.abs(bly - tly)
+        local leftL = math.min(tlx, blx)
+        local leftT = math.min(tly, bly)
+        border.left:SetStyle({ left = math.floor(leftL), top = math.floor(leftT), height = math.floor(leftH) })
+
+        -- 右边界（东）: 从 tr 到 br
+        local rightH = math.abs(bry - try_)
+        local rightL = math.min(trx, brx)
+        local rightT = math.min(try_, bry)
+        border.right:SetStyle({ left = math.floor(rightL), top = math.floor(rightT), height = math.floor(rightH) })
     end
 
     -- 更新指北标位置（N 在圆的北方方向）
@@ -2381,13 +2310,11 @@ function GameUI._UpdateFullMapUI()
     if not mapState.fullMapOpen or not playerNodeRef then return end
 
     local fullMapArea = uiState.refs.fullMapArea
-    local enemyDots = uiState.refs.fullMapEnemyDots
-    local obsDots = uiState.refs.fullMapObsDots
     local playerDot = uiState.refs.fullMapPlayerDot
-    if not fullMapArea or not enemyDots then return end
+    local border = uiState.refs.fullMapBorder
+    if not fullMapArea or not playerDot then return end
 
-    -- 获取地图区域的实际尺寸（需要在布局后获取）
-    -- 使用屏幕尺寸的70%作为地图尺寸（与之前NanoVG逻辑一致）
+    -- 使用屏幕尺寸的60%作为地图尺寸
     local sw = graphics.width / UI.GetScale()
     local sh = graphics.height / UI.GetScale()
     local mapSize = math.floor(math.min(sw, sh) * 0.6)
@@ -2402,42 +2329,22 @@ function GameUI._UpdateFullMapUI()
         left = areaLeft, top = areaTop,
     })
 
+    -- 竞技场边界在全图中占满整个区域（因为全图就是展示完整竞技场）
+    -- 边界距离地图区域边缘留一点内边距（5%）
+    local padding = math.floor(mapSize * 0.05)
+    local innerSize = mapSize - padding * 2
+    if border then
+        border.top:SetStyle({ left = padding, top = padding, width = innerSize })
+        border.bot:SetStyle({ left = padding, top = padding + innerSize, width = innerSize })
+        border.left:SetStyle({ left = padding, top = padding, height = innerSize })
+        border.right:SetStyle({ left = padding + innerSize, top = padding, height = innerSize })
+    end
+
     -- 坐标转换：世界坐标 → 全图内 left/top
     local function worldToFullMap(wx, wz)
-        local px = halfMap + (wx / halfArena) * halfMap
-        local py = halfMap - (wz / halfArena) * halfMap
+        local px = padding + (innerSize / 2) + (wx / halfArena) * (innerSize / 2)
+        local py = padding + (innerSize / 2) - (wz / halfArena) * (innerSize / 2)
         return px, py
-    end
-
-    -- 更新障碍物
-    for i, obs in ipairs(mapState.obstacles) do
-        local dot = obsDots[i]
-        if dot then
-            local px, py = worldToFullMap(obs.x, obs.z)
-            dot:SetStyle({ left = math.floor(px - 4), top = math.floor(py - 4) })
-            dot:SetVisible(true)
-        end
-    end
-
-    -- 更新敌人
-    local Combat = require("scripts.Combat")
-    local enemies = Combat.enemies
-    local eIdx = 0
-    if enemies then
-        for _, e in ipairs(enemies) do
-            if e.node and e.hp and e.hp > 0 then
-                eIdx = eIdx + 1
-                if eIdx > #enemyDots then break end
-                local ePos = e.node.worldPosition
-                local px, py = worldToFullMap(ePos.x, ePos.z)
-                local dot = enemyDots[eIdx]
-                dot:SetStyle({ left = math.floor(px - 5), top = math.floor(py - 5) })
-                dot:SetVisible(true)
-            end
-        end
-    end
-    for j = eIdx + 1, #enemyDots do
-        enemyDots[j]:SetVisible(false)
     end
 
     -- 更新玩家位置
