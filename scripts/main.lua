@@ -242,6 +242,7 @@ function OnClassSelected(classId)
 
     player_ = CharacterClass.CreatePlayer(classId, 1)
     CreatePlayerNode(classId)
+    GameUI.SetPlayerNode(playerNode_)  -- 玩家节点创建后再设置引用
     GameUI.ShowGameHUD(player_)
 
     -- 绑定技能按钮回调（现在走施法状态机）
