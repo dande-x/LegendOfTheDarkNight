@@ -1673,8 +1673,6 @@ local function _BuildSkillTabContent(player)
 
         local icon = skillIcons[skill.type] or "◆"
         local nameColor = locked and {80, 75, 65, 150} or {235, 225, 200, 255}
-        local lvColor = locked and {70, 65, 55, 130} or {190, 170, 100, 220}
-        local expColor = locked and {60, 55, 50, 120} or {140, 130, 100, 180}
         local iconBg = locked and {30, 28, 24, 200} or equippedSlot > 0 and {50, 40, 25, 240} or {35, 30, 22, 230}
         local iconBorder = locked and {50, 45, 38, 130} or equippedSlot > 0 and {180, 140, 50, 200} or {80, 70, 50, 170}
 
@@ -1710,29 +1708,17 @@ local function _BuildSkillTabContent(player)
                         UI.Label { text = icon, fontSize = 22, fontColor = locked and {80, 75, 65, 130} or {240, 220, 160, 240} },
                     },
                 },
-                -- 右侧：技能名 + Lv / Exp
+                -- 右侧：技能名
                 UI.Panel {
-                    flex = 1, flexShrink = 1,
+                    flex = 1, flexShrink = 1, justifyContent = "center",
                     children = {
-                        -- 技能名称
                         UI.Label {
                             text = skill.name, fontSize = 16, fontWeight = "bold",
                             fontColor = nameColor,
                         },
-                        -- Lv 和 Exp 行
-                        UI.Panel {
-                            flexDirection = "row", gap = 12, marginTop = 3,
-                            children = {
-                                UI.Label {
-                                    text = locked and "未解锁" or ("Lv." .. slvl),
-                                    fontSize = 12, fontColor = lvColor,
-                                },
-                                UI.Label {
-                                    text = locked and "" or ("Exp" .. (slvl >= 3 and " MAX" or " —")),
-                                    fontSize = 12, fontColor = expColor,
-                                },
-                            },
-                        },
+                        locked and UI.Label {
+                            text = "未解锁", fontSize = 11, fontColor = {100, 90, 70, 150}, marginTop = 2,
+                        } or nil,
                     },
                 },
                 -- 装备状态指示
