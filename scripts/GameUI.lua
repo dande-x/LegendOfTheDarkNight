@@ -1780,6 +1780,172 @@ local function _BuildSkillTabContent(player)
     }
 end
 
+-- ============================================================================
+-- 装备面板 Tab（传奇风格：人物轮廓 + 10槽位环绕）
+-- ============================================================================
+local function _BuildEquipTabContent(player)
+    local inv = Inventory.playerData
+    local SLOT = Inventory.SLOT
+    local SLOT_NAMES = Inventory.SLOT_NAMES
+    local RARITY = Inventory.RARITY
+
+    local function refreshPanel()
+        GameUI.HideCharacterPanel()
+        GameUI.ShowCharacterPanel(player, "equip")
+    end
+
+    -- 单个装备槽 UI 构建
+    local function makeSlotCell(slotKey, w, h)
+        w = w or 72
+        h = h or 78
+        local item = inv.equipped[slotKey]
+        local label = SLOT_NAMES[slotKey] or slotKey
+        local rarity = item and RARITY[item.rarity] or nil
+        local rarityClr = rarity and rarity.color or nil
+        local nameColor = rarityClr and {rarityClr[1], rarityClr[2], rarityClr[3], 255} or {120, 115, 100, 180}
+        local borderClr = rarityClr and {rarityClr[1], rarityClr[2], rarityClr[3], 200} or {55, 50, 42, 150}
+        local bgColor = item and {30, 24, 18, 250} or {22, 18, 14, 200}
+
+        -- 属性简述
+        local statParts = {}
+        if item then
+            if item.atk > 0 then table.insert(statParts, "攻" .. item.atk) end
+            if item.def > 0 then table.insert(statParts, "防" .. item.def) end
+            if item.hp  > 0 then table.insert(statParts, "血" .. item.hp) end
+        end
+        local statText = table.concat(statParts, " ")
+
+        local capturedSlot = slotKey
+        return UI.Panel {
+            width = w, height = h, overflow = "hidden",
+            backgroundColor = bgColor, borderRadius = 5,
+            borderWidth = item and 1.5 or 1, borderColor = borderClr,
+            justifyContent = "center", alignItems = "center",
+            paddingHorizontal = 3, paddingVertical = 3,
+            onPointerUp = item and function()
+                Inventory.UnequipSlot(capturedSlot)
+                refreshPanel()
+            end or nil,
+            children = {
+                -- 槽位标签
+                UI.Label { text = label, fontSize = 9, fontColor = {140, 130, 100, 160} },
+                -- 物品名称
+                UI.Label {
+                    text = item and item.name or "—",
+                    fontSize = item and 11 or 10,
+                    fontWeight = item and "bold" or "normal",
+                    fontColor = nameColor, marginTop = 2,
+                    textAlign = "center",
+                },
+                -- 属性
+                (item and statText ~= "") and UI.Label {
+                    text = statText, fontSize = 9,
+                    fontColor = {180, 175, 155, 190}, marginTop = 1,
+                    textAlign = "center",
+                } or nil,
+                -- 卸下提示
+                item and UI.Label {
+                    text = "▼卸下", fontSize = 8,
+                    fontColor = {100, 180, 100, 140}, marginTop = 1,
+                } or nil,
+            },
+        }
+    end
+
+    -- 计算总属性
+    local totalAtk = inv.bonusAtk or 0
+    local totalDef = inv.bonusDef or 0
+    local totalHP  = inv.bonusHP  or 0
+
+    -- 布局：传奇经典三列布局
+    -- 左列：头盔、项链、左手镯、左戒指、腰带
+    -- 中间：人物轮廓 + 属性
+    -- 右列：武器、盔甲、右手镯、右戒指、鞋子
+
+    local leftCol = UI.Panel {
+        width = 78, alignItems = "center", gap = 4,
+        children = {
+            makeSlotCell(SLOT.HELMET, 72, 72),
+            makeSlotCell(SLOT.NECKLACE, 72, 72),
+            makeSlotCell(SLOT.BRACELET1, 72, 72),
+            makeSlotCell(SLOT.RING1, 72, 72),
+            makeSlotCell(SLOT.BELT, 72, 72),
+        },
+    }
+
+    local rightCol = UI.Panel {
+        width = 78, alignItems = "center", gap = 4,
+        children = {
+            makeSlotCell(SLOT.WEAPON, 72, 72),
+            makeSlotCell(SLOT.ARMOR, 72, 72),
+            makeSlotCell(SLOT.BRACELET2, 72, 72),
+            makeSlotCell(SLOT.RING2, 72, 72),
+            makeSlotCell(SLOT.BOOTS, 72, 72),
+        },
+    }
+
+    -- 中间人物轮廓区域
+    local classDef = CharacterClass.Classes[player.classId]
+    local classColor = classDef and classDef.color or {200, 180, 120}
+    local centerCol = UI.Panel {
+        flex = 1, alignItems = "center", justifyContent = "center",
+        paddingVertical = 8,
+        children = {
+            -- 人物轮廓（简化用文字符号表示）
+            UI.Panel {
+                width = 100, height = 200,
+                backgroundColor = {12, 10, 8, 200},
+                borderRadius = 8, borderWidth = 1,
+                borderColor = {60, 50, 35, 120},
+                justifyContent = "center", alignItems = "center",
+                children = {
+                    UI.Label {
+                        text = classDef and classDef.name or "角色",
+                        fontSize = 14, fontWeight = "bold",
+                        fontColor = {classColor[1], classColor[2], classColor[3], 220},
+                    },
+                    UI.Label { text = "Lv." .. player.level, fontSize = 12, fontColor = {200, 190, 160, 200}, marginTop = 4 },
+                    -- 人物轮廓符号
+                    UI.Label { text = "⚔", fontSize = 40, fontColor = {classColor[1], classColor[2], classColor[3], 140}, marginTop = 8 },
+                },
+            },
+            -- 属性总计
+            UI.Panel {
+                width = "100%", marginTop = 10, alignItems = "center", gap = 3,
+                children = {
+                    UI.Label { text = "— 装备属性 —", fontSize = 10, fontColor = {150, 140, 110, 180} },
+                    UI.Panel {
+                        flexDirection = "row", gap = 8, marginTop = 4,
+                        children = {
+                            UI.Label { text = "攻+" .. totalAtk, fontSize = 12, fontColor = {255, 100, 80, 230}, fontWeight = "bold" },
+                            UI.Label { text = "防+" .. totalDef, fontSize = 12, fontColor = {80, 180, 255, 230}, fontWeight = "bold" },
+                            UI.Label { text = "血+" .. totalHP, fontSize = 12, fontColor = {80, 230, 100, 230}, fontWeight = "bold" },
+                        },
+                    },
+                },
+            },
+        },
+    }
+
+    return UI.Panel {
+        width = "100%", flexShrink = 1, overflow = "scroll",
+        children = {
+            -- 提示
+            UI.Label {
+                text = "点击已装备物品可卸下到背包",
+                fontSize = 10, fontColor = {140, 130, 110, 160},
+                textAlign = "center", marginBottom = 6,
+            },
+            -- 三列布局
+            UI.Panel {
+                flexDirection = "row", width = "100%",
+                justifyContent = "space-between", alignItems = "flex-start",
+                children = { leftCol, centerCol, rightCol },
+            },
+        },
+    }
+end
+
 --- 构建背包 Tab 内容
 local function _BuildBagTabContent(player)
     local inv = Inventory.playerData
@@ -1793,10 +1959,16 @@ local function _BuildBagTabContent(player)
     end
 
     local slotOrder = {
-        { slot = SLOT.WEAPON,   label = "武器" },
-        { slot = SLOT.ARMOR,    label = "防具" },
-        { slot = SLOT.RING,     label = "戒指" },
-        { slot = SLOT.NECKLACE, label = "项链" },
+        { slot = SLOT.HELMET,    label = "头盔" },
+        { slot = SLOT.ARMOR,     label = "盔甲" },
+        { slot = SLOT.WEAPON,    label = "武器" },
+        { slot = SLOT.NECKLACE,  label = "项链" },
+        { slot = SLOT.BRACELET1, label = "左镯" },
+        { slot = SLOT.BRACELET2, label = "右镯" },
+        { slot = SLOT.RING1,     label = "左戒" },
+        { slot = SLOT.RING2,     label = "右戒" },
+        { slot = SLOT.BELT,      label = "腰带" },
+        { slot = SLOT.BOOTS,     label = "鞋子" },
     }
 
     -- 装备行：一行4个格子，高度固定62
@@ -1825,12 +1997,8 @@ local function _BuildBagTabContent(player)
             borderRadius = 6, borderWidth = 1, borderColor = borderClr,
             paddingVertical = 8, paddingHorizontal = 10,
             onPointerUp = capturedItem and function()
-                if #inv.bag < 20 then
-                    table.insert(inv.bag, capturedItem)
-                    inv.equipped[capturedSlot] = nil
-                    Inventory.RecalcBonus()
-                    refreshPanel()
-                end
+                Inventory.UnequipSlot(capturedSlot)
+                refreshPanel()
             end or nil,
             children = {
                 UI.Label { text = s.label, fontSize = 11, fontColor = {150, 140, 120, 190} },
@@ -2009,7 +2177,9 @@ function GameUI.ShowCharacterPanel(player, tab)
 
     -- 构建内容区
     local content
-    if activeTab == "skill" then
+    if activeTab == "equip" then
+        content = _BuildEquipTabContent(player)
+    elseif activeTab == "skill" then
         content = _BuildSkillTabContent(player)
     else
         content = _BuildBagTabContent(player)
@@ -2041,6 +2211,7 @@ function GameUI.ShowCharacterPanel(player, tab)
                     UI.Panel {
                         flexDirection = "row", width = "100%", gap = 8, marginBottom = 12,
                         children = {
+                            makeTab("装备", "equip"),
                             makeTab("技能", "skill"),
                             makeTab("背包", "bag"),
                         },

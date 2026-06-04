@@ -1,3 +1,4 @@
+---@diagnostic disable: access-invisible, param-type-mismatch, assign-type-mismatch
 -- ============================================================================
 -- main.lua — 传奇·山海 主入口
 -- 俯视角 ARPG: 场景搭建 + 相机跟随 + 角色移动 + 施法系统 + 系统集成
@@ -381,7 +382,7 @@ function OnClassSelected(classId)
         if GameUI.IsCharacterPanelOpen() then
             GameUI.HideCharacterPanel()
         else
-            GameUI.ShowCharacterPanel(player_, "skill")
+            GameUI.ShowCharacterPanel(player_, "equip")
         end
     end
 
