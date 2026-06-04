@@ -1182,6 +1182,16 @@ function GameUI.ShowGameHUD(player)
 
     uiState.hudRoot = hudRoot
     UI.SetRoot(hudRoot)
+
+    -- 开场动画期间隐藏 HUD 元素，等开门动画完成后再显示
+    local skillBar = hudRoot:FindById("skillBar")
+    local potions = hudRoot:FindById("potions")
+    local topRight = hudRoot:FindById("topRight")
+    if skillBar then skillBar:SetVisible(false) end
+    if potions then potions:SetVisible(false) end
+    if topRight then topRight:SetVisible(false) end
+    uiState.hudRevealed = false
+
     print("[GameUI] Game HUD shown for " .. player.className)
 end
 
@@ -2271,6 +2281,25 @@ function GameUI.UpdateHUD(player, dt)
             if doorState.onComplete then doorState.onComplete() end
             print("[GameUI] Door transition complete")
         end
+        -- 门打开 70% 时显示 HUD 元素
+        if not uiState.hudRevealed and doorState.progress >= 0.7 then
+            uiState.hudRevealed = true
+            local skillBar = uiState.hudRoot and uiState.hudRoot:FindById("skillBar")
+            local potions = uiState.hudRoot and uiState.hudRoot:FindById("potions")
+            local topRight = uiState.hudRoot and uiState.hudRoot:FindById("topRight")
+            if skillBar then skillBar:SetVisible(true) end
+            if potions then potions:SetVisible(true) end
+            if topRight then topRight:SetVisible(true) end
+        end
+    elseif not uiState.hudRevealed and uiState.hudRoot then
+        -- 如果没有开门动画（如重新ShowGameHUD），直接显示
+        uiState.hudRevealed = true
+        local skillBar = uiState.hudRoot:FindById("skillBar")
+        local potions = uiState.hudRoot:FindById("potions")
+        local topRight = uiState.hudRoot:FindById("topRight")
+        if skillBar then skillBar:SetVisible(true) end
+        if potions then potions:SetVisible(true) end
+        if topRight then topRight:SetVisible(true) end
     end
 
     -- 更新 debug 等级标签
