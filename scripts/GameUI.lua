@@ -1651,12 +1651,13 @@ end
 local function _BuildSkillTabContent(player)
     local classDef = CharacterClass.Classes[player.classId]
     local allSkills = classDef.skills
-    local classColors = {
-        warrior = {200, 85, 45, 255},
-        mage    = {50, 120, 210, 255},
-        taoist  = {65, 190, 90, 255},
+
+    -- 技能图标符号（传奇风格：用代表性符号代替图片）
+    local skillIcons = {
+        melee  = "⚔", ranged = "🏹", aoe = "🔥",
+        buff   = "✦", heal   = "✚", dot = "☠",
+        dash   = "⚡", summon = "👁",
     }
-    local clr = classColors[player.classId]
 
     local skillRows = {}
     for _, skill in ipairs(allSkills) do
@@ -1670,112 +1671,93 @@ local function _BuildSkillTabContent(player)
             end
         end
 
-        local unlockText = ""
-        if skill.unlockLevels then
-            local parts = {}
-            for _, lv in ipairs(skill.unlockLevels) do
-                local star = player.level >= lv and "★" or "☆"
-                table.insert(parts, star .. "Lv." .. lv)
-            end
-            unlockText = table.concat(parts, " ")
-        end
-
-        local typeNames = {
-            melee = "近战", ranged = "远程", aoe = "范围",
-            buff = "增益", heal = "治愈", dot = "持续", dash = "位移", summon = "召唤",
-        }
-        local typeName = typeNames[skill.type] or skill.type
-
-        local statusText, statusColor
-        if locked then
-            statusText = "未解锁"
-            statusColor = {150, 60, 60, 200}
-        elseif equippedSlot > 0 then
-            statusText = "槽位 " .. equippedSlot
-            statusColor = clr
-        else
-            statusText = "未装备"
-            statusColor = {160, 150, 120, 200}
-        end
-
-        local nameColor = locked and {100, 100, 100, 150} or {240, 235, 220, 255}
-        local descColor = locked and {80, 80, 80, 120} or {160, 150, 130, 200}
+        local icon = skillIcons[skill.type] or "◆"
+        local nameColor = locked and {80, 75, 65, 150} or {235, 225, 200, 255}
+        local lvColor = locked and {70, 65, 55, 130} or {190, 170, 100, 220}
+        local expColor = locked and {60, 55, 50, 120} or {140, 130, 100, 180}
+        local iconBg = locked and {30, 28, 24, 200} or equippedSlot > 0 and {50, 40, 25, 240} or {35, 30, 22, 230}
+        local iconBorder = locked and {50, 45, 38, 130} or equippedSlot > 0 and {180, 140, 50, 200} or {80, 70, 50, 170}
 
         table.insert(skillRows, UI.Panel {
-            width = "100%",
-            flexDirection = "row",
-            alignItems = "center",
-            paddingVertical = 10,
-            paddingHorizontal = 12,
-            backgroundColor = equippedSlot > 0 and {38, 32, 26, 210} or {22, 18, 15, 190},
-            borderRadius = 6,
-            borderWidth = equippedSlot > 0 and 1 or 0,
-            borderColor = equippedSlot > 0 and {clr[1], clr[2], clr[3], 100} or {0,0,0,0},
+            width = "100%", flexDirection = "row", alignItems = "center",
+            paddingVertical = 8, paddingHorizontal = 6, gap = 10,
+            onPointerUp = not locked and function()
+                if equippedSlot > 0 then
+                    player.equippedSkills[equippedSlot] = nil
+                else
+                    local placed = false
+                    for s = 1, 6 do
+                        if player.equippedSkills[s] == nil then
+                            player.equippedSkills[s] = skill
+                            placed = true
+                            break
+                        end
+                    end
+                    if not placed then player.equippedSkills[1] = skill end
+                end
+                GameUI.HideCharacterPanel()
+                GameUI.ShowCharacterPanel(player, "skill")
+            end or nil,
             children = {
+                -- 技能图标方块
+                UI.Panel {
+                    width = 44, height = 44,
+                    backgroundColor = iconBg,
+                    borderRadius = 4, borderWidth = 1.5,
+                    borderColor = iconBorder,
+                    justifyContent = "center", alignItems = "center",
+                    children = {
+                        UI.Label { text = icon, fontSize = 22, fontColor = locked and {80, 75, 65, 130} or {240, 220, 160, 240} },
+                    },
+                },
+                -- 右侧：技能名 + Lv / Exp
                 UI.Panel {
                     flex = 1, flexShrink = 1,
                     children = {
-                        UI.Panel {
-                            flexDirection = "row", alignItems = "center", gap = 6,
-                            children = {
-                                UI.Label { text = skill.name, fontSize = 15, fontColor = nameColor, fontWeight = "bold" },
-                                UI.Label { text = "[" .. typeName .. "]", fontSize = 11, fontColor = {155, 145, 125, 170} },
-                            },
+                        -- 技能名称
+                        UI.Label {
+                            text = skill.name, fontSize = 16, fontWeight = "bold",
+                            fontColor = nameColor,
                         },
-                        UI.Label { text = skill.desc or "", fontSize = 11, fontColor = descColor, marginTop = 3 },
-                        UI.Label { text = unlockText, fontSize = 11, fontColor = {200, 180, 80, 200}, marginTop = 3 },
-                    },
-                },
-                UI.Panel {
-                    width = 70, alignItems = "center",
-                    children = {
-                        UI.Label { text = skill.manaCost > 0 and ("蓝 " .. skill.manaCost) or "免费", fontSize = 11, fontColor = {110, 170, 230, 210} },
-                        UI.Label { text = skill.cooldown > 0 and ("CD " .. skill.cooldown .. "s") or "", fontSize = 11, fontColor = {175, 160, 115, 170}, marginTop = 2 },
-                    },
-                },
-                UI.Panel {
-                    width = 72, alignItems = "center",
-                    children = {
-                        UI.Label { text = statusText, fontSize = 12, fontColor = statusColor },
-                        not locked and UI.Panel {
-                            width = 62, height = 28, borderRadius = 5,
-                            backgroundColor = equippedSlot > 0 and {60, 30, 25, 220} or {30, 48, 30, 220},
-                            borderWidth = 1,
-                            borderColor = equippedSlot > 0 and {170, 75, 60, 170} or {85, 150, 85, 170},
-                            justifyContent = "center", alignItems = "center", marginTop = 4,
-                            onPointerUp = function()
-                                if equippedSlot > 0 then
-                                    player.equippedSkills[equippedSlot] = nil
-                                else
-                                    local placed = false
-                                    for s = 1, 6 do
-                                        if player.equippedSkills[s] == nil then
-                                            player.equippedSkills[s] = skill
-                                            placed = true
-                                            break
-                                        end
-                                    end
-                                    if not placed then player.equippedSkills[1] = skill end
-                                end
-                                GameUI.HideCharacterPanel()
-                                GameUI.ShowCharacterPanel(player, "skill")
-                            end,
+                        -- Lv 和 Exp 行
+                        UI.Panel {
+                            flexDirection = "row", gap = 12, marginTop = 3,
                             children = {
                                 UI.Label {
-                                    text = equippedSlot > 0 and "卸下" or "装备",
-                                    fontSize = 12,
-                                    fontColor = equippedSlot > 0 and {210, 95, 75, 255} or {130, 210, 130, 255},
+                                    text = locked and "未解锁" or ("Lv." .. slvl),
+                                    fontSize = 12, fontColor = lvColor,
+                                },
+                                UI.Label {
+                                    text = locked and "" or ("Exp" .. (slvl >= 3 and " MAX" or " —")),
+                                    fontSize = 12, fontColor = expColor,
                                 },
                             },
-                        } or nil,
+                        },
                     },
                 },
+                -- 装备状态指示
+                equippedSlot > 0 and UI.Panel {
+                    width = 20, height = 20, borderRadius = 10,
+                    backgroundColor = {60, 50, 20, 220},
+                    borderWidth = 1, borderColor = {200, 170, 60, 200},
+                    justifyContent = "center", alignItems = "center",
+                    children = {
+                        UI.Label { text = tostring(equippedSlot), fontSize = 10, fontColor = {255, 220, 80, 255}, fontWeight = "bold" },
+                    },
+                } or nil,
             },
         })
+
+        -- 分隔线（除最后一项）
+        if _ < #allSkills then
+            table.insert(skillRows, UI.Panel {
+                width = "100%", height = 1, backgroundColor = {50, 44, 34, 80},
+            })
+        end
     end
 
     return UI.Panel {
-        width = "100%", flexShrink = 1, overflow = "scroll", gap = 6,
+        width = "100%", flex = 1, flexShrink = 1, overflow = "scroll",
         children = skillRows,
     }
 end
@@ -2219,11 +2201,11 @@ function GameUI.ShowCharacterPanel(player, tab)
         justifyContent = "center", alignItems = "center",
         children = {
             UI.Panel {
-                width = 440, maxHeight = "85%",
+                width = 320, height = 520,
                 backgroundColor = {16, 12, 10, 248},
                 borderRadius = 10, borderWidth = 2,
                 borderColor = {110, 90, 45, 190},
-                padding = 18,
+                padding = 14, overflow = "hidden",
                 children = {
                     -- 标题栏
                     UI.Panel {
