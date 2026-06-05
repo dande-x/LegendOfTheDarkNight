@@ -78,7 +78,7 @@ CharacterClass.Classes = {
                 slot = 1, cooldown = 0, manaCost = 0,
                 unlockLevels = {1, 13, 19},
                 damage = {100, 120, 150},
-                range = 1.5, castTime = 0.15,
+                range = 1.5, castTime = 0.35,
             },
             -- 2. 攻杀剑术
             {
@@ -164,7 +164,7 @@ CharacterClass.Classes = {
                 slot = 1, cooldown = 0, manaCost = 0,
                 unlockLevels = {1, 13, 19},
                 damage = {90, 110, 140},
-                range = 6.0, projectileSpeed = 12, castTime = 0.25,
+                range = 6.0, projectileSpeed = 12, castTime = 0.45,
             },
             -- 2. 地狱火
             {
@@ -251,7 +251,7 @@ CharacterClass.Classes = {
                 slot = 1, cooldown = 0, manaCost = 0,
                 unlockLevels = {1, 13, 19},
                 damage = {85, 105, 130},
-                range = 6.0, projectileSpeed = 10, castTime = 0.18,
+                range = 6.0, projectileSpeed = 10, castTime = 0.38,
             },
             -- 2. 召唤骷髅 (召唤2只骷髅兵)
             {

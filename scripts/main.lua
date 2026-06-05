@@ -56,14 +56,14 @@ local castState = {
 
 -- 默认施法时间表（按技能类型），技能自身的 castTime 优先
 local DEFAULT_CAST_TIMES = {
-    [CharacterClass.SKILL_TYPE.MELEE]  = { windup = 0.20, recovery = 0.12 },
-    [CharacterClass.SKILL_TYPE.RANGED] = { windup = 0.15, recovery = 0.10 },
-    [CharacterClass.SKILL_TYPE.AOE]    = { windup = 0.35, recovery = 0.15 },
-    [CharacterClass.SKILL_TYPE.DOT]    = { windup = 0.30, recovery = 0.12 },
-    [CharacterClass.SKILL_TYPE.BUFF]   = { windup = 0.25, recovery = 0.10 },
-    [CharacterClass.SKILL_TYPE.HEAL]   = { windup = 0.30, recovery = 0.10 },
-    [CharacterClass.SKILL_TYPE.DASH]   = { windup = 0.08, recovery = 0.10 },
-    [CharacterClass.SKILL_TYPE.SUMMON] = { windup = 0.40, recovery = 0.15 },
+    [CharacterClass.SKILL_TYPE.MELEE]  = { windup = 0.20, recovery = 0.20 },
+    [CharacterClass.SKILL_TYPE.RANGED] = { windup = 0.15, recovery = 0.18 },
+    [CharacterClass.SKILL_TYPE.AOE]    = { windup = 0.35, recovery = 0.20 },
+    [CharacterClass.SKILL_TYPE.DOT]    = { windup = 0.30, recovery = 0.18 },
+    [CharacterClass.SKILL_TYPE.BUFF]   = { windup = 0.25, recovery = 0.15 },
+    [CharacterClass.SKILL_TYPE.HEAL]   = { windup = 0.30, recovery = 0.15 },
+    [CharacterClass.SKILL_TYPE.DASH]   = { windup = 0.08, recovery = 0.15 },
+    [CharacterClass.SKILL_TYPE.SUMMON] = { windup = 0.40, recovery = 0.20 },
 }
 
 -- 法师蓄力视觉节点
@@ -295,9 +295,13 @@ function OnClassSelected(classId)
         local animName = PlayerAnim.GetAnimForSkillType(skill.type)
         PlayerAnim.Play(animName)
 
-        -- 显示施法条
+        -- 法师蓄力判定
         local isCharging = (player_.classId == "mage" and windup >= 0.3)
-        GameUI.ShowCastBar(skill.name, isCharging)
+
+        -- 显示施法条（武士动作明显，不需要进度条）
+        if player_.classId ~= "warrior" then
+            GameUI.ShowCastBar(skill.name, isCharging)
+        end
 
         -- 法师蓄力视觉效果
         if isCharging and playerNode_ then
