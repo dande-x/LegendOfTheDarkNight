@@ -213,25 +213,8 @@ function Combat.UpdateEnemies(dt, playerNode, player)
             end
             if e.dyingTimer <= 0 then
                 e.state = "dead"
-                local deathPos = e.node.position
-                local deathName = e.name
-                local deathExp = e.exp
                 e.node:Remove()
                 table.remove(enemies, i)
-                killCount = killCount + 1
-                Combat.killCount = killCount
-                -- 给玩家经验
-                if player then
-                    player.exp = player.exp + deathExp
-                    while player.exp >= player.expToNext do
-                        player.exp = player.exp - player.expToNext
-                        CharacterClass.LevelUp(player)
-                    end
-                end
-                -- 掉落回调
-                if Combat.onEnemyDeath then
-                    Combat.onEnemyDeath(deathName, deathPos, deathExp)
-                end
             end
             goto continue
         end
@@ -263,7 +246,7 @@ function Combat.UpdateEnemies(dt, playerNode, player)
             e.hitFlashTimer = e.hitFlashTimer - dt
         end
 
-        -- 死亡检测 → 触发死亡动画
+        -- 死亡检测 → 立即掉落 + 触发死亡动画
         if e.hp <= 0 then
             e.state = "dying"
             local deathDur = MonsterSkeleton.GetAnimDuration(e.monsterType, "death")
@@ -274,6 +257,19 @@ function Combat.UpdateEnemies(dt, playerNode, player)
             -- 播放死亡动画
             if e.animData then
                 MonsterSkeleton.PlayAnim(e.animData, "death", nil)
+            end
+            -- 立即触发掉落和经验
+            killCount = killCount + 1
+            Combat.killCount = killCount
+            if player then
+                player.exp = player.exp + e.exp
+                while player.exp >= player.expToNext do
+                    player.exp = player.exp - player.expToNext
+                    CharacterClass.LevelUp(player)
+                end
+            end
+            if Combat.onEnemyDeath then
+                Combat.onEnemyDeath(e.name, e.node.position, e.exp)
             end
             goto continue
         end
