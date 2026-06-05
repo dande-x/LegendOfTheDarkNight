@@ -26,6 +26,8 @@ local hitFeedback = {
     flashTimer = 0,         -- 命中闪光
 }
 
+local currentClassId = "warrior"  -- 当前职业（CreateSkeleton 时设置）
+
 PlayerAnim.bones = bones
 PlayerAnim.animState = animState
 PlayerAnim.hitFeedback = hitFeedback
@@ -73,6 +75,8 @@ local BUILD_ORDER = {
 -- 创建人形骨架
 -- ============================================================================
 function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors)
+    currentClassId = classId
+
     -- 清空旧骨骼
     for _, name in ipairs(BUILD_ORDER) do
         bones[name] = nil
@@ -139,21 +143,67 @@ end
 -- ============================================================================
 function PlayerAnim._AddClassDecoration(playerNode, classId, colors)
     if classId == "warrior" then
-        -- 右手持大剑
-        local sword = bones.rHand:CreateChild("Sword")
-        sword.position = Vector3(0, -0.25, 0)
-        sword.scale = Vector3(0.04, 0.7, 0.015)  -- 窄长剑身
-        local model = sword:CreateComponent("StaticModel")
-        model:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
-        local mat = Material:new()
-        mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
-        mat:SetShaderParameter("MatDiffColor", Variant(Color(0.78, 0.78, 0.82, 1.0)))
-        mat:SetShaderParameter("Metallic", Variant(0.95))
-        mat:SetShaderParameter("Roughness", Variant(0.15))
-        mat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.05, 0.05, 0.1)))
-        model:SetMaterial(mat)
-        model.castShadows = true
-        bones.sword = sword
+        -- 大刀（扛在右肩上）
+        -- 挂载到右手，通过旋转+位移实现扛肩姿态
+        local daoRoot = bones.rHand:CreateChild("DaoRoot")
+        -- 刀柄在手中，刀身向上向后延伸（扛肩效果）
+        daoRoot.position = Vector3(0, -0.05, 0)
+        daoRoot.rotation = Quaternion(30, 0, 10)  -- 向后倾斜扛在肩上
+
+        -- 刀柄（握持部分）
+        local handle = daoRoot:CreateChild("DaoHandle")
+        handle.position = Vector3(0, 0, 0)
+        handle.scale = Vector3(0.035, 0.28, 0.035)
+        local hModel = handle:CreateComponent("StaticModel")
+        hModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+        local hMat = Material:new()
+        hMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
+        hMat:SetShaderParameter("MatDiffColor", Variant(Color(0.35, 0.20, 0.08, 1.0)))
+        hMat:SetShaderParameter("Roughness", Variant(0.8))
+        hMat:SetShaderParameter("Metallic", Variant(0.1))
+        hModel:SetMaterial(hMat)
+        hModel.castShadows = true
+
+        -- 护手（横档）
+        local guard = daoRoot:CreateChild("DaoGuard")
+        guard.position = Vector3(0, 0.16, 0)
+        guard.scale = Vector3(0.12, 0.025, 0.04)
+        local gModel = guard:CreateComponent("StaticModel")
+        gModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
+        local gMat = Material:new()
+        gMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
+        gMat:SetShaderParameter("MatDiffColor", Variant(Color(0.7, 0.55, 0.15, 1.0)))
+        gMat:SetShaderParameter("Roughness", Variant(0.3))
+        gMat:SetShaderParameter("Metallic", Variant(0.8))
+        gModel:SetMaterial(gMat)
+        gModel.castShadows = true
+
+        -- 刀身（宽扁，传奇大刀风格）
+        local blade = daoRoot:CreateChild("DaoBlade")
+        blade.position = Vector3(0, 0.55, 0)
+        blade.scale = Vector3(0.12, 0.6, 0.02)  -- 宽而薄的大刀
+        local bModel = blade:CreateComponent("StaticModel")
+        bModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
+        local bMat = Material:new()
+        bMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
+        bMat:SetShaderParameter("MatDiffColor", Variant(Color(0.82, 0.82, 0.86, 1.0)))
+        bMat:SetShaderParameter("Metallic", Variant(0.95))
+        bMat:SetShaderParameter("Roughness", Variant(0.12))
+        bMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.04, 0.04, 0.08)))
+        bModel:SetMaterial(bMat)
+        bModel.castShadows = true
+
+        -- 刀尖（三角形效果用缩小的 Box 模拟）
+        local tip = daoRoot:CreateChild("DaoTip")
+        tip.position = Vector3(0, 0.88, 0)
+        tip.scale = Vector3(0.08, 0.08, 0.018)
+        tip.rotation = Quaternion(0, 0, 45)  -- 旋转45度形成菱形尖端
+        local tModel = tip:CreateComponent("StaticModel")
+        tModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
+        tModel:SetMaterial(bMat)  -- 复用刀身材质
+        tModel.castShadows = true
+
+        bones.sword = daoRoot
 
     elseif classId == "mage" then
         -- 右手持权杖：细长杖身 + 金属环箍 + 月牙托座 + 发光宝珠
@@ -614,6 +664,19 @@ function PlayerAnim.Update(dt, isMoving)
             if rx then
                 node.rotation = Quaternion(rx, ry, rz)
             end
+        end
+    end
+
+    -- 武士扛刀姿态：idle/walk 时右臂抬起扛在肩上
+    if currentClassId == "warrior" then
+        local isResting = (animState.current == "idle" or animState.current == "walk")
+        if isResting and bones.rUpperArm and bones.rForeArm then
+            -- 右上臂向外抬起+向前，形成扛刀姿态
+            local baseRot = bones.rUpperArm.rotation
+            bones.rUpperArm.rotation = baseRot * Quaternion(-40, 0, -30)
+            -- 右前臂弯曲，手靠近肩膀
+            local foreRot = bones.rForeArm.rotation
+            bones.rForeArm.rotation = foreRot * Quaternion(-50, 0, 0)
         end
     end
 
