@@ -126,7 +126,7 @@ end
 -- 敌人掉落表
 -- ============================================================================
 local DROP_TABLES = {
-    ["山贼"] = {
+    ["鹿"] = {
         goldMin = 5, goldMax = 15, dropChance = 0.35,
         items = {
             { id = "sword_iron",    weight = 25 },
@@ -141,7 +141,7 @@ local DROP_TABLES = {
             { id = "boots_cloth",   weight = 15 },
         },
     },
-    ["野狼"] = {
+    ["稻草人"] = {
         goldMin = 8, goldMax = 20, dropChance = 0.40,
         items = {
             { id = "armor_cloth",   weight = 15 },
@@ -158,7 +158,7 @@ local DROP_TABLES = {
             { id = "boots_leather", weight = 5  },
         },
     },
-    ["蛇妖"] = {
+    ["骷髅"] = {
         goldMin = 15, goldMax = 35, dropChance = 0.40,
         items = {
             { id = "sword_steel",   weight = 12 },
@@ -174,7 +174,7 @@ local DROP_TABLES = {
             { id = "boots_leather", weight = 10 },
         },
     },
-    ["树妖"] = {
+    ["蜘蛛"] = {
         goldMin = 20, goldMax = 45, dropChance = 0.45,
         items = {
             { id = "armor_leather", weight = 12 },
@@ -193,7 +193,7 @@ local DROP_TABLES = {
             { id = "boots_iron",    weight = 3  },
         },
     },
-    ["石魔"] = {
+    ["半兽人"] = {
         goldMin = 30, goldMax = 70, dropChance = 0.50,
         items = {
             { id = "sword_flame",   weight = 10 },

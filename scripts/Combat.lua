@@ -907,10 +907,39 @@ end
 -- 地面掉落物系统
 -- ============================================================================
 
+--- 创建堆叠金币造型（多个扁平圆柱叠加）
+local function CreateCoinPile(parentNode, pileSize)
+    -- pileSize: 1=小堆(2-3枚), 2=中堆(3-4枚), 3=大堆(4-5枚)
+    local coinCount = pileSize + math.random(1, 2)
+    local goldMat = CreatePBR(Color(1.0, 0.85, 0.2, 1.0), 0.8, 0.25)
+    goldMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.6, 0.45, 0.05)))
+
+    for ci = 1, coinCount do
+        local coinNode = parentNode:CreateChild("coin" .. ci)
+        -- 每枚硬币稍有偏移和旋转，模拟自然堆叠
+        local offX = (math.random() - 0.5) * 0.15
+        local offZ = (math.random() - 0.5) * 0.15
+        local stackY = (ci - 1) * 0.06  -- 每枚硬币高度叠加
+        coinNode.position = Vector3(offX, stackY, offZ)
+        -- 随机倾斜，越上面越歪
+        local tiltX = (math.random() - 0.5) * 8 * ci
+        local tiltZ = (math.random() - 0.5) * 8 * ci
+        local rotY = math.random() * 360
+        coinNode.rotation = Quaternion(tiltX, rotY, tiltZ)
+        -- 扁平圆柱 = 硬币形状
+        coinNode.scale = Vector3(0.3, 0.06, 0.3)
+
+        local model = coinNode:CreateComponent("StaticModel")
+        model:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+        model:SetMaterial(goldMat)
+        model.castShadows = false
+    end
+end
+
 --- 生成金币散落到地面
 function Combat.SpawnGroundGold(scene, pos, amount)
-    -- 分成 3~4 个小金球散开
-    local count = math.random(3, 4)
+    -- 分成 2~3 堆散开
+    local count = math.random(2, 3)
     local perCoin = math.floor(amount / count)
     local remainder = amount - perCoin * count
 
@@ -920,22 +949,21 @@ function Combat.SpawnGroundGold(scene, pos, amount)
 
         -- 散开偏移
         local angle = (ci - 1) / count * math.pi * 2 + math.random() * 0.5
-        local dist = 0.5 + math.random() * 0.8
+        local dist = 0.4 + math.random() * 0.6
         local offX = math.cos(angle) * dist
         local offZ = math.sin(angle) * dist
-        local targetPos = Vector3(pos.x + offX, 0.15, pos.z + offZ)
+        local targetPos = Vector3(pos.x + offX, 0.10, pos.z + offZ)
 
         local goldNode = scene:CreateChild("GroundGold")
         -- 先从死亡位置上方开始
         goldNode.position = Vector3(targetPos.x, 1.2, targetPos.z)
-        goldNode.scale = Vector3(0.18, 0.18, 0.18)
 
-        local model = goldNode:CreateComponent("StaticModel")
-        model:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
-        local mat = CreatePBR(Color(1.0, 0.85, 0.2, 1.0), 0.8, 0.25)
-        mat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.6, 0.45, 0.05)))
-        model:SetMaterial(mat)
-        model.castShadows = false
+        -- 根据金额决定堆大小
+        local pileSize = 1
+        if coinAmount >= 20 then pileSize = 3
+        elseif coinAmount >= 10 then pileSize = 2
+        end
+        CreateCoinPile(goldNode, pileSize)
 
         table.insert(groundItems, {
             node = goldNode,
@@ -943,7 +971,7 @@ function Combat.SpawnGroundGold(scene, pos, amount)
             amount = coinAmount,
             timer = 0,
             lifetime = GOLD_LIFETIME,
-            targetY = 0.15,
+            targetY = 0.10,
             fallSpeed = 3.0 + math.random() * 2.0,
             falling = true,
             magnetPhase = false,
