@@ -141,14 +141,16 @@ function Combat.SpawnEnemy(scene, playerPos, playerLevel)
 
     -- 头顶名字标签
     local labelNode = enemyNode:CreateChild("NameLabel")
-    labelNode.position = Vector3(0, 1.5 * def.scale, 0)
+    labelNode.position = Vector3(0, 1.8 * def.scale, 0)
     local text3D = labelNode:CreateComponent("Text3D")
-    text3D:SetFont(cache:GetResource("Font", "Fonts/MiSans-Regular.ttf"), 14)
-    text3D.text = def.name .. " Lv." .. def.level
-    text3D.color = Color(1.0, 0.85, 0.3, 1.0)
+    text3D:SetFont(cache:GetResource("Font", "Fonts/MiSans-Regular.ttf"), 24)
+    text3D:SetText(def.name .. " Lv." .. def.level)
+    text3D:SetColor(Color(1.0, 0.85, 0.3, 1.0))
     text3D:SetAlignment(HA_CENTER, VA_BOTTOM)
-    text3D.faceCamera = true
-    text3D.viewMask = 0x80000000
+    text3D:SetFaceCameraMode(FC_ROTATE_XYZ)
+    text3D:SetFixedScreenSize(true)
+    text3D:SetTextEffect(TE_SHADOW)
+    text3D:SetEffectColor(Color(0, 0, 0, 0.8))
 
     -- 动画数据
     local animData = {
