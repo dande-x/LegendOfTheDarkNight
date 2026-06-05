@@ -5,6 +5,7 @@
 -- ============================================================================
 
 local CharacterClass = require("scripts.CharacterClass")
+local MonsterSkeleton = require("scripts.MonsterSkeleton")
 
 local Combat = {}
 
@@ -12,33 +13,38 @@ local C = CharacterClass.Colors
 local SKILL_TYPE = CharacterClass.SKILL_TYPE
 
 -- ============================================================================
--- 敌人配置
+-- 敌人配置（5种传奇怪物 + 骨架类型）
 -- ============================================================================
 local ENEMY_DEFS = {
     {
-        name = "山贼",   level = 1,  hp = 100,  atk = 10, def = 4,
-        speed = 2.4, chaseRange = 8, attackRange = 1.5, attackCD = 2.0,
-        exp = 50, color = C.EnemyRed, scale = 0.9,
+        name = "鹿",     monsterType = "deer",
+        level = 1,  hp = 80,   atk = 8,  def = 3,
+        speed = 3.0, chaseRange = 8, attackRange = 1.5, attackCD = 2.0,
+        exp = 40, scale = 0.9,
     },
     {
-        name = "野狼",   level = 2,  hp = 80,   atk = 14, def = 3,
-        speed = 3.2, chaseRange = 12, attackRange = 1.5, attackCD = 1.5,
-        exp = 65, color = Color(0.45, 0.35, 0.25, 1.0), scale = 0.75,
+        name = "稻草人", monsterType = "scarecrow",
+        level = 2,  hp = 120,  atk = 12, def = 4,
+        speed = 2.2, chaseRange = 7, attackRange = 1.8, attackCD = 1.8,
+        exp = 60, scale = 1.0,
     },
     {
-        name = "蛇妖",   level = 3,  hp = 180,  atk = 16, def = 6,
-        speed = 2.5, chaseRange = 10, attackRange = 2.0, attackCD = 1.8,
-        exp = 90, color = C.EnemyDark, scale = 1.0,
+        name = "骷髅",   monsterType = "skeleton",
+        level = 3,  hp = 160,  atk = 16, def = 6,
+        speed = 2.6, chaseRange = 10, attackRange = 1.5, attackCD = 1.5,
+        exp = 90, scale = 0.95,
     },
     {
-        name = "树妖",   level = 4,  hp = 260,  atk = 13, def = 10,
-        speed = 1.6, chaseRange = 6, attackRange = 2.0, attackCD = 2.2,
-        exp = 110, color = Color(0.25, 0.40, 0.18, 1.0), scale = 1.1,
+        name = "蜘蛛",   monsterType = "spider",
+        level = 4,  hp = 140,  atk = 18, def = 5,
+        speed = 3.5, chaseRange = 12, attackRange = 1.3, attackCD = 1.2,
+        exp = 100, scale = 0.85,
     },
     {
-        name = "石魔",   level = 5,  hp = 320,  atk = 22, def = 12,
-        speed = 1.8, chaseRange = 7, attackRange = 1.8, attackCD = 2.5,
-        exp = 150, color = Color(0.35, 0.30, 0.28, 1.0), scale = 1.3,
+        name = "半兽人", monsterType = "orc",
+        level = 5,  hp = 300,  atk = 24, def = 12,
+        speed = 2.0, chaseRange = 8, attackRange = 1.8, attackCD = 2.2,
+        exp = 150, scale = 1.1,
     },
 }
 Combat.ENEMY_DEFS = ENEMY_DEFS
@@ -83,7 +89,7 @@ local function CreatePBR(color, metallic, roughness)
 end
 
 -- ============================================================================
--- 敌人创建
+-- 敌人创建（使用 MonsterSkeleton 骨架系统）
 -- ============================================================================
 function Combat.SpawnEnemy(scene, playerPos, playerLevel)
     if #enemies >= MAX_ENEMIES then return end
@@ -109,26 +115,15 @@ function Combat.SpawnEnemy(scene, playerPos, playerLevel)
     )
 
     -- 创建敌人节点
-    local enemyNode = scene:CreateChild("Enemy_" .. tostring(#enemies + 1))
+    local enemyNode = scene:CreateChild("Enemy_" .. def.monsterType)
     enemyNode.position = spawnPos
 
-    -- 身体 (圆柱体)
-    local bodyNode = enemyNode:CreateChild("Body")
-    bodyNode.scale = Vector3(0.6 * def.scale, 1.0 * def.scale, 0.6 * def.scale)
-    bodyNode.position = Vector3(0, 0.5 * def.scale, 0)
-    local bodyModel = bodyNode:CreateComponent("StaticModel")
-    bodyModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
-    bodyModel:SetMaterial(CreatePBR(def.color, 0.05, 0.7))
-    bodyModel.castShadows = true
+    -- 骨架容器节点（用于统一缩放）
+    local skelRoot = enemyNode:CreateChild("SkelRoot")
+    skelRoot.scale = Vector3(def.scale, def.scale, def.scale)
 
-    -- 头部 (球体)
-    local headNode = enemyNode:CreateChild("Head")
-    headNode.scale = Vector3(0.35 * def.scale, 0.35 * def.scale, 0.35 * def.scale)
-    headNode.position = Vector3(0, 1.1 * def.scale, 0)
-    local headModel = headNode:CreateComponent("StaticModel")
-    headModel:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
-    headModel:SetMaterial(CreatePBR(def.color, 0.05, 0.6))
-    headModel.castShadows = true
+    -- 使用 MonsterSkeleton 创建程序化骨架
+    local bones, buildOrder = MonsterSkeleton.CreateSkeleton(skelRoot, def.monsterType)
 
     -- 敌人动态碰撞体
     local rbody = enemyNode:CreateComponent("RigidBody")
@@ -144,9 +139,20 @@ function Combat.SpawnEnemy(scene, playerPos, playerLevel)
     local capsuleD = 0.6 * def.scale
     colShape:SetCapsule(capsuleD, capsuleH, Vector3(0, capsuleH * 0.5, 0))
 
+    -- 动画数据
+    local animData = {
+        type = def.monsterType,
+        state = "idle",
+        elapsed = 0,
+        bones = bones,
+        buildOrder = buildOrder,
+        onComplete = nil,
+    }
+
     local enemy = {
         node = enemyNode,
         name = def.name,
+        monsterType = def.monsterType,
         level = def.level,
         maxHP = def.hp,
         hp = def.hp,
@@ -158,7 +164,7 @@ function Combat.SpawnEnemy(scene, playerPos, playerLevel)
         attackCD = def.attackCD,
         attackTimer = 0,
         exp = def.exp,
-        state = "patrol",  -- patrol / chase / attack / dead
+        state = "patrol",  -- patrol / chase / attack / dead / dying
         patrolTarget = nil,
         patrolWait = 0,
         hitFlashTimer = 0,
@@ -166,7 +172,8 @@ function Combat.SpawnEnemy(scene, playerPos, playerLevel)
         defReductionTimer = 0,
         dotDamage = 0,
         dotTimer = 0,
-        bodyNode = bodyNode,
+        animData = animData,
+        dyingTimer = 0,
     }
 
     table.insert(enemies, enemy)
@@ -183,6 +190,38 @@ function Combat.UpdateEnemies(dt, playerNode, player)
     for i = #enemies, 1, -1 do
         local e = enemies[i]
         if e.state == "dead" then goto continue end
+
+        -- 死亡动画播放中
+        if e.state == "dying" then
+            e.dyingTimer = e.dyingTimer - dt
+            -- 更新死亡动画
+            if e.animData then
+                MonsterSkeleton.UpdateAnimation(e.animData, dt, false)
+            end
+            if e.dyingTimer <= 0 then
+                e.state = "dead"
+                local deathPos = e.node.position
+                local deathName = e.name
+                local deathExp = e.exp
+                e.node:Remove()
+                table.remove(enemies, i)
+                killCount = killCount + 1
+                Combat.killCount = killCount
+                -- 给玩家经验
+                if player then
+                    player.exp = player.exp + deathExp
+                    while player.exp >= player.expToNext do
+                        player.exp = player.exp - player.expToNext
+                        CharacterClass.LevelUp(player)
+                    end
+                end
+                -- 掉落回调
+                if Combat.onEnemyDeath then
+                    Combat.onEnemyDeath(deathName, deathPos, deathExp)
+                end
+            end
+            goto continue
+        end
 
         local pos = e.node.position
         local toPlayer = playerPos - pos
@@ -209,32 +248,19 @@ function Combat.UpdateEnemies(dt, playerNode, player)
         -- 受击闪烁
         if e.hitFlashTimer > 0 then
             e.hitFlashTimer = e.hitFlashTimer - dt
-            if e.hitFlashTimer <= 0 and e.bodyNode then
-                -- 恢复原色 (不做复杂处理)
-            end
         end
 
-        -- 死亡检测
+        -- 死亡检测 → 触发死亡动画
         if e.hp <= 0 then
-            e.state = "dead"
-            local deathPos = e.node.position
-            local deathName = e.name
-            local deathExp = e.exp
-            e.node:Remove()
-            table.remove(enemies, i)
-            killCount = killCount + 1
-            Combat.killCount = killCount
-            -- 给玩家经验
-            if player then
-                player.exp = player.exp + deathExp
-                while player.exp >= player.expToNext do
-                    player.exp = player.exp - player.expToNext
-                    CharacterClass.LevelUp(player)
-                end
-            end
-            -- 掉落回调
-            if Combat.onEnemyDeath then
-                Combat.onEnemyDeath(deathName, deathPos, deathExp)
+            e.state = "dying"
+            local deathDur = MonsterSkeleton.GetAnimDuration(e.monsterType, "death")
+            e.dyingTimer = deathDur
+            -- 停止物理移动
+            local eBody = e.node:GetComponent("RigidBody")
+            if eBody then eBody:SetLinearVelocity(Vector3.ZERO) end
+            -- 播放死亡动画
+            if e.animData then
+                MonsterSkeleton.PlayAnim(e.animData, "death", nil)
             end
             goto continue
         end
@@ -243,6 +269,7 @@ function Combat.UpdateEnemies(dt, playerNode, player)
         e.attackTimer = math.max(0, e.attackTimer - dt)
 
         local eBody = e.node:GetComponent("RigidBody")
+        local isMoving = false
 
         if e.state == "patrol" then
             -- 巡逻：随机走动
@@ -265,6 +292,7 @@ function Combat.UpdateEnemies(dt, playerNode, player)
                     end
                     local angle = math.atan2(dir.x, dir.z)
                     e.node.rotation = Quaternion(math.deg(angle), Vector3.UP)
+                    isMoving = true
                 else
                     if eBody then eBody:SetLinearVelocity(Vector3.ZERO) end
                 end
@@ -285,6 +313,7 @@ function Combat.UpdateEnemies(dt, playerNode, player)
                 end
                 local angle = math.atan2(dir.x, dir.z)
                 e.node.rotation = Quaternion(math.deg(angle), Vector3.UP)
+                isMoving = true
             end
 
         elseif e.state == "attack" then
@@ -300,6 +329,10 @@ function Combat.UpdateEnemies(dt, playerNode, player)
                 e.node.rotation = Quaternion(math.deg(angle), Vector3.UP)
 
                 if e.attackTimer <= 0 then
+                    -- 播放攻击动画
+                    if e.animData then
+                        MonsterSkeleton.PlayAnim(e.animData, "attack", nil)
+                    end
                     -- 造成伤害
                     local dmg = math.max(1, e.atk - player.def * 0.5)
                     -- 护盾吸收
@@ -316,6 +349,11 @@ function Combat.UpdateEnemies(dt, playerNode, player)
                     end
                 end
             end
+        end
+
+        -- 更新骨架动画
+        if e.animData then
+            MonsterSkeleton.UpdateAnimation(e.animData, dt, isMoving)
         end
 
         ::continue::
@@ -525,6 +563,8 @@ end
 -- 伤害计算
 -- ============================================================================
 function Combat.DealDamage(enemy, baseDmg, player)
+    if enemy.state == "dying" or enemy.state == "dead" then return end
+
     local effectiveDef = math.max(0, enemy.def - enemy.defReduction)
     local dmg = math.max(1, baseDmg - effectiveDef * 0.5)
 
@@ -534,6 +574,11 @@ function Combat.DealDamage(enemy, baseDmg, player)
 
     enemy.hp = enemy.hp - dmg
     enemy.hitFlashTimer = 0.15
+
+    -- 播放受击动画（不打断死亡动画）
+    if enemy.hp > 0 and enemy.animData and enemy.animData.state ~= "attack" then
+        MonsterSkeleton.PlayAnim(enemy.animData, "hit", nil)
+    end
 
     -- 被击中后立刻进入追击状态
     if enemy.state == "patrol" then
