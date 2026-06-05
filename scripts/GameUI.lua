@@ -582,11 +582,12 @@ function GameUI._DrawEnemyHealthBars(ctx, sw, sh)
     local barW = math.floor(80 * scale)
     local barH = math.floor(14 * scale)
     local borderW = math.floor(1.5 * scale)
-    local fontSize = math.max(10, math.floor(13 * scale))
+    local hpFontSize = math.max(10, math.floor(13 * scale))
+    local nameFontSize = math.max(11, math.floor(14 * scale))
     local yOffset = math.floor(28 * scale)  -- 血条在头顶上方的偏移
+    local nameOffset = math.floor(12 * scale)  -- 名字在血条上方的额外偏移
 
     nvgFontFaceId(ctx, nvgFontId)
-    nvgFontSize(ctx, fontSize)
     nvgTextAlign(ctx, NVG_ALIGN_CENTER + NVG_ALIGN_MIDDLE)
 
     -- 获取相机节点前方向量，用于判断敌人是否在相机前方
@@ -642,6 +643,7 @@ function GameUI._DrawEnemyHealthBars(ctx, sw, sh)
                 end
 
                 -- 白色数字居中显示 (当前/总量)
+                nvgFontSize(ctx, hpFontSize)
                 local hpText = math.floor(e.hp) .. "/" .. math.floor(e.maxHP)
                 -- 阴影
                 nvgFillColor(ctx, nvgRGBA(0, 0, 0, 200))
@@ -649,6 +651,17 @@ function GameUI._DrawEnemyHealthBars(ctx, sw, sh)
                 -- 正文
                 nvgFillColor(ctx, nvgRGBA(255, 255, 255, 240))
                 nvgText(ctx, sx, sy, hpText, nil)
+
+                -- 名字标签（血条上方）
+                local nameText = (e.name or "???") .. " Lv." .. (e.level or 1)
+                local nameSy = sy - barH / 2 - nameOffset
+                nvgFontSize(ctx, nameFontSize)
+                -- 阴影
+                nvgFillColor(ctx, nvgRGBA(0, 0, 0, 180))
+                nvgText(ctx, sx + 1, nameSy + 1, nameText, nil)
+                -- 正文（金色）
+                nvgFillColor(ctx, nvgRGBA(255, 225, 120, 255))
+                nvgText(ctx, sx, nameSy, nameText, nil)
             end
         end
         ::continue_enemy::
