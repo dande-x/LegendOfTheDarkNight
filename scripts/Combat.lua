@@ -139,16 +139,16 @@ function Combat.SpawnEnemy(scene, playerPos, playerLevel)
     local capsuleD = 0.6 * def.scale
     colShape:SetCapsule(capsuleD, capsuleH, Vector3(0, capsuleH * 0.5, 0))
 
-    -- 头顶名字标签（放在血条上方）
+    -- 头顶名字标签（放在血条上方，3D世界空间缩放）
     local labelNode = enemyNode:CreateChild("NameLabel")
-    labelNode.position = Vector3(0, 2.4 * def.scale, 0)
+    labelNode.position = Vector3(0, 2.2 * def.scale, 0)
+    labelNode.scale = Vector3(0.02, 0.02, 0.02)
     local text3D = labelNode:CreateComponent("Text3D")
-    text3D:SetFont(cache:GetResource("Font", "Fonts/MiSans-Regular.ttf"), 20)
+    text3D:SetFont(cache:GetResource("Font", "Fonts/MiSans-Regular.ttf"), 32)
     text3D:SetText(def.name .. " Lv." .. def.level)
     text3D:SetColor(Color(1.0, 0.9, 0.5, 1.0))
     text3D:SetAlignment(HA_CENTER, VA_BOTTOM)
     text3D:SetFaceCameraMode(FC_ROTATE_XYZ)
-    text3D:SetFixedScreenSize(true)
     text3D:SetTextEffect(TE_SHADOW)
     text3D:SetEffectColor(Color(0, 0, 0, 0.7))
 
