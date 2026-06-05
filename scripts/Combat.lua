@@ -139,18 +139,18 @@ function Combat.SpawnEnemy(scene, playerPos, playerLevel)
     local capsuleD = 0.6 * def.scale
     colShape:SetCapsule(capsuleD, capsuleH, Vector3(0, capsuleH * 0.5, 0))
 
-    -- 头顶名字标签
+    -- 头顶名字标签（放在血条上方）
     local labelNode = enemyNode:CreateChild("NameLabel")
-    labelNode.position = Vector3(0, 1.8 * def.scale, 0)
+    labelNode.position = Vector3(0, 2.4 * def.scale, 0)
     local text3D = labelNode:CreateComponent("Text3D")
-    text3D:SetFont(cache:GetResource("Font", "Fonts/MiSans-Regular.ttf"), 24)
+    text3D:SetFont(cache:GetResource("Font", "Fonts/MiSans-Regular.ttf"), 20)
     text3D:SetText(def.name .. " Lv." .. def.level)
-    text3D:SetColor(Color(1.0, 0.85, 0.3, 1.0))
+    text3D:SetColor(Color(1.0, 0.9, 0.5, 1.0))
     text3D:SetAlignment(HA_CENTER, VA_BOTTOM)
     text3D:SetFaceCameraMode(FC_ROTATE_XYZ)
     text3D:SetFixedScreenSize(true)
     text3D:SetTextEffect(TE_SHADOW)
-    text3D:SetEffectColor(Color(0, 0, 0, 0.8))
+    text3D:SetEffectColor(Color(0, 0, 0, 0.7))
 
     -- 动画数据
     local animData = {
@@ -907,8 +907,8 @@ end
 local function CreateCoinPile(parentNode, pileSize)
     -- pileSize: 1=小堆(2-3枚), 2=中堆(3-4枚), 3=大堆(4-5枚)
     local coinCount = pileSize + math.random(1, 2)
-    local goldMat = CreatePBR(Color(1.0, 0.85, 0.2, 1.0), 0.8, 0.25)
-    goldMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.6, 0.45, 0.05)))
+    local goldMat = CreatePBR(Color(0.95, 0.75, 0.15, 1.0), 0.9, 0.35)
+    goldMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.35, 0.25, 0.02)))
 
     for ci = 1, coinCount do
         local coinNode = parentNode:CreateChild("coin" .. ci)
