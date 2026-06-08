@@ -671,12 +671,13 @@ function PlayerAnim.Update(dt, isMoving)
     if currentClassId == "warrior" then
         local isResting = (animState.current == "idle" or animState.current == "walk")
         if isResting and bones.rUpperArm and bones.rForeArm then
-            -- 右上臂向外抬起+向前，形成扛刀姿态
-            local baseRot = bones.rUpperArm.rotation
-            bones.rUpperArm.rotation = baseRot * Quaternion(-40, 0, -30)
-            -- 右前臂弯曲，手靠近肩膀
-            local foreRot = bones.rForeArm.rotation
-            bones.rForeArm.rotation = foreRot * Quaternion(-50, 0, 0)
+            -- 获取关键帧的基础旋转（可能为 nil）
+            local rx, ry, rz = getRotationAtTime(anim.keyframes, "rUpperArm", animState.elapsed, anim.duration, anim.looping)
+            local baseUpper = Quaternion(rx or 0, ry or 0, rz or 0)
+            -- 右上臂：基础动画 + 扛刀偏移（向前抬起+外展）
+            bones.rUpperArm.rotation = baseUpper * Quaternion(-40, 0, -30)
+            -- 右前臂：设置绝对弯曲角度（不依赖上一帧）
+            bones.rForeArm.rotation = Quaternion(-50, 0, 0)
         end
     end
 
