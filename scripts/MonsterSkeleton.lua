@@ -107,29 +107,35 @@ local BONES_SKELETON = {
     rFoot    = { parent = "rShin",      pos = {0, -0.18, 0.02}, meshScale = {0.05, 0.025, 0.10}, model = "Box" },
 }
 
--- 蜘蛛：中心体+8条腿
+-- 蜘蛛：小头胸(body) + 巨大圆腹(abdomen) + 8条细长腿
 local BONES_SPIDER = {
-    body     = { parent = nil,      pos = {0, 0.25, 0},     meshScale = {0.25, 0.15, 0.30}, model = "Sphere" },
-    head     = { parent = "body",   pos = {0, 0.02, 0.22},  meshScale = {0.14, 0.12, 0.14}, model = "Sphere" },
-    abdomen  = { parent = "body",   pos = {0, -0.02, -0.25}, meshScale = {0.22, 0.18, 0.28}, model = "Sphere" },
-    -- 左侧4腿（从前到后）
-    leg1LUp  = { parent = "body",   pos = {-0.15, 0, 0.15},  meshScale = {0.03, 0.18, 0.03}, model = "Cylinder", meshOffset = {0, -0.09, 0} },
-    leg1LLo  = { parent = "leg1LUp", pos = {0, -0.18, 0},    meshScale = {0.025, 0.18, 0.025}, model = "Cylinder", meshOffset = {0, -0.09, 0} },
-    leg2LUp  = { parent = "body",   pos = {-0.18, 0, 0.05},  meshScale = {0.03, 0.18, 0.03}, model = "Cylinder", meshOffset = {0, -0.09, 0} },
-    leg2LLo  = { parent = "leg2LUp", pos = {0, -0.18, 0},    meshScale = {0.025, 0.18, 0.025}, model = "Cylinder", meshOffset = {0, -0.09, 0} },
-    leg3LUp  = { parent = "body",   pos = {-0.18, 0, -0.05}, meshScale = {0.03, 0.18, 0.03}, model = "Cylinder", meshOffset = {0, -0.09, 0} },
-    leg3LLo  = { parent = "leg3LUp", pos = {0, -0.18, 0},    meshScale = {0.025, 0.18, 0.025}, model = "Cylinder", meshOffset = {0, -0.09, 0} },
-    leg4LUp  = { parent = "body",   pos = {-0.15, 0, -0.15}, meshScale = {0.03, 0.18, 0.03}, model = "Cylinder", meshOffset = {0, -0.09, 0} },
-    leg4LLo  = { parent = "leg4LUp", pos = {0, -0.18, 0},    meshScale = {0.025, 0.18, 0.025}, model = "Cylinder", meshOffset = {0, -0.09, 0} },
+    -- 头胸部（cephalothorax）— 较小扁平
+    body     = { parent = nil,      pos = {0, 0.25, 0},     meshScale = {0.20, 0.12, 0.22}, model = "Sphere" },
+    -- 头部 — 很小，紧贴头胸部前方
+    head     = { parent = "body",   pos = {0, 0.02, 0.14},  meshScale = {0.10, 0.08, 0.10}, model = "Sphere" },
+    -- 螯肢（两个小突起在头前方）
+    fangL    = { parent = "head",   pos = {-0.04, -0.02, 0.06}, meshScale = {0.025, 0.05, 0.02}, model = "Cylinder" },
+    fangR    = { parent = "head",   pos = {0.04, -0.02, 0.06},  meshScale = {0.025, 0.05, 0.02}, model = "Cylinder" },
+    -- 腹部（abdomen）— 蜘蛛特征：非常大、圆鼓鼓的
+    abdomen  = { parent = "body",   pos = {0, 0.02, -0.28}, meshScale = {0.34, 0.30, 0.40}, model = "Sphere" },
+    -- 左侧4腿（从前到后，腿更长、更细）
+    leg1LUp  = { parent = "body",   pos = {-0.12, 0.02, 0.10},  meshScale = {0.025, 0.22, 0.025}, model = "Cylinder", meshOffset = {0, -0.11, 0} },
+    leg1LLo  = { parent = "leg1LUp", pos = {0, -0.22, 0},    meshScale = {0.02, 0.22, 0.02}, model = "Cylinder", meshOffset = {0, -0.11, 0} },
+    leg2LUp  = { parent = "body",   pos = {-0.14, 0.02, 0.03},  meshScale = {0.025, 0.22, 0.025}, model = "Cylinder", meshOffset = {0, -0.11, 0} },
+    leg2LLo  = { parent = "leg2LUp", pos = {0, -0.22, 0},    meshScale = {0.02, 0.22, 0.02}, model = "Cylinder", meshOffset = {0, -0.11, 0} },
+    leg3LUp  = { parent = "body",   pos = {-0.14, 0.02, -0.04}, meshScale = {0.025, 0.22, 0.025}, model = "Cylinder", meshOffset = {0, -0.11, 0} },
+    leg3LLo  = { parent = "leg3LUp", pos = {0, -0.22, 0},    meshScale = {0.02, 0.22, 0.02}, model = "Cylinder", meshOffset = {0, -0.11, 0} },
+    leg4LUp  = { parent = "body",   pos = {-0.12, 0.02, -0.10}, meshScale = {0.025, 0.22, 0.025}, model = "Cylinder", meshOffset = {0, -0.11, 0} },
+    leg4LLo  = { parent = "leg4LUp", pos = {0, -0.22, 0},    meshScale = {0.02, 0.22, 0.02}, model = "Cylinder", meshOffset = {0, -0.11, 0} },
     -- 右侧4腿
-    leg1RUp  = { parent = "body",   pos = {0.15, 0, 0.15},   meshScale = {0.03, 0.18, 0.03}, model = "Cylinder", meshOffset = {0, -0.09, 0} },
-    leg1RLo  = { parent = "leg1RUp", pos = {0, -0.18, 0},    meshScale = {0.025, 0.18, 0.025}, model = "Cylinder", meshOffset = {0, -0.09, 0} },
-    leg2RUp  = { parent = "body",   pos = {0.18, 0, 0.05},   meshScale = {0.03, 0.18, 0.03}, model = "Cylinder", meshOffset = {0, -0.09, 0} },
-    leg2RLo  = { parent = "leg2RUp", pos = {0, -0.18, 0},    meshScale = {0.025, 0.18, 0.025}, model = "Cylinder", meshOffset = {0, -0.09, 0} },
-    leg3RUp  = { parent = "body",   pos = {0.18, 0, -0.05},  meshScale = {0.03, 0.18, 0.03}, model = "Cylinder", meshOffset = {0, -0.09, 0} },
-    leg3RLo  = { parent = "leg3RUp", pos = {0, -0.18, 0},    meshScale = {0.025, 0.18, 0.025}, model = "Cylinder", meshOffset = {0, -0.09, 0} },
-    leg4RUp  = { parent = "body",   pos = {0.15, 0, -0.15},  meshScale = {0.03, 0.18, 0.03}, model = "Cylinder", meshOffset = {0, -0.09, 0} },
-    leg4RLo  = { parent = "leg4RUp", pos = {0, -0.18, 0},    meshScale = {0.025, 0.18, 0.025}, model = "Cylinder", meshOffset = {0, -0.09, 0} },
+    leg1RUp  = { parent = "body",   pos = {0.12, 0.02, 0.10},   meshScale = {0.025, 0.22, 0.025}, model = "Cylinder", meshOffset = {0, -0.11, 0} },
+    leg1RLo  = { parent = "leg1RUp", pos = {0, -0.22, 0},    meshScale = {0.02, 0.22, 0.02}, model = "Cylinder", meshOffset = {0, -0.11, 0} },
+    leg2RUp  = { parent = "body",   pos = {0.14, 0.02, 0.03},   meshScale = {0.025, 0.22, 0.025}, model = "Cylinder", meshOffset = {0, -0.11, 0} },
+    leg2RLo  = { parent = "leg2RUp", pos = {0, -0.22, 0},    meshScale = {0.02, 0.22, 0.02}, model = "Cylinder", meshOffset = {0, -0.11, 0} },
+    leg3RUp  = { parent = "body",   pos = {0.14, 0.02, -0.04},  meshScale = {0.025, 0.22, 0.025}, model = "Cylinder", meshOffset = {0, -0.11, 0} },
+    leg3RLo  = { parent = "leg3RUp", pos = {0, -0.22, 0},    meshScale = {0.02, 0.22, 0.02}, model = "Cylinder", meshOffset = {0, -0.11, 0} },
+    leg4RUp  = { parent = "body",   pos = {0.12, 0.02, -0.10},  meshScale = {0.025, 0.22, 0.025}, model = "Cylinder", meshOffset = {0, -0.11, 0} },
+    leg4RLo  = { parent = "leg4RUp", pos = {0, -0.22, 0},    meshScale = {0.02, 0.22, 0.02}, model = "Cylinder", meshOffset = {0, -0.11, 0} },
 }
 
 -- 半兽人：驼背粗壮兽人，突出下颌+獠牙+耳朵+持棍棒，腿短臂长
