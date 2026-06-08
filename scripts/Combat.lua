@@ -408,11 +408,31 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
             if e.state ~= "dead" and e.state ~= "dying" then
                 local d = (e.node.position - playerPos):Length()
                 if d <= skill.range then
-                    Combat.DealDamage(e, dmg, player)
-                    hitCount = hitCount + 1
-                    if not skill.aoeAngle and hitCount >= 1 then break end
+                    -- 半月弯刀：检查角度，仅命中前方半月范围
+                    if skill.aoeAngle then
+                        local toEnemy = e.node.position - playerPos
+                        toEnemy.y = 0
+                        toEnemy = toEnemy:Normalized()
+                        local fwd = playerDir
+                        fwd.y = 0
+                        fwd = fwd:Normalized()
+                        local dot = fwd:DotProduct(toEnemy)
+                        local angleToEnemy = math.deg(math.acos(math.max(-1, math.min(1, dot))))
+                        if angleToEnemy <= skill.aoeAngle * 0.5 then
+                            Combat.DealDamage(e, dmg, player)
+                            hitCount = hitCount + 1
+                        end
+                    else
+                        Combat.DealDamage(e, dmg, player)
+                        hitCount = hitCount + 1
+                        if hitCount >= 1 then break end
+                    end
                 end
             end
+        end
+        -- 半月弯刀视觉效果：前方弧形光斩
+        if skill.aoeAngle then
+            Combat.SpawnCrescentVisual(scene, playerPos, playerDir, skill.range, player.classId)
         end
         return true, "melee"
 
@@ -708,6 +728,87 @@ function Combat.SpawnAOEVisual(scene, center, radius, classId)
 
     -- 自动移除 (2秒后)
     node:SetVar("removeTimer", Variant(2.0))
+    return node
+end
+
+-- ============================================================================
+-- 半月弯刀视觉效果：前方弧形光斩（使用 CustomGeometry 绘制半月形）
+-- ============================================================================
+function Combat.SpawnCrescentVisual(scene, center, dir, radius, classId)
+    local node = scene:CreateChild("CrescentVisual")
+    node.position = Vector3(center.x, 0.08, center.z)
+
+    -- 计算角色朝向角度
+    local fwd = Vector3(dir.x, 0, dir.z):Normalized()
+    local baseAngle = math.atan2(fwd.x, fwd.z)  -- 朝向角(弧度)
+
+    -- 使用 CustomGeometry 绘制半月形扇面
+    local geom = node:CreateComponent("CustomGeometry")
+    geom:BeginGeometry(0, TRIANGLE_LIST)
+
+    local segments = 16
+    local halfAngle = math.rad(90)  -- 半月 = 前方180度，半边90度
+    local innerRadius = radius * 0.3  -- 内圈（半月形是弧带，不是实心扇）
+
+    -- 生成扇形环带（外圈半径=range，内圈半径=0.3*range）
+    for i = 0, segments - 1 do
+        local a0 = baseAngle - halfAngle + (i / segments) * halfAngle * 2
+        local a1 = baseAngle - halfAngle + ((i + 1) / segments) * halfAngle * 2
+
+        -- 外圈两个点
+        local ox0 = math.sin(a0) * radius
+        local oz0 = math.cos(a0) * radius
+        local ox1 = math.sin(a1) * radius
+        local oz1 = math.cos(a1) * radius
+        -- 内圈两个点
+        local ix0 = math.sin(a0) * innerRadius
+        local iz0 = math.cos(a0) * innerRadius
+        local ix1 = math.sin(a1) * innerRadius
+        local iz1 = math.cos(a1) * innerRadius
+
+        -- 三角形1: inner0, outer0, outer1
+        geom:DefineVertex(Vector3(ix0, 0, iz0))
+        geom:DefineNormal(Vector3.UP)
+        geom:DefineTexCoord(Vector2(0, 0))
+
+        geom:DefineVertex(Vector3(ox0, 0, oz0))
+        geom:DefineNormal(Vector3.UP)
+        geom:DefineTexCoord(Vector2(1, 0))
+
+        geom:DefineVertex(Vector3(ox1, 0, oz1))
+        geom:DefineNormal(Vector3.UP)
+        geom:DefineTexCoord(Vector2(1, 1))
+
+        -- 三角形2: inner0, outer1, inner1
+        geom:DefineVertex(Vector3(ix0, 0, iz0))
+        geom:DefineNormal(Vector3.UP)
+        geom:DefineTexCoord(Vector2(0, 0))
+
+        geom:DefineVertex(Vector3(ox1, 0, oz1))
+        geom:DefineNormal(Vector3.UP)
+        geom:DefineTexCoord(Vector2(1, 1))
+
+        geom:DefineVertex(Vector3(ix1, 0, iz1))
+        geom:DefineNormal(Vector3.UP)
+        geom:DefineTexCoord(Vector2(0, 1))
+    end
+
+    geom:Commit()
+
+    -- 半月弯刀：朱红色光斩
+    local crescentColor = Color(0.95, 0.35, 0.1, 0.6)
+
+    local mat = Material:new()
+    mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+    mat:SetShaderParameter("MatDiffColor", Variant(crescentColor))
+    mat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.9, 0.25, 0.05)))
+    mat:SetShaderParameter("Metallic", Variant(0.0))
+    mat:SetShaderParameter("Roughness", Variant(0.3))
+    geom:SetMaterial(mat)
+    geom.castShadows = false
+
+    -- 自动移除 (1.5秒后)
+    node:SetVar("removeTimer", Variant(1.5))
     return node
 end
 

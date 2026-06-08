@@ -75,62 +75,59 @@ CharacterClass.Classes = {
             {
                 id = "w_basic", name = "基本剑术", type = SKILL_TYPE.MELEE,
                 desc = "入门剑法，招式朴素，练就扎实根基",
+                unlockDesc = "Lv.%d/%d/%d 解锁三段",
                 slot = 1, cooldown = 0, manaCost = 0,
-                unlockLevels = {1, 13, 19},
+                unlockLevels = {1, 5, 10},
                 damage = {100, 120, 150},
                 range = 2.2, castTime = 0.35,
             },
-            -- 2. 攻杀剑术
-            {
-                id = "w_power", name = "攻杀剑术", type = SKILL_TYPE.MELEE,
-                desc = "运气丹田，内力灌注刀刃，瞬间爆发数倍之力",
-                slot = 2, cooldown = 8, manaCost = 10,
-                unlockLevels = {22, 25, 29},
-                damage = {250, 320, 420},
-                range = 2.5, castTime = 0.25,
-            },
-            -- 3. 刺杀剑术
+            -- 2. 刺杀剑术
             {
                 id = "w_thrust", name = "刺杀剑术", type = SKILL_TYPE.RANGED,
                 desc = "驭刀意为剑光，斩伤数丈外敌人",
-                slot = 3, cooldown = 6, manaCost = 12,
-                unlockLevels = {28, 32, 36},
+                unlockDesc = "Lv.%d/%d/%d 解锁三段",
+                slot = 2, cooldown = 6, manaCost = 12,
+                unlockLevels = {3, 8, 14},
                 damage = {180, 240, 320},
                 range = 4.0,
             },
-            -- 4. 半月弯刀
+            -- 3. 半月弯刀
             {
-                id = "w_crescent", name = "半月弯刀", type = SKILL_TYPE.AOE,
-                desc = "斩出新月弧光，横扫邻近群敌",
-                slot = 4, cooldown = 10, manaCost = 18,
-                unlockLevels = {32, 36, 41},
+                id = "w_crescent", name = "半月弯刀", type = SKILL_TYPE.MELEE,
+                desc = "斩出新月弧光，横扫面前半月范围群敌",
+                unlockDesc = "Lv.%d/%d/%d 解锁三段",
+                slot = 3, cooldown = 10, manaCost = 18,
+                unlockLevels = {7, 12, 18},
                 damage = {200, 260, 340},
                 range = 3.0, aoeAngle = 180,
             },
-            -- 5. 野蛮冲撞
+            -- 4. 野蛮冲撞
             {
                 id = "w_charge", name = "野蛮冲撞", type = SKILL_TYPE.DASH,
                 desc = "剑术步法合一，力如奔牛冲向敌人",
-                slot = 5, cooldown = 12, manaCost = 15,
-                unlockLevels = {33, 38, 44},
+                unlockDesc = "Lv.%d/%d/%d 解锁三段",
+                slot = 4, cooldown = 12, manaCost = 15,
+                unlockLevels = {10, 15, 21},
                 damage = {150, 200, 260},
                 range = 5.0,
             },
-            -- 6. 烈火剑法 (终极技)
+            -- 5. 烈火剑法 (终极技)
             {
                 id = "w_fire", name = "烈火剑法", type = SKILL_TYPE.MELEE,
                 desc = "内功吸纳天地之火，灌注刀刃，焰如怒龙",
-                slot = 6, cooldown = 25, manaCost = 25,
-                unlockLevels = {38, 42, 47},
+                unlockDesc = "Lv.%d/%d/%d 解锁三段",
+                slot = 5, cooldown = 25, manaCost = 25,
+                unlockLevels = {14, 20, 26},
                 damage = {450, 570, 680},
                 range = 2.8, isUltimate = true, castTime = 0.35,
             },
-            -- 7. 真气护盾 (可替换装配)
+            -- 6. 真气护盾 (可替换装配)
             {
                 id = "w_shield", name = "真气护盾", type = SKILL_TYPE.BUFF,
                 desc = "运真气凝结护壁，吞噬外来攻击之力",
-                slot = 0, cooldown = 18, manaCost = 20,
-                unlockLevels = {40, 44, 48},
+                unlockDesc = "Lv.%d/%d/%d 解锁三段",
+                slot = 6, cooldown = 18, manaCost = 20,
+                unlockLevels = {12, 17, 23},
                 damage = {0, 0, 0},
                 shieldPercent = {30, 40, 50},
                 duration = {5, 5, 6},
@@ -161,8 +158,9 @@ CharacterClass.Classes = {
             {
                 id = "m_fireball", name = "火球术", type = SKILL_TYPE.RANGED,
                 desc = "以咒语化内力为火球，万法之基",
+                unlockDesc = "Lv.%d/%d/%d 解锁三段",
                 slot = 1, cooldown = 0, manaCost = 0,
-                unlockLevels = {1, 13, 19},
+                unlockLevels = {1, 5, 10},
                 damage = {90, 110, 140},
                 range = 6.0, projectileSpeed = 12, castTime = 0.45,
             },
@@ -170,8 +168,9 @@ CharacterClass.Classes = {
             {
                 id = "m_hellfire", name = "地狱火", type = SKILL_TYPE.AOE,
                 desc = "直线喷射烈焰，灼烧一列敌人",
+                unlockDesc = "Lv.%d/%d/%d 解锁三段",
                 slot = 2, cooldown = 7, manaCost = 15,
-                unlockLevels = {18, 24, 31},
+                unlockLevels = {3, 8, 14},
                 damage = {160, 200, 260},
                 range = 5.0, maxTargets = {3, 4, 5}, castTime = 0.45,
             },
@@ -179,8 +178,9 @@ CharacterClass.Classes = {
             {
                 id = "m_thunder", name = "雷电术", type = SKILL_TYPE.RANGED,
                 desc = "引下天雷，威力巨大但施法较慢",
+                unlockDesc = "Lv.%d/%d/%d 解锁三段",
                 slot = 3, cooldown = 9, manaCost = 18,
-                unlockLevels = {19, 23, 28},
+                unlockLevels = {5, 10, 16},
                 damage = {220, 290, 360},
                 range = 7.0, castTime = 0.8,
             },
@@ -188,8 +188,9 @@ CharacterClass.Classes = {
             {
                 id = "m_explosion", name = "爆裂火焰", type = SKILL_TYPE.AOE,
                 desc = "瞬间高温爆发，3x3 范围炸裂",
+                unlockDesc = "Lv.%d/%d/%d 解锁三段",
                 slot = 4, cooldown = 10, manaCost = 22,
-                unlockLevels = {25, 30, 36},
+                unlockLevels = {8, 13, 19},
                 damage = {200, 260, 340},
                 range = 6.0, aoeRadius = 3.0, castTime = 0.50,
             },
@@ -197,8 +198,9 @@ CharacterClass.Classes = {
             {
                 id = "m_firewall", name = "火墙", type = SKILL_TYPE.DOT,
                 desc = "点燃不灭之火，烈焰如怨念般不息",
+                unlockDesc = "Lv.%d/%d/%d 解锁三段",
                 slot = 5, cooldown = 14, manaCost = 20,
-                unlockLevels = {27, 33, 39},
+                unlockLevels = {11, 16, 22},
                 damage = {60, 80, 100}, -- 每秒伤害
                 duration = {5, 7, 9},
                 range = 6.0, aoeRadius = 2.0, castTime = 0.55,
@@ -207,8 +209,9 @@ CharacterClass.Classes = {
             {
                 id = "m_blizzard", name = "冰咆哮", type = SKILL_TYPE.AOE,
                 desc = "召唤冰雪暴风，刺骨寒意冻裂金铁",
+                unlockDesc = "Lv.%d/%d/%d 解锁三段",
                 slot = 6, cooldown = 28, manaCost = 35,
-                unlockLevels = {40, 44, 48},
+                unlockLevels = {14, 20, 26},
                 damage = {350, 480, 580},
                 range = 6.0, aoeRadius = 3.5, isUltimate = true, castTime = 1.0,
             },
@@ -216,8 +219,9 @@ CharacterClass.Classes = {
             {
                 id = "m_shield", name = "魔法盾", type = SKILL_TYPE.BUFF,
                 desc = "纯粹魔力凝成护盾，保命之本",
+                unlockDesc = "Lv.%d/%d/%d 解锁三段",
                 slot = 0, cooldown = 30, manaCost = 30,
-                unlockLevels = {35, 40, 45},
+                unlockLevels = {12, 17, 23},
                 damage = {0, 0, 0},
                 shieldPercent = {20, 30, 40},
                 duration = {15, 20, 25},
@@ -248,8 +252,9 @@ CharacterClass.Classes = {
             {
                 id = "t_talisman", name = "灵魂火符", type = SKILL_TYPE.RANGED,
                 desc = "投掷灵符远距消耗，召唤师的基本功",
+                unlockDesc = "Lv.%d/%d/%d 解锁三段",
                 slot = 1, cooldown = 0, manaCost = 0,
-                unlockLevels = {1, 13, 19},
+                unlockLevels = {1, 5, 10},
                 damage = {85, 105, 130},
                 range = 6.0, projectileSpeed = 10, castTime = 0.38,
             },
@@ -257,8 +262,9 @@ CharacterClass.Classes = {
             {
                 id = "t_skeleton", name = "召唤骷髅", type = SKILL_TYPE.SUMMON,
                 desc = "唤醒亡灵骷髅，忠诚的前排炮灰",
+                unlockDesc = "Lv.%d/%d/%d 解锁三段",
                 slot = 2, cooldown = 10, manaCost = 12,
-                unlockLevels = {1, 15, 22},
+                unlockLevels = {1, 4, 9},
                 damage = {45, 65, 90},
                 duration = {25, 35, 45},
                 summonCount = 2,
@@ -269,8 +275,9 @@ CharacterClass.Classes = {
             {
                 id = "t_wolf", name = "灵狼召唤", type = SKILL_TYPE.SUMMON,
                 desc = "唤出灵界之狼，撕咬迅猛，追击不止",
+                unlockDesc = "Lv.%d/%d/%d 解锁三段",
                 slot = 3, cooldown = 14, manaCost = 18,
-                unlockLevels = {16, 22, 28},
+                unlockLevels = {3, 8, 14},
                 damage = {70, 100, 140},
                 duration = {30, 40, 50},
                 summonCount = 1,
@@ -281,8 +288,9 @@ CharacterClass.Classes = {
             {
                 id = "t_empower", name = "万灵强化", type = SKILL_TYPE.BUFF,
                 desc = "注入道力强化全部召唤兽，攻击力翻倍",
+                unlockDesc = "Lv.%d/%d/%d 解锁三段",
                 slot = 4, cooldown = 18, manaCost = 20,
-                unlockLevels = {20, 26, 32},
+                unlockLevels = {6, 11, 17},
                 damage = {0, 0, 0},
                 buffMultiplier = {1.5, 1.8, 2.2},
                 duration = {8, 10, 12},
@@ -292,8 +300,9 @@ CharacterClass.Classes = {
             {
                 id = "t_golem", name = "召唤巨灵", type = SKILL_TYPE.SUMMON,
                 desc = "唤出山岳巨灵，坚如磐石，横扫千军",
+                unlockDesc = "Lv.%d/%d/%d 解锁三段",
                 slot = 5, cooldown = 22, manaCost = 25,
-                unlockLevels = {25, 32, 40},
+                unlockLevels = {9, 14, 20},
                 damage = {100, 150, 210},
                 duration = {30, 40, 55},
                 summonCount = 1,
@@ -304,8 +313,9 @@ CharacterClass.Classes = {
             {
                 id = "t_holyBeast", name = "圣兽降临", type = SKILL_TYPE.SUMMON,
                 desc = "唤出上古圣兽麒麟，毁天灭地",
+                unlockDesc = "Lv.%d/%d/%d 解锁三段",
                 slot = 6, cooldown = 35, manaCost = 35,
-                unlockLevels = {35, 42, 48},
+                unlockLevels = {13, 19, 25},
                 damage = {180, 250, 350},
                 duration = {30, 40, 55},
                 summonCount = 1,
@@ -316,8 +326,9 @@ CharacterClass.Classes = {
             {
                 id = "t_heal", name = "治愈术", type = SKILL_TYPE.HEAL,
                 desc = "引天地灵气修补伤损，召唤师的自保手段",
+                unlockDesc = "Lv.%d/%d/%d 解锁三段",
                 slot = 0, cooldown = 10, manaCost = 15,
-                unlockLevels = {1, 18, 30},
+                unlockLevels = {1, 7, 13},
                 healPercent = {20, 30, 40},
                 range = 0,
             },

@@ -1721,17 +1721,29 @@ local function _BuildSkillTabContent(player)
                         UI.Label { text = icon, fontSize = 22, fontColor = locked and {80, 75, 65, 130} or {240, 220, 160, 240} },
                     },
                 },
-                -- 右侧：技能名
+                -- 右侧：技能名 + 描述 + 解锁规则
                 UI.Panel {
                     flex = 1, flexShrink = 1, justifyContent = "center",
                     children = {
                         UI.Label {
-                            text = skill.name, fontSize = 16, fontWeight = "bold",
+                            text = skill.name .. (skill.isUltimate and " [终极]" or ""),
+                            fontSize = 16, fontWeight = "bold",
                             fontColor = nameColor,
                         },
-                        locked and UI.Label {
-                            text = "未解锁", fontSize = 11, fontColor = {100, 90, 70, 150}, marginTop = 2,
-                        } or nil,
+                        UI.Label {
+                            text = skill.desc or "",
+                            fontSize = 11, fontColor = locked and {80, 75, 65, 120} or {180, 170, 150, 200},
+                            marginTop = 2,
+                        },
+                        UI.Label {
+                            text = string.format("Lv.%d/%d/%d 解锁三段  |  %s  CD:%ds",
+                                skill.unlockLevels[1], skill.unlockLevels[2], skill.unlockLevels[3],
+                                locked and "未解锁" or ("当前" .. slvl .. "段"),
+                                skill.cooldown),
+                            fontSize = 10,
+                            fontColor = locked and {100, 80, 60, 150} or {160, 140, 90, 200},
+                            marginTop = 2,
+                        },
                     },
                 },
                 -- 装备状态指示
