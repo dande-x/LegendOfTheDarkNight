@@ -460,6 +460,13 @@ function OnClassSelected(classId)
         end
     end
 
+    -- 技能解锁提示
+    Combat.onSkillUnlocked = function(skillName)
+        GameUI.ShowToast("习得新技能【" .. skillName .. "】")
+        -- 刷新技能栏显示
+        GameUI.RefreshSkillButtons(player_)
+    end
+
     -- 初始刷怪
     for i = 1, 8 do
         Combat.SpawnEnemy(scene_, playerNode_.position, player_.level)

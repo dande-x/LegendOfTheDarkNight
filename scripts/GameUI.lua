@@ -87,6 +87,7 @@ local uiState = {
     joystick = nil,
     skillButtons = {},
     floatingTexts = {},
+    toasts = {},        -- { text, timer, duration }
     onClassSelected = nil,
     hudRoot = nil,
     selectRoot = nil,
@@ -217,6 +218,9 @@ function GameUI._RenderNanoVG()
         nvgFillColor(nvgCtx, nvgRGBA(255, 255, 255, 40))
         nvgFill(nvgCtx)
     end
+
+    -- Toast 提示（始终绘制，不受地图遮挡）
+    GameUI._DrawToasts(nvgCtx, sw, sh)
 
     nvgEndFrame(nvgCtx)
 end
@@ -719,6 +723,57 @@ function GameUI._DrawFloatingTexts(ctx, sw, sh)
         nvgFillColor(ctx, nvgRGBA(c[1], c[2], c[3], a))
         nvgText(ctx, sx + offsetX, sy, ft.text, nil)
     end
+end
+
+-- ============================================================================
+-- Toast 提示绘制（屏幕上方居中）
+-- ============================================================================
+function GameUI._DrawToasts(ctx, sw, sh)
+    if #uiState.toasts == 0 or nvgFontId < 0 then return end
+
+    local scale = sh / 720
+    nvgFontFaceId(ctx, nvgFontId)
+    nvgTextAlign(ctx, NVG_ALIGN_CENTER + NVG_ALIGN_MIDDLE)
+
+    local baseY = 60 * scale
+    for i, toast in ipairs(uiState.toasts) do
+        local t = toast.timer
+        local dur = toast.duration
+        -- 进入动画 (0~0.3s 从上滑入)
+        local slideIn = math.min(1.0, t / 0.3)
+        local offsetY = (1.0 - slideIn) * (-30 * scale)
+        -- 淡出 (最后0.5s)
+        local alpha = 1.0
+        if t > dur - 0.5 then
+            alpha = math.max(0, (dur - t) / 0.5)
+        end
+
+        local y = baseY + offsetY + (i - 1) * 36 * scale
+        local fontSize = math.floor(16 * scale)
+        nvgFontSize(ctx, fontSize)
+
+        -- 背景圆角矩形
+        local tw = nvgTextBounds(ctx, 0, 0, toast.text, nil, nil) + 24 * scale
+        local th = 28 * scale
+        local tx = (sw - tw) / 2
+        nvgBeginPath(ctx)
+        nvgRoundedRect(ctx, tx, y - th / 2, tw, th, 6 * scale)
+        nvgFillColor(ctx, nvgRGBA(20, 18, 15, math.floor(200 * alpha)))
+        nvgFill(ctx)
+        nvgStrokeColor(ctx, nvgRGBA(200, 170, 60, math.floor(180 * alpha)))
+        nvgStrokeWidth(ctx, 1.5 * scale)
+        nvgStroke(ctx)
+
+        -- 文字
+        nvgFillColor(ctx, nvgRGBA(255, 230, 120, math.floor(255 * alpha)))
+        nvgText(ctx, sw / 2, y, toast.text, nil)
+    end
+end
+
+--- 显示一条 Toast 提示
+function GameUI.ShowToast(text, duration)
+    duration = duration or 2.5
+    table.insert(uiState.toasts, { text = text, timer = 0, duration = duration })
 end
 
 -- ============================================================================
@@ -2430,6 +2485,7 @@ function GameUI.UpdateHUD(player, dt)
             end
         end
         GameUI._UpdateFloatingTexts(dt)
+        GameUI._UpdateToasts(dt)
         return
     end
 
@@ -2496,6 +2552,7 @@ function GameUI.UpdateHUD(player, dt)
     GameUI._UpdateFullMapUI()
 
     GameUI._UpdateFloatingTexts(dt)
+    GameUI._UpdateToasts(dt)
 end
 
 -- ============================================================================
@@ -2672,6 +2729,19 @@ end
 
 function GameUI.GetFloatingTexts()
     return uiState.floatingTexts
+end
+
+function GameUI._UpdateToasts(dt)
+    local i = 1
+    while i <= #uiState.toasts do
+        local toast = uiState.toasts[i]
+        toast.timer = toast.timer + dt
+        if toast.timer >= toast.duration then
+            table.remove(uiState.toasts, i)
+        else
+            i = i + 1
+        end
+    end
 end
 
 -- ============================================================================

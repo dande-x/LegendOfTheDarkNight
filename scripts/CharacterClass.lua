@@ -349,9 +349,9 @@ function CharacterClass.CreatePlayer(classId, level)
     player.hp = player.maxHP
     player.mp = player.maxMP
 
-    -- 默认装配前6个 slot>0 的技能
+    -- 默认装配已解锁的 slot>0 技能
     for _, skill in ipairs(classDef.skills) do
-        if skill.slot >= 1 and skill.slot <= 6 then
+        if skill.slot >= 1 and skill.slot <= 6 and CharacterClass.IsSkillUnlocked(skill, player.level) then
             player.equippedSkills[skill.slot] = skill
         end
     end
@@ -382,9 +382,11 @@ function CharacterClass.CanCastSkill(player, skill)
 end
 
 --- 升级
+--- @return string[]|nil newlyUnlocked 本次升级新解锁的技能名列表
 function CharacterClass.LevelUp(player)
     local classDef = CharacterClass.Classes[player.classId]
     local g = classDef.growth
+    local prevLevel = player.level
     player.level = player.level + 1
     local Inventory = require("Inventory")
     local bonusHP = Inventory.playerData.bonusHP or 0
@@ -396,6 +398,24 @@ function CharacterClass.LevelUp(player)
     player.mp = player.maxMP
     player.expToNext = 50 + player.level * 60
     print("[CharacterClass] " .. classDef.name .. " upgraded to Lv." .. player.level)
+
+    -- 自动装备本次升级新解锁的技能
+    local newlyUnlocked = {}
+    for _, skill in ipairs(classDef.skills) do
+        if skill.unlockLevel == player.level then
+            -- 刚好在本级解锁
+            table.insert(newlyUnlocked, skill.name)
+            -- 自动装备到对应 slot（如果 slot 为空）
+            if skill.slot >= 1 and skill.slot <= 6 and player.equippedSkills[skill.slot] == nil then
+                player.equippedSkills[skill.slot] = skill
+            end
+        end
+    end
+
+    if #newlyUnlocked > 0 then
+        print("[CharacterClass] 新解锁技能: " .. table.concat(newlyUnlocked, ", "))
+    end
+    return #newlyUnlocked > 0 and newlyUnlocked or nil
 end
 
 --- 更新冷却

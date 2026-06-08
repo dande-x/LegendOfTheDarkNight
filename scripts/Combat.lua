@@ -207,7 +207,12 @@ function Combat.TriggerDeath(enemy, player)
         player.exp = player.exp + enemy.exp
         while player.exp >= player.expToNext do
             player.exp = player.exp - player.expToNext
-            CharacterClass.LevelUp(player)
+            local newSkills = CharacterClass.LevelUp(player)
+            if newSkills and Combat.onSkillUnlocked then
+                for _, name in ipairs(newSkills) do
+                    Combat.onSkillUnlocked(name)
+                end
+            end
         end
     end
     if Combat.onEnemyDeath then
