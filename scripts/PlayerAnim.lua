@@ -462,7 +462,7 @@ ANIMS.melee = {
     keyframes = {
         -- ===== 起手=扛刀姿态（0s）：从当前扛肩位置直接开始 =====
         { 0.0,   "chest",     0, -5, 0 },
-        { 0.0,   "rUpperArm", -20, 30, -55 },        -- 扛刀姿态：臂外展，Y=30让刀尖朝内
+        { 0.0,   "rUpperArm", -20, 45, -70 },        -- 扛刀姿态：臂大幅外展，Y=45让刀尖靠中线
         { 0.0,   "rForeArm",  -70, 0, 0 },          -- 扛刀姿态：弯肘
         { 0.0,   "sword",     30, 0, 0 },            -- 扛肩角度
 
@@ -486,7 +486,7 @@ ANIMS.melee = {
 
         -- ===== 收刀回肩（0.42 ~ 0.60s）：回到扛刀姿态 =====
         { 0.60,  "chest",     0, -5, 0 },
-        { 0.60,  "rUpperArm", -20, 30, -55 },         -- 回到扛刀姿态（臂外展，刀尖朝内）
+        { 0.60,  "rUpperArm", -20, 45, -70 },         -- 回到扛刀姿态（臂外展，刀尖朝内）
         { 0.60,  "rForeArm",  -70, 0, 0 },           -- 回到扛刀弯肘
         { 0.60,  "sword",     30, 0, 0 },             -- 回到扛肩角度
 
@@ -755,7 +755,7 @@ function PlayerAnim.Update(dt, isMoving)
         local isResting = (animState.current == "idle" or animState.current == "walk")
         if isResting and bones.rUpperArm and bones.rForeArm then
             -- 右上臂：直接设置扛刀姿态（臂外展 + Y旋转让刀尖朝内）
-            bones.rUpperArm.rotation = Quaternion(-20, 30, -55)
+            bones.rUpperArm.rotation = Quaternion(-20, 45, -70)
             -- 右前臂：适度弯曲，让手在肩头位置
             bones.rForeArm.rotation = Quaternion(-70, 0, 0)
         end
