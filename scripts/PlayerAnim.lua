@@ -462,7 +462,7 @@ ANIMS.melee = {
     keyframes = {
         -- ===== 起手=扛刀姿态（0s）：从当前扛肩位置直接开始 =====
         { 0.0,   "chest",     0, -5, 0 },
-        { 0.0,   "rUpperArm", -20, 15, -55 },        -- 扛刀姿态：臂外展，Y旋转让刀尖朝内
+        { 0.0,   "rUpperArm", -20, 30, -55 },        -- 扛刀姿态：臂外展，Y=30让刀尖朝内
         { 0.0,   "rForeArm",  -70, 0, 0 },          -- 扛刀姿态：弯肘
         { 0.0,   "sword",     30, 0, 0 },            -- 扛肩角度
 
@@ -486,7 +486,7 @@ ANIMS.melee = {
 
         -- ===== 收刀回肩（0.42 ~ 0.60s）：回到扛刀姿态 =====
         { 0.60,  "chest",     0, -5, 0 },
-        { 0.60,  "rUpperArm", -20, 15, -55 },         -- 回到扛刀姿态（臂外展，刀尖朝内）
+        { 0.60,  "rUpperArm", -20, 30, -55 },         -- 回到扛刀姿态（臂外展，刀尖朝内）
         { 0.60,  "rForeArm",  -70, 0, 0 },           -- 回到扛刀弯肘
         { 0.60,  "sword",     30, 0, 0 },             -- 回到扛肩角度
 
@@ -754,11 +754,8 @@ function PlayerAnim.Update(dt, isMoving)
     if currentClassId == "warrior" then
         local isResting = (animState.current == "idle" or animState.current == "walk")
         if isResting and bones.rUpperArm and bones.rForeArm then
-            -- 获取关键帧的基础旋转（呼吸/行走的微动）
-            local rx, ry, rz = getRotationAtTime(anim.keyframes, "rUpperArm", animState.elapsed, anim.duration, anim.looping)
-            local baseUpper = Quaternion(rx or 0, ry or 0, rz or 0)
-            -- 右上臂：向侧面抬起（外展）+ 略向前，像扛东西的自然姿态
-            bones.rUpperArm.rotation = baseUpper * Quaternion(-20, 15, -55)
+            -- 右上臂：直接设置扛刀姿态（臂外展 + Y旋转让刀尖朝内）
+            bones.rUpperArm.rotation = Quaternion(-20, 30, -55)
             -- 右前臂：适度弯曲，让手在肩头位置
             bones.rForeArm.rotation = Quaternion(-70, 0, 0)
         end
