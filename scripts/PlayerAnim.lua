@@ -148,8 +148,8 @@ function PlayerAnim._AddClassDecoration(playerNode, classId, colors)
         -- 宽厚刀身 + 短柄 + 金色护手
         -- ================================================================
         local daoRoot = bones.rHand:CreateChild("DaoRoot")
-        daoRoot.position = Vector3(0, -0.08, 0)
-        daoRoot.rotation = Quaternion(20, 0, -10)  -- 刀身微向后倾，扛肩时刀面朝后
+        daoRoot.position = Vector3(0, -0.06, 0)
+        daoRoot.rotation = Quaternion(30, 0, 0)  -- 刀身向后倾斜，扛肩时刀搭在肩后
 
         -- 刀柄（深棕色木柄，较短）
         local handle = daoRoot:CreateChild("DaoHandle")
@@ -199,8 +199,8 @@ function PlayerAnim._AddClassDecoration(playerNode, classId, colors)
 
         -- 刀身下段（靠近护手，稍窄）
         local bladeLower = daoRoot:CreateChild("DaoBladeLower")
-        bladeLower.position = Vector3(0, 0.28, 0)
-        bladeLower.scale = Vector3(0.16, 0.32, 0.025)
+        bladeLower.position = Vector3(0, 0.34, 0)
+        bladeLower.scale = Vector3(0.16, 0.44, 0.025)
         local blModel = bladeLower:CreateComponent("StaticModel")
         blModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
         blModel:SetMaterial(bladeMat)
@@ -208,8 +208,8 @@ function PlayerAnim._AddClassDecoration(playerNode, classId, colors)
 
         -- 刀身上段（刀头最宽处，屠龙刀标志性宽刃）
         local bladeUpper = daoRoot:CreateChild("DaoBladeUpper")
-        bladeUpper.position = Vector3(0.02, 0.58, 0)
-        bladeUpper.scale = Vector3(0.22, 0.30, 0.028)
+        bladeUpper.position = Vector3(0.02, 0.78, 0)
+        bladeUpper.scale = Vector3(0.24, 0.40, 0.028)
         local buModel = bladeUpper:CreateComponent("StaticModel")
         buModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
         buModel:SetMaterial(bladeMat)
@@ -217,8 +217,8 @@ function PlayerAnim._AddClassDecoration(playerNode, classId, colors)
 
         -- 刀脊（厚背，深色钢）
         local spine = daoRoot:CreateChild("DaoSpine")
-        spine.position = Vector3(-0.07, 0.45, 0)
-        spine.scale = Vector3(0.03, 0.65, 0.035)
+        spine.position = Vector3(-0.08, 0.58, 0)
+        spine.scale = Vector3(0.03, 0.90, 0.035)
         local spModel = spine:CreateComponent("StaticModel")
         spModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
         local spineMat = Material:new()
@@ -231,8 +231,8 @@ function PlayerAnim._AddClassDecoration(playerNode, classId, colors)
 
         -- 刀刃（亮色开刃边缘）
         local edge = daoRoot:CreateChild("DaoEdge")
-        edge.position = Vector3(0.09, 0.45, 0)
-        edge.scale = Vector3(0.015, 0.60, 0.015)
+        edge.position = Vector3(0.10, 0.58, 0)
+        edge.scale = Vector3(0.015, 0.85, 0.015)
         local eModel = edge:CreateComponent("StaticModel")
         eModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
         local edgeMat = Material:new()
@@ -246,9 +246,9 @@ function PlayerAnim._AddClassDecoration(playerNode, classId, colors)
 
         -- 刀头尖端（斜切）
         local tip = daoRoot:CreateChild("DaoTip")
-        tip.position = Vector3(0.04, 0.76, 0)
+        tip.position = Vector3(0.04, 1.02, 0)
         tip.rotation = Quaternion(0, 0, 15)
-        tip.scale = Vector3(0.14, 0.06, 0.025)
+        tip.scale = Vector3(0.16, 0.08, 0.025)
         local tModel = tip:CreateComponent("StaticModel")
         tModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
         tModel:SetMaterial(bladeMat)
@@ -718,18 +718,18 @@ function PlayerAnim.Update(dt, isMoving)
         end
     end
 
-    -- 武士扛刀姿态：idle/walk 时右臂自然扛刀（参考传奇经典扛刀造型）
-    -- 手臂放松，刀柄在肩前，刀身斜搭在肩后
+    -- 武士扛刀姿态：idle/walk 时右手扛刀在肩上
+    -- 参考传奇造型：右臂侧抬，前臂弯曲让手在右肩旁，刀身搭在肩上向后倾
     if currentClassId == "warrior" then
         local isResting = (animState.current == "idle" or animState.current == "walk")
         if isResting and bones.rUpperArm and bones.rForeArm then
-            -- 获取关键帧的基础旋转（可能为 nil）
+            -- 获取关键帧的基础旋转（呼吸/行走的微动）
             local rx, ry, rz = getRotationAtTime(anim.keyframes, "rUpperArm", animState.elapsed, anim.duration, anim.looping)
             local baseUpper = Quaternion(rx or 0, ry or 0, rz or 0)
-            -- 右上臂：轻微抬起+外展（放松的扛肩姿态，不是举刀）
-            bones.rUpperArm.rotation = baseUpper * Quaternion(-25, 10, -40)
-            -- 右前臂：向上弯曲较多，让手在肩前、刀身过肩搭到背后
-            bones.rForeArm.rotation = Quaternion(-95, 0, 0)
+            -- 右上臂：向侧面抬起（外展）+ 略向前，像扛东西的自然姿态
+            bones.rUpperArm.rotation = baseUpper * Quaternion(-20, 0, -55)
+            -- 右前臂：适度弯曲，让手在肩头位置
+            bones.rForeArm.rotation = Quaternion(-70, 0, 0)
         end
     end
 
