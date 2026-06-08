@@ -729,39 +729,57 @@ function Combat.SpawnAOEVisual(scene, center, radius, classId)
 end
 
 -- ============================================================================
--- 半月弯刀视觉效果：前方弧形光斩（使用 CustomGeometry 绘制半月形）
+-- 半月弯刀视觉效果：月牙形光斩（中间厚、两端尖，像弯刀刃）
 -- ============================================================================
 function Combat.SpawnCrescentVisual(scene, center, dir, radius, classId)
     local node = scene:CreateChild("CrescentVisual")
-    node.position = Vector3(center.x, 0.08, center.z)
+    node.position = Vector3(center.x, 0.15, center.z)
 
     -- 计算角色朝向角度
     local fwd = Vector3(dir.x, 0, dir.z):Normalized()
     local baseAngle = math.atan2(fwd.x, fwd.z)  -- 朝向角(弧度)
 
-    -- 使用 CustomGeometry 绘制半月形扇面
+    -- 使用 CustomGeometry 绘制月牙形（中间厚两端尖）
     local geom = node:CreateComponent("CustomGeometry")
     geom:BeginGeometry(0, TRIANGLE_LIST)
 
-    local segments = 16
-    local halfAngle = math.rad(90)  -- 半月 = 前方180度，半边90度
-    local innerRadius = radius * 0.3  -- 内圈（半月形是弧带，不是实心扇）
+    local segments = 24
+    local halfAngle = math.rad(80)  -- 月牙弧度：前方160度
+    local maxThickness = radius * 0.25  -- 月牙最厚处（中间）
 
-    -- 生成扇形环带（外圈半径=range，内圈半径=0.3*range）
+    -- 月牙形：外弧恒定半径，内弧用 cos² 收窄，两端汇聚为尖点
+    -- 对每个归一化位置 t ∈ [-1, 1]:
+    --   外半径 = radius（恒定弧）
+    --   厚度 = maxThickness * cos²(t * π/2)  → 中间最厚，两端为0
+    --   内半径 = radius - 厚度
+
     for i = 0, segments - 1 do
-        local a0 = baseAngle - halfAngle + (i / segments) * halfAngle * 2
-        local a1 = baseAngle - halfAngle + ((i + 1) / segments) * halfAngle * 2
+        local t0 = -1.0 + (i / segments) * 2.0       -- [-1, 1)
+        local t1 = -1.0 + ((i + 1) / segments) * 2.0
 
-        -- 外圈两个点
-        local ox0 = math.sin(a0) * radius
-        local oz0 = math.cos(a0) * radius
-        local ox1 = math.sin(a1) * radius
-        local oz1 = math.cos(a1) * radius
-        -- 内圈两个点
-        local ix0 = math.sin(a0) * innerRadius
-        local iz0 = math.cos(a0) * innerRadius
-        local ix1 = math.sin(a1) * innerRadius
-        local iz1 = math.cos(a1) * innerRadius
+        local a0 = baseAngle + t0 * halfAngle
+        local a1 = baseAngle + t1 * halfAngle
+
+        -- cos² 控制月牙厚度：中间(t=0)最厚，两端(t=±1)为0
+        local c0 = math.cos(t0 * math.pi / 2)
+        local c1 = math.cos(t1 * math.pi / 2)
+        local thick0 = maxThickness * c0 * c0
+        local thick1 = maxThickness * c1 * c1
+
+        local outerR = radius
+        local innerR0 = radius - thick0
+        local innerR1 = radius - thick1
+
+        -- 外弧点
+        local ox0 = math.sin(a0) * outerR
+        local oz0 = math.cos(a0) * outerR
+        local ox1 = math.sin(a1) * outerR
+        local oz1 = math.cos(a1) * outerR
+        -- 内弧点（随角度变化，两端与外弧重合形成尖角）
+        local ix0 = math.sin(a0) * innerR0
+        local iz0 = math.cos(a0) * innerR0
+        local ix1 = math.sin(a1) * innerR1
+        local iz1 = math.cos(a1) * innerR1
 
         -- 三角形1: inner0, outer0, outer1
         geom:DefineVertex(Vector3(ix0, 0, iz0))
@@ -793,19 +811,19 @@ function Combat.SpawnCrescentVisual(scene, center, dir, radius, classId)
     geom:Commit()
 
     -- 半月弯刀：朱红色光斩
-    local crescentColor = Color(0.95, 0.35, 0.1, 0.6)
+    local crescentColor = Color(0.95, 0.35, 0.1, 0.7)
 
     local mat = Material:new()
     mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
     mat:SetShaderParameter("MatDiffColor", Variant(crescentColor))
-    mat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.9, 0.25, 0.05)))
+    mat:SetShaderParameter("MatEmissiveColor", Variant(Color(1.0, 0.3, 0.05)))
     mat:SetShaderParameter("Metallic", Variant(0.0))
-    mat:SetShaderParameter("Roughness", Variant(0.3))
+    mat:SetShaderParameter("Roughness", Variant(0.2))
     geom:SetMaterial(mat)
     geom.castShadows = false
 
-    -- 自动移除 (1.5秒后)
-    node:SetVar("removeTimer", Variant(1.5))
+    -- 自动移除 (0.8秒后消失)
+    node:SetVar("removeTimer", Variant(0.8))
     return node
 end
 
@@ -985,11 +1003,11 @@ end
 -- AOE 视觉清理 (场景中的临时节点)
 -- ============================================================================
 function Combat.UpdateVisuals(scene, dt)
-    -- 清理 AOE 视觉效果
+    -- 清理 AOE / Crescent 视觉效果
     local children = {}
     for i = 0, scene:GetNumChildren(false) - 1 do
         local child = scene:GetChild(i)
-        if child.name == "AOEVisual" then
+        if child.name == "AOEVisual" or child.name == "CrescentVisual" then
             table.insert(children, child)
         end
     end
@@ -1000,9 +1018,9 @@ function Combat.UpdateVisuals(scene, dt)
             child:Remove()
         else
             child:SetVar("removeTimer", Variant(t))
-            -- 渐隐效果：缩小
+            -- 渐隐效果：缩小 + 透明
             local s = child.scale
-            child.scale = s * (1.0 - dt * 0.5)
+            child.scale = s * (1.0 - dt * 0.8)
         end
     end
 end
