@@ -170,6 +170,7 @@ function Combat.SpawnEnemy(scene, playerPos, playerLevel)
         patrolTarget = nil,
         patrolWait = 0,
         hitFlashTimer = 0,
+        hitStunTimer = 0,   -- 受击硬直时间
         defReduction = 0,  -- 施毒术减防
         defReductionTimer = 0,
         dotDamage = 0,
@@ -180,6 +181,38 @@ function Combat.SpawnEnemy(scene, playerPos, playerLevel)
 
     table.insert(enemies, enemy)
     return enemy
+end
+
+-- ============================================================================
+-- 敌人死亡处理（统一入口，避免重复触发）
+-- ============================================================================
+function Combat.TriggerDeath(enemy, player)
+    if enemy.state == "dying" or enemy.state == "dead" then return end
+
+    enemy.state = "dying"
+    enemy.hp = 0
+    local deathDur = MonsterSkeleton.GetAnimDuration(enemy.monsterType, "death")
+    enemy.dyingTimer = deathDur
+    -- 停止物理移动
+    local eBody = enemy.node:GetComponent("RigidBody")
+    if eBody then eBody:SetLinearVelocity(Vector3.ZERO) end
+    -- 播放死亡动画
+    if enemy.animData then
+        MonsterSkeleton.PlayAnim(enemy.animData, "death", nil)
+    end
+    -- 立即触发掉落和经验
+    killCount = killCount + 1
+    Combat.killCount = killCount
+    if player then
+        player.exp = player.exp + enemy.exp
+        while player.exp >= player.expToNext do
+            player.exp = player.exp - player.expToNext
+            CharacterClass.LevelUp(player)
+        end
+    end
+    if Combat.onEnemyDeath then
+        Combat.onEnemyDeath(enemy.name, enemy.node.position, enemy.exp)
+    end
 end
 
 -- ============================================================================
@@ -235,31 +268,9 @@ function Combat.UpdateEnemies(dt, playerNode, player)
             e.hitFlashTimer = e.hitFlashTimer - dt
         end
 
-        -- 死亡检测 → 立即掉落 + 触发死亡动画
+        -- 死亡检测（调用统一死亡函数）
         if e.hp <= 0 then
-            e.state = "dying"
-            local deathDur = MonsterSkeleton.GetAnimDuration(e.monsterType, "death")
-            e.dyingTimer = deathDur
-            -- 停止物理移动
-            local eBody = e.node:GetComponent("RigidBody")
-            if eBody then eBody:SetLinearVelocity(Vector3.ZERO) end
-            -- 播放死亡动画
-            if e.animData then
-                MonsterSkeleton.PlayAnim(e.animData, "death", nil)
-            end
-            -- 立即触发掉落和经验
-            killCount = killCount + 1
-            Combat.killCount = killCount
-            if player then
-                player.exp = player.exp + e.exp
-                while player.exp >= player.expToNext do
-                    player.exp = player.exp - player.expToNext
-                    CharacterClass.LevelUp(player)
-                end
-            end
-            if Combat.onEnemyDeath then
-                Combat.onEnemyDeath(e.name, e.node.position, e.exp)
-            end
+            Combat.TriggerDeath(e, player)
             goto continue
         end
 
@@ -268,6 +279,16 @@ function Combat.UpdateEnemies(dt, playerNode, player)
 
         local eBody = e.node:GetComponent("RigidBody")
         local isMoving = false
+
+        -- 受击硬直：暂停移动，只播放动画
+        if e.hitStunTimer > 0 then
+            e.hitStunTimer = e.hitStunTimer - dt
+            if eBody then eBody:SetLinearVelocity(Vector3.ZERO) end
+            if e.animData then
+                MonsterSkeleton.UpdateAnimation(e.animData, dt, false)
+            end
+            goto continue
+        end
 
         if e.state == "patrol" then
             -- 巡逻：随机走动
@@ -384,7 +405,7 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
         local dmg = skill.damage[slvl] + player.atk * 1.5
         local hitCount = 0
         for _, e in ipairs(enemies) do
-            if e.state ~= "dead" then
+            if e.state ~= "dead" and e.state ~= "dying" then
                 local d = (e.node.position - playerPos):Length()
                 if d <= skill.range then
                     Combat.DealDamage(e, dmg, player)
@@ -428,7 +449,7 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
         end
 
         for _, e in ipairs(enemies) do
-            if e.state ~= "dead" then
+            if e.state ~= "dead" and e.state ~= "dying" then
                 local d = (e.node.position - center):Length()
                 if d <= radius then
                     Combat.DealDamage(e, dmg, player)
@@ -528,7 +549,7 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
 
         -- 对冲撞路径上的敌人造成伤害
         for _, e in ipairs(enemies) do
-            if e.state ~= "dead" then
+            if e.state ~= "dead" and e.state ~= "dying" then
                 local ePos = e.node.position
                 -- 简化：在终点范围内都算命中
                 local d = (ePos - playerNode.position):Length()
@@ -573,13 +594,20 @@ function Combat.DealDamage(enemy, baseDmg, player)
     enemy.hp = enemy.hp - dmg
     enemy.hitFlashTimer = 0.15
 
-    -- 播放受击动画（不打断死亡动画）
+    -- 播放受击动画 + 短暂硬直（不打断攻击动画，hp>0 时才播放）
     if enemy.hp > 0 and enemy.animData and enemy.animData.state ~= "attack" then
         MonsterSkeleton.PlayAnim(enemy.animData, "hit", nil)
+        enemy.hitStunTimer = 0.25  -- 受击硬直，停止移动
+    end
+
+    -- hp <= 0 立即标记死亡（不等下一帧检测）
+    if enemy.hp <= 0 then
+        enemy.hp = 0
+        Combat.TriggerDeath(enemy, player)
     end
 
     -- 被击中后立刻进入追击状态
-    if enemy.state == "patrol" then
+    if enemy.state ~= "dying" and enemy.state ~= "dead" and enemy.state == "patrol" then
         enemy.state = "chase"
     end
 
@@ -632,7 +660,7 @@ function Combat.UpdateProjectiles(dt)
         -- 碰撞检测
         local hit = false
         for _, e in ipairs(enemies) do
-            if e.state ~= "dead" then
+            if e.state ~= "dead" and e.state ~= "dying" then
                 local d = (e.node.position - p.node.position):Length()
                 if d < 1.0 then
                     Combat.DealDamage(e, p.damage, nil)
@@ -696,11 +724,16 @@ function Combat.UpdateAOEZones(dt)
         else
             -- 对区域内敌人造成持续伤害
             for _, e in ipairs(enemies) do
-                if e.state ~= "dead" then
+                if e.state ~= "dead" and e.state ~= "dying" then
                     local d2 = (e.node.position - zone.center):Length()
                     if d2 <= zone.radius then
                         e.hp = e.hp - zone.dps * dt
+                        e.hitFlashTimer = 0.1
                         if e.state == "patrol" then e.state = "chase" end
+                        -- AOE 也触发死亡
+                        if e.hp <= 0 then
+                            Combat.TriggerDeath(e, nil)
+                        end
                     end
                 end
             end
@@ -1095,7 +1128,7 @@ function Combat.FindNearestEnemy(pos, maxRange)
     local nearest = nil
     local nearDist = maxRange or 999
     for _, e in ipairs(enemies) do
-        if e.state ~= "dead" then
+        if e.state ~= "dead" and e.state ~= "dying" then
             local d = (e.node.position - pos):Length()
             if d < nearDist then
                 nearDist = d
