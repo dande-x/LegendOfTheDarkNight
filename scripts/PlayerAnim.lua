@@ -69,8 +69,9 @@ local BUILD_ORDER = {
     "rUpperArm", "rForeArm", "rHand",
     "lThigh", "lShin", "lFoot",
     "rThigh", "rShin", "rFoot",
-    "sword",  -- DaoRoot（武器节点，攻击时需要翻转朝向）
 }
+-- 额外可动画的节点（不在 BONE_DEFS 中，但可被关键帧控制）
+local EXTRA_ANIM_BONES = { "sword" }
 
 -- ============================================================================
 -- 创建人形骨架
@@ -728,6 +729,16 @@ function PlayerAnim.Update(dt, isMoving)
 
     -- 应用关键帧到骨骼
     for _, boneName in ipairs(BUILD_ORDER) do
+        local node = bones[boneName]
+        if node then
+            local rx, ry, rz = getRotationAtTime(anim.keyframes, boneName, animState.elapsed, anim.duration, anim.looping)
+            if rx then
+                node.rotation = Quaternion(rx, ry, rz)
+            end
+        end
+    end
+    -- 额外可动画节点（武器等，不在 BONE_DEFS 中）
+    for _, boneName in ipairs(EXTRA_ANIM_BONES) do
         local node = bones[boneName]
         if node then
             local rx, ry, rz = getRotationAtTime(anim.keyframes, boneName, animState.elapsed, anim.duration, anim.looping)
