@@ -454,7 +454,7 @@ ANIMS.walk = {
 }
 
 -- ========================= 近战攻击：大弧度劈砍（从扛刀位起手） =========================
--- 起始姿态 = 扛刀姿态（rUpperArm: -20,0,-55  rForeArm: -70,0,0  sword: 30,0,0）
+-- 起始姿态 = 扛刀姿态（rUpperArm: -15,-20,55  rForeArm: -90,40,0  sword: 30,0,0）
 -- 大圆弧轨迹：从右肩后方 → 举过头顶 → 向前下方劈出 → 到身前最低点
 ANIMS.melee = {
     duration = 0.60,
@@ -462,8 +462,8 @@ ANIMS.melee = {
     keyframes = {
         -- ===== 起手=扛刀姿态（0s）：从当前扛肩位置直接开始 =====
         { 0.0,   "chest",     0, -5, 0 },
-        { 0.0,   "rUpperArm", -20, -30, -70 },       -- 扛刀姿态：臂外展，肘朝外
-        { 0.0,   "rForeArm",  -70, 60, 0 },         -- 扛刀姿态：弯肘+Y补偿让刀尖朝内
+        { 0.0,   "rUpperArm", -15, -20, 55 },        -- 扛刀姿态：臂外展，肘朝外
+        { 0.0,   "rForeArm",  -90, 40, 0 },         -- 扛刀姿态：弯肘+Y旋转
         { 0.0,   "sword",     30, 0, 0 },            -- 扛肩角度
 
         -- ===== 举刀蓄力（0 ~ 0.15s）：从肩上举到头顶后方，刀还没翻 =====
@@ -486,8 +486,8 @@ ANIMS.melee = {
 
         -- ===== 收刀回肩（0.42 ~ 0.60s）：回到扛刀姿态 =====
         { 0.60,  "chest",     0, -5, 0 },
-        { 0.60,  "rUpperArm", -20, -30, -70 },        -- 回到扛刀姿态（肘朝外）
-        { 0.60,  "rForeArm",  -70, 60, 0 },          -- 回到扛刀弯肘+Y补偿
+        { 0.60,  "rUpperArm", -15, -20, 55 },         -- 回到扛刀姿态（肘朝外）
+        { 0.60,  "rForeArm",  -90, 40, 0 },          -- 回到扛刀弯肘+Y旋转
         { 0.60,  "sword",     30, 0, 0 },             -- 回到扛肩角度
 
         -- ===== 左臂配合：张开保持平衡 =====
@@ -754,10 +754,10 @@ function PlayerAnim.Update(dt, isMoving)
     if currentClassId == "warrior" then
         local isResting = (animState.current == "idle" or animState.current == "walk")
         if isResting and bones.rUpperArm and bones.rForeArm then
-            -- 右上臂：臂外展 + Y负值让肘尖朝外（符合人体工学）
-            bones.rUpperArm.rotation = Quaternion(-20, -30, -70)
-            -- 右前臂：弯曲 + Y旋转补偿，让刀尖仍朝向身体中线
-            bones.rForeArm.rotation = Quaternion(-70, 60, 0)
+            -- 右上臂：Z正值=向外侧抬起，X负值=稍向后，Y负值=肘尖朝外
+            bones.rUpperArm.rotation = Quaternion(-15, -20, 55)
+            -- 右前臂：X负值=弯肘，Y正值=旋转让刀柄朝肩方向
+            bones.rForeArm.rotation = Quaternion(-90, 40, 0)
         end
     end
 
