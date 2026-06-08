@@ -78,7 +78,7 @@ CharacterClass.Classes = {
                 slot = 1, cooldown = 0, manaCost = 0,
                 unlockLevels = {1, 13, 19},
                 damage = {100, 120, 150},
-                range = 1.5, castTime = 0.35,
+                range = 2.2, castTime = 0.35,
             },
             -- 2. 攻杀剑术
             {
@@ -87,7 +87,7 @@ CharacterClass.Classes = {
                 slot = 2, cooldown = 8, manaCost = 10,
                 unlockLevels = {22, 25, 29},
                 damage = {250, 320, 420},
-                range = 1.8, castTime = 0.25,
+                range = 2.5, castTime = 0.25,
             },
             -- 3. 刺杀剑术
             {
@@ -105,7 +105,7 @@ CharacterClass.Classes = {
                 slot = 4, cooldown = 10, manaCost = 18,
                 unlockLevels = {32, 36, 41},
                 damage = {200, 260, 340},
-                range = 2.5, aoeAngle = 180,
+                range = 3.0, aoeAngle = 180,
             },
             -- 5. 野蛮冲撞
             {
@@ -123,7 +123,7 @@ CharacterClass.Classes = {
                 slot = 6, cooldown = 25, manaCost = 25,
                 unlockLevels = {38, 42, 47},
                 damage = {450, 570, 680},
-                range = 2.0, isUltimate = true, castTime = 0.35,
+                range = 2.8, isUltimate = true, castTime = 0.35,
             },
             -- 7. 真气护盾 (可替换装配)
             {
