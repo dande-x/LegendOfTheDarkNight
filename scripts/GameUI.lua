@@ -1248,7 +1248,7 @@ function GameUI._CreateSkillBar(player)
         local pos = positions[i]
         local isUltimate = (i == 6)
         local skillName = skill and string.sub(skill.name, 1, 6) or ""
-        local skillLvl = skill and CharacterClass.GetSkillLevel(skill, player.level) or 0
+        local unlocked = skill and CharacterClass.IsSkillUnlocked(skill, player.level) or false
 
         local borderClr
         if isUltimate then
@@ -1275,7 +1275,7 @@ function GameUI._CreateSkillBar(player)
                 UI.Label {
                     text = skillName,
                     fontSize = size <= 56 and 10 or 12,
-                    fontColor = skillLvl > 0 and {240, 235, 220, 255} or {100, 100, 100, 150},
+                    fontColor = unlocked and {240, 235, 220, 255} or {100, 100, 100, 150},
                     textAlign = "center",
                 },
                 (function()
@@ -1298,12 +1298,12 @@ function GameUI._CreateSkillBar(player)
                     uiState.refs["skill_" .. i .. "_cdText"] = cdTextLbl
                     return cdPanel
                 end)(),
-                skillLvl > 0 and UI.Panel {
+                unlocked and UI.Panel {
                     position = "absolute",
-                    bottom = 2,
-                    flexDirection = "row",
-                    gap = 2,
-                    children = GameUI._CreateLevelDots(skillLvl),
+                    bottom = 3,
+                    width = 6, height = 6,
+                    borderRadius = 3,
+                    backgroundColor = {220, 210, 190, 255},
                 } or nil,
             },
             onPointerUp = function()
@@ -1331,17 +1331,7 @@ function GameUI._CreateSkillBar(player)
     }
 end
 
-function GameUI._CreateLevelDots(level)
-    local dots = {}
-    for i = 1, 3 do
-        table.insert(dots, UI.Panel {
-            width = 5, height = 5,
-            borderRadius = 3,
-            backgroundColor = i <= level and {220, 210, 190, 255} or {80, 80, 80, 100},
-        })
-    end
-    return dots
-end
+
 
 -- ============================================================================
 -- 左下角 - 药瓶快捷键（球的右侧偏移）
@@ -1674,8 +1664,8 @@ local function _BuildSkillTabContent(player)
 
     local skillRows = {}
     for _, skill in ipairs(allSkills) do
-        local slvl = CharacterClass.GetSkillLevel(skill, player.level)
-        local locked = (slvl == 0)
+        local unlocked = CharacterClass.IsSkillUnlocked(skill, player.level)
+        local locked = not unlocked
         local equippedSlot = 0
         for s = 1, 6 do
             if player.equippedSkills[s] and player.equippedSkills[s].id == skill.id then
@@ -1736,9 +1726,9 @@ local function _BuildSkillTabContent(player)
                             marginTop = 2,
                         },
                         UI.Label {
-                            text = string.format("Lv.%d/%d/%d 解锁三段  |  %s  CD:%ds",
-                                skill.unlockLevels[1], skill.unlockLevels[2], skill.unlockLevels[3],
-                                locked and "未解锁" or ("当前" .. slvl .. "段"),
+                            text = string.format("Lv.%d 解锁  |  %s  CD:%ds",
+                                skill.unlockLevel,
+                                locked and "未解锁" or "已解锁",
                                 skill.cooldown),
                             fontSize = 10,
                             fontColor = locked and {100, 80, 60, 150} or {160, 140, 90, 200},

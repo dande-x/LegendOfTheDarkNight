@@ -401,8 +401,7 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
 
     if skill.type == SKILL_TYPE.MELEE then
         -- 近战：直接对范围内敌人造成伤害
-        local slvl = CharacterClass.GetSkillLevel(skill, player.level)
-        local dmg = skill.damage[slvl] + player.atk * 1.5
+        local dmg = skill.damage + player.atk * 1.5
         local hitCount = 0
         for _, e in ipairs(enemies) do
             if e.state ~= "dead" and e.state ~= "dying" then
@@ -438,8 +437,7 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
 
     elseif skill.type == SKILL_TYPE.RANGED then
         -- 远程：发射弹道
-        local slvl = CharacterClass.GetSkillLevel(skill, player.level)
-        local dmg = skill.damage[slvl] + player.atk * 1.2
+        local dmg = skill.damage + player.atk * 1.2
 
         local dir = playerDir
         if target then
@@ -456,8 +454,7 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
 
     elseif skill.type == SKILL_TYPE.AOE then
         -- 范围：对周围所有敌人造成伤害
-        local slvl = CharacterClass.GetSkillLevel(skill, player.level)
-        local dmg = skill.damage[slvl] + player.atk * 1.3
+        local dmg = skill.damage + player.atk * 1.3
         local radius = skill.aoeRadius or skill.range
 
         -- 如果有目标，以目标为中心；否则以玩家前方为中心
@@ -483,15 +480,14 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
 
     elseif skill.type == SKILL_TYPE.DOT then
         -- 持续伤害 (施毒术 / 火墙)
-        local slvl = CharacterClass.GetSkillLevel(skill, player.level)
-        local dps = skill.damage[slvl]
-        local dur = skill.duration[slvl]
+        local dps = skill.damage
+        local dur = skill.duration
 
         if skill.id == "t_poison" and target then
             -- 施毒术：单体 DOT + 减防
             target.dotDamage = dps
             target.dotTimer = dur
-            target.defReduction = skill.defReduce and skill.defReduce[slvl] or 0
+            target.defReduction = skill.defReduce or 0
             target.defReductionTimer = dur
             -- 转向目标
             local dir = target.node.position - playerPos
@@ -516,18 +512,17 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
         return true, "dot"
 
     elseif skill.type == SKILL_TYPE.BUFF then
-        local slvl = CharacterClass.GetSkillLevel(skill, player.level)
-        local dur = skill.duration[slvl]
+        local dur = skill.duration
         if skill.buffMultiplier then
             -- 万灵强化：提升所有召唤兽攻击力
-            local mult = skill.buffMultiplier[slvl]
+            local mult = skill.buffMultiplier
             for _, s in ipairs(summons) do
                 s.atk = s.baseAtk * mult
                 s.buffTimer = dur
             end
         elseif skill.shieldPercent then
             -- 护盾
-            local shieldPct = skill.shieldPercent[slvl]
+            local shieldPct = skill.shieldPercent
             player.shieldHP = player.maxHP * shieldPct / 100
             player.shieldTimer = dur
         end
@@ -535,8 +530,7 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
 
     elseif skill.type == SKILL_TYPE.HEAL then
         -- 治疗
-        local slvl = CharacterClass.GetSkillLevel(skill, player.level)
-        local healPct = skill.healPercent[slvl]
+        local healPct = skill.healPercent
         local healAmount = player.maxHP * healPct / 100
         if skill.aoeRadius then
             -- 群体治疗 (目前单人游戏只治自己)
@@ -551,8 +545,7 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
 
     elseif skill.type == SKILL_TYPE.DASH then
         -- 冲撞
-        local slvl = CharacterClass.GetSkillLevel(skill, player.level)
-        local dmg = skill.damage[slvl] + player.atk
+        local dmg = skill.damage + player.atk
 
         local dir = playerDir
         if target then
@@ -582,9 +575,8 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
 
     elseif skill.type == SKILL_TYPE.SUMMON then
         -- 召唤兽（支持多只同时存在）
-        local slvl = CharacterClass.GetSkillLevel(skill, player.level)
-        local summonAtk = skill.damage[slvl]
-        local dur = skill.duration[slvl]
+        local summonAtk = skill.damage
+        local dur = skill.duration
         local count = skill.summonCount or 1
         local sType = skill.summonType or "normal"
 
