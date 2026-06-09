@@ -667,7 +667,7 @@ function Combat.SpawnProjectile(scene, origin, dir, damage, skill, player)
     })
 end
 
-function Combat.UpdateProjectiles(dt)
+function Combat.UpdateProjectiles(dt, player)
     for i = #projectiles, 1, -1 do
         local p = projectiles[i]
         local move = p.dir * p.speed * dt
@@ -680,7 +680,7 @@ function Combat.UpdateProjectiles(dt)
             if e.state ~= "dead" and e.state ~= "dying" then
                 local d = (e.node.position - p.node.position):Length()
                 if d < 1.0 then
-                    Combat.DealDamage(e, p.damage, nil)
+                    Combat.DealDamage(e, p.damage, player)
                     hit = true
                     break
                 end
@@ -830,7 +830,7 @@ end
 -- ============================================================================
 -- AOE 持续区域更新
 -- ============================================================================
-function Combat.UpdateAOEZones(dt)
+function Combat.UpdateAOEZones(dt, player)
     for i = #aoeZones, 1, -1 do
         local zone = aoeZones[i]
         zone.timer = zone.timer - dt
@@ -848,7 +848,7 @@ function Combat.UpdateAOEZones(dt)
                         if e.state == "patrol" then e.state = "chase" end
                         -- AOE 也触发死亡
                         if e.hp <= 0 then
-                            Combat.TriggerDeath(e, nil)
+                            Combat.TriggerDeath(e, player)
                         end
                     end
                 end
@@ -932,7 +932,7 @@ function Combat.SpawnSummon(scene, playerPos, atk, duration, isHoly, summonType)
     print("[Combat] Summoned " .. summonType .. " ATK=" .. atk .. " (total:" .. #summons .. ")")
 end
 
-function Combat.UpdateSummons(dt, playerNode)
+function Combat.UpdateSummons(dt, playerNode, player)
     if not playerNode then return end
     local playerPos = playerNode.position
 
@@ -976,7 +976,7 @@ function Combat.UpdateSummons(dt, playerNode)
                     s.node.rotation = Quaternion(math.deg(angle), Vector3.UP)
 
                     if eDist <= 2.0 then
-                        Combat.DealDamage(nearestEnemy, s.atk, nil)
+                        Combat.DealDamage(nearestEnemy, s.atk, player)
                         s.attackTimer = s.attackCD
                         if sBody then sBody:SetLinearVelocity(Vector3.ZERO) end
                     else
@@ -1258,9 +1258,9 @@ end
 --- 总更新入口
 function Combat.Update(scene, dt, playerNode, player)
     Combat.UpdateEnemies(dt, playerNode, player)
-    Combat.UpdateProjectiles(dt)
-    Combat.UpdateAOEZones(dt)
-    Combat.UpdateSummons(dt, playerNode)
+    Combat.UpdateProjectiles(dt, player)
+    Combat.UpdateAOEZones(dt, player)
+    Combat.UpdateSummons(dt, playerNode, player)
     Combat.UpdateVisuals(scene, dt)
     Combat.UpdateSpawner(scene, dt, playerNode, player)
     Combat.UpdateGroundItems(dt, playerNode)
