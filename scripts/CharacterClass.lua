@@ -41,11 +41,12 @@ CharacterClass.SKILL_TYPE = SKILL_TYPE
 
 -- ============================================================================
 -- 基础属性成长 (每升一级增加)
+-- 设计目标: Lv1 普攻需要 3-5 下杀普通怪, 高级技能 2-3 下杀同级怪
 -- ============================================================================
 local BASE_GROWTH = {
-    warrior = { hp = 35, mp = 8,  atk = 5, def = 4, speed = 3.5 },
-    mage    = { hp = 18, mp = 25, atk = 7, def = 2, speed = 3.2 },
-    taoist  = { hp = 25, mp = 18, atk = 4, def = 3, speed = 3.3 },
+    warrior = { hp = 40, mp = 8,  atk = 6, def = 4, speed = 3.5 },
+    mage    = { hp = 22, mp = 25, atk = 8, def = 2, speed = 3.2 },
+    taoist  = { hp = 30, mp = 18, atk = 5, def = 3, speed = 3.3 },
 }
 
 -- ============================================================================
@@ -76,7 +77,7 @@ CharacterClass.Classes = {
                 desc = "入门剑法，招式朴素，练就扎实根基",
                 slot = 1, cooldown = 0, manaCost = 0,
                 unlockLevel = 1,
-                damage = 150,
+                damage = 120,  -- ATK倍率120%
                 range = 2.2, castTime = 0.35,
             },
             {
@@ -84,7 +85,7 @@ CharacterClass.Classes = {
                 desc = "驭刀意为剑光，斩伤数丈外敌人",
                 slot = 2, cooldown = 6, manaCost = 12,
                 unlockLevel = 3,
-                damage = 320,
+                damage = 200,  -- ATK倍率200%
                 range = 4.0,
             },
             {
@@ -92,7 +93,7 @@ CharacterClass.Classes = {
                 desc = "斩出新月弧光，横扫面前半月范围群敌",
                 slot = 3, cooldown = 10, manaCost = 18,
                 unlockLevel = 7,
-                damage = 340,
+                damage = 180,  -- ATK倍率180% (AOE所以略低)
                 range = 3.0, aoeAngle = 180,
             },
             {
@@ -100,7 +101,7 @@ CharacterClass.Classes = {
                 desc = "剑术步法合一，力如奔牛冲向敌人",
                 slot = 4, cooldown = 12, manaCost = 15,
                 unlockLevel = 10,
-                damage = 260,
+                damage = 160,  -- ATK倍率160%
                 range = 5.0,
             },
             {
@@ -108,7 +109,7 @@ CharacterClass.Classes = {
                 desc = "内功吸纳天地之火，灌注刀刃，焰如怒龙",
                 slot = 5, cooldown = 25, manaCost = 25,
                 unlockLevel = 14,
-                damage = 680,
+                damage = 350,  -- ATK倍率350% (大招)
                 range = 2.8, isUltimate = true, castTime = 0.35,
             },
             {
@@ -146,7 +147,7 @@ CharacterClass.Classes = {
                 desc = "以咒语化内力为火球，万法之基",
                 slot = 1, cooldown = 0, manaCost = 0,
                 unlockLevel = 1,
-                damage = 140,
+                damage = 110,  -- ATK倍率110%
                 range = 6.0, projectileSpeed = 12, castTime = 0.45,
             },
             {
@@ -154,7 +155,7 @@ CharacterClass.Classes = {
                 desc = "直线喷射烈焰，灼烧一列敌人",
                 slot = 2, cooldown = 7, manaCost = 15,
                 unlockLevel = 3,
-                damage = 260,
+                damage = 150,  -- ATK倍率150% (AOE多目标)
                 range = 5.0, maxTargets = 5, castTime = 0.45,
             },
             {
@@ -162,7 +163,7 @@ CharacterClass.Classes = {
                 desc = "引下天雷，威力巨大但施法较慢",
                 slot = 3, cooldown = 9, manaCost = 18,
                 unlockLevel = 5,
-                damage = 360,
+                damage = 250,  -- ATK倍率250% (单体高伤)
                 range = 7.0, castTime = 0.8,
             },
             {
@@ -170,7 +171,7 @@ CharacterClass.Classes = {
                 desc = "瞬间高温爆发，大范围炸裂",
                 slot = 4, cooldown = 10, manaCost = 22,
                 unlockLevel = 8,
-                damage = 340,
+                damage = 200,  -- ATK倍率200% (大范围AOE)
                 range = 6.0, aoeRadius = 3.0, castTime = 0.50,
             },
             {
@@ -178,7 +179,7 @@ CharacterClass.Classes = {
                 desc = "点燃不灭之火，烈焰如怨念般不息",
                 slot = 5, cooldown = 14, manaCost = 20,
                 unlockLevel = 11,
-                damage = 100, -- 每秒伤害
+                damage = 60, -- ATK倍率60%/秒 (DOT持续)
                 duration = 9,
                 range = 6.0, aoeRadius = 2.0, castTime = 0.55,
             },
@@ -187,7 +188,7 @@ CharacterClass.Classes = {
                 desc = "召唤冰雪暴风，刺骨寒意冻裂金铁",
                 slot = 6, cooldown = 28, manaCost = 35,
                 unlockLevel = 14,
-                damage = 580,
+                damage = 320,  -- ATK倍率320% (大招AOE)
                 range = 6.0, aoeRadius = 3.5, isUltimate = true, castTime = 1.0,
             },
             {
@@ -226,7 +227,7 @@ CharacterClass.Classes = {
                 desc = "投掷灵符远距消耗，召唤师的基本功",
                 slot = 1, cooldown = 0, manaCost = 0,
                 unlockLevel = 1,
-                damage = 130,
+                damage = 100,  -- ATK倍率100%
                 range = 6.0, projectileSpeed = 10, castTime = 0.38,
             },
             -- 2. 召唤骷髅 (召唤2只骷髅兵)
@@ -235,7 +236,7 @@ CharacterClass.Classes = {
                 desc = "唤醒亡灵骷髅，忠诚的前排炮灰",
                 slot = 2, cooldown = 10, manaCost = 12,
                 unlockLevel = 1,
-                damage = 90,
+                damage = 80,  -- 召唤兽ATK倍率80%
                 duration = 45,
                 summonCount = 2,
                 summonType = "skeleton",
@@ -247,7 +248,7 @@ CharacterClass.Classes = {
                 desc = "唤出灵界之狼，撕咬迅猛，追击不止",
                 slot = 3, cooldown = 14, manaCost = 18,
                 unlockLevel = 3,
-                damage = 140,
+                damage = 120,  -- 召唤兽ATK倍率120%
                 duration = 50,
                 summonCount = 1,
                 summonType = "wolf",
@@ -259,7 +260,7 @@ CharacterClass.Classes = {
                 desc = "注入道力强化全部召唤兽，攻击力翻倍",
                 slot = 4, cooldown = 18, manaCost = 20,
                 unlockLevel = 6,
-                buffMultiplier = 2.2,
+                buffMultiplier = 2.0,
                 duration = 12,
                 range = 0,
             },
@@ -269,7 +270,7 @@ CharacterClass.Classes = {
                 desc = "唤出山岳巨灵，坚如磐石，横扫千军",
                 slot = 5, cooldown = 22, manaCost = 25,
                 unlockLevel = 9,
-                damage = 210,
+                damage = 160,  -- 召唤兽ATK倍率160%
                 duration = 55,
                 summonCount = 1,
                 summonType = "golem",
@@ -281,7 +282,7 @@ CharacterClass.Classes = {
                 desc = "唤出上古圣兽麒麟，毁天灭地",
                 slot = 6, cooldown = 35, manaCost = 35,
                 unlockLevel = 13,
-                damage = 350,
+                damage = 280,  -- 召唤兽ATK倍率280% (大招)
                 duration = 55,
                 summonCount = 1,
                 summonType = "holy",
@@ -293,7 +294,7 @@ CharacterClass.Classes = {
                 desc = "引天地灵气修补伤损，召唤师的自保手段",
                 slot = 0, cooldown = 10, manaCost = 15,
                 unlockLevel = 1,
-                healPercent = 40,
+                healPercent = 35,
                 range = 0,
             },
         },

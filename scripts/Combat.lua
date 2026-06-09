@@ -13,38 +13,104 @@ local C = CharacterClass.Colors
 local SKILL_TYPE = CharacterClass.SKILL_TYPE
 
 -- ============================================================================
--- 敌人配置（5种传奇怪物 + 骨架类型）
+-- 敌人配置（普通怪+精英怪+Boss 覆盖 1~50级）
+-- hp/atk/def 为基础值，实际生成时按等级缩放
+-- tier: "normal"=普通, "elite"=精英(黄名), "boss"=Boss(红名)
 -- ============================================================================
 local ENEMY_DEFS = {
+    -- === 低级区 1~10 ===
     {
         name = "鹿",     monsterType = "deer",
-        level = 1,  hp = 80,   atk = 8,  def = 3,
+        level = 1,  hp = 150,  atk = 8,  def = 4,
         speed = 3.0, chaseRange = 8, attackRange = 1.5, attackCD = 2.0,
-        exp = 40, scale = 0.9,
+        exp = 30, scale = 0.9, tier = "normal",
     },
     {
         name = "稻草人", monsterType = "scarecrow",
-        level = 2,  hp = 120,  atk = 12, def = 4,
+        level = 2,  hp = 180,  atk = 10, def = 5,
         speed = 2.2, chaseRange = 7, attackRange = 1.8, attackCD = 1.8,
-        exp = 60, scale = 1.0,
+        exp = 40, scale = 1.0, tier = "normal",
     },
     {
         name = "骷髅",   monsterType = "skeleton",
-        level = 3,  hp = 160,  atk = 16, def = 6,
+        level = 4,  hp = 220,  atk = 14, def = 7,
         speed = 2.6, chaseRange = 10, attackRange = 1.5, attackCD = 1.5,
-        exp = 90, scale = 0.95,
+        exp = 55, scale = 0.95, tier = "normal",
     },
     {
         name = "蜘蛛",   monsterType = "spider",
-        level = 4,  hp = 140,  atk = 18, def = 5,
+        level = 6,  hp = 200,  atk = 16, def = 6,
         speed = 3.5, chaseRange = 12, attackRange = 1.3, attackCD = 1.2,
-        exp = 100, scale = 0.85,
+        exp = 65, scale = 0.85, tier = "normal",
     },
     {
         name = "半兽人", monsterType = "orc",
-        level = 5,  hp = 300,  atk = 24, def = 12,
+        level = 8,  hp = 350,  atk = 20, def = 12,
         speed = 2.0, chaseRange = 8, attackRange = 1.8, attackCD = 2.2,
-        exp = 150, scale = 1.1,
+        exp = 90, scale = 1.1, tier = "normal",
+    },
+    -- === 中级区 10~25 ===
+    {
+        name = "狼人",   monsterType = "orc",
+        level = 10, hp = 420,  atk = 24, def = 14,
+        speed = 3.2, chaseRange = 12, attackRange = 1.6, attackCD = 1.5,
+        exp = 120, scale = 1.0, tier = "normal",
+    },
+    {
+        name = "石魔",   monsterType = "golem",
+        level = 14, hp = 650,  atk = 28, def = 22,
+        speed = 1.6, chaseRange = 8, attackRange = 2.2, attackCD = 2.5,
+        exp = 180, scale = 1.6, tier = "normal",
+    },
+    {
+        name = "暗影蛛后", monsterType = "spider",
+        level = 18, hp = 500,  atk = 32, def = 14,
+        speed = 3.8, chaseRange = 14, attackRange = 1.8, attackCD = 1.0,
+        exp = 220, scale = 1.3, tier = "elite",
+    },
+    {
+        name = "骷髅将军", monsterType = "skeleton",
+        level = 22, hp = 800,  atk = 38, def = 20,
+        speed = 2.4, chaseRange = 12, attackRange = 2.0, attackCD = 1.8,
+        exp = 300, scale = 1.3, tier = "elite",
+    },
+    -- === 高级区 25~40 ===
+    {
+        name = "赤焰魔", monsterType = "golem",
+        level = 28, hp = 1200, atk = 45, def = 28,
+        speed = 2.0, chaseRange = 10, attackRange = 2.5, attackCD = 2.0,
+        exp = 450, scale = 1.8, tier = "elite",
+    },
+    {
+        name = "巨蟒",   monsterType = "serpent",
+        level = 32, hp = 1500, atk = 50, def = 25,
+        speed = 2.8, chaseRange = 14, attackRange = 2.8, attackCD = 1.8,
+        exp = 550, scale = 2.0, tier = "elite",
+    },
+    {
+        name = "噬魂兽", monsterType = "orc",
+        level = 36, hp = 1800, atk = 55, def = 30,
+        speed = 2.5, chaseRange = 12, attackRange = 2.0, attackCD = 1.5,
+        exp = 700, scale = 1.5, tier = "elite",
+    },
+    -- === Boss 区 (大型压迫感怪物) ===
+    {
+        name = "山岳巨人", monsterType = "golem",
+        level = 15, hp = 2500, atk = 35, def = 30,
+        speed = 1.2, chaseRange = 10, attackRange = 3.0, attackCD = 3.0,
+        exp = 600, scale = 2.5, tier = "boss",
+    },
+    {
+        name = "九幽骨龙", monsterType = "serpent",
+        level = 30, hp = 5000, atk = 60, def = 35,
+        speed = 2.2, chaseRange = 16, attackRange = 3.5, attackCD = 2.0,
+        exp = 1500, scale = 2.8, tier = "boss",
+    },
+    {
+        name = "炎魔领主", monsterType = "golem",
+        level = 45, hp = 8000, atk = 80, def = 45,
+        speed = 1.8, chaseRange = 14, attackRange = 3.5, attackCD = 2.5,
+        exp = 3000, scale = 3.0, tier = "boss",
     },
 }
 Combat.ENEMY_DEFS = ENEMY_DEFS
@@ -89,21 +155,87 @@ local function CreatePBR(color, metallic, roughness)
 end
 
 -- ============================================================================
+-- 等级缩放系数：怪物属性随等级线性增长
+-- 设计目标：玩家用普攻需要 4~6 下杀同级普通怪, 技能 2~3 下
+-- ============================================================================
+local LEVEL_SCALE = {
+    hp_per_level  = 25,   -- 每级额外 HP
+    atk_per_level = 3,    -- 每级额外 ATK
+    def_per_level = 2,    -- 每级额外 DEF
+    exp_per_level = 8,    -- 每级额外 EXP
+}
+
+-- Boss/精英 加成倍率
+local TIER_MULT = {
+    normal = { hp = 1.0, atk = 1.0, def = 1.0, exp = 1.0 },
+    elite  = { hp = 2.0, atk = 1.5, def = 1.3, exp = 2.5 },
+    boss   = { hp = 5.0, atk = 2.0, def = 2.0, exp = 5.0 },
+}
+
+-- ============================================================================
 -- 敌人创建（使用 MonsterSkeleton 骨架系统）
 -- ============================================================================
-function Combat.SpawnEnemy(scene, playerPos, playerLevel)
+function Combat.SpawnEnemy(scene, playerPos, playerLevel, forceDef)
     if #enemies >= MAX_ENEMIES then return end
 
-    -- 根据玩家等级选取合适的敌人类型
-    local validDefs = {}
-    for _, def in ipairs(ENEMY_DEFS) do
-        if def.level <= playerLevel + 3 then
-            table.insert(validDefs, def)
+    local def
+    if forceDef then
+        def = forceDef
+    else
+        -- 根据玩家等级选取合适的普通/精英怪（Boss 由专门机制刷新）
+        local validDefs = {}
+        for _, d in ipairs(ENEMY_DEFS) do
+            if d.tier ~= "boss" and d.level <= playerLevel + 4 and d.level >= playerLevel - 5 then
+                table.insert(validDefs, d)
+            end
+        end
+        -- 如果没有合适的，取最接近玩家等级的非Boss怪
+        if #validDefs == 0 then
+            for _, d in ipairs(ENEMY_DEFS) do
+                if d.tier ~= "boss" and d.level <= playerLevel + 8 then
+                    table.insert(validDefs, d)
+                end
+            end
+        end
+        if #validDefs == 0 then validDefs = {ENEMY_DEFS[1]} end
+
+        -- 加权随机：等级越接近玩家越容易出现
+        local weights = {}
+        local totalWeight = 0
+        for i, d in ipairs(validDefs) do
+            local diff = math.abs(d.level - playerLevel)
+            local w = math.max(1, 10 - diff)  -- 等级差越小权重越高
+            -- 精英怪权重降低（出现概率较低）
+            if d.tier == "elite" then w = w * 0.3 end
+            weights[i] = w
+            totalWeight = totalWeight + w
+        end
+        local roll = math.random() * totalWeight
+        local acc = 0
+        def = validDefs[1]
+        for i, d in ipairs(validDefs) do
+            acc = acc + weights[i]
+            if roll <= acc then
+                def = d
+                break
+            end
         end
     end
-    if #validDefs == 0 then validDefs = {ENEMY_DEFS[1]} end
 
-    local def = validDefs[math.random(#validDefs)]
+    -- 等级缩放：怪物实际等级 = 定义等级 ± 浮动（普通怪浮动 ±2）
+    local actualLevel = def.level
+    if def.tier == "normal" then
+        actualLevel = math.max(1, def.level + math.random(-2, 2))
+        -- 让怪物等级接近玩家等级
+        actualLevel = math.max(1, math.min(actualLevel, playerLevel + 3))
+    end
+
+    local tierMult = TIER_MULT[def.tier or "normal"] or TIER_MULT.normal
+    local levelDiff = actualLevel - def.level
+    local scaledHP  = math.floor((def.hp + levelDiff * LEVEL_SCALE.hp_per_level) * tierMult.hp)
+    local scaledATK = math.floor((def.atk + levelDiff * LEVEL_SCALE.atk_per_level) * tierMult.atk)
+    local scaledDEF = math.floor((def.def + levelDiff * LEVEL_SCALE.def_per_level) * tierMult.def)
+    local scaledEXP = math.floor((def.exp + levelDiff * LEVEL_SCALE.exp_per_level) * tierMult.exp)
 
     -- 在玩家周围 15-25 米随机位置生成
     local angle = math.random() * math.pi * 2
@@ -155,17 +287,18 @@ function Combat.SpawnEnemy(scene, playerPos, playerLevel)
         node = enemyNode,
         name = def.name,
         monsterType = def.monsterType,
-        level = def.level,
-        maxHP = def.hp,
-        hp = def.hp,
-        atk = def.atk,
-        def = def.def,
+        level = actualLevel,
+        tier = def.tier or "normal",
+        maxHP = scaledHP,
+        hp = scaledHP,
+        atk = scaledATK,
+        def = scaledDEF,
         speed = def.speed,
         chaseRange = def.chaseRange,
         attackRange = def.attackRange,
         attackCD = def.attackCD,
         attackTimer = 0,
-        exp = def.exp,
+        exp = scaledEXP,
         state = "patrol",  -- patrol / chase / attack / dead / dying
         patrolTarget = nil,
         patrolWait = 0,
@@ -405,8 +538,8 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
     local target, targetDist = Combat.FindNearestEnemy(playerPos, skill.range or 5)
 
     if skill.type == SKILL_TYPE.MELEE then
-        -- 近战：直接对范围内敌人造成伤害
-        local dmg = skill.damage + player.atk * 1.5
+        -- 近战：ATK × 倍率百分比
+        local dmg = player.atk * (skill.damage / 100)
         local hitCount = 0
         for _, e in ipairs(enemies) do
             if e.state ~= "dead" and e.state ~= "dying" then
@@ -441,8 +574,8 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
         return true, "melee"
 
     elseif skill.type == SKILL_TYPE.RANGED then
-        -- 远程：发射弹道
-        local dmg = skill.damage + player.atk * 1.2
+        -- 远程：ATK × 倍率百分比
+        local dmg = player.atk * (skill.damage / 100)
 
         local dir = playerDir
         if target then
@@ -458,8 +591,8 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
         return true, "ranged"
 
     elseif skill.type == SKILL_TYPE.AOE then
-        -- 范围：对周围所有敌人造成伤害
-        local dmg = skill.damage + player.atk * 1.3
+        -- 范围：ATK × 倍率百分比
+        local dmg = player.atk * (skill.damage / 100)
         local radius = skill.aoeRadius or skill.range
 
         -- 如果有目标，以目标为中心；否则以玩家前方为中心
@@ -484,8 +617,8 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
         return true, "aoe"
 
     elseif skill.type == SKILL_TYPE.DOT then
-        -- 持续伤害 (施毒术 / 火墙)
-        local dps = skill.damage
+        -- 持续伤害 (施毒术 / 火墙)：DPS = ATK × 倍率百分比
+        local dps = player.atk * (skill.damage / 100)
         local dur = skill.duration
 
         if skill.id == "t_poison" and target then
@@ -549,8 +682,8 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
         return true, "heal"
 
     elseif skill.type == SKILL_TYPE.DASH then
-        -- 冲撞
-        local dmg = skill.damage + player.atk
+        -- 冲撞：ATK × 倍率百分比
+        local dmg = player.atk * (skill.damage / 100)
 
         local dir = playerDir
         if target then
@@ -579,8 +712,8 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
         return true, "dash"
 
     elseif skill.type == SKILL_TYPE.SUMMON then
-        -- 召唤兽（支持多只同时存在）
-        local summonAtk = skill.damage
+        -- 召唤兽攻击力 = ATK × 倍率百分比
+        local summonAtk = player.atk * (skill.damage / 100)
         local dur = skill.duration
         local count = skill.summonCount or 1
         local sType = skill.summonType or "normal"
@@ -602,11 +735,14 @@ function Combat.DealDamage(enemy, baseDmg, player)
     if enemy.state == "dying" or enemy.state == "dead" then return end
 
     local effectiveDef = math.max(0, enemy.def - enemy.defReduction)
-    local dmg = math.max(1, baseDmg - effectiveDef * 0.5)
+    -- 防御减伤公式: 伤害 = 基础伤害 × (100 / (100 + 防御))
+    -- 这样防御永远不会让伤害降到0，且收益递减
+    local dmg = baseDmg * (100 / (100 + effectiveDef))
+    dmg = math.max(1, math.floor(dmg))
 
     -- 暴击 (10% 概率, 1.5 倍)
     local isCrit = math.random() < 0.10
-    if isCrit then dmg = dmg * 1.5 end
+    if isCrit then dmg = math.floor(dmg * 1.5) end
 
     enemy.hp = enemy.hp - dmg
     enemy.hitFlashTimer = 0.15
@@ -1026,14 +1162,44 @@ function Combat.UpdateVisuals(scene, dt)
 end
 
 -- ============================================================================
--- 自动刷怪
+-- 自动刷怪（等级匹配 + Boss 定时刷新）
 -- ============================================================================
+local bossTimer = 0
+local BOSS_INTERVAL = 45  -- 每45秒尝试刷一只Boss
+
 function Combat.UpdateSpawner(scene, dt, playerNode, player)
     if not playerNode or not player then return end
+
+    -- 普通怪刷新（频率随场上怪物数量动态调节）
     spawnTimer = spawnTimer + dt
-    if spawnTimer >= SPAWN_INTERVAL then
+    local dynamicInterval = SPAWN_INTERVAL
+    if #enemies > 15 then
+        dynamicInterval = SPAWN_INTERVAL * 2  -- 场上怪多时放慢
+    elseif #enemies < 5 then
+        dynamicInterval = SPAWN_INTERVAL * 0.5  -- 场上怪少时加快
+    end
+
+    if spawnTimer >= dynamicInterval then
         spawnTimer = 0
         Combat.SpawnEnemy(scene, playerNode.position, player.level)
+    end
+
+    -- Boss 定时刷新（必须玩家等级达到 Boss 等级-5 才会出现）
+    bossTimer = bossTimer + dt
+    if bossTimer >= BOSS_INTERVAL then
+        bossTimer = 0
+        -- 寻找合适的 Boss
+        local validBoss = {}
+        for _, d in ipairs(ENEMY_DEFS) do
+            if d.tier == "boss" and d.level <= player.level + 5 and d.level >= player.level - 10 then
+                table.insert(validBoss, d)
+            end
+        end
+        if #validBoss > 0 then
+            local bossDef = validBoss[math.random(#validBoss)]
+            Combat.SpawnEnemy(scene, playerNode.position, player.level, bossDef)
+            print("[Combat] Boss spawned: " .. bossDef.name .. " Lv." .. bossDef.level)
+        end
     end
 end
 

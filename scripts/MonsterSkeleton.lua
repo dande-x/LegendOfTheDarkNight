@@ -180,6 +180,64 @@ local BONES_ORC = {
     rFoot    = { parent = "rShin",      pos = {0, -0.16, 0.04},  meshScale = {0.12, 0.05, 0.16}, model = "Box" },
 }
 
+-- 石魔/巨人：巨大人形，粗壮圆柱体躯干+巨大拳头+短腿
+local BONES_GOLEM = {
+    pelvis   = { parent = nil,          pos = {0, 0.70, 0},    meshScale = {0.50, 0.25, 0.40}, model = "Box" },
+    spine    = { parent = "pelvis",     pos = {0, 0.18, 0},    meshScale = {0.22, 0.20, 0.22}, model = "Cylinder", meshOffset = {0, 0.10, 0} },
+    chest    = { parent = "spine",      pos = {0, 0.22, 0},    meshScale = {0.65, 0.45, 0.50}, model = "Box" },
+    neck     = { parent = "chest",      pos = {0, 0.22, 0.05}, meshScale = {0.18, 0.12, 0.18}, model = "Cylinder" },
+    head     = { parent = "neck",       pos = {0, 0.12, 0.02}, meshScale = {0.34, 0.28, 0.30}, model = "Sphere" },
+    -- 小眼睛（红色发光）
+    eyeL     = { parent = "head",       pos = {-0.09, 0.04, 0.12}, meshScale = {0.05, 0.04, 0.03}, model = "Sphere", colorOverride = Color(0.9, 0.2, 0.05, 1.0) },
+    eyeR     = { parent = "head",       pos = {0.09, 0.04, 0.12},  meshScale = {0.05, 0.04, 0.03}, model = "Sphere", colorOverride = Color(0.9, 0.2, 0.05, 1.0) },
+    -- 左臂（极粗壮）
+    lUpperArm = { parent = "chest",     pos = {-0.40, 0.12, 0}, meshScale = {0.16, 0.30, 0.16}, model = "Cylinder", meshOffset = {0, -0.15, 0} },
+    lForeArm  = { parent = "lUpperArm", pos = {0, -0.30, 0},    meshScale = {0.14, 0.28, 0.14}, model = "Cylinder", meshOffset = {0, -0.14, 0} },
+    lFist     = { parent = "lForeArm",  pos = {0, -0.28, 0},    meshScale = {0.20, 0.18, 0.20}, model = "Sphere" },
+    -- 右臂
+    rUpperArm = { parent = "chest",     pos = {0.40, 0.12, 0},  meshScale = {0.16, 0.30, 0.16}, model = "Cylinder", meshOffset = {0, -0.15, 0} },
+    rForeArm  = { parent = "rUpperArm", pos = {0, -0.30, 0},    meshScale = {0.14, 0.28, 0.14}, model = "Cylinder", meshOffset = {0, -0.14, 0} },
+    rFist     = { parent = "rForeArm",  pos = {0, -0.28, 0},    meshScale = {0.20, 0.18, 0.20}, model = "Sphere" },
+    -- 肩甲（装饰性石块）
+    lShoulder = { parent = "chest",     pos = {-0.38, 0.25, 0}, meshScale = {0.20, 0.12, 0.18}, model = "Box", colorOverride = Color(0.3, 0.3, 0.28, 1.0) },
+    rShoulder = { parent = "chest",     pos = {0.38, 0.25, 0},  meshScale = {0.20, 0.12, 0.18}, model = "Box", colorOverride = Color(0.3, 0.3, 0.28, 1.0) },
+    -- 短粗腿
+    lThigh   = { parent = "pelvis",     pos = {-0.18, -0.10, 0}, meshScale = {0.16, 0.22, 0.16}, model = "Cylinder", meshOffset = {0, -0.11, 0} },
+    lShin    = { parent = "lThigh",     pos = {0, -0.22, 0},     meshScale = {0.14, 0.20, 0.14}, model = "Cylinder", meshOffset = {0, -0.10, 0} },
+    lFoot    = { parent = "lShin",      pos = {0, -0.20, 0.04},  meshScale = {0.18, 0.08, 0.22}, model = "Box" },
+    rThigh   = { parent = "pelvis",     pos = {0.18, -0.10, 0},  meshScale = {0.16, 0.22, 0.16}, model = "Cylinder", meshOffset = {0, -0.11, 0} },
+    rShin    = { parent = "rThigh",     pos = {0, -0.22, 0},     meshScale = {0.14, 0.20, 0.14}, model = "Cylinder", meshOffset = {0, -0.10, 0} },
+    rFoot    = { parent = "rShin",      pos = {0, -0.20, 0.04},  meshScale = {0.18, 0.08, 0.22}, model = "Box" },
+}
+
+-- 巨蟒/骨龙：蛇形身体（多节连续圆柱），无腿，头部有角/獠牙
+local BONES_SERPENT = {
+    -- 身体分6段，模拟蛇形蜿蜒
+    seg1     = { parent = nil,       pos = {0, 0.40, 0},     meshScale = {0.28, 0.25, 0.35}, model = "Sphere" },
+    seg2     = { parent = "seg1",    pos = {0, 0.02, -0.30}, meshScale = {0.30, 0.28, 0.35}, model = "Sphere" },
+    seg3     = { parent = "seg2",    pos = {0, 0.02, -0.30}, meshScale = {0.32, 0.30, 0.35}, model = "Sphere" },  -- 最粗段
+    seg4     = { parent = "seg3",    pos = {0, 0, -0.30},    meshScale = {0.28, 0.26, 0.32}, model = "Sphere" },
+    seg5     = { parent = "seg4",    pos = {0, -0.02, -0.28}, meshScale = {0.22, 0.22, 0.28}, model = "Sphere" },
+    tail     = { parent = "seg5",    pos = {0, -0.02, -0.26}, meshScale = {0.14, 0.14, 0.30}, model = "Cylinder" },
+    -- 颈部（从第一段向上抬起）
+    neck     = { parent = "seg1",    pos = {0, 0.15, 0.20},  meshScale = {0.16, 0.25, 0.16}, model = "Cylinder", meshOffset = {0, 0.12, 0} },
+    -- 头部（大且扁平的蛇头/龙头）
+    head     = { parent = "neck",    pos = {0, 0.22, 0.08},  meshScale = {0.30, 0.18, 0.35}, model = "Box" },
+    -- 上颌突起
+    snout    = { parent = "head",    pos = {0, 0.02, 0.18},  meshScale = {0.18, 0.10, 0.14}, model = "Box" },
+    -- 下颌
+    jaw      = { parent = "head",    pos = {0, -0.10, 0.10}, meshScale = {0.22, 0.06, 0.20}, model = "Box" },
+    -- 獠牙
+    fangL    = { parent = "jaw",     pos = {-0.06, -0.02, 0.10}, meshScale = {0.025, 0.08, 0.025}, model = "Cylinder", colorOverride = Color(0.95, 0.92, 0.80, 1.0) },
+    fangR    = { parent = "jaw",     pos = {0.06, -0.02, 0.10},  meshScale = {0.025, 0.08, 0.025}, model = "Cylinder", colorOverride = Color(0.95, 0.92, 0.80, 1.0) },
+    -- 头顶双角
+    hornL    = { parent = "head",    pos = {-0.10, 0.10, -0.04}, meshScale = {0.035, 0.16, 0.035}, model = "Cylinder", colorOverride = Color(0.25, 0.22, 0.20, 1.0) },
+    hornR    = { parent = "head",    pos = {0.10, 0.10, -0.04},  meshScale = {0.035, 0.16, 0.035}, model = "Cylinder", colorOverride = Color(0.25, 0.22, 0.20, 1.0) },
+    -- 眼睛（黄色凶光）
+    eyeL     = { parent = "head",    pos = {-0.10, 0.05, 0.12}, meshScale = {0.05, 0.04, 0.03}, model = "Sphere", colorOverride = Color(0.95, 0.75, 0.1, 1.0) },
+    eyeR     = { parent = "head",    pos = {0.10, 0.05, 0.12},  meshScale = {0.05, 0.04, 0.03}, model = "Sphere", colorOverride = Color(0.95, 0.75, 0.1, 1.0) },
+}
+
 -- ============================================================================
 -- 怪物类型注册表
 -- ============================================================================
@@ -208,6 +266,16 @@ MonsterSkeleton.TYPES = {
         name = "半兽人", bones = BONES_ORC,
         color = Color(0.35, 0.45, 0.25, 1.0),  -- 暗绿色
         scale = 1.1, heightOffset = 0,
+    },
+    golem = {
+        name = "石魔", bones = BONES_GOLEM,
+        color = Color(0.40, 0.38, 0.35, 1.0),  -- 岩石灰
+        scale = 1.0, heightOffset = 0,
+    },
+    serpent = {
+        name = "巨蟒", bones = BONES_SERPENT,
+        color = Color(0.25, 0.35, 0.20, 1.0),  -- 暗绿蛇皮
+        scale = 1.0, heightOffset = 0,
     },
 }
 
@@ -400,6 +468,108 @@ ANIMS.orc = {
         { 0.0, "chest", 0, 0, 0 }, { 0.3, "chest", 15, 0, 0 }, { 1.0, "chest", 30, 0, 5 },
         { 0.0, "lUpperArm", 5, 0, 10 }, { 0.5, "lUpperArm", 5, 0, 45 }, { 1.0, "lUpperArm", 5, 0, 65 },
         { 0.0, "rUpperArm", 5, 0, -10 }, { 0.5, "rUpperArm", 5, 0, -45 }, { 1.0, "rUpperArm", 5, 0, -65 },
+    }},
+}
+
+-- ==================== 石魔/巨人 ====================
+ANIMS.golem = {
+    idle = { duration = 2.5, looping = true, keyframes = {
+        -- 缓慢呼吸起伏
+        { 0.0, "chest", -2, 0, 0 }, { 1.25, "chest", 3, 0, 0 }, { 2.5, "chest", -2, 0, 0 },
+        -- 拳头微微握紧/放松
+        { 0.0, "lUpperArm", 5, 0, 12 }, { 1.25, "lUpperArm", 5, 0, 8 }, { 2.5, "lUpperArm", 5, 0, 12 },
+        { 0.0, "rUpperArm", 5, 0, -12 }, { 1.25, "rUpperArm", 5, 0, -8 }, { 2.5, "rUpperArm", 5, 0, -12 },
+        -- 头微微偏转
+        { 0.0, "head", 0, 0, 0 }, { 1.25, "head", 0, 5, 0 }, { 2.5, "head", 0, 0, 0 },
+    }},
+    move = { duration = 0.8, looping = true, keyframes = {
+        -- 沉重缓慢的步伐
+        { 0.0, "lThigh", 20, 0, 0 }, { 0.4, "lThigh", -18, 0, 0 }, { 0.8, "lThigh", 20, 0, 0 },
+        { 0.0, "rThigh", -18, 0, 0 }, { 0.4, "rThigh", 20, 0, 0 }, { 0.8, "rThigh", -18, 0, 0 },
+        { 0.0, "lShin", -8, 0, 0 }, { 0.2, "lShin", -25, 0, 0 }, { 0.4, "lShin", -5, 0, 0 }, { 0.8, "lShin", -8, 0, 0 },
+        { 0.0, "rShin", -5, 0, 0 }, { 0.4, "rShin", -8, 0, 0 }, { 0.6, "rShin", -25, 0, 0 }, { 0.8, "rShin", -5, 0, 0 },
+        -- 手臂摆动（沉重）
+        { 0.0, "lUpperArm", -15, 0, 12 }, { 0.4, "lUpperArm", 15, 0, 12 }, { 0.8, "lUpperArm", -15, 0, 12 },
+        { 0.0, "rUpperArm", 15, 0, -12 }, { 0.4, "rUpperArm", -15, 0, -12 }, { 0.8, "rUpperArm", 15, 0, -12 },
+        -- 身体笨重晃动
+        { 0.0, "chest", -4, 0, -3 }, { 0.4, "chest", -4, 0, 3 }, { 0.8, "chest", -4, 0, -3 },
+        { 0.0, "pelvis", 0, 0, 2 }, { 0.4, "pelvis", 0, 0, -2 }, { 0.8, "pelvis", 0, 0, 2 },
+    }},
+    attack = { duration = 0.8, looping = false, keyframes = {
+        -- 双拳砸地
+        { 0.0, "chest", 0, 0, 0 }, { 0.2, "chest", -25, 0, 0 }, { 0.45, "chest", 30, 0, 0 }, { 0.8, "chest", 0, 0, 0 },
+        { 0.0, "lUpperArm", 5, 0, 12 }, { 0.2, "lUpperArm", -120, 10, 20 }, { 0.45, "lUpperArm", 50, -5, 5 }, { 0.8, "lUpperArm", 5, 0, 12 },
+        { 0.0, "rUpperArm", 5, 0, -12 }, { 0.2, "rUpperArm", -120, -10, -20 }, { 0.45, "rUpperArm", 50, 5, -5 }, { 0.8, "rUpperArm", 5, 0, -12 },
+        { 0.0, "lForeArm", 0, 0, 0 }, { 0.2, "lForeArm", -70, 0, 0 }, { 0.45, "lForeArm", 15, 0, 0 }, { 0.8, "lForeArm", 0, 0, 0 },
+        { 0.0, "rForeArm", 0, 0, 0 }, { 0.2, "rForeArm", -70, 0, 0 }, { 0.45, "rForeArm", 15, 0, 0 }, { 0.8, "rForeArm", 0, 0, 0 },
+        -- 头向前压
+        { 0.0, "head", 0, 0, 0 }, { 0.2, "head", 15, 0, 0 }, { 0.45, "head", -10, 0, 0 }, { 0.8, "head", 0, 0, 0 },
+    }},
+    hit = { duration = 0.4, looping = false, keyframes = {
+        { 0.0, "chest", 0, 0, 0 }, { 0.1, "chest", 8, 0, 4 }, { 0.25, "chest", -3, 0, -2 }, { 0.4, "chest", 0, 0, 0 },
+        { 0.0, "head", 0, 0, 0 }, { 0.1, "head", 10, 5, 0 }, { 0.4, "head", 0, 0, 0 },
+    }},
+    death = { duration = 1.5, looping = false, keyframes = {
+        -- 缓慢前倾倒下
+        { 0.0, "pelvis", 0, 0, 0 }, { 0.5, "pelvis", 15, 0, 5 }, { 1.0, "pelvis", 35, 0, 15 }, { 1.5, "pelvis", 50, 0, 20 },
+        { 0.0, "chest", 0, 0, 0 }, { 0.5, "chest", 20, 0, 0 }, { 1.0, "chest", 35, 0, 5 }, { 1.5, "chest", 45, 0, 8 },
+        { 0.0, "lUpperArm", 5, 0, 12 }, { 0.6, "lUpperArm", 5, 0, 45 }, { 1.5, "lUpperArm", 5, 0, 70 },
+        { 0.0, "rUpperArm", 5, 0, -12 }, { 0.6, "rUpperArm", 5, 0, -45 }, { 1.5, "rUpperArm", 5, 0, -70 },
+        { 0.0, "head", 0, 0, 0 }, { 0.5, "head", 15, 0, 0 }, { 1.5, "head", 35, 10, 0 },
+    }},
+}
+
+-- ==================== 巨蟒/骨龙 ====================
+ANIMS.serpent = {
+    idle = { duration = 3.0, looping = true, keyframes = {
+        -- 蛇身蜿蜒呼吸
+        { 0.0, "seg1", 0, 0, 0 }, { 1.5, "seg1", 0, 5, 0 }, { 3.0, "seg1", 0, 0, 0 },
+        { 0.0, "seg2", 0, 0, 0 }, { 1.0, "seg2", 0, -8, 0 }, { 2.0, "seg2", 0, 8, 0 }, { 3.0, "seg2", 0, 0, 0 },
+        { 0.0, "seg3", 0, 0, 0 }, { 1.5, "seg3", 0, 10, 0 }, { 3.0, "seg3", 0, 0, 0 },
+        { 0.0, "seg4", 0, 0, 0 }, { 1.0, "seg4", 0, 8, 0 }, { 2.0, "seg4", 0, -6, 0 }, { 3.0, "seg4", 0, 0, 0 },
+        { 0.0, "seg5", 0, 0, 0 }, { 1.5, "seg5", 0, -7, 0 }, { 3.0, "seg5", 0, 0, 0 },
+        { 0.0, "tail", 0, 0, 0 }, { 1.0, "tail", 0, 10, 0 }, { 2.0, "tail", 0, -10, 0 }, { 3.0, "tail", 0, 0, 0 },
+        -- 头部轻微摆动
+        { 0.0, "neck", 0, 0, 0 }, { 1.5, "neck", -5, 3, 0 }, { 3.0, "neck", 0, 0, 0 },
+        { 0.0, "head", 0, 0, 0 }, { 1.0, "head", 0, -5, 0 }, { 2.0, "head", 0, 5, 0 }, { 3.0, "head", 0, 0, 0 },
+        { 0.0, "jaw", 0, 0, 0 }, { 1.5, "jaw", 3, 0, 0 }, { 3.0, "jaw", 0, 0, 0 },
+    }},
+    move = { duration = 0.6, looping = true, keyframes = {
+        -- 蛇形运动（S形波浪）
+        { 0.0, "seg1", 0, -10, 0 }, { 0.3, "seg1", 0, 10, 0 }, { 0.6, "seg1", 0, -10, 0 },
+        { 0.0, "seg2", 0, 12, 0 }, { 0.3, "seg2", 0, -12, 0 }, { 0.6, "seg2", 0, 12, 0 },
+        { 0.0, "seg3", 0, -14, 0 }, { 0.3, "seg3", 0, 14, 0 }, { 0.6, "seg3", 0, -14, 0 },
+        { 0.0, "seg4", 0, 12, 0 }, { 0.3, "seg4", 0, -12, 0 }, { 0.6, "seg4", 0, 12, 0 },
+        { 0.0, "seg5", 0, -10, 0 }, { 0.3, "seg5", 0, 10, 0 }, { 0.6, "seg5", 0, -10, 0 },
+        { 0.0, "tail", 0, 15, 0 }, { 0.3, "tail", 0, -15, 0 }, { 0.6, "tail", 0, 15, 0 },
+        -- 头部追踪前进方向
+        { 0.0, "neck", -5, 0, 0 }, { 0.3, "neck", -5, 0, 0 }, { 0.6, "neck", -5, 0, 0 },
+        { 0.0, "head", 0, 5, 0 }, { 0.3, "head", 0, -5, 0 }, { 0.6, "head", 0, 5, 0 },
+    }},
+    attack = { duration = 0.6, looping = false, keyframes = {
+        -- 蓄力 → 猛咬
+        { 0.0, "neck", 0, 0, 0 }, { 0.15, "neck", 20, 0, 0 }, { 0.35, "neck", -35, 0, 0 }, { 0.6, "neck", 0, 0, 0 },
+        { 0.0, "head", 0, 0, 0 }, { 0.15, "head", 15, 0, 0 }, { 0.35, "head", -25, 0, 0 }, { 0.6, "head", 0, 0, 0 },
+        { 0.0, "jaw", 0, 0, 0 }, { 0.15, "jaw", 20, 0, 0 }, { 0.30, "jaw", 20, 0, 0 }, { 0.40, "jaw", -5, 0, 0 }, { 0.6, "jaw", 0, 0, 0 },
+        -- 身体前冲
+        { 0.0, "seg1", 0, 0, 0 }, { 0.15, "seg1", 5, 0, 0 }, { 0.35, "seg1", -10, 0, 0 }, { 0.6, "seg1", 0, 0, 0 },
+        { 0.0, "seg2", 0, 0, 0 }, { 0.2, "seg2", 0, 5, 0 }, { 0.4, "seg2", 0, -5, 0 }, { 0.6, "seg2", 0, 0, 0 },
+    }},
+    hit = { duration = 0.3, looping = false, keyframes = {
+        { 0.0, "seg1", 0, 0, 0 }, { 0.08, "seg1", 5, 8, 0 }, { 0.2, "seg1", -2, -4, 0 }, { 0.3, "seg1", 0, 0, 0 },
+        { 0.0, "neck", 0, 0, 0 }, { 0.08, "neck", 10, 0, 5 }, { 0.3, "neck", 0, 0, 0 },
+        { 0.0, "head", 0, 0, 0 }, { 0.08, "head", 0, 12, 0 }, { 0.3, "head", 0, 0, 0 },
+    }},
+    death = { duration = 1.5, looping = false, keyframes = {
+        -- 全身瘫软倒下
+        { 0.0, "seg1", 0, 0, 0 }, { 0.5, "seg1", 15, 10, 0 }, { 1.0, "seg1", 30, 20, 10 }, { 1.5, "seg1", 40, 25, 15 },
+        { 0.0, "seg2", 0, 0, 0 }, { 0.5, "seg2", 10, -15, 0 }, { 1.5, "seg2", 20, -30, 5 },
+        { 0.0, "seg3", 0, 0, 0 }, { 0.5, "seg3", 8, 12, 0 }, { 1.5, "seg3", 15, 25, 0 },
+        { 0.0, "seg4", 0, 0, 0 }, { 0.5, "seg4", 5, -10, 0 }, { 1.5, "seg4", 10, -20, 0 },
+        { 0.0, "seg5", 0, 0, 0 }, { 0.5, "seg5", 5, 8, 0 }, { 1.5, "seg5", 8, 15, 0 },
+        { 0.0, "neck", 0, 0, 0 }, { 0.4, "neck", 25, 0, 10 }, { 1.5, "neck", 50, 0, 20 },
+        { 0.0, "head", 0, 0, 0 }, { 0.4, "head", 20, 0, 5 }, { 1.5, "head", 40, 0, 10 },
+        { 0.0, "jaw", 0, 0, 0 }, { 0.5, "jaw", 15, 0, 0 }, { 1.5, "jaw", 25, 0, 0 },
     }},
 }
 
