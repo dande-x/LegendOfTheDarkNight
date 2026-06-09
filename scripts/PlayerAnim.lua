@@ -151,7 +151,7 @@ function PlayerAnim._AddClassDecoration(playerNode, classId, colors)
         -- ================================================================
         local daoRoot = bones.rHand:CreateChild("DaoRoot")
         daoRoot.position = Vector3(0, -0.06, 0)
-        daoRoot.rotation = Quaternion(-80, 0, 0)  -- 拖刀：刀身向身后延伸，刀尖略低于水平
+        daoRoot.rotation = Quaternion(-105, 0, 0)  -- 拖刀：刀身下垂，刀尖顺势搭在地面附近
 
         -- 刀柄（深棕色木柄，较短）
         local handle = daoRoot:CreateChild("DaoHandle")
@@ -471,7 +471,7 @@ ANIMS.melee = {
         { 0.0,   "chest",     0, 0, 0 },
         { 0.0,   "rUpperArm", 20, 12, -5 },          -- 拖刀姿态（20°）
         { 0.0,   "rForeArm",  -8, 0, 0 },            -- 自然松弛
-        { 0.0,   "sword",     -80, 0, 0 },            -- 拖刀角度
+        { 0.0,   "sword",     -105, 0, 0 },            -- 拖刀角度（刀身下垂）
 
         -- ===== 向后上提起（0~0.10s）：手臂继续向后上抬 + 刀转攻击姿态 =====
         { 0.10,  "chest",     -5, -5, 0 },           -- 身体微后仰
@@ -513,7 +513,7 @@ ANIMS.melee = {
         { 0.65,  "chest",     0, 0, 0 },
         { 0.65,  "rUpperArm", 380, 12, -5 },         -- 380°=20°：回到拖刀位置（连续递增，不逆转）
         { 0.65,  "rForeArm",  -8, 0, 0 },
-        { 0.65,  "sword",     -80, 0, 0 },            -- 回到拖刀角度
+        { 0.65,  "sword",     -105, 0, 0 },            -- 回到拖刀角度（刀身下垂）
 
         -- ===== 左臂配合：向后张开保持平衡 =====
         { 0.0,   "lUpperArm", 0, 0, 5 },
