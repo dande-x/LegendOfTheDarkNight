@@ -133,13 +133,23 @@ function CreateFloor()
 end
 
 function CreateSceneDecorations()
+    -- === 辅助：创建 PBR 材质 ===
+    local function MakeMat(color, roughness, metallic)
+        local mat = Material:new()
+        mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
+        mat:SetShaderParameter("MatDiffColor", Variant(color))
+        mat:SetShaderParameter("Roughness", Variant(roughness or 0.7))
+        mat:SetShaderParameter("Metallic", Variant(metallic or 0.0))
+        return mat
+    end
+
+    -- === 石头 ===
     local stoneColor = Color(0.25, 0.23, 0.22, 1.0)
     local stonePositions = {
         Vector3(8, 0, 12), Vector3(-15, 0, 8), Vector3(20, 0, -5),
         Vector3(-10, 0, -18), Vector3(5, 0, -25), Vector3(-22, 0, 15),
         Vector3(30, 0, 10), Vector3(-5, 0, 30), Vector3(18, 0, 22),
     }
-
     for i, pos in ipairs(stonePositions) do
         local s = 0.5 + math.random() * 1.5
         local stoneNode = scene_:CreateChild("Stone_" .. i)
@@ -148,56 +158,273 @@ function CreateSceneDecorations()
         stoneNode.rotation = Quaternion(math.random() * 360, Vector3.UP)
         local model = stoneNode:CreateComponent("StaticModel")
         model:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
-
-        local mat = Material:new()
-        mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
-        mat:SetShaderParameter("MatDiffColor", Variant(stoneColor))
-        mat:SetShaderParameter("MatSpecColor", Variant(Color(0.2, 0.2, 0.2, 1.0)))
-        mat:SetShaderParameter("Metallic", Variant(0.0))
-        mat:SetShaderParameter("Roughness", Variant(0.9))
-        model:SetMaterial(mat)
+        model:SetMaterial(MakeMat(stoneColor, 0.9, 0.0))
         model.castShadows = true
-
-        -- 静态碰撞体（石头）
         local body = stoneNode:CreateComponent("RigidBody")
-        body.mass = 0  -- 静态
-        body.collisionLayer = 1   -- 地形层
-        body.collisionMask = 6    -- 与玩家(2)和AI(4)碰撞
+        body.mass = 0
+        body.collisionLayer = 1
+        body.collisionMask = 6
         local shape = stoneNode:CreateComponent("CollisionShape")
-        -- Sphere model 原始尺寸 1m 直径, 节点 scale 已应用
         shape:SetSphere(1.0)
     end
 
+    -- === 石柱/遗迹 ===
     local pillarPositions = {
         Vector3(15, 0, 15), Vector3(-15, 0, 15),
         Vector3(15, 0, -15), Vector3(-15, 0, -15),
     }
     for i, pos in ipairs(pillarPositions) do
         local pillarNode = scene_:CreateChild("Pillar_" .. i)
-        pillarNode.position = pos
         pillarNode.scale = Vector3(0.6, 3.0, 0.6)
         pillarNode.position = Vector3(pos.x, 1.5, pos.z)
         local model = pillarNode:CreateComponent("StaticModel")
         model:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
-
-        local mat = Material:new()
-        mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
-        mat:SetShaderParameter("MatDiffColor", Variant(Color(0.35, 0.28, 0.22, 1.0)))
-        mat:SetShaderParameter("MatSpecColor", Variant(Color(0.3, 0.3, 0.3, 1.0)))
-        mat:SetShaderParameter("Metallic", Variant(0.1))
-        mat:SetShaderParameter("Roughness", Variant(0.7))
-        model:SetMaterial(mat)
+        model:SetMaterial(MakeMat(Color(0.35, 0.28, 0.22, 1.0), 0.7, 0.1))
         model.castShadows = true
-
-        -- 静态碰撞体（柱子）
         local body = pillarNode:CreateComponent("RigidBody")
-        body.mass = 0  -- 静态
-        body.collisionLayer = 1   -- 地形层
-        body.collisionMask = 6    -- 与玩家(2)和AI(4)碰撞
+        body.mass = 0
+        body.collisionLayer = 1
+        body.collisionMask = 6
         local shape = pillarNode:CreateComponent("CollisionShape")
-        -- Cylinder model 原始尺寸 1m直径×1m高, 节点 scale 已应用
         shape:SetCylinder(1.0, 1.0)
     end
+
+    -- === 绿色树木（树干 + 球形树冠） ===
+    local treePositions = {
+        Vector3(-25, 0, 25), Vector3(-30, 0, 10), Vector3(-35, 0, -5),
+        Vector3(25, 0, 28), Vector3(32, 0, 18), Vector3(28, 0, -12),
+        Vector3(-18, 0, -30), Vector3(10, 0, -35), Vector3(38, 0, -25),
+        Vector3(-40, 0, 0), Vector3(40, 0, 5), Vector3(-8, 0, 38),
+        Vector3(12, 0, 40), Vector3(-32, 0, -20), Vector3(35, 0, 32),
+    }
+    local trunkColor = Color(0.30, 0.20, 0.10, 1.0)
+    local leafColors = {
+        Color(0.15, 0.40, 0.12, 1.0),
+        Color(0.20, 0.50, 0.15, 1.0),
+        Color(0.12, 0.35, 0.10, 1.0),
+    }
+    for i, pos in ipairs(treePositions) do
+        local treeH = 2.5 + math.random() * 2.0  -- 树干高度 2.5~4.5m
+        local crownR = 1.2 + math.random() * 1.0   -- 树冠半径 1.2~2.2m
+
+        -- 树干
+        local trunkNode = scene_:CreateChild("Tree_" .. i)
+        trunkNode.position = Vector3(pos.x, treeH * 0.5, pos.z)
+        trunkNode.scale = Vector3(0.3, treeH, 0.3)
+        local trunkModel = trunkNode:CreateComponent("StaticModel")
+        trunkModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+        trunkModel:SetMaterial(MakeMat(trunkColor, 0.85, 0.0))
+        trunkModel.castShadows = true
+
+        -- 树冠（球形）
+        local crownNode = scene_:CreateChild("TreeCrown_" .. i)
+        crownNode.position = Vector3(pos.x, treeH + crownR * 0.6, pos.z)
+        crownNode.scale = Vector3(crownR * 2, crownR * 1.6, crownR * 2)
+        local crownModel = crownNode:CreateComponent("StaticModel")
+        crownModel:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
+        local lc = leafColors[math.random(1, #leafColors)]
+        crownModel:SetMaterial(MakeMat(lc, 0.8, 0.0))
+        crownModel.castShadows = true
+
+        -- 树干碰撞
+        local body = trunkNode:CreateComponent("RigidBody")
+        body.mass = 0
+        body.collisionLayer = 1
+        body.collisionMask = 6
+        local shape = trunkNode:CreateComponent("CollisionShape")
+        shape:SetCylinder(1.0, 1.0)
+    end
+
+    -- === 枯木/死树（无树冠，分叉枝条） ===
+    local deadTreePositions = {
+        Vector3(-12, 0, 25), Vector3(22, 0, -30), Vector3(-38, 0, 15),
+        Vector3(42, 0, -8), Vector3(-5, 0, -42), Vector3(15, 0, 38),
+        Vector3(-28, 0, -35), Vector3(45, 0, 20),
+    }
+    local deadWoodColor = Color(0.22, 0.18, 0.12, 1.0)
+    for i, pos in ipairs(deadTreePositions) do
+        local h = 2.0 + math.random() * 2.5
+        local tilt = math.random() * 12 - 6  -- 微微倾斜
+
+        -- 主干
+        local deadNode = scene_:CreateChild("DeadTree_" .. i)
+        deadNode.position = Vector3(pos.x, h * 0.5, pos.z)
+        deadNode.scale = Vector3(0.2, h, 0.2)
+        deadNode.rotation = Quaternion(tilt, Vector3.FORWARD) * Quaternion(math.random() * 360, Vector3.UP)
+        local model = deadNode:CreateComponent("StaticModel")
+        model:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+        model:SetMaterial(MakeMat(deadWoodColor, 0.9, 0.0))
+        model.castShadows = true
+
+        -- 分叉枝条（2~3根）
+        local branchCount = 2 + math.random(0, 1)
+        for b = 1, branchCount do
+            local branchNode = scene_:CreateChild("DeadBranch_" .. i .. "_" .. b)
+            local bh = h * (0.4 + math.random() * 0.4)
+            local angle = math.random() * 360
+            local bLen = 0.8 + math.random() * 0.8
+            local rad = math.rad(angle)
+            branchNode.position = Vector3(
+                pos.x + math.sin(rad) * 0.2,
+                bh,
+                pos.z + math.cos(rad) * 0.2
+            )
+            branchNode.scale = Vector3(0.08, bLen, 0.08)
+            branchNode.rotation = Quaternion(30 + math.random() * 30, Vector3(math.cos(rad), 0, -math.sin(rad)))
+            local bModel = branchNode:CreateComponent("StaticModel")
+            bModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+            bModel:SetMaterial(MakeMat(deadWoodColor, 0.9, 0.0))
+            bModel.castShadows = true
+        end
+
+        -- 碰撞
+        local body = deadNode:CreateComponent("RigidBody")
+        body.mass = 0
+        body.collisionLayer = 1
+        body.collisionMask = 6
+        local shape = deadNode:CreateComponent("CollisionShape")
+        shape:SetCylinder(1.0, 1.0)
+    end
+
+    -- === 房屋/小屋（Box 组合） ===
+    local housePositions = {
+        { pos = Vector3(-35, 0, -30), rot = 25 },
+        { pos = Vector3(35, 0, -35), rot = -15 },
+        { pos = Vector3(-40, 0, 30), rot = 45 },
+        { pos = Vector3(42, 0, 35), rot = 10 },
+    }
+    local wallColor = Color(0.45, 0.38, 0.28, 1.0)
+    local roofColor = Color(0.30, 0.15, 0.08, 1.0)
+    local doorColor = Color(0.25, 0.18, 0.10, 1.0)
+    for i, hd in ipairs(housePositions) do
+        local hw, hh, hd_depth = 3.0, 2.5, 3.5  -- 宽、高、深
+        local houseRoot = scene_:CreateChild("House_" .. i)
+        houseRoot.position = Vector3(hd.pos.x, 0, hd.pos.z)
+        houseRoot.rotation = Quaternion(hd.rot, Vector3.UP)
+
+        -- 墙体
+        local wallNode = houseRoot:CreateChild("Wall")
+        wallNode.position = Vector3(0, hh * 0.5, 0)
+        wallNode.scale = Vector3(hw, hh, hd_depth)
+        local wallModel = wallNode:CreateComponent("StaticModel")
+        wallModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
+        wallModel:SetMaterial(MakeMat(wallColor, 0.8, 0.0))
+        wallModel.castShadows = true
+
+        -- 屋顶（扁平 Box，稍大于墙体）
+        local roofNode = houseRoot:CreateChild("Roof")
+        roofNode.position = Vector3(0, hh + 0.4, 0)
+        roofNode.scale = Vector3(hw + 0.6, 0.8, hd_depth + 0.6)
+        roofNode.rotation = Quaternion(0, 0, 0)
+        local roofModel = roofNode:CreateComponent("StaticModel")
+        roofModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
+        roofModel:SetMaterial(MakeMat(roofColor, 0.75, 0.0))
+        roofModel.castShadows = true
+
+        -- 门（深色方块在正面）
+        local doorNode = houseRoot:CreateChild("Door")
+        doorNode.position = Vector3(0, 0.7, hd_depth * 0.5 + 0.02)
+        doorNode.scale = Vector3(0.7, 1.4, 0.05)
+        local doorModel = doorNode:CreateComponent("StaticModel")
+        doorModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
+        doorModel:SetMaterial(MakeMat(doorColor, 0.85, 0.0))
+        doorModel.castShadows = false
+
+        -- 整体碰撞
+        local body = houseRoot:CreateComponent("RigidBody")
+        body.mass = 0
+        body.collisionLayer = 1
+        body.collisionMask = 6
+        local shape = houseRoot:CreateComponent("CollisionShape")
+        shape:SetBox(Vector3(hw, hh, hd_depth), Vector3(0, hh * 0.5, 0))
+    end
+
+    -- === 灌木丛（小型球体聚簇） ===
+    local bushPositions = {
+        Vector3(-6, 0, 15), Vector3(14, 0, 8), Vector3(-20, 0, -10),
+        Vector3(25, 0, 15), Vector3(-30, 0, -8), Vector3(8, 0, -15),
+        Vector3(-14, 0, 32), Vector3(20, 0, -28), Vector3(-25, 0, 22),
+        Vector3(32, 0, -18), Vector3(-8, 0, -32), Vector3(15, 0, 32),
+    }
+    local bushColor = Color(0.18, 0.35, 0.12, 1.0)
+    for i, pos in ipairs(bushPositions) do
+        local bushNode = scene_:CreateChild("Bush_" .. i)
+        bushNode.position = pos
+        bushNode.rotation = Quaternion(math.random() * 360, Vector3.UP)
+        -- 2~3 个球组成灌木
+        local count = 2 + math.random(0, 1)
+        for b = 1, count do
+            local bNode = bushNode:CreateChild("BushBall_" .. b)
+            local offsetX = (math.random() - 0.5) * 0.6
+            local offsetZ = (math.random() - 0.5) * 0.6
+            local s = 0.4 + math.random() * 0.4
+            bNode.position = Vector3(offsetX, s * 0.4, offsetZ)
+            bNode.scale = Vector3(s, s * 0.7, s)
+            local bModel = bNode:CreateComponent("StaticModel")
+            bModel:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
+            bModel:SetMaterial(MakeMat(bushColor, 0.85, 0.0))
+            bModel.castShadows = true
+        end
+        -- 灌木不加碰撞体（可穿过）
+    end
+
+    -- === 篝火遗迹（圆石圈 + 中心炭火） ===
+    local campfirePositions = {
+        Vector3(0, 0, 20), Vector3(-20, 0, -25),
+    }
+    for i, pos in ipairs(campfirePositions) do
+        local campNode = scene_:CreateChild("Campfire_" .. i)
+        campNode.position = pos
+        -- 圆石圈（6块小石头）
+        for s = 1, 6 do
+            local angle = (s - 1) * 60
+            local rad = math.rad(angle)
+            local sNode = campNode:CreateChild("CampStone_" .. s)
+            sNode.position = Vector3(math.sin(rad) * 0.8, 0.15, math.cos(rad) * 0.8)
+            sNode.scale = Vector3(0.3, 0.2, 0.3)
+            local sModel = sNode:CreateComponent("StaticModel")
+            sModel:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
+            sModel:SetMaterial(MakeMat(Color(0.3, 0.28, 0.25, 1.0), 0.9, 0.0))
+            sModel.castShadows = true
+        end
+        -- 中心炭堆
+        local ashNode = campNode:CreateChild("Ash")
+        ashNode.position = Vector3(0, 0.1, 0)
+        ashNode.scale = Vector3(0.5, 0.15, 0.5)
+        local ashModel = ashNode:CreateComponent("StaticModel")
+        ashModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+        ashModel:SetMaterial(MakeMat(Color(0.12, 0.08, 0.05, 1.0), 0.95, 0.0))
+        ashModel.castShadows = false
+    end
+
+    -- === 木栅栏段（分散在地图边缘附近） ===
+    local fenceSegments = {
+        { pos = Vector3(-45, 0, 0), rot = 0 },
+        { pos = Vector3(-45, 0, 4), rot = 0 },
+        { pos = Vector3(-45, 0, 8), rot = 0 },
+        { pos = Vector3(45, 0, -5), rot = 10 },
+        { pos = Vector3(45, 0, -1), rot = 10 },
+        { pos = Vector3(45, 0, 3), rot = 10 },
+    }
+    local fenceColor = Color(0.32, 0.24, 0.14, 1.0)
+    for i, fd in ipairs(fenceSegments) do
+        local fNode = scene_:CreateChild("Fence_" .. i)
+        fNode.position = Vector3(fd.pos.x, 0.6, fd.pos.z)
+        fNode.rotation = Quaternion(fd.rot, Vector3.UP)
+        fNode.scale = Vector3(0.1, 1.2, 2.5)
+        local fModel = fNode:CreateComponent("StaticModel")
+        fModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
+        fModel:SetMaterial(MakeMat(fenceColor, 0.85, 0.0))
+        fModel.castShadows = true
+        local body = fNode:CreateComponent("RigidBody")
+        body.mass = 0
+        body.collisionLayer = 1
+        body.collisionMask = 6
+        local shape = fNode:CreateComponent("CollisionShape")
+        shape:SetBox(Vector3(1, 1, 1))
+    end
+
+    print("[main] Scene decorations created: stones, pillars, trees, dead trees, houses, bushes, campfires, fences")
 end
 
 -- ============================================================================

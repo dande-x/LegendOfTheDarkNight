@@ -21,94 +21,94 @@ local ENEMY_DEFS = {
     -- === 低级区 1~10 ===
     {
         name = "鹿",     monsterType = "deer",
-        level = 1,  hp = 150,  atk = 8,  def = 4,
+        level = 1,  hp = 90,   atk = 8,  def = 3,
         speed = 3.0, chaseRange = 8, attackRange = 1.5, attackCD = 2.0,
         exp = 30, scale = 0.9, tier = "normal",
     },
     {
         name = "稻草人", monsterType = "scarecrow",
-        level = 2,  hp = 180,  atk = 10, def = 5,
+        level = 2,  hp = 110,  atk = 10, def = 4,
         speed = 2.2, chaseRange = 7, attackRange = 1.8, attackCD = 1.8,
         exp = 40, scale = 1.0, tier = "normal",
     },
     {
         name = "骷髅",   monsterType = "skeleton",
-        level = 4,  hp = 220,  atk = 14, def = 7,
+        level = 4,  hp = 135,  atk = 14, def = 5,
         speed = 2.6, chaseRange = 10, attackRange = 1.5, attackCD = 1.5,
         exp = 55, scale = 0.95, tier = "normal",
     },
     {
         name = "蜘蛛",   monsterType = "spider",
-        level = 6,  hp = 200,  atk = 16, def = 6,
+        level = 6,  hp = 120,  atk = 16, def = 4,
         speed = 3.5, chaseRange = 12, attackRange = 1.3, attackCD = 1.2,
         exp = 65, scale = 0.85, tier = "normal",
     },
     {
         name = "半兽人", monsterType = "orc",
-        level = 8,  hp = 350,  atk = 20, def = 12,
+        level = 8,  hp = 210,  atk = 20, def = 8,
         speed = 2.0, chaseRange = 8, attackRange = 1.8, attackCD = 2.2,
         exp = 90, scale = 1.1, tier = "normal",
     },
     -- === 中级区 10~25 ===
     {
         name = "狼人",   monsterType = "orc",
-        level = 10, hp = 420,  atk = 24, def = 14,
+        level = 10, hp = 260,  atk = 24, def = 10,
         speed = 3.2, chaseRange = 12, attackRange = 1.6, attackCD = 1.5,
         exp = 120, scale = 1.0, tier = "normal",
     },
     {
         name = "石魔",   monsterType = "golem",
-        level = 14, hp = 650,  atk = 28, def = 22,
+        level = 14, hp = 400,  atk = 28, def = 16,
         speed = 1.6, chaseRange = 8, attackRange = 2.2, attackCD = 2.5,
         exp = 180, scale = 1.6, tier = "normal",
     },
     {
         name = "暗影蛛后", monsterType = "spider",
-        level = 18, hp = 500,  atk = 32, def = 14,
+        level = 18, hp = 320,  atk = 32, def = 10,
         speed = 3.8, chaseRange = 14, attackRange = 1.8, attackCD = 1.0,
         exp = 220, scale = 1.3, tier = "elite",
     },
     {
         name = "骷髅将军", monsterType = "skeleton",
-        level = 22, hp = 800,  atk = 38, def = 20,
+        level = 22, hp = 500,  atk = 38, def = 14,
         speed = 2.4, chaseRange = 12, attackRange = 2.0, attackCD = 1.8,
         exp = 300, scale = 1.3, tier = "elite",
     },
     -- === 高级区 25~40 ===
     {
         name = "赤焰魔", monsterType = "golem",
-        level = 28, hp = 1200, atk = 45, def = 28,
+        level = 28, hp = 750,  atk = 45, def = 20,
         speed = 2.0, chaseRange = 10, attackRange = 2.5, attackCD = 2.0,
         exp = 450, scale = 1.8, tier = "elite",
     },
     {
         name = "巨蟒",   monsterType = "serpent",
-        level = 32, hp = 1500, atk = 50, def = 25,
+        level = 32, hp = 950,  atk = 50, def = 18,
         speed = 2.8, chaseRange = 14, attackRange = 2.8, attackCD = 1.8,
         exp = 550, scale = 2.0, tier = "elite",
     },
     {
         name = "噬魂兽", monsterType = "orc",
-        level = 36, hp = 1800, atk = 55, def = 30,
+        level = 36, hp = 1100, atk = 55, def = 22,
         speed = 2.5, chaseRange = 12, attackRange = 2.0, attackCD = 1.5,
         exp = 700, scale = 1.5, tier = "elite",
     },
     -- === Boss 区 (大型压迫感怪物) ===
     {
         name = "山岳巨人", monsterType = "golem",
-        level = 15, hp = 2500, atk = 35, def = 30,
+        level = 15, hp = 1600, atk = 35, def = 22,
         speed = 1.2, chaseRange = 10, attackRange = 3.0, attackCD = 3.0,
         exp = 600, scale = 2.5, tier = "boss",
     },
     {
         name = "九幽骨龙", monsterType = "serpent",
-        level = 30, hp = 5000, atk = 60, def = 35,
+        level = 30, hp = 3200, atk = 60, def = 26,
         speed = 2.2, chaseRange = 16, attackRange = 3.5, attackCD = 2.0,
         exp = 1500, scale = 2.8, tier = "boss",
     },
     {
         name = "炎魔领主", monsterType = "golem",
-        level = 45, hp = 8000, atk = 80, def = 45,
+        level = 45, hp = 5000, atk = 80, def = 32,
         speed = 1.8, chaseRange = 14, attackRange = 3.5, attackCD = 2.5,
         exp = 3000, scale = 3.0, tier = "boss",
     },
@@ -159,9 +159,9 @@ end
 -- 设计目标：玩家用普攻需要 4~6 下杀同级普通怪, 技能 2~3 下
 -- ============================================================================
 local LEVEL_SCALE = {
-    hp_per_level  = 25,   -- 每级额外 HP
+    hp_per_level  = 15,   -- 每级额外 HP
     atk_per_level = 3,    -- 每级额外 ATK
-    def_per_level = 2,    -- 每级额外 DEF
+    def_per_level = 1,    -- 每级额外 DEF
     exp_per_level = 8,    -- 每级额外 EXP
 }
 
