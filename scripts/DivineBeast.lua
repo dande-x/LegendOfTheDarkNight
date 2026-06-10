@@ -79,6 +79,12 @@ local beast = {
     buffMult = 1.0,
     fireTimer = 0,
     hitFlashTimer = 0,
+    -- 行走动画
+    walkPhase = 0,        -- 步态周期相位 (0~2π)
+    walkSpeed = 8.0,      -- 步态频率（越大摆腿越快）
+    isMoving = false,
+    -- 肢体节点引用（模型创建后赋值）
+    limbs = nil,
 }
 
 DivineBeast.beast = beast
@@ -229,43 +235,43 @@ local function CreateBeastModel(parentNode)
         Vector3(0.15*S, 0.12*S, 0.12*S), "Models/Sphere.mdl", bodyDarkMat)
 
     -- === 上臂（从肩部下垂） ===
-    Add("armL", Vector3(-0.38*S, 0.85*S, 0.04*S),
+    local armL = Add("armL", Vector3(-0.38*S, 0.85*S, 0.04*S),
         Quaternion(12, Vector3.FORWARD),
         Vector3(0.08*S, 0.22*S, 0.08*S), "Models/Cylinder.mdl", bodyMat)
-    Add("armR", Vector3(0.38*S, 0.85*S, 0.04*S),
+    local armR = Add("armR", Vector3(0.38*S, 0.85*S, 0.04*S),
         Quaternion(-12, Vector3.FORWARD),
         Vector3(0.08*S, 0.22*S, 0.08*S), "Models/Cylinder.mdl", bodyMat)
 
     -- === 前臂（略细） ===
-    Add("forearmL", Vector3(-0.4*S, 0.62*S, 0.06*S),
+    local forearmL = Add("forearmL", Vector3(-0.4*S, 0.62*S, 0.06*S),
         Quaternion(5, Vector3.FORWARD),
         Vector3(0.065*S, 0.16*S, 0.065*S), "Models/Cylinder.mdl", bodyMat)
-    Add("forearmR", Vector3(0.4*S, 0.62*S, 0.06*S),
+    local forearmR = Add("forearmR", Vector3(0.4*S, 0.62*S, 0.06*S),
         Quaternion(-5, Vector3.FORWARD),
         Vector3(0.065*S, 0.16*S, 0.065*S), "Models/Cylinder.mdl", bodyMat)
 
     -- === 爪子（前肢末端，3指造型） ===
-    Add("handL", Vector3(-0.41*S, 0.48*S, 0.08*S), nil,
+    local handL = Add("handL", Vector3(-0.41*S, 0.48*S, 0.08*S), nil,
         Vector3(0.09*S, 0.05*S, 0.08*S), "Models/Sphere.mdl", clawMat, false)
-    Add("handR", Vector3(0.41*S, 0.48*S, 0.08*S), nil,
+    local handR = Add("handR", Vector3(0.41*S, 0.48*S, 0.08*S), nil,
         Vector3(0.09*S, 0.05*S, 0.08*S), "Models/Sphere.mdl", clawMat, false)
 
     -- === 大腿（粗壮，支撑整个身体） ===
-    Add("thighL", Vector3(-0.18*S, 0.45*S, -0.02*S), nil,
+    local thighL = Add("thighL", Vector3(-0.18*S, 0.45*S, -0.02*S), nil,
         Vector3(0.14*S, 0.28*S, 0.14*S), "Models/Cylinder.mdl", bodyMat)
-    Add("thighR", Vector3(0.18*S, 0.45*S, -0.02*S), nil,
+    local thighR = Add("thighR", Vector3(0.18*S, 0.45*S, -0.02*S), nil,
         Vector3(0.14*S, 0.28*S, 0.14*S), "Models/Cylinder.mdl", bodyMat)
 
     -- === 小腿（略细，连接膝盖和脚） ===
-    Add("shinL", Vector3(-0.18*S, 0.2*S, 0.02*S), nil,
+    local shinL = Add("shinL", Vector3(-0.18*S, 0.2*S, 0.02*S), nil,
         Vector3(0.1*S, 0.2*S, 0.1*S), "Models/Cylinder.mdl", bodyMat)
-    Add("shinR", Vector3(0.18*S, 0.2*S, 0.02*S), nil,
+    local shinR = Add("shinR", Vector3(0.18*S, 0.2*S, 0.02*S), nil,
         Vector3(0.1*S, 0.2*S, 0.1*S), "Models/Cylinder.mdl", bodyMat)
 
     -- === 大脚掌（扁宽，稳定支撑） ===
-    Add("footL", Vector3(-0.18*S, 0.04*S, 0.06*S), nil,
+    local footL = Add("footL", Vector3(-0.18*S, 0.04*S, 0.06*S), nil,
         Vector3(0.15*S, 0.06*S, 0.22*S), "Models/Sphere.mdl", clawMat)
-    Add("footR", Vector3(0.18*S, 0.04*S, 0.06*S), nil,
+    local footR = Add("footR", Vector3(0.18*S, 0.04*S, 0.06*S), nil,
         Vector3(0.15*S, 0.06*S, 0.22*S), "Models/Sphere.mdl", clawMat)
 
     -- === 脚趾（每只脚3个小凸起，增加细节） ===
@@ -280,21 +286,55 @@ local function CreateBeastModel(parentNode)
     end
 
     -- === 尾巴根部（粗） ===
-    Add("tailBase", Vector3(0, 0.6*S, -0.32*S),
+    local tailBase = Add("tailBase", Vector3(0, 0.6*S, -0.32*S),
         Quaternion(-30, Vector3.RIGHT),
         Vector3(0.12*S, 0.12*S, 0.28*S), "Models/Cylinder.mdl", bodyMat)
 
     -- === 尾巴中段 ===
-    Add("tailMid", Vector3(0, 0.48*S, -0.55*S),
+    local tailMid = Add("tailMid", Vector3(0, 0.48*S, -0.55*S),
         Quaternion(-40, Vector3.RIGHT),
         Vector3(0.08*S, 0.08*S, 0.22*S), "Models/Cylinder.mdl", bodyDarkMat)
 
     -- === 尾尖（锥体） ===
-    Add("tailTip", Vector3(0, 0.35*S, -0.72*S),
+    local tailTip = Add("tailTip", Vector3(0, 0.35*S, -0.72*S),
         Quaternion(-50, Vector3.RIGHT),
         Vector3(0.06*S, 0.06*S, 0.15*S), "Models/Cone.mdl", bodyDarkMat)
 
-    return root, head, mouth, parts, bodyMat
+    -- === 保存肢体引用（用于程序化行走动画） ===
+    local limbs = {
+        -- 静止时的初始位置（用于计算偏移）
+        S = S,
+        -- 大腿
+        thighL = thighL, thighR = thighR,
+        thighLPos = Vector3(-0.18*S, 0.45*S, -0.02*S),
+        thighRPos = Vector3(0.18*S, 0.45*S, -0.02*S),
+        -- 小腿
+        shinL = shinL, shinR = shinR,
+        shinLPos = Vector3(-0.18*S, 0.2*S, 0.02*S),
+        shinRPos = Vector3(0.18*S, 0.2*S, 0.02*S),
+        -- 脚
+        footL = footL, footR = footR,
+        footLPos = Vector3(-0.18*S, 0.04*S, 0.06*S),
+        footRPos = Vector3(0.18*S, 0.04*S, 0.06*S),
+        -- 上臂
+        armL = armL, armR = armR,
+        armLPos = Vector3(-0.38*S, 0.85*S, 0.04*S),
+        armRPos = Vector3(0.38*S, 0.85*S, 0.04*S),
+        -- 前臂
+        forearmL = forearmL, forearmR = forearmR,
+        forearmLPos = Vector3(-0.4*S, 0.62*S, 0.06*S),
+        forearmRPos = Vector3(0.4*S, 0.62*S, 0.06*S),
+        -- 爪子
+        handL = handL, handR = handR,
+        handLPos = Vector3(-0.41*S, 0.48*S, 0.08*S),
+        handRPos = Vector3(0.41*S, 0.48*S, 0.08*S),
+        -- 尾巴
+        tailBase = tailBase, tailMid = tailMid, tailTip = tailTip,
+        -- 身体根节点（用于上下起伏）
+        root = root,
+    }
+
+    return root, head, mouth, parts, bodyMat, limbs
 end
 
 -- ============================================================================
@@ -329,11 +369,14 @@ function DivineBeast.Summon(scene, playerPos, playerAtk)
     beastNode.position = playerPos + Vector3(2, 0, 2)
 
     -- 创建3D模型
-    local meshRoot, headNode, mouthNode, parts, bodyMat = CreateBeastModel(beastNode)
+    local meshRoot, headNode, mouthNode, parts, bodyMat, limbs = CreateBeastModel(beastNode)
     beast.meshRoot = meshRoot
     beast.headNode = headNode
     beast.mouthNode = mouthNode
     beast.bodyParts = parts
+    beast.limbs = limbs
+    beast.walkPhase = 0
+    beast.isMoving = false
 
     -- 物理碰撞体（适配1.2倍体型：宽1.2m 高2.16m）
     local rbody = beastNode:CreateComponent("RigidBody")
@@ -637,6 +680,86 @@ local function UpdateHitFlash(dt)
 end
 
 -- ============================================================================
+-- 程序化行走动画（腿部前后摆动、身体上下起伏、手臂摆动、尾巴晃动）
+-- ============================================================================
+local function UpdateWalkAnimation(dt)
+    local limbs = beast.limbs
+    if not limbs then return end
+
+    local S = limbs.S
+
+    if beast.isMoving then
+        -- 步态相位推进
+        beast.walkPhase = beast.walkPhase + dt * beast.walkSpeed
+        if beast.walkPhase > math.pi * 2 then
+            beast.walkPhase = beast.walkPhase - math.pi * 2
+        end
+    else
+        -- 停止时缓慢回到站立姿势
+        if beast.walkPhase ~= 0 then
+            beast.walkPhase = beast.walkPhase * 0.85  -- 快速衰减
+            if math.abs(beast.walkPhase) < 0.05 then
+                beast.walkPhase = 0
+            end
+        end
+    end
+
+    local phase = beast.walkPhase
+    local sinP = math.sin(phase)
+    local cosP = math.cos(phase)
+
+    -- === 腿部动画 ===
+    -- 左右腿相位相反：左腿 sin(phase)，右腿 sin(phase + π) = -sin(phase)
+    local legSwing = 0.12 * S   -- 前后摆幅
+    local legLift = 0.04 * S    -- 抬腿高度
+
+    -- 大腿：前后平移 + 轻微抬起
+    local liftL = math.max(0, sinP) * legLift     -- 左腿前迈时抬起
+    local liftR = math.max(0, -sinP) * legLift    -- 右腿前迈时抬起
+
+    limbs.thighL.position = limbs.thighLPos + Vector3(0, liftL, sinP * legSwing)
+    limbs.thighR.position = limbs.thighRPos + Vector3(0, liftR, -sinP * legSwing)
+
+    -- 小腿跟随大腿（摆幅稍小，有一点延迟感）
+    local shinSwing = 0.08 * S
+    limbs.shinL.position = limbs.shinLPos + Vector3(0, liftL * 0.5, sinP * shinSwing)
+    limbs.shinR.position = limbs.shinRPos + Vector3(0, liftR * 0.5, -sinP * shinSwing)
+
+    -- 脚掌跟随（贴地感）
+    local footSwing = 0.06 * S
+    limbs.footL.position = limbs.footLPos + Vector3(0, liftL * 0.3, sinP * footSwing)
+    limbs.footR.position = limbs.footRPos + Vector3(0, liftR * 0.3, -sinP * footSwing)
+
+    -- === 手臂动画（与同侧腿相反摆动） ===
+    local armSwing = 0.06 * S
+    limbs.armL.position = limbs.armLPos + Vector3(0, 0, -sinP * armSwing)
+    limbs.armR.position = limbs.armRPos + Vector3(0, 0, sinP * armSwing)
+
+    local forearmSwing = 0.05 * S
+    limbs.forearmL.position = limbs.forearmLPos + Vector3(0, 0, -sinP * forearmSwing)
+    limbs.forearmR.position = limbs.forearmRPos + Vector3(0, 0, sinP * forearmSwing)
+
+    limbs.handL.position = limbs.handLPos + Vector3(0, 0, -sinP * forearmSwing * 0.8)
+    limbs.handR.position = limbs.handRPos + Vector3(0, 0, sinP * forearmSwing * 0.8)
+
+    -- === 身体上下起伏（两步一个周期，频率是腿的2倍） ===
+    local bodyBob = math.abs(sinP) * 0.03 * S  -- 轻微起伏
+    limbs.root.position = Vector3(0, bodyBob, 0)
+
+    -- === 尾巴左右晃动（频率略低于步态，像自然摆动） ===
+    local tailSway = math.sin(phase * 0.7) * 0.06 * S
+    if limbs.tailBase then
+        limbs.tailBase.position = Vector3(tailSway * 0.5, 0.6*S, -0.32*S)
+    end
+    if limbs.tailMid then
+        limbs.tailMid.position = Vector3(tailSway, 0.48*S, -0.55*S)
+    end
+    if limbs.tailTip then
+        limbs.tailTip.position = Vector3(tailSway * 1.5, 0.35*S, -0.72*S)
+    end
+end
+
+-- ============================================================================
 -- 主更新
 -- ============================================================================
 function DivineBeast.Update(dt, scene, playerNode, player, enemies, dealDamageFn)
@@ -682,6 +805,7 @@ function DivineBeast.Update(dt, scene, playerNode, player, enemies, dealDamageFn
         if nearDist <= beast.attackRange then
             -- 攻击
             beast.state = "attack"
+            beast.isMoving = false
             if rbody then rbody:SetLinearVelocity(Vector3.ZERO) end
 
             if beast.attackTimer <= 0 then
@@ -693,6 +817,7 @@ function DivineBeast.Update(dt, scene, playerNode, player, enemies, dealDamageFn
         else
             -- 追击
             beast.state = "chase"
+            beast.isMoving = true
             local dir = nearestEnemy.node.position - beastPos
             dir.y = 0
             dir = dir:Normalized()
@@ -707,11 +832,13 @@ function DivineBeast.Update(dt, scene, playerNode, player, enemies, dealDamageFn
         local distToPlayer = toPlayer:Length()
 
         if distToPlayer > 3.0 then
+            beast.isMoving = true
             local dir = toPlayer:Normalized()
             local followSpeed = beast.speed * 1.2
             if rbody then rbody:SetLinearVelocity(dir * followSpeed) end
             UpdateFacing(beastPos, playerPos)
         else
+            beast.isMoving = false
             if rbody then rbody:SetLinearVelocity(Vector3.ZERO) end
         end
 
@@ -720,6 +847,9 @@ function DivineBeast.Update(dt, scene, playerNode, player, enemies, dealDamageFn
             beast.node.position = playerPos + Vector3(2, 0, 2)
         end
     end
+
+    -- 更新行走动画
+    UpdateWalkAnimation(dt)
 
     -- 更新喷火效果（视觉 + 伤害）
     UpdateFireBreathVisual(dt)
