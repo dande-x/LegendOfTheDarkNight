@@ -1,6 +1,7 @@
 -- ============================================================================
 -- DivineBeast.lua — 神兽系统
--- 永久随从，喷火攻击，可升级，名字颜色随等级变化
+-- 永久随从，3D模型（基础几何体拼装巨龙），喷火攻击，可升级
+-- 体型为角色的2倍，火焰从嘴里喷出
 -- ============================================================================
 
 local CharacterClass = require("scripts.CharacterClass")
@@ -39,32 +40,27 @@ local BEAST_GROWTH = {
 }
 
 -- ============================================================================
+-- 工具函数
+-- ============================================================================
+local function CreatePBRMat(color, roughness, metallic)
+    local mat = Material:new()
+    mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
+    mat:SetShaderParameter("MatDiffColor", Variant(color))
+    mat:SetShaderParameter("Roughness", Variant(roughness or 0.6))
+    mat:SetShaderParameter("Metallic", Variant(metallic or 0.0))
+    return mat
+end
+
+-- ============================================================================
 -- 神兽状态 (单例 — 只有一只)
 -- ============================================================================
----@class DivineBeastState
----@field alive boolean
----@field node Node|nil
----@field level integer
----@field exp integer
----@field expToNext integer
----@field maxHP integer
----@field hp integer
----@field atk integer
----@field def integer
----@field baseAtk integer
----@field speed number
----@field attackCD number
----@field attackTimer number
----@field attackRange number
----@field chaseRange number
----@field state string
----@field buffTimer number
----@field buffMult number
----@field fireTimer number
----@field hitFlashTimer number
 local beast = {
     alive = false,
     node = nil,
+    meshRoot = nil,     -- 模型根节点
+    headNode = nil,     -- 头部节点（用于定位嘴巴喷火）
+    mouthNode = nil,    -- 嘴巴位置标记
+    bodyParts = {},     -- 所有部件引用（材质闪烁用）
     level = 1,
     exp = 0,
     expToNext = LEVEL_EXP[1],
@@ -76,17 +72,192 @@ local beast = {
     speed = 4.0,
     attackCD = 2.0,
     attackTimer = 0,
-    attackRange = 4.0,
-    chaseRange = 8.0,
+    attackRange = 5.0,
+    chaseRange = 9.0,
     state = "follow",  -- follow / chase / attack
     buffTimer = 0,
     buffMult = 1.0,
     fireTimer = 0,
     hitFlashTimer = 0,
-    facingDir = 1,  -- 1 = forward(back sprite), -1 = backward(front sprite)
 }
 
 DivineBeast.beast = beast
+
+-- ============================================================================
+-- 创建3D龙形模型（基础几何体拼装）
+-- 角色高度约1.8m，神兽为2倍大 → 约3.6m 高，体长更大
+-- ============================================================================
+local function CreateBeastModel(parentNode)
+    -- 全局缩放：2x角色
+    local S = 2.0
+
+    -- 材质
+    local bodyMat = CreatePBRMat(Color(0.25, 0.12, 0.35, 1.0), 0.7, 0.1)     -- 深紫色身体
+    local bellyMat = CreatePBRMat(Color(0.6, 0.45, 0.25, 1.0), 0.8, 0.0)     -- 金黄色腹部
+    local hornMat = CreatePBRMat(Color(0.9, 0.75, 0.3, 1.0), 0.4, 0.3)       -- 金色犄角
+    local eyeMat = CreatePBRMat(Color(1.0, 0.3, 0.0, 1.0), 0.2, 0.0)         -- 橙红色眼睛
+    local clawMat = CreatePBRMat(Color(0.15, 0.15, 0.15, 1.0), 0.5, 0.2)     -- 深灰色爪子
+    local wingMat = CreatePBRMat(Color(0.35, 0.15, 0.45, 1.0), 0.6, 0.1)     -- 紫色翅膀
+
+    local parts = {}
+
+    -- meshRoot = 所有视觉部件的父节点
+    local root = parentNode:CreateChild("BeastMesh")
+    root.position = Vector3(0, 0, 0)
+
+    -- === 身体（躯干） - 横置椭圆体 ===
+    local body = root:CreateChild("body")
+    body.position = Vector3(0, 1.2 * S, 0)
+    body.scale = Vector3(0.5 * S, 0.45 * S, 0.9 * S)
+    local bodyModel = body:CreateComponent("StaticModel")
+    bodyModel:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
+    bodyModel:SetMaterial(bodyMat)
+    bodyModel.castShadows = true
+    table.insert(parts, {node = body, mat = bodyMat, model = bodyModel})
+
+    -- === 腹部（下面浅色） ===
+    local belly = root:CreateChild("belly")
+    belly.position = Vector3(0, 1.0 * S, 0.05 * S)
+    belly.scale = Vector3(0.38 * S, 0.3 * S, 0.7 * S)
+    local bellyModel = belly:CreateComponent("StaticModel")
+    bellyModel:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
+    bellyModel:SetMaterial(bellyMat)
+    bellyModel.castShadows = false
+    table.insert(parts, {node = belly, mat = bellyMat, model = bellyModel})
+
+    -- === 脖子 ===
+    local neck = root:CreateChild("neck")
+    neck.position = Vector3(0, 1.6 * S, 0.7 * S)
+    neck.rotation = Quaternion(30, Vector3.RIGHT)  -- 向上倾斜
+    neck.scale = Vector3(0.22 * S, 0.5 * S, 0.22 * S)
+    local neckModel = neck:CreateComponent("StaticModel")
+    neckModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+    neckModel:SetMaterial(bodyMat)
+    neckModel.castShadows = true
+    table.insert(parts, {node = neck, mat = bodyMat, model = neckModel})
+
+    -- === 头部 ===
+    local head = root:CreateChild("head")
+    head.position = Vector3(0, 2.2 * S, 1.05 * S)
+    head.scale = Vector3(0.32 * S, 0.28 * S, 0.4 * S)
+    local headModel = head:CreateComponent("StaticModel")
+    headModel:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
+    headModel:SetMaterial(bodyMat)
+    headModel.castShadows = true
+    table.insert(parts, {node = head, mat = bodyMat, model = headModel})
+
+    -- === 嘴巴位置标记（头部前端） ===
+    local mouth = root:CreateChild("mouth")
+    mouth.position = Vector3(0, 2.1 * S, 1.35 * S)
+
+    -- === 犄角（左右） ===
+    local hornL = root:CreateChild("hornL")
+    hornL.position = Vector3(-0.12 * S, 2.5 * S, 0.95 * S)
+    hornL.rotation = Quaternion(-15, Vector3.FORWARD)
+    hornL.scale = Vector3(0.06 * S, 0.3 * S, 0.06 * S)
+    local hornLModel = hornL:CreateComponent("StaticModel")
+    hornLModel:SetModel(cache:GetResource("Model", "Models/Cone.mdl"))
+    hornLModel:SetMaterial(hornMat)
+    table.insert(parts, {node = hornL, mat = hornMat, model = hornLModel})
+
+    local hornR = root:CreateChild("hornR")
+    hornR.position = Vector3(0.12 * S, 2.5 * S, 0.95 * S)
+    hornR.rotation = Quaternion(15, Vector3.FORWARD)
+    hornR.scale = Vector3(0.06 * S, 0.3 * S, 0.06 * S)
+    local hornRModel = hornR:CreateComponent("StaticModel")
+    hornRModel:SetModel(cache:GetResource("Model", "Models/Cone.mdl"))
+    hornRModel:SetMaterial(hornMat)
+    table.insert(parts, {node = hornR, mat = hornMat, model = hornRModel})
+
+    -- === 眼睛（左右） ===
+    local eyeL = root:CreateChild("eyeL")
+    eyeL.position = Vector3(-0.12 * S, 2.3 * S, 1.2 * S)
+    eyeL.scale = Vector3(0.08 * S, 0.08 * S, 0.08 * S)
+    local eyeLModel = eyeL:CreateComponent("StaticModel")
+    eyeLModel:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
+    eyeLModel:SetMaterial(eyeMat)
+    table.insert(parts, {node = eyeL, mat = eyeMat, model = eyeLModel})
+
+    local eyeR = root:CreateChild("eyeR")
+    eyeR.position = Vector3(0.12 * S, 2.3 * S, 1.2 * S)
+    eyeR.scale = Vector3(0.08 * S, 0.08 * S, 0.08 * S)
+    local eyeRModel = eyeR:CreateComponent("StaticModel")
+    eyeRModel:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
+    eyeRModel:SetMaterial(eyeMat)
+    table.insert(parts, {node = eyeR, mat = eyeMat, model = eyeRModel})
+
+    -- === 尾巴（从后方延伸） ===
+    local tail = root:CreateChild("tail")
+    tail.position = Vector3(0, 1.1 * S, -0.9 * S)
+    tail.rotation = Quaternion(-20, Vector3.RIGHT)
+    tail.scale = Vector3(0.15 * S, 0.15 * S, 0.7 * S)
+    local tailModel = tail:CreateComponent("StaticModel")
+    tailModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+    tailModel:SetMaterial(bodyMat)
+    tailModel.castShadows = true
+    table.insert(parts, {node = tail, mat = bodyMat, model = tailModel})
+
+    -- === 尾尖 ===
+    local tailTip = root:CreateChild("tailTip")
+    tailTip.position = Vector3(0, 0.85 * S, -1.5 * S)
+    tailTip.rotation = Quaternion(-30, Vector3.RIGHT)
+    tailTip.scale = Vector3(0.1 * S, 0.1 * S, 0.3 * S)
+    local tailTipModel = tailTip:CreateComponent("StaticModel")
+    tailTipModel:SetModel(cache:GetResource("Model", "Models/Cone.mdl"))
+    tailTipModel:SetMaterial(hornMat)
+    table.insert(parts, {node = tailTip, mat = hornMat, model = tailTipModel})
+
+    -- === 翅膀（左右 - 扁平三角形用 Box 模拟） ===
+    local wingL = root:CreateChild("wingL")
+    wingL.position = Vector3(-0.5 * S, 1.6 * S, -0.1 * S)
+    wingL.rotation = Quaternion(0, 0, 25)
+    wingL.scale = Vector3(0.8 * S, 0.03 * S, 0.5 * S)
+    local wingLModel = wingL:CreateComponent("StaticModel")
+    wingLModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
+    wingLModel:SetMaterial(wingMat)
+    wingLModel.castShadows = true
+    table.insert(parts, {node = wingL, mat = wingMat, model = wingLModel})
+
+    local wingR = root:CreateChild("wingR")
+    wingR.position = Vector3(0.5 * S, 1.6 * S, -0.1 * S)
+    wingR.rotation = Quaternion(0, 0, -25)
+    wingR.scale = Vector3(0.8 * S, 0.03 * S, 0.5 * S)
+    local wingRModel = wingR:CreateComponent("StaticModel")
+    wingRModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
+    wingRModel:SetMaterial(wingMat)
+    wingRModel.castShadows = true
+    table.insert(parts, {node = wingR, mat = wingMat, model = wingRModel})
+
+    -- === 四足（粗壮的腿） ===
+    local legPositions = {
+        {-0.25 * S, 0,  0.35 * S},  -- 左前
+        { 0.25 * S, 0,  0.35 * S},  -- 右前
+        {-0.25 * S, 0, -0.35 * S},  -- 左后
+        { 0.25 * S, 0, -0.35 * S},  -- 右后
+    }
+    local legNames = {"legLF", "legRF", "legLB", "legRB"}
+    for i, pos in ipairs(legPositions) do
+        local leg = root:CreateChild(legNames[i])
+        leg.position = Vector3(pos[1], 0.4 * S, pos[3])
+        leg.scale = Vector3(0.12 * S, 0.4 * S, 0.12 * S)
+        local legModel = leg:CreateComponent("StaticModel")
+        legModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+        legModel:SetMaterial(bodyMat)
+        legModel.castShadows = true
+        table.insert(parts, {node = leg, mat = bodyMat, model = legModel})
+
+        -- 爪子
+        local claw = root:CreateChild(legNames[i] .. "_claw")
+        claw.position = Vector3(pos[1], 0.05 * S, pos[3])
+        claw.scale = Vector3(0.14 * S, 0.06 * S, 0.18 * S)
+        local clawModel = claw:CreateComponent("StaticModel")
+        clawModel:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
+        clawModel:SetMaterial(clawMat)
+        table.insert(parts, {node = claw, mat = clawMat, model = clawModel})
+    end
+
+    return root, head, mouth, parts, bodyMat
+end
 
 -- ============================================================================
 -- 创建/召唤神兽
@@ -101,7 +272,7 @@ function DivineBeast.Summon(scene, playerPos, playerAtk)
     beast.level = 1
     beast.exp = 0
     beast.expToNext = LEVEL_EXP[1]
-    beast.baseAtk = math.floor(playerAtk * 1.5)  -- 150% 玩家ATK
+    beast.baseAtk = math.floor(playerAtk * 1.5)
     beast.atk = beast.baseAtk
     beast.maxHP = 300
     beast.hp = 300
@@ -114,48 +285,30 @@ function DivineBeast.Summon(scene, playerPos, playerAtk)
     beast.buffMult = 1.0
     beast.fireTimer = 0
     beast.hitFlashTimer = 0
-    beast.facingDir = 1
 
-    -- 创建节点
+    -- 创建根节点
     local beastNode = scene:CreateChild("DivineBeast")
     beastNode.position = playerPos + Vector3(2, 0, 2)
 
-    -- 使用 BillboardSet 来渲染精灵图 (面朝相机)
-    local bbSet = beastNode:CreateComponent("BillboardSet")
-    bbSet:SetNumBillboards(1)
-    bbSet:SetFaceCameraMode(FC_ROTATE_Y)  -- 只绕Y轴旋转面向相机
-    bbSet.sorted = true
-
-    -- 加载纹理
-    local tex = cache:GetResource("Texture2D", "image/divine_beast.png")
-    local mat = Material:new()
-    mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/DiffAlpha.xml"))
-    mat:SetTexture(0, tex)  -- TU_DIFFUSE = 0
-    mat:SetShaderParameter("MatDiffColor", Variant(Color(1, 1, 1, 1)))
-    bbSet:SetMaterial(mat)
-
-    -- 设置 billboard 尺寸和位置
-    -- 图片是正面+背面并排，需要用 UV 来选择显示哪半
-    -- 初始显示背面（左半部分 = 背面面朝玩家方向行走时看到的）
-    local bb = bbSet:GetBillboard(0)
-    bb.position = Vector3(0, 1.2, 0)  -- 提升到地面以上
-    bb.size = Vector2(2.0, 2.4)       -- 宽高(米)
-    bb.uv = Rect(0.0, 0.0, 0.5, 1.0) -- 左半=背面
-    bb.enabled = true
-    bb.color = Color(1, 1, 1, 1)
-    bbSet:Commit()
+    -- 创建3D模型
+    local meshRoot, headNode, mouthNode, parts, bodyMat = CreateBeastModel(beastNode)
+    beast.meshRoot = meshRoot
+    beast.headNode = headNode
+    beast.mouthNode = mouthNode
+    beast.bodyParts = parts
 
     -- 物理碰撞体
     local rbody = beastNode:CreateComponent("RigidBody")
     rbody.mass = 1.0
     rbody.collisionLayer = 2          -- 玩家层（不被玩家攻击）
-    rbody.collisionMask = 1 | 4       -- 与地形和AI碰撞
+    rbody.collisionMask = 1 | 4       -- 与地形和敌人碰撞
     rbody.angularFactor = Vector3(0, 0, 0)
     rbody.linearFactor = Vector3(1, 0, 1)
     rbody.friction = 0.5
     rbody.linearDamping = 0.1
     local shape = beastNode:CreateComponent("CollisionShape")
-    shape:SetCapsule(1.2, 2.2, Vector3(0, 1.1, 0))
+    -- 碰撞胶囊适配2倍体型: 宽2m 高4m
+    shape:SetCapsule(2.0, 4.0, Vector3(0, 2.0, 0))
 
     beast.node = beastNode
     beast.alive = true
@@ -170,7 +323,6 @@ end
 function DivineBeast.TakeDamage(dmg)
     if not beast.alive then return end
 
-    -- 防御减伤
     local effectiveDmg = dmg * (100 / (100 + beast.def))
     effectiveDmg = math.max(1, math.floor(effectiveDmg))
 
@@ -178,11 +330,8 @@ function DivineBeast.TakeDamage(dmg)
     beast.hitFlashTimer = 0.2
 
     if beast.hp <= 0 then
-        beast.hp = 0
         DivineBeast.Die()
     end
-
-    return effectiveDmg
 end
 
 -- ============================================================================
@@ -190,59 +339,61 @@ end
 -- ============================================================================
 function DivineBeast.Die()
     if not beast.alive then return end
+    print("[DivineBeast] 神兽阵亡!")
     beast.alive = false
     if beast.node then
         beast.node:Remove()
         beast.node = nil
     end
-    print("[DivineBeast] 神兽阵亡！可重新召唤")
+    beast.meshRoot = nil
+    beast.headNode = nil
+    beast.mouthNode = nil
+    beast.bodyParts = {}
+    beast.hp = 0
+
+    -- 清理火球
+    for _, f in ipairs(fireProjectiles) do
+        if f.node then f.node:Remove() end
+    end
+    fireProjectiles = {}
 end
 
 -- ============================================================================
--- 神兽获得经验（杀怪时调用）
+-- 增加经验
 -- ============================================================================
-function DivineBeast.AddExp(amount)
+function DivineBeast.AddExp(exp)
     if not beast.alive then return end
-    if beast.level >= 7 then return end -- 满级
 
-    -- 被动加成：经验 +20%
-    amount = math.floor(amount * 1.2)
-    beast.exp = beast.exp + amount
-
-    -- 升级检查
+    beast.exp = beast.exp + exp
     while beast.exp >= beast.expToNext and beast.level < 7 do
         beast.exp = beast.exp - beast.expToNext
         beast.level = beast.level + 1
-        beast.expToNext = LEVEL_EXP[beast.level] or 999999
+        beast.expToNext = LEVEL_EXP[beast.level]
 
-        -- 成长
-        beast.maxHP = 300 + BEAST_GROWTH.hp_per_level * (beast.level - 1)
+        -- 属性成长
+        beast.maxHP = beast.maxHP + BEAST_GROWTH.hp_per_level
+        beast.hp = beast.maxHP  -- 升级回满
         beast.baseAtk = beast.baseAtk + BEAST_GROWTH.atk_per_level
         beast.atk = math.floor(beast.baseAtk * beast.buffMult)
-        beast.def = 8 + BEAST_GROWTH.def_per_level * (beast.level - 1)
+        beast.def = beast.def + BEAST_GROWTH.def_per_level
 
-        -- 升级回满血
-        beast.hp = beast.maxHP
-
-        print("[DivineBeast] 神兽升级! Lv." .. beast.level ..
-              " HP=" .. beast.maxHP .. " ATK=" .. beast.atk .. " DEF=" .. beast.def)
+        print("[DivineBeast] 升级! Lv." .. beast.level .. " HP=" .. beast.maxHP .. " ATK=" .. beast.atk)
     end
 end
 
 -- ============================================================================
--- 神兽强化 Buff（神兽狂暴技能）
+-- Buff 增益
 -- ============================================================================
 function DivineBeast.ApplyBuff(multiplier, duration)
-    if not beast.alive then return end
     beast.buffMult = multiplier
     beast.buffTimer = duration
-    beast.atk = math.floor(beast.baseAtk * beast.buffMult)
-    beast.attackCD = 1.2  -- 攻速提升
-    print("[DivineBeast] 神兽狂暴! ATK=" .. beast.atk .. " 持续" .. duration .. "秒")
+    beast.atk = math.floor(beast.baseAtk * multiplier)
+    beast.attackCD = beast.attackCD / multiplier  -- 攻速也提升
+    print("[DivineBeast] 获得增益! ATKx" .. multiplier .. " 持续" .. duration .. "s")
 end
 
 -- ============================================================================
--- 获取名字颜色
+-- 获取等级颜色
 -- ============================================================================
 function DivineBeast.GetNameColor()
     return LEVEL_COLORS[beast.level] or LEVEL_COLORS[1]
@@ -265,54 +416,49 @@ function DivineBeast.GetDisplayInfo()
 end
 
 -- ============================================================================
--- 更新 UV 面向（根据相对玩家位置切换正面/背面精灵）
+-- 面向目标（旋转整个节点 Y 轴）
 -- ============================================================================
 local function UpdateFacing(beastPos, targetPos)
     if not beast.node then return end
 
-    local bbSet = beast.node:GetComponent("BillboardSet")
-    if not bbSet then return end
-
-    local bb = bbSet:GetBillboard(0)
-    if not bb then return end
-
-    -- 判断神兽相对运动方向：朝向目标时显示背面，远离时显示正面
-    local dir = targetPos - beastPos
-    dir.y = 0
-    if dir:Length() < 0.1 then return end
-
-    -- 这里简单处理：如果神兽在向前方移动（面对远方），显示背面
-    -- 正面 = 右半 UV(0.5, 0, 1.0, 1.0)
-    -- 背面 = 左半 UV(0.0, 0, 0.5, 1.0)
-    -- 由于是俯视角相机且billboard面向相机，当神兽远离相机时显示背面
-    -- 简化：始终显示背面（行走时看到的都是背面）
-    bb.uv = Rect(0.0, 0.0, 0.5, 1.0)  -- 背面
-    bbSet:Commit()
-end
-
--- ============================================================================
--- 喷火攻击视觉
--- ============================================================================
-local fireProjectiles = {}
-
-local function SpawnFireBreath(scene, beastPos, targetPos)
     local dir = targetPos - beastPos
     dir.y = 0
     if dir:Length() < 0.1 then return end
     dir = dir:Normalized()
 
+    -- 通过 atan 计算朝向角度，Z+ 为前方
+    local angle = math.deg(math.atan(dir.x, dir.z))
+    beast.node.rotation = Quaternion(angle, Vector3.UP)
+end
+
+-- ============================================================================
+-- 喷火攻击（从嘴巴位置发射）
+-- ============================================================================
+local fireProjectiles = {}
+
+local function SpawnFireBreath(scene, targetPos)
+    if not beast.mouthNode then return end
+
+    -- 获取嘴巴的世界坐标
+    local mouthWorldPos = beast.mouthNode.worldPosition
+    local dir = targetPos - mouthWorldPos
+    dir.y = 0
+    if dir:Length() < 0.1 then return end
+    dir = dir:Normalized()
+
+    -- 创建火球
     local fireNode = scene:CreateChild("BeastFire")
-    fireNode.position = beastPos + Vector3(0, 1.0, 0) + dir * 0.8
-    fireNode.scale = Vector3(0.35, 0.35, 0.35)
+    fireNode.position = mouthWorldPos
+    fireNode.scale = Vector3(0.5, 0.5, 0.5)
 
     local model = fireNode:CreateComponent("StaticModel")
     model:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
 
-    -- 橙红色火球
+    -- 橙红色发光火球
     local mat = Material:new()
     mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
     mat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 0.4, 0.1, 1.0)))
-    mat:SetShaderParameter("MatEmissiveColor", Variant(Color(1.0, 0.5, 0.1)))
+    mat:SetShaderParameter("MatEmissiveColor", Variant(Color(2.0, 0.8, 0.2)))
     mat:SetShaderParameter("Metallic", Variant(0.0))
     mat:SetShaderParameter("Roughness", Variant(0.2))
     model:SetMaterial(mat)
@@ -321,11 +467,45 @@ local function SpawnFireBreath(scene, beastPos, targetPos)
     table.insert(fireProjectiles, {
         node = fireNode,
         dir = dir,
-        speed = 10,
+        speed = 12,
         damage = beast.atk,
         traveled = 0,
-        maxRange = beast.attackRange + 2,
+        maxRange = beast.attackRange + 3,
     })
+end
+
+-- ============================================================================
+-- 受击闪烁效果（材质颜色闪红）
+-- ============================================================================
+local function UpdateHitFlash(dt)
+    if beast.hitFlashTimer > 0 then
+        beast.hitFlashTimer = beast.hitFlashTimer - dt
+        -- 闪烁: 偶数时段变红
+        local flash = math.floor(beast.hitFlashTimer * 10) % 2 == 0
+        for _, part in ipairs(beast.bodyParts) do
+            if part.model then
+                if flash then
+                    local flashMat = Material:new()
+                    flashMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
+                    flashMat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 0.2, 0.2, 1.0)))
+                    flashMat:SetShaderParameter("MatEmissiveColor", Variant(Color(1.0, 0.0, 0.0)))
+                    flashMat:SetShaderParameter("Roughness", Variant(0.5))
+                    flashMat:SetShaderParameter("Metallic", Variant(0.0))
+                    part.model:SetMaterial(flashMat)
+                else
+                    part.model:SetMaterial(part.mat)
+                end
+            end
+        end
+    else
+        -- 确保恢复原始材质
+        for _, part in ipairs(beast.bodyParts) do
+            if part.model and part.needsRestore then
+                part.model:SetMaterial(part.mat)
+                part.needsRestore = false
+            end
+        end
+    end
 end
 
 -- ============================================================================
@@ -348,32 +528,7 @@ function DivineBeast.Update(dt, scene, playerNode, player, enemies, dealDamageFn
     end
 
     -- 受击闪烁
-    if beast.hitFlashTimer > 0 then
-        beast.hitFlashTimer = beast.hitFlashTimer - dt
-        -- 闪烁效果：让 billboard 颜色周期变化
-        local bbSet = beast.node:GetComponent("BillboardSet")
-        if bbSet then
-            local bb = bbSet:GetBillboard(0)
-            if bb then
-                if math.floor(beast.hitFlashTimer * 10) % 2 == 0 then
-                    bb.color = Color(1, 0.4, 0.4, 1)  -- 红闪
-                else
-                    bb.color = Color(1, 1, 1, 1)
-                end
-                bbSet:Commit()
-            end
-        end
-    else
-        -- 确保颜色正常
-        local bbSet = beast.node:GetComponent("BillboardSet")
-        if bbSet then
-            local bb = bbSet:GetBillboard(0)
-            if bb and (bb.color.r < 0.99 or bb.color.g < 0.99) then
-                bb.color = Color(1, 1, 1, 1)
-                bbSet:Commit()
-            end
-        end
-    end
+    UpdateHitFlash(dt)
 
     -- 攻击计时
     beast.attackTimer = math.max(0, beast.attackTimer - dt)
@@ -395,34 +550,29 @@ function DivineBeast.Update(dt, scene, playerNode, player, enemies, dealDamageFn
         end
     end
 
-    local moved = false
-
     if nearestEnemy and nearDist <= beast.chaseRange then
-        -- 有敌人在追击范围内
         if nearDist <= beast.attackRange then
-            -- 可以攻击
+            -- 攻击
             beast.state = "attack"
             if rbody then rbody:SetLinearVelocity(Vector3.ZERO) end
 
             if beast.attackTimer <= 0 then
-                -- 喷火攻击
-                SpawnFireBreath(scene, beastPos, nearestEnemy.node.position)
+                SpawnFireBreath(scene, nearestEnemy.node.position)
                 beast.attackTimer = beast.attackCD
             end
 
             UpdateFacing(beastPos, nearestEnemy.node.position)
         else
-            -- 追击敌人
+            -- 追击
             beast.state = "chase"
             local dir = nearestEnemy.node.position - beastPos
             dir.y = 0
             dir = dir:Normalized()
             if rbody then rbody:SetLinearVelocity(dir * beast.speed) end
             UpdateFacing(beastPos, nearestEnemy.node.position)
-            moved = true
         end
     else
-        -- 没有敌人，跟随玩家
+        -- 跟随玩家
         beast.state = "follow"
         local toPlayer = playerPos - beastPos
         toPlayer.y = 0
@@ -430,15 +580,14 @@ function DivineBeast.Update(dt, scene, playerNode, player, enemies, dealDamageFn
 
         if distToPlayer > 3.5 then
             local dir = toPlayer:Normalized()
-            local followSpeed = beast.speed * 1.2  -- 跟随时稍快
+            local followSpeed = beast.speed * 1.2
             if rbody then rbody:SetLinearVelocity(dir * followSpeed) end
             UpdateFacing(beastPos, playerPos)
-            moved = true
         else
             if rbody then rbody:SetLinearVelocity(Vector3.ZERO) end
         end
 
-        -- 如果离玩家太远，传送过去
+        -- 太远则传送
         if distToPlayer > 20 then
             beast.node.position = playerPos + Vector3(2, 0, 2)
         end
@@ -458,7 +607,6 @@ function DivineBeast.Update(dt, scene, playerNode, player, enemies, dealDamageFn
                 if e.state ~= "dead" and e.state ~= "dying" then
                     local d = (e.node.position - f.node.position):Length()
                     if d < 1.2 then
-                        -- 造成伤害
                         if dealDamageFn then
                             dealDamageFn(e, f.damage, player)
                         end
@@ -487,9 +635,12 @@ function DivineBeast.Clear()
     beast.alive = false
     beast.level = 1
     beast.exp = 0
+    beast.meshRoot = nil
+    beast.headNode = nil
+    beast.mouthNode = nil
+    beast.bodyParts = {}
     beast.hp = 0
 
-    -- 清理火球
     for _, f in ipairs(fireProjectiles) do
         if f.node then f.node:Remove() end
     end
