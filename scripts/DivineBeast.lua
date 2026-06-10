@@ -83,6 +83,19 @@ local beast = {
 
 DivineBeast.beast = beast
 
+-- 前向声明（Die/Clear 中需要访问）
+local fireBreath = {
+    active = false,
+    timer = 0,
+    duration = 1.0,
+    dir = Vector3.ZERO,
+    nodes = {},
+    damageTimer = 0,
+    damageInterval = 0.25,
+    coneAngle = 35,
+    range = 5.0,
+}
+
 -- ============================================================================
 -- 创建3D模型：胖哥斯拉（直立双足，圆胖身体，2角）
 -- 角色高度约1.8m，神兽高度 1.5倍 → 约2.7m
@@ -375,11 +388,12 @@ function DivineBeast.Die()
     beast.bodyParts = {}
     beast.hp = 0
 
-    -- 清理火球
-    for _, f in ipairs(fireProjectiles) do
-        if f.node then f.node:Remove() end
+    -- 清理喷火效果
+    for _, node in ipairs(fireBreath.nodes) do
+        if node then node:Remove() end
     end
-    fireProjectiles = {}
+    fireBreath.nodes = {}
+    fireBreath.active = false
 end
 
 -- ============================================================================
@@ -456,46 +470,138 @@ local function UpdateFacing(beastPos, targetPos)
 end
 
 -- ============================================================================
--- 喷火攻击（从嘴巴位置发射）
+-- 喷火攻击（锥形火焰，持续喷射，范围AOE伤害）
 -- ============================================================================
-local fireProjectiles = {}
 
-local function SpawnFireBreath(scene, targetPos)
+-- 创建火焰材质（从亮黄到暗红渐变）
+local function CreateFireMat(progress)
+    local mat = Material:new()
+    mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+    -- 近处亮黄，远处暗红
+    local r = 1.0
+    local g = 0.8 - progress * 0.6
+    local b = 0.2 - progress * 0.2
+    local a = 1.0 - progress * 0.5
+    mat:SetShaderParameter("MatDiffColor", Variant(Color(r, g, math.max(0, b), a)))
+    mat:SetShaderParameter("MatEmissiveColor", Variant(Color(2.0 - progress, 0.6 - progress * 0.4, 0.1)))
+    mat:SetShaderParameter("Metallic", Variant(0.0))
+    mat:SetShaderParameter("Roughness", Variant(0.3))
+    return mat
+end
+
+-- 开始喷火
+local function StartFireBreath(scene, targetPos)
     if not beast.mouthNode then return end
+    if fireBreath.active then return end  -- 已在喷火中
 
-    -- 获取嘴巴的世界坐标
     local mouthWorldPos = beast.mouthNode.worldPosition
     local dir = targetPos - mouthWorldPos
     dir.y = 0
     if dir:Length() < 0.1 then return end
     dir = dir:Normalized()
 
-    -- 创建火球
-    local fireNode = scene:CreateChild("BeastFire")
-    fireNode.position = mouthWorldPos
-    fireNode.scale = Vector3(0.5, 0.5, 0.5)
+    fireBreath.active = true
+    fireBreath.timer = fireBreath.duration
+    fireBreath.dir = dir
+    fireBreath.damageTimer = 0
 
-    local model = fireNode:CreateComponent("StaticModel")
-    model:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
+    -- 创建火焰锥形视觉：沿喷火方向放置多个逐渐变大的火焰球
+    local segCount = 6
+    for i = 1, segCount do
+        local t = i / segCount  -- 0~1 从嘴巴到末端
+        local dist = t * fireBreath.range
+        local size = 0.3 + t * 1.2  -- 近处小，远处大（锥形）
 
-    -- 橙红色发光火球
-    local mat = Material:new()
-    mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
-    mat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 0.4, 0.1, 1.0)))
-    mat:SetShaderParameter("MatEmissiveColor", Variant(Color(2.0, 0.8, 0.2)))
-    mat:SetShaderParameter("Metallic", Variant(0.0))
-    mat:SetShaderParameter("Roughness", Variant(0.2))
-    model:SetMaterial(mat)
-    model.castShadows = false
+        local fireNode = scene:CreateChild("BreathFlame")
+        fireNode.position = mouthWorldPos + dir * dist
+        fireNode.scale = Vector3(size, size, size)
 
-    table.insert(fireProjectiles, {
-        node = fireNode,
-        dir = dir,
-        speed = 12,
-        damage = beast.atk,
-        traveled = 0,
-        maxRange = beast.attackRange + 3,
-    })
+        local model = fireNode:CreateComponent("StaticModel")
+        model:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
+        model:SetMaterial(CreateFireMat(t))
+        model.castShadows = false
+
+        table.insert(fireBreath.nodes, fireNode)
+    end
+end
+
+-- 更新火焰视觉（让火焰粒子抖动 + 随时间消散）
+local function UpdateFireBreathVisual(dt)
+    if not fireBreath.active then return end
+
+    fireBreath.timer = fireBreath.timer - dt
+
+    -- 更新每个火焰球的位置（轻微随机抖动模拟火焰）
+    if beast.mouthNode then
+        local mouthWorldPos = beast.mouthNode.worldPosition
+        local segCount = #fireBreath.nodes
+        for i, node in ipairs(fireBreath.nodes) do
+            local t = i / segCount
+            local dist = t * fireBreath.range
+            local size = (0.3 + t * 1.2) * (0.7 + math.random() * 0.6)  -- 随机大小抖动
+
+            -- 位置：基线 + 随机偏移
+            local jitterX = (math.random() - 0.5) * 0.4 * t
+            local jitterY = (math.random() - 0.5) * 0.3 * t + 0.1 * t  -- 火焰略微上飘
+            local jitterZ = (math.random() - 0.5) * 0.4 * t
+
+            node.position = mouthWorldPos + fireBreath.dir * dist + Vector3(jitterX, jitterY, jitterZ)
+            node.scale = Vector3(size, size, size)
+        end
+    end
+
+    -- 时间到，清除火焰
+    if fireBreath.timer <= 0 then
+        for _, node in ipairs(fireBreath.nodes) do
+            node:Remove()
+        end
+        fireBreath.nodes = {}
+        fireBreath.active = false
+    end
+end
+
+-- 喷火锥形范围伤害检测
+local function UpdateFireBreathDamage(dt, enemies, player, dealDamageFn)
+    if not fireBreath.active then return end
+    if not beast.mouthNode then return end
+
+    fireBreath.damageTimer = fireBreath.damageTimer - dt
+    if fireBreath.damageTimer > 0 then return end
+    fireBreath.damageTimer = fireBreath.damageInterval
+
+    -- 对锥形范围内所有敌人造成伤害
+    local mouthWorldPos = beast.mouthNode.worldPosition
+    local coneAngleRad = math.rad(fireBreath.coneAngle)
+    local cosThreshold = math.cos(coneAngleRad)
+
+    if not enemies then return end
+    for _, e in ipairs(enemies) do
+        if e.state ~= "dead" and e.state ~= "dying" then
+            local toEnemy = e.node.position - mouthWorldPos
+            toEnemy.y = 0
+            local dist = toEnemy:Length()
+
+            -- 在射程内？
+            if dist <= fireBreath.range + 1.0 then
+                -- 在锥角内？
+                if dist > 0.1 then
+                    local dirToEnemy = toEnemy:Normalized()
+                    local dot = fireBreath.dir.x * dirToEnemy.x + fireBreath.dir.z * dirToEnemy.z
+                    if dot >= cosThreshold then
+                        -- 命中！造成伤害
+                        if dealDamageFn then
+                            dealDamageFn(e, beast.atk, player)
+                        end
+                    end
+                else
+                    -- 距离太近，直接命中
+                    if dealDamageFn then
+                        dealDamageFn(e, beast.atk, player)
+                    end
+                end
+            end
+        end
+    end
 end
 
 -- ============================================================================
@@ -581,7 +687,7 @@ function DivineBeast.Update(dt, scene, playerNode, player, enemies, dealDamageFn
             if rbody then rbody:SetLinearVelocity(Vector3.ZERO) end
 
             if beast.attackTimer <= 0 then
-                SpawnFireBreath(scene, nearestEnemy.node.position)
+                StartFireBreath(scene, nearestEnemy.node.position)
                 beast.attackTimer = beast.attackCD
             end
 
@@ -617,35 +723,9 @@ function DivineBeast.Update(dt, scene, playerNode, player, enemies, dealDamageFn
         end
     end
 
-    -- 更新火球弹道
-    for i = #fireProjectiles, 1, -1 do
-        local f = fireProjectiles[i]
-        local move = f.dir * f.speed * dt
-        f.node.position = f.node.position + move
-        f.traveled = f.traveled + f.speed * dt
-
-        -- 碰撞检测
-        local hit = false
-        if enemies then
-            for _, e in ipairs(enemies) do
-                if e.state ~= "dead" and e.state ~= "dying" then
-                    local d = (e.node.position - f.node.position):Length()
-                    if d < 1.2 then
-                        if dealDamageFn then
-                            dealDamageFn(e, f.damage, player)
-                        end
-                        hit = true
-                        break
-                    end
-                end
-            end
-        end
-
-        if hit or f.traveled >= f.maxRange then
-            f.node:Remove()
-            table.remove(fireProjectiles, i)
-        end
-    end
+    -- 更新喷火效果（视觉 + 伤害）
+    UpdateFireBreathVisual(dt)
+    UpdateFireBreathDamage(dt, enemies, player, dealDamageFn)
 end
 
 -- ============================================================================
@@ -665,10 +745,12 @@ function DivineBeast.Clear()
     beast.bodyParts = {}
     beast.hp = 0
 
-    for _, f in ipairs(fireProjectiles) do
-        if f.node then f.node:Remove() end
+    -- 清理喷火效果
+    for _, node in ipairs(fireBreath.nodes) do
+        if node then node:Remove() end
     end
-    fireProjectiles = {}
+    fireBreath.nodes = {}
+    fireBreath.active = false
 end
 
 -- ============================================================================
