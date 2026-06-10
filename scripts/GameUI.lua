@@ -8,6 +8,7 @@ local UI = require("urhox-libs/UI")
 local CharacterClass = require("scripts.CharacterClass")
 local Inventory = require("scripts.Inventory")
 local PlayerAnim = require("scripts.PlayerAnim")
+local DivineBeast = require("scripts.DivineBeast")
 require "urhox-libs.UI.GameHUD"
 
 local GameUI = {}
@@ -193,6 +194,8 @@ function GameUI._RenderNanoVG()
                     print("[GameUI] EnemyHealthBars error #" .. _hpBarErrorCount .. ": " .. tostring(err))
                 end
             end
+            -- 绘制神兽头顶血条和名字
+            pcall(GameUI._DrawDivineBeastBar, nvgCtx, sw, sh)
         end
 
         -- 绘制伤害飘字
@@ -670,6 +673,96 @@ function GameUI._DrawEnemyHealthBars(ctx, sw, sh)
         end
         ::continue_enemy::
     end
+end
+
+-- ============================================================================
+-- 神兽头顶血条 + 等级名字（颜色随等级变化）
+-- ============================================================================
+function GameUI._DrawDivineBeastBar(ctx, sw, sh)
+    if nvgFontId < 0 or not cameraRef then return end
+    if not DivineBeast.IsAlive() then return end
+
+    local info = DivineBeast.GetDisplayInfo()
+    if not info then return end
+
+    local beastPos = DivineBeast.GetPosition()
+    if not beastPos then return end
+
+    -- 头顶位置
+    local headPos = beastPos + Vector3(0, 2.2, 0)
+
+    -- 检查是否在相机前方
+    local camNode = cameraRef:GetNode()
+    local camPos = camNode.worldPosition
+    local camForward = camNode.worldDirection
+    local toTarget = headPos - camPos
+    if toTarget:DotProduct(camForward) <= 0 then return end
+
+    local screenPos = cameraRef:WorldToScreenPoint(headPos)
+    if screenPos.x < -0.05 or screenPos.x > 1.05
+        or screenPos.y < -0.05 or screenPos.y > 1.05 then
+        return
+    end
+
+    local scale = sh / 720
+    local barW = math.floor(90 * scale)
+    local barH = math.floor(14 * scale)
+    local borderW = math.floor(1.5 * scale)
+    local hpFontSize = math.max(10, math.floor(13 * scale))
+    local nameFontSize = math.max(12, math.floor(15 * scale))
+    local yOffset = math.floor(30 * scale)
+    local nameOffset = math.floor(14 * scale)
+
+    local sx = screenPos.x * sw
+    local sy = screenPos.y * sh - yOffset
+
+    local hpRatio = math.max(0, math.min(1, info.hp / info.maxHP))
+
+    nvgFontFaceId(ctx, nvgFontId)
+    nvgTextAlign(ctx, NVG_ALIGN_CENTER + NVG_ALIGN_MIDDLE)
+
+    -- 黑色背景框
+    nvgBeginPath(ctx)
+    nvgRoundedRect(ctx, sx - barW / 2 - borderW, sy - barH / 2 - borderW,
+        barW + borderW * 2, barH + borderW * 2, 2 * scale)
+    nvgFillColor(ctx, nvgRGBA(0, 0, 0, 200))
+    nvgFill(ctx)
+
+    -- 绿色血条（区分于怪物的红色）
+    if hpRatio > 0 then
+        local fillW = math.max(1, barW * hpRatio)
+        nvgBeginPath(ctx)
+        nvgRoundedRect(ctx, sx - barW / 2, sy - barH / 2,
+            fillW, barH, 1.5 * scale)
+        if hpRatio > 0.5 then
+            nvgFillColor(ctx, nvgRGBA(60, 200, 80, 230))
+        elseif hpRatio > 0.25 then
+            nvgFillColor(ctx, nvgRGBA(200, 200, 40, 230))
+        else
+            nvgFillColor(ctx, nvgRGBA(220, 80, 50, 255))
+        end
+        nvgFill(ctx)
+    end
+
+    -- HP 数字
+    nvgFontSize(ctx, hpFontSize)
+    local hpText = math.floor(info.hp) .. "/" .. math.floor(info.maxHP)
+    nvgFillColor(ctx, nvgRGBA(0, 0, 0, 200))
+    nvgText(ctx, sx + 1, sy + 1, hpText, nil)
+    nvgFillColor(ctx, nvgRGBA(255, 255, 255, 240))
+    nvgText(ctx, sx, sy, hpText, nil)
+
+    -- 名字标签（等级颜色）
+    local nameColor = info.nameColor  -- {r, g, b, a}
+    local nameText = info.name .. " Lv." .. info.level
+    local nameSy = sy - barH / 2 - nameOffset
+    nvgFontSize(ctx, nameFontSize)
+    -- 阴影
+    nvgFillColor(ctx, nvgRGBA(0, 0, 0, 180))
+    nvgText(ctx, sx + 1, nameSy + 1, nameText, nil)
+    -- 正文（等级颜色）
+    nvgFillColor(ctx, nvgRGBA(nameColor[1], nameColor[2], nameColor[3], nameColor[4] or 255))
+    nvgText(ctx, sx, nameSy, nameText, nil)
 end
 
 function GameUI._DrawFloatingTexts(ctx, sw, sh)

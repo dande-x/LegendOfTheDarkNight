@@ -6,6 +6,7 @@
 
 local CharacterClass = require("scripts.CharacterClass")
 local MonsterSkeleton = require("scripts.MonsterSkeleton")
+local DivineBeast = require("scripts.DivineBeast")
 
 local Combat = {}
 
@@ -348,6 +349,8 @@ function Combat.TriggerDeath(enemy, player)
             end
         end
     end
+    -- 神兽也获得经验
+    DivineBeast.AddExp(enemy.exp)
     if Combat.onEnemyDeath then
         Combat.onEnemyDeath(enemy.name, enemy.node.position, enemy.exp)
     end
@@ -429,8 +432,10 @@ function Combat.UpdateEnemies(dt, playerNode, player)
         end
 
         if e.state == "patrol" then
-            -- 巡逻：随机走动
-            if dist < e.chaseRange then
+            -- 巡逻：发现玩家或神兽时追击
+            local beastPos = DivineBeast.GetPosition()
+            local beastDist = beastPos and (beastPos - pos):Length() or 9999
+            if dist < e.chaseRange or beastDist < e.chaseRange then
                 e.state = "chase"
             else
                 if not e.patrolTarget or e.patrolWait <= 0 then
@@ -456,15 +461,26 @@ function Combat.UpdateEnemies(dt, playerNode, player)
             end
 
         elseif e.state == "chase" then
-            -- 追击玩家
-            if dist > e.chaseRange * 1.5 then
+            -- 追击玩家或神兽（谁近追谁）
+            local chaseBeastPos = DivineBeast.GetPosition()
+            local chaseBeastDist = chaseBeastPos and (chaseBeastPos - pos):Length() or 9999
+            local chaseTargetPos = playerPos
+            local chaseTargetDist = dist
+            if chaseBeastDist < chaseTargetDist then
+                chaseTargetPos = chaseBeastPos
+                chaseTargetDist = chaseBeastDist
+            end
+
+            if chaseTargetDist > e.chaseRange * 1.5 then
                 e.state = "patrol"
                 if eBody then eBody:SetLinearVelocity(Vector3.ZERO) end
-            elseif dist <= e.attackRange then
+            elseif chaseTargetDist <= e.attackRange then
                 e.state = "attack"
                 if eBody then eBody:SetLinearVelocity(Vector3.ZERO) end
             else
-                local dir = toPlayer:Normalized()
+                local dir = (chaseTargetPos - pos)
+                dir.y = 0
+                dir = dir:Normalized()
                 if eBody then
                     eBody:SetLinearVelocity(dir * e.speed)
                 end
@@ -474,35 +490,60 @@ function Combat.UpdateEnemies(dt, playerNode, player)
             end
 
         elseif e.state == "attack" then
-            -- 攻击玩家（站定攻击）
+            -- 攻击玩家或神兽（站定攻击）
             if eBody then eBody:SetLinearVelocity(Vector3.ZERO) end
 
-            if dist > e.attackRange * 1.5 then
+            -- 判断攻击目标：优先攻击更近的（玩家或神兽）
+            local attackTarget = "player"
+            local attackDist = dist
+            local beastPos = DivineBeast.GetPosition()
+            if beastPos then
+                local toBeast = (beastPos - pos):Length()
+                if toBeast < attackDist then
+                    attackTarget = "beast"
+                    attackDist = toBeast
+                end
+            end
+
+            if attackDist > e.attackRange * 1.5 then
                 e.state = "chase"
             else
-                -- 面向玩家
-                local dir = toPlayer:Normalized()
-                local angle = math.atan2(dir.x, dir.z)
-                e.node.rotation = Quaternion(math.deg(angle), Vector3.UP)
+                -- 面向目标
+                local targetPos = attackTarget == "beast" and beastPos or playerPos
+                local dir = (targetPos - pos)
+                dir.y = 0
+                if dir:Length() > 0.1 then
+                    dir = dir:Normalized()
+                    local angle = math.atan2(dir.x, dir.z)
+                    e.node.rotation = Quaternion(math.deg(angle), Vector3.UP)
+                end
 
                 if e.attackTimer <= 0 then
                     -- 播放攻击动画
                     if e.animData then
                         MonsterSkeleton.PlayAnim(e.animData, "attack", nil)
                     end
-                    -- 造成伤害
-                    local dmg = math.max(1, e.atk - player.def * 0.5)
-                    -- 护盾吸收
-                    if player.shieldHP > 0 then
-                        local absorbed = math.min(player.shieldHP, dmg)
-                        player.shieldHP = player.shieldHP - absorbed
-                        dmg = dmg - absorbed
-                    end
-                    player.hp = math.max(0, player.hp - dmg)
-                    e.attackTimer = e.attackCD
 
-                    if Combat.onEnemyAttack then
-                        Combat.onEnemyAttack(e, dmg, playerPos)
+                    if attackTarget == "beast" then
+                        -- 攻击神兽
+                        local dmg = math.max(1, e.atk)
+                        local actualDmg = DivineBeast.TakeDamage(dmg)
+                        e.attackTimer = e.attackCD
+                    else
+                        -- 攻击玩家
+                        local dmg = math.max(1, e.atk - player.def * 0.5)
+                        -- 护盾吸收
+                        if player.shieldHP > 0 then
+                            local absorbed = math.min(player.shieldHP, dmg)
+                            player.shieldHP = player.shieldHP - absorbed
+                            dmg = dmg - absorbed
+                        end
+                        player.hp = math.max(0, player.hp - dmg)
+                        e.attackTimer = e.attackCD
+
+                        if Combat.onEnemyAttack then
+                            Combat.onEnemyAttack(e, dmg, playerPos)
+                        end
                     end
                 end
             end
@@ -652,8 +693,11 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
     elseif skill.type == SKILL_TYPE.BUFF then
         local dur = skill.duration
         if skill.buffMultiplier then
-            -- 万灵强化：提升所有召唤兽攻击力
+            -- 神兽狂暴/万灵强化：提升神兽和召唤兽攻击力
             local mult = skill.buffMultiplier
+            -- 增强神兽
+            DivineBeast.ApplyBuff(mult, dur)
+            -- 增强普通召唤兽
             for _, s in ipairs(summons) do
                 s.atk = s.baseAtk * mult
                 s.buffTimer = dur
@@ -712,17 +756,30 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
         return true, "dash"
 
     elseif skill.type == SKILL_TYPE.SUMMON then
-        -- 召唤兽攻击力 = ATK × 倍率百分比
-        local summonAtk = player.atk * (skill.damage / 100)
-        local dur = skill.duration
-        local count = skill.summonCount or 1
         local sType = skill.summonType or "normal"
 
-        for ci = 1, count do
-            local offset = Vector3((ci - 1) * 2 - (count - 1), 0, 1.5)
-            Combat.SpawnSummon(scene, playerPos + offset, summonAtk, dur, skill.isUltimate, sType)
+        if sType == "divineBeast" then
+            -- 召唤神兽（永久随从，只能一只）
+            local ok = DivineBeast.Summon(scene, playerPos, player.atk)
+            if not ok then
+                -- 已存在，返还 MP 和 CD
+                player.mp = player.mp + skill.manaCost
+                player.cooldowns[skill.id] = 0
+                return false, "神兽已存在"
+            end
+            return true, "summon"
+        else
+            -- 普通召唤兽
+            local summonAtk = player.atk * (skill.damage / 100)
+            local dur = skill.duration
+            local count = skill.summonCount or 1
+
+            for ci = 1, count do
+                local offset = Vector3((ci - 1) * 2 - (count - 1), 0, 1.5)
+                Combat.SpawnSummon(scene, playerPos + offset, summonAtk, dur, skill.isUltimate, sType)
+            end
+            return true, "summon"
         end
-        return true, "summon"
     end
 
     return false, "未知技能类型"
@@ -1430,6 +1487,7 @@ function Combat.Update(scene, dt, playerNode, player)
     Combat.UpdateVisuals(scene, dt)
     Combat.UpdateSpawner(scene, dt, playerNode, player)
     Combat.UpdateGroundItems(dt, playerNode)
+    DivineBeast.Update(dt, scene, playerNode, player, enemies, Combat.DealDamage)
 end
 
 --- 清空所有战斗实体
@@ -1459,6 +1517,7 @@ function Combat.Clear()
     killCount = 0
     Combat.killCount = 0
     spawnTimer = 0
+    DivineBeast.Clear()
 end
 
 -- 回调（由 main.lua 设置）

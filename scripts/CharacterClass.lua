@@ -204,11 +204,11 @@ CharacterClass.Classes = {
     },
 
     -- ================================================================
-    -- 道士 (召唤流)
+    -- 道士 (神兽流)
     -- ================================================================
     taoist = {
         name = "道士",
-        desc = "万灵召唤师，驱使群兽碾压一切",
+        desc = "驭兽仙师，召唤喷火神兽碾压群敌",
         color = "Jade",
         resource = "道行",
         baseHP = 160, baseMP = 130, baseATK = 12, baseDEF = 12,
@@ -216,86 +216,70 @@ CharacterClass.Classes = {
         moveSpeed = 3.3,
 
         passive = {
-            name = "万灵通",
-            desc = "召唤兽攻击力 +25%，持续时间 +30%",
+            name = "灵兽契约",
+            desc = "神兽攻击力 +25%，经验获取 +20%",
         },
 
         skills = {
             -- 1. 灵魂火符 (普攻 — 远程基础输出)
             {
                 id = "t_talisman", name = "灵魂火符", type = SKILL_TYPE.RANGED,
-                desc = "投掷灵符远距消耗，召唤师的基本功",
+                desc = "投掷灵符远距消耗，道士的基本功",
                 slot = 1, cooldown = 0, manaCost = 0,
                 unlockLevel = 1,
                 damage = 100,  -- ATK倍率100%
                 range = 6.0, projectileSpeed = 10, castTime = 0.38,
             },
-            -- 2. 召唤骷髅 (召唤2只骷髅兵)
+            -- 2. 召唤神兽 (核心技 — 永久召唤一只喷火神兽)
             {
-                id = "t_skeleton", name = "召唤骷髅", type = SKILL_TYPE.SUMMON,
-                desc = "唤醒亡灵骷髅，忠诚的前排炮灰",
-                slot = 2, cooldown = 10, manaCost = 12,
+                id = "t_divineBeast", name = "召唤神兽", type = SKILL_TYPE.SUMMON,
+                desc = "召唤远古神兽为随从，喷火焚敌，永不消散",
+                slot = 2, cooldown = 60, manaCost = 30,
                 unlockLevel = 1,
-                damage = 80,  -- 召唤兽ATK倍率80%
-                duration = 45,
-                summonCount = 2,
-                summonType = "skeleton",
-                range = 2.0,
-            },
-            -- 3. 灵狼召唤 (召唤灵狼，高攻速)
-            {
-                id = "t_wolf", name = "灵狼召唤", type = SKILL_TYPE.SUMMON,
-                desc = "唤出灵界之狼，撕咬迅猛，追击不止",
-                slot = 3, cooldown = 14, manaCost = 18,
-                unlockLevel = 3,
-                damage = 120,  -- 召唤兽ATK倍率120%
-                duration = 50,
+                damage = 150,  -- 神兽基础ATK倍率150%
+                duration = -1, -- -1 表示永久
                 summonCount = 1,
-                summonType = "wolf",
-                range = 2.0,
+                summonType = "divineBeast",
+                range = 2.0, castTime = 0.60,
             },
-            -- 4. 万灵强化 (BUFF — 强化所有召唤兽)
+            -- 3. 神兽狂暴 (BUFF — 强化神兽攻击力)
             {
-                id = "t_empower", name = "万灵强化", type = SKILL_TYPE.BUFF,
-                desc = "注入道力强化全部召唤兽，攻击力翻倍",
-                slot = 4, cooldown = 18, manaCost = 20,
-                unlockLevel = 6,
+                id = "t_beastRage", name = "神兽狂暴", type = SKILL_TYPE.BUFF,
+                desc = "激发神兽潜能，攻击力与攻速大幅提升",
+                slot = 3, cooldown = 20, manaCost = 20,
+                unlockLevel = 4,
                 buffMultiplier = 2.0,
-                duration = 12,
+                duration = 10,
                 range = 0,
             },
-            -- 5. 召唤石魔 (召唤巨灵 — 肉盾型)
+            -- 4. 施毒术 (DOT — 减防+持续伤害)
             {
-                id = "t_golem", name = "召唤巨灵", type = SKILL_TYPE.SUMMON,
-                desc = "唤出山岳巨灵，坚如磐石，横扫千军",
-                slot = 5, cooldown = 22, manaCost = 25,
-                unlockLevel = 9,
-                damage = 160,  -- 召唤兽ATK倍率160%
-                duration = 55,
-                summonCount = 1,
-                summonType = "golem",
-                range = 2.0,
+                id = "t_poison", name = "施毒术", type = SKILL_TYPE.DOT,
+                desc = "以灵力化毒，侵蚀敌人防御与生命",
+                slot = 4, cooldown = 8, manaCost = 15,
+                unlockLevel = 6,
+                damage = 50, -- ATK倍率50%/秒
+                duration = 5,
+                defReduce = 5,
+                range = 6.0, castTime = 0.35,
             },
-            -- 6. 圣兽降临 (终极技 — 召唤最强圣兽)
-            {
-                id = "t_holyBeast", name = "圣兽降临", type = SKILL_TYPE.SUMMON,
-                desc = "唤出上古圣兽麒麟，毁天灭地",
-                slot = 6, cooldown = 35, manaCost = 35,
-                unlockLevel = 13,
-                damage = 280,  -- 召唤兽ATK倍率280% (大招)
-                duration = 55,
-                summonCount = 1,
-                summonType = "holy",
-                range = 2.0, isUltimate = true, castTime = 0.60,
-            },
-            -- 7. 治愈术 (可替换装配 — 自保技能)
+            -- 5. 治愈术 (回复生命)
             {
                 id = "t_heal", name = "治愈术", type = SKILL_TYPE.HEAL,
-                desc = "引天地灵气修补伤损，召唤师的自保手段",
-                slot = 0, cooldown = 10, manaCost = 15,
-                unlockLevel = 1,
+                desc = "引天地灵气修补伤损，自保之术",
+                slot = 5, cooldown = 10, manaCost = 15,
+                unlockLevel = 8,
                 healPercent = 35,
                 range = 0,
+            },
+            -- 6. 神兽咆哮 (终极技 — 神兽全屏AOE)
+            {
+                id = "t_beastRoar", name = "神兽咆哮", type = SKILL_TYPE.AOE,
+                desc = "神兽怒吼震天，烈焰焚烧四方一切敌人",
+                slot = 6, cooldown = 30, manaCost = 35,
+                unlockLevel = 12,
+                damage = 300,  -- ATK倍率300% (大招AOE)
+                range = 8.0, aoeRadius = 5.0, isUltimate = true, castTime = 0.80,
             },
         },
     },
