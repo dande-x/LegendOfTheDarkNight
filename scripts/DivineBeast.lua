@@ -96,202 +96,203 @@ local fireBreath = {
 }
 
 -- ============================================================================
--- 创建3D模型：胖哥斯拉（直立双足，圆胖身体，2角）
--- 角色高度约1.8m，神兽高度 1.5倍 → 约2.7m
+-- 创建3D模型：胖哥斯拉（直立双足，圆胖身体，2角，背脊板）
+-- 角色高度约1.8m，神兽高度 1.2倍 → 约2.16m
 -- ============================================================================
 local function CreateBeastModel(parentNode)
-    -- 整体高度比例：角色1.8m，神兽约2.7m
-    local S = 1.5
+    -- 整体比例：角色1.8m，神兽约2.16m（比之前矮一些）
+    local S = 1.2
 
-    -- 材质 —— 参考图片：棕红色皮肤，浅色腹部
-    local bodyMat = CreatePBRMat(Color(0.55, 0.25, 0.15, 1.0), 0.75, 0.05)    -- 棕红色身体
-    local bellyMat = CreatePBRMat(Color(0.75, 0.55, 0.35, 1.0), 0.85, 0.0)    -- 浅棕色腹部
-    local hornMat = CreatePBRMat(Color(0.4, 0.25, 0.1, 1.0), 0.5, 0.2)        -- 深棕色犄角
-    local eyeMat = CreatePBRMat(Color(1.0, 0.8, 0.0, 1.0), 0.2, 0.0)          -- 黄色眼睛
-    local clawMat = CreatePBRMat(Color(0.2, 0.12, 0.08, 1.0), 0.6, 0.1)       -- 深棕色爪子
+    -- 材质 —— 棕红色皮肤，浅色腹部，深色纹理过渡
+    local bodyMat = CreatePBRMat(Color(0.52, 0.22, 0.12, 1.0), 0.72, 0.05)     -- 棕红色身体
+    local bodyDarkMat = CreatePBRMat(Color(0.35, 0.15, 0.08, 1.0), 0.8, 0.05)  -- 深棕色（背部/肩部）
+    local bellyMat = CreatePBRMat(Color(0.78, 0.58, 0.38, 1.0), 0.85, 0.0)     -- 浅棕色腹部
+    local hornMat = CreatePBRMat(Color(0.35, 0.2, 0.08, 1.0), 0.45, 0.25)      -- 深棕犄角（略有光泽）
+    local spineMat = CreatePBRMat(Color(0.45, 0.2, 0.05, 1.0), 0.5, 0.15)      -- 脊背板材质
+    local eyeMat = CreatePBRMat(Color(1.0, 0.7, 0.0, 1.0), 0.15, 0.0)          -- 橙黄色眼睛（更亮）
+    local pupilMat = CreatePBRMat(Color(0.05, 0.02, 0.0, 1.0), 0.9, 0.0)       -- 黑色瞳孔
+    local clawMat = CreatePBRMat(Color(0.18, 0.1, 0.05, 1.0), 0.55, 0.1)       -- 深棕色爪子
+    local noseMat = CreatePBRMat(Color(0.3, 0.12, 0.06, 1.0), 0.9, 0.0)        -- 鼻孔
 
     local parts = {}
+
+    -- 辅助：添加部件
+    local function AddPart(name, pos, rot, scl, modelPath, mat, castShadow)
+        local n = parentNode:CreateChild(name)
+        n.position = pos
+        if rot then n.rotation = rot end
+        n.scale = scl
+        local m = n:CreateComponent("StaticModel")
+        m:SetModel(cache:GetResource("Model", modelPath or "Models/Sphere.mdl"))
+        m:SetMaterial(mat)
+        m.castShadows = castShadow ~= false
+        table.insert(parts, {node = n, mat = mat, model = m})
+        return n
+    end
 
     -- meshRoot
     local root = parentNode:CreateChild("BeastMesh")
     root.position = Vector3(0, 0, 0)
 
-    -- === 躯干（大圆球，又胖又圆） ===
-    local body = root:CreateChild("body")
-    body.position = Vector3(0, 1.1 * S, 0)
-    body.scale = Vector3(0.7 * S, 0.75 * S, 0.55 * S)  -- 宽胖，侧面略扁
-    local bodyModel = body:CreateComponent("StaticModel")
-    bodyModel:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
-    bodyModel:SetMaterial(bodyMat)
-    bodyModel.castShadows = true
-    table.insert(parts, {node = body, mat = bodyMat, model = bodyModel})
+    -- 将 AddPart 改为相对于 root 创建
+    local function Add(name, pos, rot, scl, modelPath, mat, castShadow)
+        local n = root:CreateChild(name)
+        n.position = pos
+        if rot then n.rotation = rot end
+        n.scale = scl
+        local m = n:CreateComponent("StaticModel")
+        m:SetModel(cache:GetResource("Model", modelPath or "Models/Sphere.mdl"))
+        m:SetMaterial(mat)
+        m.castShadows = castShadow ~= false
+        table.insert(parts, {node = n, mat = mat, model = m})
+        return n
+    end
 
-    -- === 大肚子（前面突出的浅色圆球） ===
-    local belly = root:CreateChild("belly")
-    belly.position = Vector3(0, 0.9 * S, 0.18 * S)
-    belly.scale = Vector3(0.5 * S, 0.55 * S, 0.4 * S)
-    local bellyModel = belly:CreateComponent("StaticModel")
-    bellyModel:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
-    bellyModel:SetMaterial(bellyMat)
-    bellyModel.castShadows = false
-    table.insert(parts, {node = belly, mat = bellyMat, model = bellyModel})
+    -- === 躯干（大椭球，宽胖） ===
+    Add("body", Vector3(0, 0.88*S, 0), nil,
+        Vector3(0.62*S, 0.68*S, 0.48*S), "Models/Sphere.mdl", bodyMat)
 
-    -- === 头部（比身体小的圆球，直接坐在身体上方） ===
-    local head = root:CreateChild("head")
-    head.position = Vector3(0, 1.7 * S, 0.1 * S)
-    head.scale = Vector3(0.4 * S, 0.35 * S, 0.38 * S)
-    local headModel = head:CreateComponent("StaticModel")
-    headModel:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
-    headModel:SetMaterial(bodyMat)
-    headModel.castShadows = true
-    table.insert(parts, {node = head, mat = bodyMat, model = headModel})
+    -- === 大肚子（前面突出的浅色椭球，嵌入身体） ===
+    Add("belly", Vector3(0, 0.72*S, 0.16*S), nil,
+        Vector3(0.46*S, 0.52*S, 0.36*S), "Models/Sphere.mdl", bellyMat)
 
-    -- === 嘴巴/下颚（头部前下方的小椭球） ===
-    local jaw = root:CreateChild("jaw")
-    jaw.position = Vector3(0, 1.55 * S, 0.32 * S)
-    jaw.scale = Vector3(0.25 * S, 0.12 * S, 0.2 * S)
-    local jawModel = jaw:CreateComponent("StaticModel")
-    jawModel:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
-    jawModel:SetMaterial(bellyMat)
-    jawModel.castShadows = false
-    table.insert(parts, {node = jaw, mat = bellyMat, model = jawModel})
+    -- === 背部加深色过渡（让身体看起来不是单一颜色） ===
+    Add("back", Vector3(0, 0.95*S, -0.12*S), nil,
+        Vector3(0.5*S, 0.55*S, 0.35*S), "Models/Sphere.mdl", bodyDarkMat)
+
+    -- === 脖子（短粗过渡，连接头和身体） ===
+    Add("neck", Vector3(0, 1.25*S, 0.06*S), nil,
+        Vector3(0.22*S, 0.18*S, 0.2*S), "Models/Sphere.mdl", bodyMat)
+
+    -- === 头部（比身体小，略扁） ===
+    local head = Add("head", Vector3(0, 1.4*S, 0.12*S), nil,
+        Vector3(0.34*S, 0.28*S, 0.32*S), "Models/Sphere.mdl", bodyMat)
+
+    -- === 吻部/鼻吻（头部前方突出的椭球，让头不是纯圆球） ===
+    Add("snout", Vector3(0, 1.34*S, 0.3*S), nil,
+        Vector3(0.2*S, 0.14*S, 0.18*S), "Models/Sphere.mdl", bodyMat)
+
+    -- === 下颚（吻部下方） ===
+    Add("jaw", Vector3(0, 1.28*S, 0.28*S), nil,
+        Vector3(0.18*S, 0.08*S, 0.14*S), "Models/Sphere.mdl", bellyMat)
+
+    -- === 鼻孔（吻部前端两个小点） ===
+    Add("nostrilL", Vector3(-0.04*S, 1.36*S, 0.4*S), nil,
+        Vector3(0.03*S, 0.025*S, 0.03*S), "Models/Sphere.mdl", noseMat, false)
+    Add("nostrilR", Vector3(0.04*S, 1.36*S, 0.4*S), nil,
+        Vector3(0.03*S, 0.025*S, 0.03*S), "Models/Sphere.mdl", noseMat, false)
 
     -- === 嘴巴位置标记（喷火出发点） ===
     local mouth = root:CreateChild("mouth")
-    mouth.position = Vector3(0, 1.52 * S, 0.45 * S)
+    mouth.position = Vector3(0, 1.28*S, 0.42*S)
 
-    -- === 犄角（头顶2个，向后上方弯曲） ===
-    local hornL = root:CreateChild("hornL")
-    hornL.position = Vector3(-0.1 * S, 1.95 * S, 0.0)
-    hornL.rotation = Quaternion(-20, Vector3.FORWARD) * Quaternion(-15, Vector3.RIGHT)
-    hornL.scale = Vector3(0.06 * S, 0.25 * S, 0.06 * S)
-    local hornLModel = hornL:CreateComponent("StaticModel")
-    hornLModel:SetModel(cache:GetResource("Model", "Models/Cone.mdl"))
-    hornLModel:SetMaterial(hornMat)
-    hornLModel.castShadows = true
-    table.insert(parts, {node = hornL, mat = hornMat, model = hornLModel})
+    -- === 犄角（头顶2个，向后上方弯，稍弯曲感） ===
+    Add("hornL", Vector3(-0.09*S, 1.58*S, 0.02*S),
+        Quaternion(-20, Vector3.FORWARD) * Quaternion(-20, Vector3.RIGHT),
+        Vector3(0.04*S, 0.22*S, 0.04*S), "Models/Cone.mdl", hornMat)
+    Add("hornR", Vector3(0.09*S, 1.58*S, 0.02*S),
+        Quaternion(20, Vector3.FORWARD) * Quaternion(-20, Vector3.RIGHT),
+        Vector3(0.04*S, 0.22*S, 0.04*S), "Models/Cone.mdl", hornMat)
 
-    local hornR = root:CreateChild("hornR")
-    hornR.position = Vector3(0.1 * S, 1.95 * S, 0.0)
-    hornR.rotation = Quaternion(20, Vector3.FORWARD) * Quaternion(-15, Vector3.RIGHT)
-    hornR.scale = Vector3(0.06 * S, 0.25 * S, 0.06 * S)
-    local hornRModel = hornR:CreateComponent("StaticModel")
-    hornRModel:SetModel(cache:GetResource("Model", "Models/Cone.mdl"))
-    hornRModel:SetMaterial(hornMat)
-    hornRModel.castShadows = true
-    table.insert(parts, {node = hornR, mat = hornMat, model = hornRModel})
+    -- === 眼睛（黄色眼白 + 黑色瞳孔） ===
+    Add("eyeL", Vector3(-0.11*S, 1.45*S, 0.26*S), nil,
+        Vector3(0.06*S, 0.05*S, 0.04*S), "Models/Sphere.mdl", eyeMat, false)
+    Add("eyeR", Vector3(0.11*S, 1.45*S, 0.26*S), nil,
+        Vector3(0.06*S, 0.05*S, 0.04*S), "Models/Sphere.mdl", eyeMat, false)
+    -- 瞳孔
+    Add("pupilL", Vector3(-0.11*S, 1.45*S, 0.29*S), nil,
+        Vector3(0.03*S, 0.03*S, 0.02*S), "Models/Sphere.mdl", pupilMat, false)
+    Add("pupilR", Vector3(0.11*S, 1.45*S, 0.29*S), nil,
+        Vector3(0.03*S, 0.03*S, 0.02*S), "Models/Sphere.mdl", pupilMat, false)
 
-    -- === 眼睛（左右，小黄球） ===
-    local eyeL = root:CreateChild("eyeL")
-    eyeL.position = Vector3(-0.12 * S, 1.75 * S, 0.28 * S)
-    eyeL.scale = Vector3(0.06 * S, 0.06 * S, 0.06 * S)
-    local eyeLModel = eyeL:CreateComponent("StaticModel")
-    eyeLModel:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
-    eyeLModel:SetMaterial(eyeMat)
-    table.insert(parts, {node = eyeL, mat = eyeMat, model = eyeLModel})
+    -- === 眉脊（眼睛上方的骨质突起，增添凶狠感） ===
+    Add("browL", Vector3(-0.1*S, 1.5*S, 0.25*S), Quaternion(5, Vector3.FORWARD),
+        Vector3(0.08*S, 0.025*S, 0.04*S), "Models/Sphere.mdl", bodyDarkMat, false)
+    Add("browR", Vector3(0.1*S, 1.5*S, 0.25*S), Quaternion(-5, Vector3.FORWARD),
+        Vector3(0.08*S, 0.025*S, 0.04*S), "Models/Sphere.mdl", bodyDarkMat, false)
 
-    local eyeR = root:CreateChild("eyeR")
-    eyeR.position = Vector3(0.12 * S, 1.75 * S, 0.28 * S)
-    eyeR.scale = Vector3(0.06 * S, 0.06 * S, 0.06 * S)
-    local eyeRModel = eyeR:CreateComponent("StaticModel")
-    eyeRModel:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
-    eyeRModel:SetMaterial(eyeMat)
-    table.insert(parts, {node = eyeR, mat = eyeMat, model = eyeRModel})
+    -- === 背脊板（哥斯拉标志性，沿脊柱3片） ===
+    for i = 1, 3 do
+        local t = (i - 1) / 2  -- 0, 0.5, 1
+        local y = 1.15*S - t * 0.3*S
+        local z = -0.2*S - t * 0.12*S
+        local spineSize = (0.06 - t * 0.015) * S
+        Add("spine" .. i, Vector3(0, y, z),
+            Quaternion(-10 - t*5, Vector3.RIGHT),
+            Vector3(0.02*S, spineSize, spineSize * 0.6), "Models/Cone.mdl", spineMat)
+    end
 
-    -- === 双腿（粗壮的圆柱，双足站立） ===
-    local legL = root:CreateChild("legL")
-    legL.position = Vector3(-0.2 * S, 0.35 * S, 0)
-    legL.scale = Vector3(0.18 * S, 0.4 * S, 0.18 * S)
-    local legLModel = legL:CreateComponent("StaticModel")
-    legLModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
-    legLModel:SetMaterial(bodyMat)
-    legLModel.castShadows = true
-    table.insert(parts, {node = legL, mat = bodyMat, model = legLModel})
+    -- === 肩部隆起（增加厚实感） ===
+    Add("shoulderL", Vector3(-0.35*S, 1.05*S, 0), nil,
+        Vector3(0.15*S, 0.12*S, 0.12*S), "Models/Sphere.mdl", bodyDarkMat)
+    Add("shoulderR", Vector3(0.35*S, 1.05*S, 0), nil,
+        Vector3(0.15*S, 0.12*S, 0.12*S), "Models/Sphere.mdl", bodyDarkMat)
 
-    local legR = root:CreateChild("legR")
-    legR.position = Vector3(0.2 * S, 0.35 * S, 0)
-    legR.scale = Vector3(0.18 * S, 0.4 * S, 0.18 * S)
-    local legRModel = legR:CreateComponent("StaticModel")
-    legRModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
-    legRModel:SetMaterial(bodyMat)
-    legRModel.castShadows = true
-    table.insert(parts, {node = legR, mat = bodyMat, model = legRModel})
+    -- === 上臂（从肩部下垂） ===
+    Add("armL", Vector3(-0.38*S, 0.85*S, 0.04*S),
+        Quaternion(12, Vector3.FORWARD),
+        Vector3(0.08*S, 0.22*S, 0.08*S), "Models/Cylinder.mdl", bodyMat)
+    Add("armR", Vector3(0.38*S, 0.85*S, 0.04*S),
+        Quaternion(-12, Vector3.FORWARD),
+        Vector3(0.08*S, 0.22*S, 0.08*S), "Models/Cylinder.mdl", bodyMat)
 
-    -- === 大脚掌（扁球） ===
-    local footL = root:CreateChild("footL")
-    footL.position = Vector3(-0.2 * S, 0.06 * S, 0.05 * S)
-    footL.scale = Vector3(0.2 * S, 0.08 * S, 0.25 * S)
-    local footLModel = footL:CreateComponent("StaticModel")
-    footLModel:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
-    footLModel:SetMaterial(clawMat)
-    table.insert(parts, {node = footL, mat = clawMat, model = footLModel})
+    -- === 前臂（略细） ===
+    Add("forearmL", Vector3(-0.4*S, 0.62*S, 0.06*S),
+        Quaternion(5, Vector3.FORWARD),
+        Vector3(0.065*S, 0.16*S, 0.065*S), "Models/Cylinder.mdl", bodyMat)
+    Add("forearmR", Vector3(0.4*S, 0.62*S, 0.06*S),
+        Quaternion(-5, Vector3.FORWARD),
+        Vector3(0.065*S, 0.16*S, 0.065*S), "Models/Cylinder.mdl", bodyMat)
 
-    local footR = root:CreateChild("footR")
-    footR.position = Vector3(0.2 * S, 0.06 * S, 0.05 * S)
-    footR.scale = Vector3(0.2 * S, 0.08 * S, 0.25 * S)
-    local footRModel = footR:CreateComponent("StaticModel")
-    footRModel:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
-    footRModel:SetMaterial(clawMat)
-    table.insert(parts, {node = footR, mat = clawMat, model = footRModel})
+    -- === 爪子（前肢末端，3指造型） ===
+    Add("handL", Vector3(-0.41*S, 0.48*S, 0.08*S), nil,
+        Vector3(0.09*S, 0.05*S, 0.08*S), "Models/Sphere.mdl", clawMat, false)
+    Add("handR", Vector3(0.41*S, 0.48*S, 0.08*S), nil,
+        Vector3(0.09*S, 0.05*S, 0.08*S), "Models/Sphere.mdl", clawMat, false)
 
-    -- === 短手臂（两侧下垂的小圆柱） ===
-    local armL = root:CreateChild("armL")
-    armL.position = Vector3(-0.45 * S, 1.05 * S, 0.05 * S)
-    armL.rotation = Quaternion(10, Vector3.FORWARD)
-    armL.scale = Vector3(0.1 * S, 0.3 * S, 0.1 * S)
-    local armLModel = armL:CreateComponent("StaticModel")
-    armLModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
-    armLModel:SetMaterial(bodyMat)
-    armLModel.castShadows = true
-    table.insert(parts, {node = armL, mat = bodyMat, model = armLModel})
+    -- === 大腿（粗壮，支撑整个身体） ===
+    Add("thighL", Vector3(-0.18*S, 0.45*S, -0.02*S), nil,
+        Vector3(0.14*S, 0.28*S, 0.14*S), "Models/Cylinder.mdl", bodyMat)
+    Add("thighR", Vector3(0.18*S, 0.45*S, -0.02*S), nil,
+        Vector3(0.14*S, 0.28*S, 0.14*S), "Models/Cylinder.mdl", bodyMat)
 
-    local armR = root:CreateChild("armR")
-    armR.position = Vector3(0.45 * S, 1.05 * S, 0.05 * S)
-    armR.rotation = Quaternion(-10, Vector3.FORWARD)
-    armR.scale = Vector3(0.1 * S, 0.3 * S, 0.1 * S)
-    local armRModel = armR:CreateComponent("StaticModel")
-    armRModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
-    armRModel:SetMaterial(bodyMat)
-    armRModel.castShadows = true
-    table.insert(parts, {node = armR, mat = bodyMat, model = armRModel})
+    -- === 小腿（略细，连接膝盖和脚） ===
+    Add("shinL", Vector3(-0.18*S, 0.2*S, 0.02*S), nil,
+        Vector3(0.1*S, 0.2*S, 0.1*S), "Models/Cylinder.mdl", bodyMat)
+    Add("shinR", Vector3(0.18*S, 0.2*S, 0.02*S), nil,
+        Vector3(0.1*S, 0.2*S, 0.1*S), "Models/Cylinder.mdl", bodyMat)
 
-    -- === 小爪子（手臂末端小球） ===
-    local handL = root:CreateChild("handL")
-    handL.position = Vector3(-0.48 * S, 0.78 * S, 0.05 * S)
-    handL.scale = Vector3(0.1 * S, 0.08 * S, 0.1 * S)
-    local handLModel = handL:CreateComponent("StaticModel")
-    handLModel:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
-    handLModel:SetMaterial(clawMat)
-    table.insert(parts, {node = handL, mat = clawMat, model = handLModel})
+    -- === 大脚掌（扁宽，稳定支撑） ===
+    Add("footL", Vector3(-0.18*S, 0.04*S, 0.06*S), nil,
+        Vector3(0.15*S, 0.06*S, 0.22*S), "Models/Sphere.mdl", clawMat)
+    Add("footR", Vector3(0.18*S, 0.04*S, 0.06*S), nil,
+        Vector3(0.15*S, 0.06*S, 0.22*S), "Models/Sphere.mdl", clawMat)
 
-    local handR = root:CreateChild("handR")
-    handR.position = Vector3(0.48 * S, 0.78 * S, 0.05 * S)
-    handR.scale = Vector3(0.1 * S, 0.08 * S, 0.1 * S)
-    local handRModel = handR:CreateComponent("StaticModel")
-    handRModel:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
-    handRModel:SetMaterial(clawMat)
-    table.insert(parts, {node = handR, mat = clawMat, model = handRModel})
+    -- === 脚趾（每只脚3个小凸起，增加细节） ===
+    for side = -1, 1, 2 do
+        local prefix = side < 0 and "toeL" or "toeR"
+        local bx = 0.18 * S * side
+        for t = 1, 3 do
+            local ox = (t - 2) * 0.04 * S * side
+            Add(prefix..t, Vector3(bx + ox, 0.02*S, 0.16*S), nil,
+                Vector3(0.03*S, 0.025*S, 0.04*S), "Models/Sphere.mdl", clawMat, false)
+        end
+    end
 
-    -- === 尾巴（短粗，从后下方伸出） ===
-    local tail = root:CreateChild("tail")
-    tail.position = Vector3(0, 0.7 * S, -0.4 * S)
-    tail.rotation = Quaternion(-35, Vector3.RIGHT)
-    tail.scale = Vector3(0.14 * S, 0.14 * S, 0.4 * S)
-    local tailModel = tail:CreateComponent("StaticModel")
-    tailModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
-    tailModel:SetMaterial(bodyMat)
-    tailModel.castShadows = true
-    table.insert(parts, {node = tail, mat = bodyMat, model = tailModel})
+    -- === 尾巴根部（粗） ===
+    Add("tailBase", Vector3(0, 0.6*S, -0.32*S),
+        Quaternion(-30, Vector3.RIGHT),
+        Vector3(0.12*S, 0.12*S, 0.28*S), "Models/Cylinder.mdl", bodyMat)
 
-    -- === 尾尖（小锥体） ===
-    local tailTip = root:CreateChild("tailTip")
-    tailTip.position = Vector3(0, 0.5 * S, -0.7 * S)
-    tailTip.rotation = Quaternion(-40, Vector3.RIGHT)
-    tailTip.scale = Vector3(0.1 * S, 0.1 * S, 0.2 * S)
-    local tailTipModel = tailTip:CreateComponent("StaticModel")
-    tailTipModel:SetModel(cache:GetResource("Model", "Models/Cone.mdl"))
-    tailTipModel:SetMaterial(bodyMat)
-    table.insert(parts, {node = tailTip, mat = bodyMat, model = tailTipModel})
+    -- === 尾巴中段 ===
+    Add("tailMid", Vector3(0, 0.48*S, -0.55*S),
+        Quaternion(-40, Vector3.RIGHT),
+        Vector3(0.08*S, 0.08*S, 0.22*S), "Models/Cylinder.mdl", bodyDarkMat)
+
+    -- === 尾尖（锥体） ===
+    Add("tailTip", Vector3(0, 0.35*S, -0.72*S),
+        Quaternion(-50, Vector3.RIGHT),
+        Vector3(0.06*S, 0.06*S, 0.15*S), "Models/Cone.mdl", bodyDarkMat)
 
     return root, head, mouth, parts, bodyMat
 end
@@ -334,7 +335,7 @@ function DivineBeast.Summon(scene, playerPos, playerAtk)
     beast.mouthNode = mouthNode
     beast.bodyParts = parts
 
-    -- 物理碰撞体（适配1.5倍胖体型：宽1.5m 高2.7m）
+    -- 物理碰撞体（适配1.2倍体型：宽1.2m 高2.16m）
     local rbody = beastNode:CreateComponent("RigidBody")
     rbody.mass = 1.0
     rbody.collisionLayer = 2          -- 玩家层（不被玩家攻击）
@@ -344,7 +345,7 @@ function DivineBeast.Summon(scene, playerPos, playerAtk)
     rbody.friction = 0.5
     rbody.linearDamping = 0.1
     local shape = beastNode:CreateComponent("CollisionShape")
-    shape:SetCapsule(1.5, 2.7, Vector3(0, 1.35, 0))
+    shape:SetCapsule(1.2, 2.16, Vector3(0, 1.08, 0))
 
     beast.node = beastNode
     beast.alive = true
