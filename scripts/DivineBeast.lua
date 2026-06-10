@@ -90,10 +90,9 @@ local fireBreath = {
     duration = 1.0,
     dir = Vector3.ZERO,
     nodes = {},
-    damageTimer = 0,
-    damageInterval = 0.25,
     coneAngle = 35,
     range = 5.0,
+    hitSet = {},  -- 记录本次喷火已命中的敌人，每个敌人只受击一次
 }
 
 -- ============================================================================
@@ -503,7 +502,7 @@ local function StartFireBreath(scene, targetPos)
     fireBreath.active = true
     fireBreath.timer = fireBreath.duration
     fireBreath.dir = dir
-    fireBreath.damageTimer = 0
+    fireBreath.hitSet = {}  -- 重置命中记录，新一轮喷火
 
     -- 创建火焰锥形视觉：沿喷火方向放置多个逐渐变大的火焰球
     local segCount = 6
@@ -560,44 +559,42 @@ local function UpdateFireBreathVisual(dt)
     end
 end
 
--- 喷火锥形范围伤害检测
+-- 喷火锥形范围伤害检测（每个敌人每次喷火只命中一次，避免永久硬直）
 local function UpdateFireBreathDamage(dt, enemies, player, dealDamageFn)
     if not fireBreath.active then return end
     if not beast.mouthNode then return end
 
-    fireBreath.damageTimer = fireBreath.damageTimer - dt
-    if fireBreath.damageTimer > 0 then return end
-    fireBreath.damageTimer = fireBreath.damageInterval
-
-    -- 对锥形范围内所有敌人造成伤害
+    -- 对锥形范围内所有敌人造成伤害（只命中一次）
     local mouthWorldPos = beast.mouthNode.worldPosition
     local coneAngleRad = math.rad(fireBreath.coneAngle)
     local cosThreshold = math.cos(coneAngleRad)
 
     if not enemies then return end
     for _, e in ipairs(enemies) do
-        if e.state ~= "dead" and e.state ~= "dying" then
+        -- 跳过已死亡、正在死亡、以及本次喷火已命中过的敌人
+        if e.state ~= "dead" and e.state ~= "dying" and not fireBreath.hitSet[e] then
             local toEnemy = e.node.position - mouthWorldPos
             toEnemy.y = 0
             local dist = toEnemy:Length()
 
             -- 在射程内？
             if dist <= fireBreath.range + 1.0 then
+                local hit = false
                 -- 在锥角内？
                 if dist > 0.1 then
                     local dirToEnemy = toEnemy:Normalized()
                     local dot = fireBreath.dir.x * dirToEnemy.x + fireBreath.dir.z * dirToEnemy.z
                     if dot >= cosThreshold then
-                        -- 命中！造成伤害
-                        if dealDamageFn then
-                            dealDamageFn(e, beast.atk, player)
-                        end
+                        hit = true
                     end
                 else
                     -- 距离太近，直接命中
-                    if dealDamageFn then
-                        dealDamageFn(e, beast.atk, player)
-                    end
+                    hit = true
+                end
+
+                if hit and dealDamageFn then
+                    dealDamageFn(e, beast.atk, player)
+                    fireBreath.hitSet[e] = true  -- 标记为已命中，本轮不再重复
                 end
             end
         end
