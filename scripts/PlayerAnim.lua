@@ -73,18 +73,42 @@ local ANIM_LOOPING = {
     move  = true,
 }
 
--- 职业对应的铠甲贴图
-local ARMOR_TEXTURES = {
-    warrior = "image/tex_ink_warrior_armor_20260611120705.png",
-    mage    = "image/tex_ink_mage_robe_20260611120705.png",
-    taoist  = "image/tex_ink_taoist_robe_20260611120659.png",
-}
-
--- 职业主色调（用于材质着色）
-local CLASS_TINT = {
-    warrior = Color(0.85, 0.25, 0.18, 1.0),  -- 朱红
-    mage    = Color(0.20, 0.45, 0.82, 1.0),  -- 靛蓝
-    taoist  = Color(0.25, 0.68, 0.45, 1.0),  -- 翡翠绿
+-- 职业 PBR 材质配置（纯色金属/玉石质感，不依赖贴图）
+-- 每个部位(geometry slot)有不同的材质参数，模拟铠甲/布料/皮肤的层次
+local CLASS_MATERIALS = {
+    warrior = {
+        -- 主体铠甲：暗红铜色金属
+        body = { color = Color(0.55, 0.12, 0.08, 1.0), roughness = 0.25, metallic = 0.85,
+                 emissive = Color(0.12, 0.02, 0.01) },
+        -- 布料部分：深红丝绸
+        cloth = { color = Color(0.40, 0.08, 0.05, 1.0), roughness = 0.65, metallic = 0.05,
+                  emissive = Color(0.05, 0.01, 0.01) },
+        -- 皮肤
+        skin = { color = Color(0.72, 0.55, 0.42, 1.0), roughness = 0.55, metallic = 0.0,
+                 emissive = Color(0.0, 0.0, 0.0) },
+    },
+    mage = {
+        -- 主体法袍：深蓝丝绸带能量光泽
+        body = { color = Color(0.08, 0.15, 0.52, 1.0), roughness = 0.35, metallic = 0.15,
+                 emissive = Color(0.03, 0.06, 0.18) },
+        -- 配饰：银色金属
+        cloth = { color = Color(0.60, 0.62, 0.68, 1.0), roughness = 0.20, metallic = 0.90,
+                  emissive = Color(0.02, 0.03, 0.08) },
+        -- 皮肤
+        skin = { color = Color(0.68, 0.52, 0.40, 1.0), roughness = 0.55, metallic = 0.0,
+                 emissive = Color(0.0, 0.0, 0.0) },
+    },
+    taoist = {
+        -- 主体道袍：翡翠绿玉石质感
+        body = { color = Color(0.12, 0.42, 0.25, 1.0), roughness = 0.30, metallic = 0.20,
+                 emissive = Color(0.02, 0.08, 0.04) },
+        -- 配饰：暗金色
+        cloth = { color = Color(0.55, 0.45, 0.15, 1.0), roughness = 0.28, metallic = 0.75,
+                  emissive = Color(0.04, 0.03, 0.01) },
+        -- 皮肤
+        skin = { color = Color(0.70, 0.54, 0.41, 1.0), roughness = 0.55, metallic = 0.0,
+                 emissive = Color(0.0, 0.0, 0.0) },
+    },
 }
 
 -- ============================================================================
@@ -112,6 +136,8 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors)
     modelNode_.parent = playerNode
     modelNode_.position = Vector3(0, 0, 0)
     modelNode_.rotation = Quaternion.IDENTITY
+    -- 缩放模型到合理大小（原始1.84m → 约1.6m，匹配碰撞胶囊1.4m + 头部余量）
+    modelNode_.scale = Vector3(0.85, 0.85, 0.85)
 
     -- 获取 AnimatedModel 组件
     animModel_ = modelNode_:GetComponent("AnimatedModel")
@@ -130,39 +156,43 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors)
 end
 
 -- ============================================================================
--- 职业材质覆盖
+-- 职业材质覆盖（纯 PBR，光滑金属/丝绸/玉石质感）
 -- ============================================================================
 function PlayerAnim._ApplyClassMaterial(classId, baseColor)
     if not animModel_ then return end
 
-    local texPath = ARMOR_TEXTURES[classId]
-    local tint = CLASS_TINT[classId] or baseColor
+    local classMats = CLASS_MATERIALS[classId]
+    if not classMats then
+        classMats = CLASS_MATERIALS.warrior  -- fallback
+    end
 
-    ---@type Texture2D
-    local armorTex = texPath and cache:GetResource("Texture2D", texPath) or nil
-
-    -- 获取当前模型的材质数量
     local numMats = animModel_:GetNumGeometries()
+    local pbrTech = cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml")
+
+    -- DefaultMale_Base 有 6 个材质槽位：
+    -- 0=头发, 1=身体/衣服主体, 2=裤子/下装, 3=鞋子, 4=皮肤/面部, 5=饰品
+    -- 按槽位分配：body(铠甲主体), cloth(布料), skin(皮肤)
+    local slotMapping = {
+        [0] = "body",   -- 头发 → 用铠甲色（像头盔）
+        [1] = "body",   -- 衣服主体 → 铠甲
+        [2] = "cloth",  -- 裤子 → 布料
+        [3] = "body",   -- 鞋子 → 铠甲
+        [4] = "skin",   -- 皮肤
+        [5] = "cloth",  -- 饰品 → 配饰
+    }
 
     for i = 0, numMats - 1 do
         local mat = Material:new()
+        mat:SetTechnique(0, pbrTech)
 
-        if armorTex then
-            -- 使用水墨风贴图材质
-            mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRMetallicRoughDiffNormalSpec.xml"))
-            mat:SetTexture(TU_DIFFUSE, armorTex)
-            mat:SetShaderParameter("MatDiffColor", Variant(Color(tint.r * 1.2, tint.g * 1.2, tint.b * 1.2, 1.0)))
-            mat:SetShaderParameter("Roughness", Variant(0.45))
-            mat:SetShaderParameter("Metallic", Variant(0.3))
-            -- 微发光边缘
-            mat:SetShaderParameter("MatEmissiveColor", Variant(Color(tint.r * 0.06, tint.g * 0.06, tint.b * 0.06)))
-        else
-            -- 纯色 fallback
-            mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
-            mat:SetShaderParameter("MatDiffColor", Variant(tint))
-            mat:SetShaderParameter("Roughness", Variant(0.5))
-            mat:SetShaderParameter("Metallic", Variant(0.3))
-        end
+        -- 根据槽位选择材质参数
+        local slotType = slotMapping[i] or "body"
+        local params = classMats[slotType]
+
+        mat:SetShaderParameter("MatDiffColor", Variant(params.color))
+        mat:SetShaderParameter("Roughness", Variant(params.roughness))
+        mat:SetShaderParameter("Metallic", Variant(params.metallic))
+        mat:SetShaderParameter("MatEmissiveColor", Variant(params.emissive))
 
         animModel_:SetMaterial(i, mat)
     end

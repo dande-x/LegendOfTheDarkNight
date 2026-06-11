@@ -27,9 +27,9 @@ local C = CharacterClass.Colors
 
 -- 俯视角相机参数
 -- 斜45度视角（类传奇/暗黑风格，能看清人形角色）
-local CAM_OFFSET = Vector3(0, 8, -10)
-local CAM_PITCH = 40
-local CAM_FOV = 40
+local CAM_OFFSET = Vector3(0, 12, -14)
+local CAM_PITCH = 42
+local CAM_FOV = 35
 
 -- 药瓶系统
 local hpPotionCD = 0
@@ -526,7 +526,7 @@ function SetupCamera()
     cameraNode_.position = CAM_OFFSET
 
     local camera = cameraNode_:CreateComponent("Camera")
-    camera.nearClip = 0.5
+    camera.nearClip = 1.0
     camera.farClip = 200.0
     camera.fov = CAM_FOV
 
@@ -549,7 +549,7 @@ function UpdateCamera(dt)
     local shakeOffset = PlayerAnim.GetCameraShakeOffset()
     targetPos = targetPos + shakeOffset
     local currentPos = cameraNode_.position
-    local lerpSpeed = 5.0
+    local lerpSpeed = 8.0  -- 更快跟随，避免角色跑出视野
     cameraNode_.position = currentPos + (targetPos - currentPos) * math.min(1.0, lerpSpeed * dt)
 end
 
