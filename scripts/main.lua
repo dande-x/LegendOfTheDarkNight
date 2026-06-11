@@ -108,32 +108,32 @@ function CreateScene()
     local lightGroup = scene_:CreateChild("LightGroup")
     lightGroup:LoadXML(lightGroupFile:GetRoot())
 
-    -- === 暗黑写实风氛围增强 ===
-    -- 获取 LightGroup 中的 Zone，调整雾效
+    -- === 国风水墨氛围 ===
+    -- 获取 LightGroup 中的 Zone，调整雾效（水墨留白感）
     local zone = lightGroup:GetComponent("Zone", true)
     if zone then
-        zone.fogColor = Color(0.04, 0.04, 0.06, 1.0)  -- 极深暗蓝黑雾
-        zone.fogStart = 25.0                            -- 25m 开始起雾
-        zone.fogEnd = 80.0                              -- 80m 完全融入雾色（俯视角较近距离）
+        zone.fogColor = Color(0.88, 0.86, 0.82, 1.0)  -- 宣纸米白色雾
+        zone.fogStart = 35.0                            -- 35m 开始起雾
+        zone.fogEnd = 90.0                              -- 90m 完全融入雾色（远处留白）
         zone.heightFog = true                           -- 启用高度雾
-        zone.fogHeight = 1.0                            -- 雾面高度 Y=1m
-        zone.fogHeightScale = 0.3                       -- 缓慢衰减
+        zone.fogHeight = 0.5                            -- 雾面高度 Y=0.5m
+        zone.fogHeightScale = 0.2                       -- 轻柔衰减
     end
 
-    -- 获取 LightGroup 中的方向光，调暗+偏冷色（暗黑氛围）
+    -- 获取 LightGroup 中的方向光（水墨风：柔和偏冷白光）
     local dirLight = lightGroup:GetComponent("Light", true)
     if dirLight then
-        dirLight.color = Color(0.6, 0.5, 0.4, 1.0)    -- 暖黄偏暗（黄昏残阳）
-        dirLight.brightness = 0.8                       -- 降低主光亮度
+        dirLight.color = Color(0.95, 0.93, 0.90, 1.0)  -- 冷白微暖（晨光）
+        dirLight.brightness = 1.2                        -- 偏亮，突出墨色对比
     end
 
     CreateFloor()
     CreateSceneDecorations()
-    print("[main] Scene created (with PhysicsWorld + dark atmosphere)")
+    print("[main] Scene created (with PhysicsWorld + ink-wash atmosphere)")
 end
 
 function CreateFloor()
-    -- 主地面：黄土地
+    -- 主地面：水墨宣纸质感地面
     local floorNode = scene_:CreateChild("Floor")
     floorNode.position = Vector3(0, -0.25, 0)
     floorNode.scale = Vector3(120, 0.5, 120)
@@ -142,51 +142,17 @@ function CreateFloor()
 
     local floorMat = Material:new()
     floorMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRMetallicRoughDiffNormalSpec.xml"))
-    local groundTex = cache:GetResource("Texture2D", "image/tex_ground_yellow_earth_20260611071807.png")
+    local groundTex = cache:GetResource("Texture2D", "image/tex_ink_ground_20260611072145.png")
     groundTex:SetAddressMode(COORD_U, ADDRESS_WRAP)
     groundTex:SetAddressMode(COORD_V, ADDRESS_WRAP)
     floorMat:SetTexture(TU_DIFFUSE, groundTex)
     floorMat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 1.0, 1.0, 1.0)))
     floorMat:SetShaderParameter("Metallic", Variant(0.0))
-    floorMat:SetShaderParameter("Roughness", Variant(0.9))
-    floorMat:SetShaderParameter("UOffset", Variant(Vector4(25, 0, 0, 0)))
-    floorMat:SetShaderParameter("VOffset", Variant(Vector4(0, 25, 0, 0)))
+    floorMat:SetShaderParameter("Roughness", Variant(0.85))
+    floorMat:SetShaderParameter("UOffset", Variant(Vector4(20, 0, 0, 0)))
+    floorMat:SetShaderParameter("VOffset", Variant(Vector4(0, 20, 0, 0)))
     floorModel:SetMaterial(floorMat)
     floorModel.castShadows = false
-
-    -- 绿草坪区域：散布在黄土上的草地斑块
-    local grassTex = cache:GetResource("Texture2D", "image/tex_grass_green_20260611071756.png")
-    grassTex:SetAddressMode(COORD_U, ADDRESS_WRAP)
-    grassTex:SetAddressMode(COORD_V, ADDRESS_WRAP)
-    local grassMat = Material:new()
-    grassMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRMetallicRoughDiffNormalSpec.xml"))
-    grassMat:SetTexture(TU_DIFFUSE, grassTex)
-    grassMat:SetShaderParameter("MatDiffColor", Variant(Color(0.9, 0.95, 0.9, 1.0)))
-    grassMat:SetShaderParameter("Metallic", Variant(0.0))
-    grassMat:SetShaderParameter("Roughness", Variant(0.95))
-    grassMat:SetShaderParameter("UOffset", Variant(Vector4(3, 0, 0, 0)))
-    grassMat:SetShaderParameter("VOffset", Variant(Vector4(0, 3, 0, 0)))
-
-    local grassPatches = {
-        { pos = Vector3(-12, 0.01, 10),  sx = 8,  sz = 6 },
-        { pos = Vector3(15, 0.01, -8),   sx = 10, sz = 7 },
-        { pos = Vector3(-25, 0.01, -20), sx = 7,  sz = 9 },
-        { pos = Vector3(8, 0.01, 25),    sx = 9,  sz = 6 },
-        { pos = Vector3(-5, 0.01, -30),  sx = 6,  sz = 8 },
-        { pos = Vector3(30, 0.01, 12),   sx = 7,  sz = 5 },
-        { pos = Vector3(-35, 0.01, 15),  sx = 6,  sz = 7 },
-        { pos = Vector3(20, 0.01, -25),  sx = 8,  sz = 6 },
-    }
-    for i, gp in ipairs(grassPatches) do
-        local gNode = scene_:CreateChild("GrassPatch_" .. i)
-        gNode.position = gp.pos
-        gNode.rotation = Quaternion(math.random() * 30 - 15, Vector3.UP)
-        gNode.scale = Vector3(gp.sx, 0.05, gp.sz)
-        local gModel = gNode:CreateComponent("StaticModel")
-        gModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
-        gModel:SetMaterial(grassMat)
-        gModel.castShadows = false
-    end
 end
 
 function CreateSceneDecorations()
@@ -212,11 +178,11 @@ function CreateSceneDecorations()
         return mat
     end
 
-    -- 预加载贴图材质
-    local stoneMat = MakeTexMat("image/tex_stone_moss_20260611064242.png", 0.9, 0.0)
-    local pillarMat = MakeTexMat("image/tex_pillar_rune_20260611064230.png", 0.7, 0.1)
-    local barkMat = MakeTexMat("image/tex_deadtree_bark_20260611064239.png", 0.85, 0.0)
-    local houseWallMat = MakeTexMat("image/tex_house_wall_20260611064233.png", 0.8, 0.0)
+    -- 预加载贴图材质（国风水墨风）
+    local stoneMat = MakeTexMat("image/tex_ink_stone_20260611072209.png", 0.85, 0.0)
+    local pillarMat = MakeTexMat("image/tex_ink_pillar_20260611072144.png", 0.75, 0.0)
+    local barkMat = MakeTexMat("image/tex_ink_bark_20260611072152.png", 0.8, 0.0)
+    local houseWallMat = MakeTexMat("image/tex_ink_wall_20260611072143.png", 0.8, 0.0)
 
     -- === 石头 ===
     local stonePositions = {
@@ -271,11 +237,11 @@ function CreateSceneDecorations()
         Vector3(-40, 0, 0), Vector3(40, 0, 5), Vector3(-8, 0, 38),
         Vector3(12, 0, 40), Vector3(-32, 0, -20), Vector3(35, 0, 32),
     }
-    -- 暗黑风格：枯萎稀疏的树冠颜色
+    -- 水墨风格：淡墨绿 + 青灰色树冠（国画中的远山近树感）
     local leafColors = {
-        Color(0.10, 0.18, 0.08, 1.0),  -- 暗墨绿
-        Color(0.12, 0.15, 0.06, 1.0),  -- 深橄榄
-        Color(0.08, 0.12, 0.05, 1.0),  -- 近乎黑绿
+        Color(0.25, 0.35, 0.22, 1.0),  -- 淡墨绿
+        Color(0.30, 0.38, 0.28, 1.0),  -- 青苔绿
+        Color(0.20, 0.30, 0.20, 1.0),  -- 深松绿
     }
     for i, pos in ipairs(treePositions) do
         local treeH = 2.5 + math.random() * 2.0  -- 树干高度 2.5~4.5m
@@ -366,9 +332,9 @@ function CreateSceneDecorations()
         { pos = Vector3(-40, 0, 30), rot = 45 },
         { pos = Vector3(42, 0, 35), rot = 10 },
     }
-    local roofMat = MakeTexMat("image/tex_deadtree_bark_20260611064239.png", 0.75, 0.0,
-        Color(0.4, 0.2, 0.1, 1.0))  -- 暗红色调屋顶
-    local doorMat = MakeMat(Color(0.12, 0.08, 0.05, 1.0), 0.85, 0.0)
+    local roofMat = MakeTexMat("image/tex_ink_bark_20260611072152.png", 0.75, 0.0,
+        Color(0.35, 0.28, 0.22, 1.0))  -- 水墨褐色屋顶
+    local doorMat = MakeMat(Color(0.18, 0.14, 0.10, 1.0), 0.85, 0.0)
     for i, hd in ipairs(housePositions) do
         local hw, hh, hd_depth = 3.0, 2.5, 3.5  -- 宽、高、深
         local houseRoot = scene_:CreateChild("House_" .. i)
@@ -412,7 +378,7 @@ function CreateSceneDecorations()
         shape:SetBox(Vector3(hw, hh, hd_depth), Vector3(0, hh * 0.5, 0))
     end
 
-    -- === 灌木丛（小型球体聚簇）— 暗黑写实风：深墨绿 ===
+    -- === 灌木丛（小型球体聚簇）— 水墨风：淡青绿 ===
     local bushPositions = {
         Vector3(-6, 0, 15), Vector3(14, 0, 8), Vector3(-20, 0, -10),
         Vector3(25, 0, 15), Vector3(-30, 0, -8), Vector3(8, 0, -15),
@@ -420,9 +386,9 @@ function CreateSceneDecorations()
         Vector3(32, 0, -18), Vector3(-8, 0, -32), Vector3(15, 0, 32),
     }
     local bushColors = {
-        Color(0.06, 0.12, 0.04, 1.0),  -- 极深墨绿
-        Color(0.08, 0.14, 0.05, 1.0),  -- 暗苔绿
-        Color(0.05, 0.10, 0.03, 1.0),  -- 近乎黑绿
+        Color(0.22, 0.32, 0.18, 1.0),  -- 淡墨绿
+        Color(0.28, 0.36, 0.22, 1.0),  -- 青苔色
+        Color(0.18, 0.28, 0.16, 1.0),  -- 松烟绿
     }
     for i, pos in ipairs(bushPositions) do
         local bushNode = scene_:CreateChild("Bush_" .. i)
@@ -446,7 +412,7 @@ function CreateSceneDecorations()
         -- 灌木不加碰撞体（可穿过）
     end
 
-    -- === 篝火遗迹（圆石圈 + 中心炭火 + 余烬光）— 暗黑写实风 ===
+    -- === 篝火遗迹（圆石圈 + 中心炭火 + 余烬光）— 水墨风 ===
     local campfirePositions = {
         Vector3(0, 0, 20), Vector3(-20, 0, -25),
     }
@@ -484,7 +450,7 @@ function CreateSceneDecorations()
         light.castShadows = false
     end
 
-    -- === 木栅栏段（分散在地图边缘附近）— 暗黑写实风：使用树皮贴图 ===
+    -- === 木栅栏段（分散在地图边缘附近）— 水墨风：使用树皮贴图 ===
     local fenceSegments = {
         { pos = Vector3(-45, 0, 0), rot = 0 },
         { pos = Vector3(-45, 0, 4), rot = 0 },
@@ -493,7 +459,7 @@ function CreateSceneDecorations()
         { pos = Vector3(45, 0, -1), rot = 10 },
         { pos = Vector3(45, 0, 3), rot = 10 },
     }
-    local fenceMat = MakeTexMat("image/tex_deadtree_bark_20260611064239.png", 0.85, 0.0, Color(0.6, 0.5, 0.4, 1.0))
+    local fenceMat = MakeTexMat("image/tex_ink_bark_20260611072152.png", 0.85, 0.0, Color(0.55, 0.48, 0.40, 1.0))
     for i, fd in ipairs(fenceSegments) do
         local fNode = scene_:CreateChild("Fence_" .. i)
         fNode.position = Vector3(fd.pos.x, 0.6, fd.pos.z)

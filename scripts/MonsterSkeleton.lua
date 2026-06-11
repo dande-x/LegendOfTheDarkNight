@@ -22,7 +22,7 @@ local function CreatePBRMat(color, roughness, metallic)
     return mat
 end
 
--- 纹理贴图材质（暗黑写实风）
+-- 纹理贴图材质（国风水墨风）
 local function CreateTexPBRMat(texPath, roughness, metallic, tint)
     local mat = Material:new()
     mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRMetallicRoughDiffNormalSpec.xml"))
@@ -36,13 +36,13 @@ local function CreateTexPBRMat(texPath, roughness, metallic, tint)
     return mat
 end
 
--- 怪物贴图映射表（暗黑写实风纹理）
+-- 怪物贴图映射表（国风水墨风纹理）
 local MONSTER_TEXTURES = {
-    deer      = "image/tex_monster_deer_20260611064300.png",
-    scarecrow = "image/tex_monster_scarecrow_20260611064311.png",
-    skeleton  = "image/tex_monster_skeleton_20260611064301.png",
-    spider    = "image/tex_monster_spider_20260611064307.png",
-    orc       = "image/tex_monster_orc_20260611064320.png",
+    deer      = "image/tex_ink_deer_20260611072330.png",
+    scarecrow = "image/tex_ink_scarecrow_20260611072358.png",
+    skeleton  = "image/tex_ink_skeleton_20260611072341.png",
+    spider    = "image/tex_ink_spider_20260611072322.png",
+    orc       = "image/tex_ink_orc_20260611072339.png",
 }
 
 -- ============================================================================
