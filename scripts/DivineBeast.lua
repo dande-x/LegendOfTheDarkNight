@@ -81,7 +81,7 @@ local beast = {
     hitFlashTimer = 0,
     -- 行走动画
     walkPhase = 0,        -- 步态周期相位 (0~2π)
-    walkSpeed = 8.0,      -- 步态频率（越大摆腿越快）
+    walkSpeed = 5.5,      -- 步态频率（适中，让迈步清晰可见）
     isMoving = false,
     -- 肢体节点引用（模型创建后赋值）
     limbs = nil,
@@ -682,72 +682,78 @@ end
 -- ============================================================================
 -- 程序化行走动画（腿部前后摆动、身体上下起伏、手臂摆动、尾巴晃动）
 -- ============================================================================
+-- 行走动画混合因子（0=站立，1=完全行走），用于平滑过渡
+local walkBlend = 0
+
 local function UpdateWalkAnimation(dt)
     local limbs = beast.limbs
     if not limbs then return end
 
     local S = limbs.S
 
+    -- 混合因子平滑过渡
     if beast.isMoving then
-        -- 步态相位推进
+        walkBlend = math.min(1.0, walkBlend + dt * 4.0)  -- 0.25秒渐入
+    else
+        walkBlend = math.max(0.0, walkBlend - dt * 3.0)  -- 0.33秒渐出
+    end
+
+    -- 相位推进（只在混合>0时继续）
+    if walkBlend > 0.01 then
         beast.walkPhase = beast.walkPhase + dt * beast.walkSpeed
         if beast.walkPhase > math.pi * 2 then
             beast.walkPhase = beast.walkPhase - math.pi * 2
         end
     else
-        -- 停止时缓慢回到站立姿势
-        if beast.walkPhase ~= 0 then
-            beast.walkPhase = beast.walkPhase * 0.85  -- 快速衰减
-            if math.abs(beast.walkPhase) < 0.05 then
-                beast.walkPhase = 0
-            end
-        end
+        beast.walkPhase = 0
+        return  -- 完全站立，不需要更新位置
     end
 
     local phase = beast.walkPhase
     local sinP = math.sin(phase)
-    local cosP = math.cos(phase)
+    local b = walkBlend  -- 简写混合因子
 
-    -- === 腿部动画 ===
-    -- 左右腿相位相反：左腿 sin(phase)，右腿 sin(phase + π) = -sin(phase)
-    local legSwing = 0.12 * S   -- 前后摆幅
-    local legLift = 0.04 * S    -- 抬腿高度
+    -- === 腿部动画（大幅度，俯视角也要看得清） ===
+    local legSwing = 0.35 * S   -- 前后摆幅（大幅增加）
+    local legLift = 0.12 * S    -- 抬腿高度（大幅增加）
 
-    -- 大腿：前后平移 + 轻微抬起
-    local liftL = math.max(0, sinP) * legLift     -- 左腿前迈时抬起
-    local liftR = math.max(0, -sinP) * legLift    -- 右腿前迈时抬起
+    -- 大腿：前后平移 + 抬起
+    local liftL = math.max(0, sinP) * legLift * b
+    local liftR = math.max(0, -sinP) * legLift * b
+    local swingL = sinP * legSwing * b
+    local swingR = -sinP * legSwing * b
 
-    limbs.thighL.position = limbs.thighLPos + Vector3(0, liftL, sinP * legSwing)
-    limbs.thighR.position = limbs.thighRPos + Vector3(0, liftR, -sinP * legSwing)
+    limbs.thighL.position = limbs.thighLPos + Vector3(0, liftL, swingL)
+    limbs.thighR.position = limbs.thighRPos + Vector3(0, liftR, swingR)
 
-    -- 小腿跟随大腿（摆幅稍小，有一点延迟感）
-    local shinSwing = 0.08 * S
-    limbs.shinL.position = limbs.shinLPos + Vector3(0, liftL * 0.5, sinP * shinSwing)
-    limbs.shinR.position = limbs.shinRPos + Vector3(0, liftR * 0.5, -sinP * shinSwing)
+    -- 小腿跟随大腿（稍小幅度）
+    local shinSwing = 0.25 * S
+    limbs.shinL.position = limbs.shinLPos + Vector3(0, liftL * 0.6, sinP * shinSwing * b)
+    limbs.shinR.position = limbs.shinRPos + Vector3(0, liftR * 0.6, -sinP * shinSwing * b)
 
-    -- 脚掌跟随（贴地感）
-    local footSwing = 0.06 * S
-    limbs.footL.position = limbs.footLPos + Vector3(0, liftL * 0.3, sinP * footSwing)
-    limbs.footR.position = limbs.footRPos + Vector3(0, liftR * 0.3, -sinP * footSwing)
+    -- 脚掌跟随
+    local footSwing = 0.18 * S
+    limbs.footL.position = limbs.footLPos + Vector3(0, liftL * 0.4, sinP * footSwing * b)
+    limbs.footR.position = limbs.footRPos + Vector3(0, liftR * 0.4, -sinP * footSwing * b)
 
-    -- === 手臂动画（与同侧腿相反摆动） ===
-    local armSwing = 0.06 * S
-    limbs.armL.position = limbs.armLPos + Vector3(0, 0, -sinP * armSwing)
-    limbs.armR.position = limbs.armRPos + Vector3(0, 0, sinP * armSwing)
+    -- === 手臂动画（与同侧腿相反摆动，也大幅增加） ===
+    local armSwing = 0.18 * S
+    limbs.armL.position = limbs.armLPos + Vector3(0, 0, -sinP * armSwing * b)
+    limbs.armR.position = limbs.armRPos + Vector3(0, 0, sinP * armSwing * b)
 
-    local forearmSwing = 0.05 * S
-    limbs.forearmL.position = limbs.forearmLPos + Vector3(0, 0, -sinP * forearmSwing)
-    limbs.forearmR.position = limbs.forearmRPos + Vector3(0, 0, sinP * forearmSwing)
+    local forearmSwing = 0.14 * S
+    limbs.forearmL.position = limbs.forearmLPos + Vector3(0, 0, -sinP * forearmSwing * b)
+    limbs.forearmR.position = limbs.forearmRPos + Vector3(0, 0, sinP * forearmSwing * b)
 
-    limbs.handL.position = limbs.handLPos + Vector3(0, 0, -sinP * forearmSwing * 0.8)
-    limbs.handR.position = limbs.handRPos + Vector3(0, 0, sinP * forearmSwing * 0.8)
+    limbs.handL.position = limbs.handLPos + Vector3(0, 0, -sinP * forearmSwing * 0.8 * b)
+    limbs.handR.position = limbs.handRPos + Vector3(0, 0, sinP * forearmSwing * 0.8 * b)
 
-    -- === 身体上下起伏（两步一个周期，频率是腿的2倍） ===
-    local bodyBob = math.abs(sinP) * 0.03 * S  -- 轻微起伏
+    -- === 身体上下起伏（明显的"笨重感"上下颠） ===
+    local bodyBob = math.abs(sinP) * 0.08 * S * b
     limbs.root.position = Vector3(0, bodyBob, 0)
 
-    -- === 尾巴左右晃动（频率略低于步态，像自然摆动） ===
-    local tailSway = math.sin(phase * 0.7) * 0.06 * S
+    -- === 尾巴左右大幅摆动 ===
+    local tailSway = math.sin(phase * 0.7) * 0.15 * S * b
     if limbs.tailBase then
         limbs.tailBase.position = Vector3(tailSway * 0.5, 0.6*S, -0.32*S)
     end
