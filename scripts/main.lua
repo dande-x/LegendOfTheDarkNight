@@ -108,9 +108,28 @@ function CreateScene()
     local lightGroup = scene_:CreateChild("LightGroup")
     lightGroup:LoadXML(lightGroupFile:GetRoot())
 
+    -- === 暗黑写实风氛围增强 ===
+    -- 获取 LightGroup 中的 Zone，调整雾效
+    local zone = lightGroup:GetComponent("Zone", true)
+    if zone then
+        zone.fogColor = Color(0.04, 0.04, 0.06, 1.0)  -- 极深暗蓝黑雾
+        zone.fogStart = 25.0                            -- 25m 开始起雾
+        zone.fogEnd = 80.0                              -- 80m 完全融入雾色（俯视角较近距离）
+        zone.heightFog = true                           -- 启用高度雾
+        zone.fogHeight = 1.0                            -- 雾面高度 Y=1m
+        zone.fogHeightScale = 0.3                       -- 缓慢衰减
+    end
+
+    -- 获取 LightGroup 中的方向光，调暗+偏冷色（暗黑氛围）
+    local dirLight = lightGroup:GetComponent("Light", true)
+    if dirLight then
+        dirLight.color = Color(0.6, 0.5, 0.4, 1.0)    -- 暖黄偏暗（黄昏残阳）
+        dirLight.brightness = 0.8                       -- 降低主光亮度
+    end
+
     CreateFloor()
     CreateSceneDecorations()
-    print("[main] Scene created (with PhysicsWorld)")
+    print("[main] Scene created (with PhysicsWorld + dark atmosphere)")
 end
 
 function CreateFloor()
@@ -121,19 +140,22 @@ function CreateFloor()
     floorModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
 
     local floorMat = Material:new()
-    floorMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
-    floorMat:SetShaderParameter("MatDiffColor", Variant(C.Floor))
-    floorMat:SetShaderParameter("MatSpecColor", Variant(Color(0.2, 0.2, 0.2, 1.0)))
+    floorMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRMetallicRoughDiffNormalSpec.xml"))
+    local groundTex = cache:GetResource("Texture2D", "image/tex_ground_dark_20260611064232.png")
+    groundTex:SetAddressMode(COORD_U, ADDRESS_WRAP)
+    groundTex:SetAddressMode(COORD_V, ADDRESS_WRAP)
+    floorMat:SetTexture(TU_DIFFUSE, groundTex)
+    floorMat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 1.0, 1.0, 1.0)))
     floorMat:SetShaderParameter("Metallic", Variant(0.0))
     floorMat:SetShaderParameter("Roughness", Variant(0.85))
+    floorMat:SetShaderParameter("UOffset", Variant(Vector4(30, 0, 0, 0)))  -- 贴图重复30次
+    floorMat:SetShaderParameter("VOffset", Variant(Vector4(0, 30, 0, 0)))
     floorModel:SetMaterial(floorMat)
     floorModel.castShadows = false
-
-    -- 地面不需要物理碰撞体（俯视角 2.5D，角色不会掉落）
 end
 
 function CreateSceneDecorations()
-    -- === 辅助：创建 PBR 材质 ===
+    -- === 辅助：创建纯色 PBR 材质 ===
     local function MakeMat(color, roughness, metallic)
         local mat = Material:new()
         mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
@@ -143,8 +165,25 @@ function CreateSceneDecorations()
         return mat
     end
 
+    -- === 辅助：创建贴图 PBR 材质 ===
+    local function MakeTexMat(texPath, roughness, metallic, tint)
+        local mat = Material:new()
+        mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRMetallicRoughDiffNormalSpec.xml"))
+        local tex = cache:GetResource("Texture2D", texPath)
+        mat:SetTexture(TU_DIFFUSE, tex)
+        mat:SetShaderParameter("MatDiffColor", Variant(tint or Color(1.0, 1.0, 1.0, 1.0)))
+        mat:SetShaderParameter("Roughness", Variant(roughness or 0.7))
+        mat:SetShaderParameter("Metallic", Variant(metallic or 0.0))
+        return mat
+    end
+
+    -- 预加载贴图材质
+    local stoneMat = MakeTexMat("image/tex_stone_moss_20260611064242.png", 0.9, 0.0)
+    local pillarMat = MakeTexMat("image/tex_pillar_rune_20260611064230.png", 0.7, 0.1)
+    local barkMat = MakeTexMat("image/tex_deadtree_bark_20260611064239.png", 0.85, 0.0)
+    local houseWallMat = MakeTexMat("image/tex_house_wall_20260611064233.png", 0.8, 0.0)
+
     -- === 石头 ===
-    local stoneColor = Color(0.25, 0.23, 0.22, 1.0)
     local stonePositions = {
         Vector3(8, 0, 12), Vector3(-15, 0, 8), Vector3(20, 0, -5),
         Vector3(-10, 0, -18), Vector3(5, 0, -25), Vector3(-22, 0, 15),
@@ -158,7 +197,7 @@ function CreateSceneDecorations()
         stoneNode.rotation = Quaternion(math.random() * 360, Vector3.UP)
         local model = stoneNode:CreateComponent("StaticModel")
         model:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
-        model:SetMaterial(MakeMat(stoneColor, 0.9, 0.0))
+        model:SetMaterial(stoneMat)
         model.castShadows = true
         local body = stoneNode:CreateComponent("RigidBody")
         body.mass = 0
@@ -179,7 +218,7 @@ function CreateSceneDecorations()
         pillarNode.position = Vector3(pos.x, 1.5, pos.z)
         local model = pillarNode:CreateComponent("StaticModel")
         model:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
-        model:SetMaterial(MakeMat(Color(0.35, 0.28, 0.22, 1.0), 0.7, 0.1))
+        model:SetMaterial(pillarMat)
         model.castShadows = true
         local body = pillarNode:CreateComponent("RigidBody")
         body.mass = 0
@@ -197,26 +236,26 @@ function CreateSceneDecorations()
         Vector3(-40, 0, 0), Vector3(40, 0, 5), Vector3(-8, 0, 38),
         Vector3(12, 0, 40), Vector3(-32, 0, -20), Vector3(35, 0, 32),
     }
-    local trunkColor = Color(0.30, 0.20, 0.10, 1.0)
+    -- 暗黑风格：枯萎稀疏的树冠颜色
     local leafColors = {
-        Color(0.15, 0.40, 0.12, 1.0),
-        Color(0.20, 0.50, 0.15, 1.0),
-        Color(0.12, 0.35, 0.10, 1.0),
+        Color(0.10, 0.18, 0.08, 1.0),  -- 暗墨绿
+        Color(0.12, 0.15, 0.06, 1.0),  -- 深橄榄
+        Color(0.08, 0.12, 0.05, 1.0),  -- 近乎黑绿
     }
     for i, pos in ipairs(treePositions) do
         local treeH = 2.5 + math.random() * 2.0  -- 树干高度 2.5~4.5m
         local crownR = 1.2 + math.random() * 1.0   -- 树冠半径 1.2~2.2m
 
-        -- 树干
+        -- 树干（使用枯树皮贴图）
         local trunkNode = scene_:CreateChild("Tree_" .. i)
         trunkNode.position = Vector3(pos.x, treeH * 0.5, pos.z)
         trunkNode.scale = Vector3(0.3, treeH, 0.3)
         local trunkModel = trunkNode:CreateComponent("StaticModel")
         trunkModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
-        trunkModel:SetMaterial(MakeMat(trunkColor, 0.85, 0.0))
+        trunkModel:SetMaterial(barkMat)
         trunkModel.castShadows = true
 
-        -- 树冠（球形）
+        -- 树冠（暗色球形，稀疏感）
         local crownNode = scene_:CreateChild("TreeCrown_" .. i)
         crownNode.position = Vector3(pos.x, treeH + crownR * 0.6, pos.z)
         crownNode.scale = Vector3(crownR * 2, crownR * 1.6, crownR * 2)
@@ -241,19 +280,18 @@ function CreateSceneDecorations()
         Vector3(42, 0, -8), Vector3(-5, 0, -42), Vector3(15, 0, 38),
         Vector3(-28, 0, -35), Vector3(45, 0, 20),
     }
-    local deadWoodColor = Color(0.22, 0.18, 0.12, 1.0)
     for i, pos in ipairs(deadTreePositions) do
         local h = 2.0 + math.random() * 2.5
         local tilt = math.random() * 12 - 6  -- 微微倾斜
 
-        -- 主干
+        -- 主干（使用枯树皮贴图）
         local deadNode = scene_:CreateChild("DeadTree_" .. i)
         deadNode.position = Vector3(pos.x, h * 0.5, pos.z)
         deadNode.scale = Vector3(0.2, h, 0.2)
         deadNode.rotation = Quaternion(tilt, Vector3.FORWARD) * Quaternion(math.random() * 360, Vector3.UP)
         local model = deadNode:CreateComponent("StaticModel")
         model:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
-        model:SetMaterial(MakeMat(deadWoodColor, 0.9, 0.0))
+        model:SetMaterial(barkMat)
         model.castShadows = true
 
         -- 分叉枝条（2~3根）
@@ -273,7 +311,7 @@ function CreateSceneDecorations()
             branchNode.rotation = Quaternion(30 + math.random() * 30, Vector3(math.cos(rad), 0, -math.sin(rad)))
             local bModel = branchNode:CreateComponent("StaticModel")
             bModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
-            bModel:SetMaterial(MakeMat(deadWoodColor, 0.9, 0.0))
+            bModel:SetMaterial(barkMat)
             bModel.castShadows = true
         end
 
@@ -293,41 +331,41 @@ function CreateSceneDecorations()
         { pos = Vector3(-40, 0, 30), rot = 45 },
         { pos = Vector3(42, 0, 35), rot = 10 },
     }
-    local wallColor = Color(0.45, 0.38, 0.28, 1.0)
-    local roofColor = Color(0.30, 0.15, 0.08, 1.0)
-    local doorColor = Color(0.25, 0.18, 0.10, 1.0)
+    local roofMat = MakeTexMat("image/tex_deadtree_bark_20260611064239.png", 0.75, 0.0,
+        Color(0.4, 0.2, 0.1, 1.0))  -- 暗红色调屋顶
+    local doorMat = MakeMat(Color(0.12, 0.08, 0.05, 1.0), 0.85, 0.0)
     for i, hd in ipairs(housePositions) do
         local hw, hh, hd_depth = 3.0, 2.5, 3.5  -- 宽、高、深
         local houseRoot = scene_:CreateChild("House_" .. i)
         houseRoot.position = Vector3(hd.pos.x, 0, hd.pos.z)
         houseRoot.rotation = Quaternion(hd.rot, Vector3.UP)
 
-        -- 墙体
+        -- 墙体（烟熏木板+石砖贴图）
         local wallNode = houseRoot:CreateChild("Wall")
         wallNode.position = Vector3(0, hh * 0.5, 0)
         wallNode.scale = Vector3(hw, hh, hd_depth)
         local wallModel = wallNode:CreateComponent("StaticModel")
         wallModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
-        wallModel:SetMaterial(MakeMat(wallColor, 0.8, 0.0))
+        wallModel:SetMaterial(houseWallMat)
         wallModel.castShadows = true
 
-        -- 屋顶（扁平 Box，稍大于墙体）
+        -- 屋顶（暗色树皮质感）
         local roofNode = houseRoot:CreateChild("Roof")
         roofNode.position = Vector3(0, hh + 0.4, 0)
         roofNode.scale = Vector3(hw + 0.6, 0.8, hd_depth + 0.6)
         roofNode.rotation = Quaternion(0, 0, 0)
         local roofModel = roofNode:CreateComponent("StaticModel")
         roofModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
-        roofModel:SetMaterial(MakeMat(roofColor, 0.75, 0.0))
+        roofModel:SetMaterial(roofMat)
         roofModel.castShadows = true
 
-        -- 门（深色方块在正面）
+        -- 门（深黑色）
         local doorNode = houseRoot:CreateChild("Door")
         doorNode.position = Vector3(0, 0.7, hd_depth * 0.5 + 0.02)
         doorNode.scale = Vector3(0.7, 1.4, 0.05)
         local doorModel = doorNode:CreateComponent("StaticModel")
         doorModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
-        doorModel:SetMaterial(MakeMat(doorColor, 0.85, 0.0))
+        doorModel:SetMaterial(doorMat)
         doorModel.castShadows = false
 
         -- 整体碰撞
@@ -339,14 +377,18 @@ function CreateSceneDecorations()
         shape:SetBox(Vector3(hw, hh, hd_depth), Vector3(0, hh * 0.5, 0))
     end
 
-    -- === 灌木丛（小型球体聚簇） ===
+    -- === 灌木丛（小型球体聚簇）— 暗黑写实风：深墨绿 ===
     local bushPositions = {
         Vector3(-6, 0, 15), Vector3(14, 0, 8), Vector3(-20, 0, -10),
         Vector3(25, 0, 15), Vector3(-30, 0, -8), Vector3(8, 0, -15),
         Vector3(-14, 0, 32), Vector3(20, 0, -28), Vector3(-25, 0, 22),
         Vector3(32, 0, -18), Vector3(-8, 0, -32), Vector3(15, 0, 32),
     }
-    local bushColor = Color(0.18, 0.35, 0.12, 1.0)
+    local bushColors = {
+        Color(0.06, 0.12, 0.04, 1.0),  -- 极深墨绿
+        Color(0.08, 0.14, 0.05, 1.0),  -- 暗苔绿
+        Color(0.05, 0.10, 0.03, 1.0),  -- 近乎黑绿
+    }
     for i, pos in ipairs(bushPositions) do
         local bushNode = scene_:CreateChild("Bush_" .. i)
         bushNode.position = pos
@@ -362,20 +404,21 @@ function CreateSceneDecorations()
             bNode.scale = Vector3(s, s * 0.7, s)
             local bModel = bNode:CreateComponent("StaticModel")
             bModel:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
-            bModel:SetMaterial(MakeMat(bushColor, 0.85, 0.0))
+            local bc = bushColors[math.random(1, #bushColors)]
+            bModel:SetMaterial(MakeMat(bc, 0.9, 0.0))
             bModel.castShadows = true
         end
         -- 灌木不加碰撞体（可穿过）
     end
 
-    -- === 篝火遗迹（圆石圈 + 中心炭火） ===
+    -- === 篝火遗迹（圆石圈 + 中心炭火 + 余烬光）— 暗黑写实风 ===
     local campfirePositions = {
         Vector3(0, 0, 20), Vector3(-20, 0, -25),
     }
     for i, pos in ipairs(campfirePositions) do
         local campNode = scene_:CreateChild("Campfire_" .. i)
         campNode.position = pos
-        -- 圆石圈（6块小石头）
+        -- 圆石圈（6块小石头）— 使用石头贴图
         for s = 1, 6 do
             local angle = (s - 1) * 60
             local rad = math.rad(angle)
@@ -384,20 +427,29 @@ function CreateSceneDecorations()
             sNode.scale = Vector3(0.3, 0.2, 0.3)
             local sModel = sNode:CreateComponent("StaticModel")
             sModel:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
-            sModel:SetMaterial(MakeMat(Color(0.3, 0.28, 0.25, 1.0), 0.9, 0.0))
+            sModel:SetMaterial(stoneMat)
             sModel.castShadows = true
         end
-        -- 中心炭堆
+        -- 中心炭堆（暗红余烬色）
         local ashNode = campNode:CreateChild("Ash")
         ashNode.position = Vector3(0, 0.1, 0)
         ashNode.scale = Vector3(0.5, 0.15, 0.5)
         local ashModel = ashNode:CreateComponent("StaticModel")
         ashModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
-        ashModel:SetMaterial(MakeMat(Color(0.12, 0.08, 0.05, 1.0), 0.95, 0.0))
+        ashModel:SetMaterial(MakeMat(Color(0.08, 0.04, 0.02, 1.0), 0.95, 0.0))
         ashModel.castShadows = false
+        -- 篝火余烬点光（暖橙色微弱光芒）
+        local fireLight = campNode:CreateChild("FireLight")
+        fireLight.position = Vector3(0, 0.4, 0)
+        local light = fireLight:CreateComponent("Light")
+        light.lightType = LIGHT_POINT
+        light.color = Color(0.9, 0.4, 0.1, 1.0)
+        light.range = 4.0
+        light.brightness = 0.6
+        light.castShadows = false
     end
 
-    -- === 木栅栏段（分散在地图边缘附近） ===
+    -- === 木栅栏段（分散在地图边缘附近）— 暗黑写实风：使用树皮贴图 ===
     local fenceSegments = {
         { pos = Vector3(-45, 0, 0), rot = 0 },
         { pos = Vector3(-45, 0, 4), rot = 0 },
@@ -406,7 +458,7 @@ function CreateSceneDecorations()
         { pos = Vector3(45, 0, -1), rot = 10 },
         { pos = Vector3(45, 0, 3), rot = 10 },
     }
-    local fenceColor = Color(0.32, 0.24, 0.14, 1.0)
+    local fenceMat = MakeTexMat("image/tex_deadtree_bark_20260611064239.png", 0.85, 0.0, Color(0.6, 0.5, 0.4, 1.0))
     for i, fd in ipairs(fenceSegments) do
         local fNode = scene_:CreateChild("Fence_" .. i)
         fNode.position = Vector3(fd.pos.x, 0.6, fd.pos.z)
@@ -414,7 +466,7 @@ function CreateSceneDecorations()
         fNode.scale = Vector3(0.1, 1.2, 2.5)
         local fModel = fNode:CreateComponent("StaticModel")
         fModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
-        fModel:SetMaterial(MakeMat(fenceColor, 0.85, 0.0))
+        fModel:SetMaterial(fenceMat)
         fModel.castShadows = true
         local body = fNode:CreateComponent("RigidBody")
         body.mass = 0

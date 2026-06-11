@@ -22,6 +22,29 @@ local function CreatePBRMat(color, roughness, metallic)
     return mat
 end
 
+-- 纹理贴图材质（暗黑写实风）
+local function CreateTexPBRMat(texPath, roughness, metallic, tint)
+    local mat = Material:new()
+    mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRMetallicRoughDiffNormalSpec.xml"))
+    local tex = cache:GetResource("Texture2D", texPath)
+    if tex then
+        mat:SetTexture(TU_DIFFUSE, tex)
+    end
+    mat:SetShaderParameter("MatDiffColor", Variant(tint or Color(1.0, 1.0, 1.0, 1.0)))
+    mat:SetShaderParameter("Roughness", Variant(roughness or 0.7))
+    mat:SetShaderParameter("Metallic", Variant(metallic or 0.0))
+    return mat
+end
+
+-- 怪物贴图映射表（暗黑写实风纹理）
+local MONSTER_TEXTURES = {
+    deer      = "image/tex_monster_deer_20260611064300.png",
+    scarecrow = "image/tex_monster_scarecrow_20260611064311.png",
+    skeleton  = "image/tex_monster_skeleton_20260611064301.png",
+    spider    = "image/tex_monster_spider_20260611064307.png",
+    orc       = "image/tex_monster_orc_20260611064320.png",
+}
+
 -- ============================================================================
 -- 骨架定义：5种怪物
 -- 格式: { parent, pos={x,y,z}, meshScale={x,y,z}, model, meshOffset={x,y,z} }
@@ -631,6 +654,13 @@ function MonsterSkeleton.CreateSkeleton(parentNode, monsterType)
     local buildOrder = getBuildOrder(boneDefs)
     local bones = {}
 
+    -- 如果有对应贴图，预创建纹理材质（避免每个骨骼重复创建）
+    local texPath = MONSTER_TEXTURES[monsterType]
+    local texMat = nil
+    if texPath then
+        texMat = CreateTexPBRMat(texPath, 0.7, 0.05)
+    end
+
     for _, name in ipairs(buildOrder) do
         local def = boneDefs[name]
         local pNode = def.parent and bones[def.parent] or parentNode
@@ -647,8 +677,15 @@ function MonsterSkeleton.CreateSkeleton(parentNode, monsterType)
 
         local model = meshNode:CreateComponent("StaticModel")
         model:SetModel(cache:GetResource("Model", "Models/" .. def.model .. ".mdl"))
-        local boneColor = def.colorOverride or color
-        model:SetMaterial(CreatePBRMat(boneColor, 0.6, 0.1))
+
+        -- 材质选择：有 colorOverride 的部位用纯色，否则用纹理贴图
+        if def.colorOverride then
+            model:SetMaterial(CreatePBRMat(def.colorOverride, 0.6, 0.1))
+        elseif texMat then
+            model:SetMaterial(texMat)
+        else
+            model:SetMaterial(CreatePBRMat(color, 0.6, 0.1))
+        end
         model.castShadows = true
 
         bones[name] = boneNode
