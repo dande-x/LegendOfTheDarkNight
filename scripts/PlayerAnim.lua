@@ -87,6 +87,16 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors)
     local skinColor = colors.Cream
     local armorColor = color
 
+    -- 职业对应的水墨贴图路径
+    local ARMOR_TEXTURES = {
+        warrior = "image/tex_ink_warrior_armor_20260611120705.png",
+        mage    = "image/tex_ink_mage_robe_20260611120705.png",
+        taoist  = "image/tex_ink_taoist_robe_20260611120659.png",
+    }
+    local armorTexPath = ARMOR_TEXTURES[classId]
+    ---@type Texture2D
+    local armorTex = armorTexPath and cache:GetResource("Texture2D", armorTexPath) or nil
+
     for _, name in ipairs(BUILD_ORDER) do
         local def = BONE_DEFS[name]
         local parentNode = def.parent and bones[def.parent] or playerNode
@@ -106,28 +116,48 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors)
         local model = meshNode:CreateComponent("StaticModel")
         model:SetModel(cache:GetResource("Model", "Models/" .. def.model .. ".mdl"))
 
-        -- 材质分配：头/手/脖子=肤色，其余=铠甲色
-        local mat = Material:new()
-        mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
-
+        -- 材质分配：头/手/脖子=肤色，铠甲部位=贴图，腿部=暗色贴图
         local isSkin = (name == "head" or name == "neck" or name == "lHand" or name == "rHand")
         local isLeg = (name == "lThigh" or name == "lShin" or name == "rThigh" or name == "rShin" or name == "lFoot" or name == "rFoot")
 
+        local mat = Material:new()
+
         if isSkin then
+            mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
             mat:SetShaderParameter("MatDiffColor", Variant(skinColor))
             mat:SetShaderParameter("Roughness", Variant(0.7))
             mat:SetShaderParameter("Metallic", Variant(0.0))
-        elseif isLeg then
-            local legColor = Color(armorColor.r * 0.7, armorColor.g * 0.7, armorColor.b * 0.7, 1.0)
-            mat:SetShaderParameter("MatDiffColor", Variant(legColor))
-            mat:SetShaderParameter("Roughness", Variant(0.5))
-            mat:SetShaderParameter("Metallic", Variant(0.3))
+        elseif armorTex then
+            -- 有贴图：铠甲/腿部都使用贴图材质
+            mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRMetallicRoughDiffNormalSpec.xml"))
+            mat:SetTexture(TU_DIFFUSE, armorTex)
+            if isLeg then
+                mat:SetShaderParameter("MatDiffColor", Variant(Color(0.7, 0.7, 0.7, 1.0)))  -- 腿部稍暗
+                mat:SetShaderParameter("Roughness", Variant(0.6))
+                mat:SetShaderParameter("Metallic", Variant(0.2))
+            else
+                mat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 1.0, 1.0, 1.0)))
+                mat:SetShaderParameter("Roughness", Variant(0.45))
+                mat:SetShaderParameter("Metallic", Variant(0.35))
+                if name == "chest" then
+                    mat:SetShaderParameter("MatEmissiveColor", Variant(Color(armorColor.r * 0.12, armorColor.g * 0.12, armorColor.b * 0.12)))
+                end
+            end
         else
-            mat:SetShaderParameter("MatDiffColor", Variant(armorColor))
-            mat:SetShaderParameter("Roughness", Variant(0.4))
-            mat:SetShaderParameter("Metallic", Variant(0.4))
-            if name == "chest" then
-                mat:SetShaderParameter("MatEmissiveColor", Variant(Color(armorColor.r * 0.15, armorColor.g * 0.15, armorColor.b * 0.15)))
+            -- 无贴图 fallback：纯色
+            mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
+            if isLeg then
+                local legColor = Color(armorColor.r * 0.7, armorColor.g * 0.7, armorColor.b * 0.7, 1.0)
+                mat:SetShaderParameter("MatDiffColor", Variant(legColor))
+                mat:SetShaderParameter("Roughness", Variant(0.5))
+                mat:SetShaderParameter("Metallic", Variant(0.3))
+            else
+                mat:SetShaderParameter("MatDiffColor", Variant(armorColor))
+                mat:SetShaderParameter("Roughness", Variant(0.4))
+                mat:SetShaderParameter("Metallic", Variant(0.4))
+                if name == "chest" then
+                    mat:SetShaderParameter("MatEmissiveColor", Variant(Color(armorColor.r * 0.15, armorColor.g * 0.15, armorColor.b * 0.15)))
+                end
             end
         end
 

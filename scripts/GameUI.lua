@@ -1045,6 +1045,12 @@ function GameUI.ShowClassSelect(onSelected)
         mage    = "法",
         taoist  = "道",
     }
+    -- 角色头像贴图
+    local classAvatars = {
+        warrior = "image/avatar_warrior_20260611121040.png",
+        mage    = "image/avatar_mage_20260611121045.png",
+        taoist  = "image/avatar_taoist_20260611121042.png",
+    }
     local classGlowColors = {
         warrior = {200, 85, 45, 255},
         mage    = {50, 120, 210, 255},
@@ -1079,11 +1085,12 @@ function GameUI.ShowClassSelect(onSelected)
                     borderColor = glow,
                     justifyContent = "center",
                     alignItems = "center",
+                    overflow = "hidden",
                     children = {
-                        UI.Label {
-                            text = classIcons[classId],
-                            fontSize = 38,
-                            fontColor = glow,
+                        UI.Image {
+                            src = classAvatars[classId],
+                            width = 82, height = 82,
+                            borderRadius = 41,
                         },
                     },
                 },
@@ -1367,6 +1374,29 @@ end
 -- ============================================================================
 -- 右下角 - 技能栏
 -- ============================================================================
+-- 技能栏图标映射（全局复用）
+local _skillBarIcons = {
+    w_basic = "image/icon_w_basic_20260611120804.png",
+    w_thrust = "image/icon_w_thrust_20260611120757.png",
+    w_crescent = "image/icon_w_crescent_20260611120808.png",
+    w_charge = "image/icon_w_charge_20260611120805.png",
+    w_fire = "image/icon_w_fire_20260611120801.png",
+    w_shield = "image/icon_w_shield_20260611120801.png",
+    m_fireball = "image/icon_m_fireball_20260611120855.png",
+    m_hellfire = "image/icon_m_hellfire_20260611120858.png",
+    m_thunder = "image/icon_m_thunder_20260611120858.png",
+    m_explosion = "image/icon_m_explosion_20260611120859.png",
+    m_firewall = "image/icon_m_firewall_20260611120900.png",
+    m_blizzard = "image/icon_m_blizzard_20260611120900.png",
+    m_shield = "image/icon_m_shield_20260611120849.png",
+    t_talisman = "image/icon_t_talisman_20260611120944.png",
+    t_divineBeast = "image/icon_t_divineBeast_20260611120948.png",
+    t_beastRage = "image/icon_t_beastRage_20260611120939.png",
+    t_talismanBurst = "image/icon_t_talismanBurst_20260611120945.png",
+    t_heal = "image/icon_t_heal_20260611120946.png",
+    t_beastEvolve = "image/icon_t_beastEvolve_20260611120944.png",
+}
+
 function GameUI._CreateSkillBar(player)
     local classDef = CharacterClass.Classes[player.classId]
 
@@ -1419,8 +1449,15 @@ function GameUI._CreateSkillBar(player)
             borderColor = borderClr,
             justifyContent = "center",
             alignItems = "center",
+            overflow = "hidden",
             children = {
-                UI.Label {
+                (skill and _skillBarIcons[skill.id]) and UI.Image {
+                    src = _skillBarIcons[skill.id],
+                    width = math.floor(size * 0.78),
+                    height = math.floor(size * 0.78),
+                    borderRadius = math.floor(size * 0.39),
+                    opacity = unlocked and 1.0 or 0.4,
+                } or UI.Label {
                     text = skillName,
                     fontSize = size <= 56 and 10 or 12,
                     fontColor = unlocked and {240, 235, 220, 255} or {100, 100, 100, 150},
@@ -1506,6 +1543,12 @@ function GameUI._CreatePotions(player)
     local potionGap = math.floor(math.max(4, 6 * toUI))
     local potionFontSize = math.max(11, math.floor(13 * toUI))
 
+    -- 药瓶图标贴图
+    local potionIcons = {
+        hp = "image/icon_potion_hp_20260611121043.png",
+        mp = "image/icon_potion_mp_20260611121048.png",
+    }
+
     local function makePotion(kind, count, cfg)
         local countLabel = UI.Label {
             id = "potion_" .. kind .. "_count",
@@ -1537,6 +1580,7 @@ function GameUI._CreatePotions(player)
             borderColor = cfg.rimColor,
             justifyContent = "center",
             alignItems = "center",
+            overflow = "hidden",
             onPointerUp = function()
                 if kind == "hp" then
                     if GameUI.onUseHpPotion then GameUI.onUseHpPotion() end
@@ -1545,24 +1589,14 @@ function GameUI._CreatePotions(player)
                 end
             end,
             children = {
-                -- 液体内圈
-                UI.Panel {
+                -- 药瓶图标（替代纯色液体圈）
+                UI.Image {
+                    src = potionIcons[kind],
                     position = "absolute",
                     width = innerSize, height = innerSize,
                     borderRadius = math.floor(innerSize / 2),
-                    backgroundColor = cfg.liquidColor,
                 },
-                -- 高光
-                UI.Panel {
-                    position = "absolute",
-                    top = math.floor(potionSize * 0.16),
-                    left = math.floor(potionSize * 0.2),
-                    width = math.floor(potionSize * 0.2),
-                    height = math.floor(potionSize * 0.12),
-                    borderRadius = math.floor(potionSize * 0.08),
-                    backgroundColor = cfg.highlight,
-                },
-                -- 数量（白色居中）
+                -- 数量（白色居中，叠在图标上方）
                 countLabel,
                 -- CD 遮罩
                 cdOverlay,
@@ -1803,7 +1837,32 @@ local function _BuildSkillTabContent(player)
     local classDef = CharacterClass.Classes[player.classId]
     local allSkills = classDef.skills
 
-    -- 技能图标符号（传奇风格：用代表性符号代替图片）
+    -- 技能图标贴图映射（按 skill.id 对应生成的图标文件）
+    local skillIconImages = {
+        -- 武士
+        w_basic    = "image/icon_w_basic_20260611120804.png",
+        w_thrust   = "image/icon_w_thrust_20260611120757.png",
+        w_crescent = "image/icon_w_crescent_20260611120808.png",
+        w_charge   = "image/icon_w_charge_20260611120805.png",
+        w_fire     = "image/icon_w_fire_20260611120801.png",
+        w_shield   = "image/icon_w_shield_20260611120801.png",
+        -- 法师
+        m_fireball  = "image/icon_m_fireball_20260611120855.png",
+        m_hellfire  = "image/icon_m_hellfire_20260611120858.png",
+        m_thunder   = "image/icon_m_thunder_20260611120858.png",
+        m_explosion = "image/icon_m_explosion_20260611120859.png",
+        m_firewall  = "image/icon_m_firewall_20260611120900.png",
+        m_blizzard  = "image/icon_m_blizzard_20260611120900.png",
+        m_shield    = "image/icon_m_shield_20260611120849.png",
+        -- 道士
+        t_talisman     = "image/icon_t_talisman_20260611120944.png",
+        t_divineBeast  = "image/icon_t_divineBeast_20260611120948.png",
+        t_beastRage    = "image/icon_t_beastRage_20260611120939.png",
+        t_talismanBurst = "image/icon_t_talismanBurst_20260611120945.png",
+        t_heal         = "image/icon_t_heal_20260611120946.png",
+        t_beastEvolve  = "image/icon_t_beastEvolve_20260611120944.png",
+    }
+    -- 备用 emoji（当图标文件不存在时降级）
     local skillIcons = {
         melee  = "⚔", ranged = "🏹", aoe = "🔥",
         buff   = "✦", heal   = "✚", dot = "☠",
@@ -1822,7 +1881,8 @@ local function _BuildSkillTabContent(player)
             end
         end
 
-        local icon = skillIcons[skill.type] or "◆"
+        local iconSrc = skillIconImages[skill.id]
+        local iconFallback = skillIcons[skill.type] or "◆"
         local nameColor = locked and {80, 75, 65, 150} or {235, 225, 200, 255}
         local iconBg = locked and {30, 28, 24, 200} or equippedSlot > 0 and {50, 40, 25, 240} or {35, 30, 22, 230}
         local iconBorder = locked and {50, 45, 38, 130} or equippedSlot > 0 and {180, 140, 50, 200} or {80, 70, 50, 170}
@@ -1855,8 +1915,13 @@ local function _BuildSkillTabContent(player)
                     borderRadius = 4, borderWidth = 1.5,
                     borderColor = iconBorder,
                     justifyContent = "center", alignItems = "center",
+                    overflow = "hidden",
                     children = {
-                        UI.Label { text = icon, fontSize = 22, fontColor = locked and {80, 75, 65, 130} or {240, 220, 160, 240} },
+                        iconSrc and UI.Image {
+                            src = iconSrc,
+                            width = 40, height = 40, borderRadius = 3,
+                            opacity = locked and 0.35 or 1.0,
+                        } or UI.Label { text = iconFallback, fontSize = 22, fontColor = locked and {80, 75, 65, 130} or {240, 220, 160, 240} },
                     },
                 },
                 -- 右侧：技能名 + 描述 + 解锁规则
