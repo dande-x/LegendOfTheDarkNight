@@ -131,7 +131,7 @@ function CreateScene()
 end
 
 function CreateFloor()
-    -- 地面：水墨风黄土+青草融合贴图（一体化，无需额外草坪层）
+    -- 地面：黄绿色草地底色（纯色，无贴图）
     local floorNode = scene_:CreateChild("Floor")
     floorNode.position = Vector3(0, -0.25, 0)
     floorNode.scale = Vector3(120, 0.5, 120)
@@ -139,18 +139,58 @@ function CreateFloor()
     floorModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
 
     local floorMat = Material:new()
-    floorMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRMetallicRoughDiffNormalSpec.xml"))
-    local groundTex = cache:GetResource("Texture2D", "image/tex_ink_ground_grass_20260611104506.png")
-    groundTex:SetAddressMode(COORD_U, ADDRESS_WRAP)
-    groundTex:SetAddressMode(COORD_V, ADDRESS_WRAP)
-    floorMat:SetTexture(TU_DIFFUSE, groundTex)
-    floorMat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 1.0, 1.0, 1.0)))
+    floorMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
+    floorMat:SetShaderParameter("MatDiffColor", Variant(Color(0.35, 0.42, 0.18, 1.0)))  -- 黄绿草地色
     floorMat:SetShaderParameter("Metallic", Variant(0.0))
-    floorMat:SetShaderParameter("Roughness", Variant(0.88))
-    floorMat:SetShaderParameter("UOffset", Variant(Vector4(12, 0, 0, 0)))
-    floorMat:SetShaderParameter("VOffset", Variant(Vector4(0, 12, 0, 0)))
+    floorMat:SetShaderParameter("Roughness", Variant(0.92))
     floorModel:SetMaterial(floorMat)
     floorModel.castShadows = false
+
+    -- 立体草丛建模：薄片 Box 模拟草叶，高度约 0.3m（膝盖以下）
+    local grassColors = {
+        Color(0.25, 0.38, 0.12, 1.0),  -- 深草绿
+        Color(0.32, 0.45, 0.15, 1.0),  -- 中草绿
+        Color(0.28, 0.40, 0.10, 1.0),  -- 橄榄绿
+        Color(0.38, 0.48, 0.18, 1.0),  -- 黄草绿
+    }
+    local grassMats = {}
+    for i, gc in ipairs(grassColors) do
+        local m = Material:new()
+        m:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
+        m:SetShaderParameter("MatDiffColor", Variant(gc))
+        m:SetShaderParameter("Roughness", Variant(0.85))
+        m:SetShaderParameter("Metallic", Variant(0.0))
+        grassMats[i] = m
+    end
+
+    -- 在地图范围内散布草丛簇（每簇 3~5 根草叶）
+    math.randomseed(42)  -- 固定种子保证每次一致
+    local grassRoot = scene_:CreateChild("GrassRoot")
+    local clusterCount = 120
+    for c = 1, clusterCount do
+        local cx = (math.random() - 0.5) * 80  -- -40 ~ 40 范围
+        local cz = (math.random() - 0.5) * 80
+        local bladeCount = 3 + math.random(0, 2)  -- 每簇 3~5 根
+
+        for b = 1, bladeCount do
+            local bNode = grassRoot:CreateChild("Grass")
+            local h = 0.22 + math.random() * 0.14   -- 高度 0.22~0.36m
+            local w = 0.03 + math.random() * 0.03   -- 宽度 0.03~0.06m
+            local offsetX = (math.random() - 0.5) * 0.4
+            local offsetZ = (math.random() - 0.5) * 0.4
+            bNode.position = Vector3(cx + offsetX, h * 0.5, cz + offsetZ)
+            bNode.scale = Vector3(w, h, w * 0.3)
+            -- 随机倾斜 + 旋转
+            local tilt = (math.random() - 0.5) * 20
+            bNode.rotation = Quaternion(math.random() * 360, Vector3.UP)
+                * Quaternion(tilt, Vector3.FORWARD)
+            local bModel = bNode:CreateComponent("StaticModel")
+            bModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
+            bModel:SetMaterial(grassMats[math.random(1, #grassMats)])
+            bModel.castShadows = false
+        end
+    end
+    math.randomseed(os.time())  -- 恢复随机种子
 end
 
 function CreateSceneDecorations()
