@@ -1087,8 +1087,8 @@ function GameUI.ShowClassSelect(onSelected)
                     alignItems = "center",
                     overflow = "hidden",
                     children = {
-                        UI.Image {
-                            src = classAvatars[classId],
+                        UI.Panel {
+                            backgroundImage = classAvatars[classId],
                             width = 82, height = 82,
                             borderRadius = 41,
                         },
@@ -1451,8 +1451,8 @@ function GameUI._CreateSkillBar(player)
             alignItems = "center",
             overflow = "hidden",
             children = {
-                (skill and _skillBarIcons[skill.id]) and UI.Image {
-                    src = _skillBarIcons[skill.id],
+                (skill and _skillBarIcons[skill.id]) and UI.Panel {
+                    backgroundImage = _skillBarIcons[skill.id],
                     width = math.floor(size * 0.78),
                     height = math.floor(size * 0.78),
                     borderRadius = math.floor(size * 0.39),
@@ -1590,8 +1590,8 @@ function GameUI._CreatePotions(player)
             end,
             children = {
                 -- 药瓶图标（替代纯色液体圈）
-                UI.Image {
-                    src = potionIcons[kind],
+                UI.Panel {
+                    backgroundImage = potionIcons[kind],
                     position = "absolute",
                     width = innerSize, height = innerSize,
                     borderRadius = math.floor(innerSize / 2),
@@ -1917,8 +1917,8 @@ local function _BuildSkillTabContent(player)
                     justifyContent = "center", alignItems = "center",
                     overflow = "hidden",
                     children = {
-                        iconSrc and UI.Image {
-                            src = iconSrc,
+                        iconSrc and UI.Panel {
+                            backgroundImage = iconSrc,
                             width = 40, height = 40, borderRadius = 3,
                             opacity = locked and 0.35 or 1.0,
                         } or UI.Label { text = iconFallback, fontSize = 22, fontColor = locked and {80, 75, 65, 130} or {240, 220, 160, 240} },
