@@ -152,34 +152,35 @@ function CreateFloor()
     floorModel:SetMaterial(floorMat)
     floorModel.castShadows = false
 
-    -- 绿草坪区域：水墨风青草散布在黄土上
-    local grassTex = cache:GetResource("Texture2D", "image/tex_ink_grass_green_20260611074938.png")
-    grassTex:SetAddressMode(COORD_U, ADDRESS_WRAP)
-    grassTex:SetAddressMode(COORD_V, ADDRESS_WRAP)
+    -- 绿草坪区域：水墨风青草（透明边缘，自然融入黄土）
+    local grassTex = cache:GetResource("Texture2D", "image/tex_ink_grass_blend_20260611075445.png")
     local grassMat = Material:new()
-    grassMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRMetallicRoughDiffNormalSpec.xml"))
+    grassMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
     grassMat:SetTexture(TU_DIFFUSE, grassTex)
     grassMat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 1.0, 1.0, 1.0)))
     grassMat:SetShaderParameter("Metallic", Variant(0.0))
     grassMat:SetShaderParameter("Roughness", Variant(0.9))
-    grassMat:SetShaderParameter("UOffset", Variant(Vector4(3, 0, 0, 0)))
-    grassMat:SetShaderParameter("VOffset", Variant(Vector4(0, 3, 0, 0)))
 
+    -- 散布多块大小不一的草斑，随机旋转让边界不规则
     local grassPatches = {
-        { pos = Vector3(-12, 0.01, 10),  sx = 8,  sz = 6 },
-        { pos = Vector3(15, 0.01, -8),   sx = 10, sz = 7 },
-        { pos = Vector3(-25, 0.01, -20), sx = 7,  sz = 9 },
-        { pos = Vector3(8, 0.01, 25),    sx = 9,  sz = 6 },
-        { pos = Vector3(-5, 0.01, -30),  sx = 6,  sz = 8 },
-        { pos = Vector3(30, 0.01, 12),   sx = 7,  sz = 5 },
-        { pos = Vector3(-35, 0.01, 15),  sx = 6,  sz = 7 },
-        { pos = Vector3(20, 0.01, -25),  sx = 8,  sz = 6 },
+        { pos = Vector3(-12, 0.02, 10),  s = 7 },
+        { pos = Vector3(15, 0.02, -8),   s = 9 },
+        { pos = Vector3(-25, 0.02, -20), s = 6 },
+        { pos = Vector3(8, 0.02, 25),    s = 8 },
+        { pos = Vector3(-5, 0.02, -30),  s = 5 },
+        { pos = Vector3(30, 0.02, 12),   s = 6 },
+        { pos = Vector3(-35, 0.02, 15),  s = 7 },
+        { pos = Vector3(20, 0.02, -25),  s = 6 },
+        { pos = Vector3(-18, 0.02, 0),   s = 5 },
+        { pos = Vector3(5, 0.02, 5),     s = 4 },
+        { pos = Vector3(25, 0.02, 30),   s = 5 },
+        { pos = Vector3(-8, 0.02, -15),  s = 4 },
     }
     for i, gp in ipairs(grassPatches) do
         local gNode = scene_:CreateChild("GrassPatch_" .. i)
         gNode.position = gp.pos
-        gNode.rotation = Quaternion(math.random() * 30 - 15, Vector3.UP)
-        gNode.scale = Vector3(gp.sx, 0.05, gp.sz)
+        gNode.rotation = Quaternion(math.random() * 360, Vector3.UP)
+        gNode.scale = Vector3(gp.s, 0.02, gp.s)
         local gModel = gNode:CreateComponent("StaticModel")
         gModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
         gModel:SetMaterial(grassMat)
