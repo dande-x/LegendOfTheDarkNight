@@ -141,15 +141,15 @@ function CreateFloor()
 
     local floorMat = Material:new()
     floorMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRMetallicRoughDiffNormalSpec.xml"))
-    local groundTex = cache:GetResource("Texture2D", "image/tex_ground_dark_20260611064232.png")
+    local groundTex = cache:GetResource("Texture2D", "image/tex_ground_grass_decay_20260611070043.png")
     groundTex:SetAddressMode(COORD_U, ADDRESS_WRAP)
     groundTex:SetAddressMode(COORD_V, ADDRESS_WRAP)
     floorMat:SetTexture(TU_DIFFUSE, groundTex)
-    floorMat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 1.0, 1.0, 1.0)))
+    floorMat:SetShaderParameter("MatDiffColor", Variant(Color(0.85, 0.85, 0.85, 1.0)))  -- 略微压暗
     floorMat:SetShaderParameter("Metallic", Variant(0.0))
-    floorMat:SetShaderParameter("Roughness", Variant(0.85))
-    floorMat:SetShaderParameter("UOffset", Variant(Vector4(30, 0, 0, 0)))  -- 贴图重复30次
-    floorMat:SetShaderParameter("VOffset", Variant(Vector4(0, 30, 0, 0)))
+    floorMat:SetShaderParameter("Roughness", Variant(0.92))
+    floorMat:SetShaderParameter("UOffset", Variant(Vector4(25, 0, 0, 0)))  -- 贴图重复25次
+    floorMat:SetShaderParameter("VOffset", Variant(Vector4(0, 25, 0, 0)))
     floorModel:SetMaterial(floorMat)
     floorModel.castShadows = false
 end
