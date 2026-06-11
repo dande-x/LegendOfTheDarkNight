@@ -109,22 +109,20 @@ function CreateScene()
     lightGroup:LoadXML(lightGroupFile:GetRoot())
 
     -- === 国风水墨氛围 ===
-    -- 获取 LightGroup 中的 Zone，调整雾效（水墨留白感）
+    -- 获取 LightGroup 中的 Zone，调整雾效（远处淡化，不是全白）
     local zone = lightGroup:GetComponent("Zone", true)
     if zone then
-        zone.fogColor = Color(0.88, 0.86, 0.82, 1.0)  -- 宣纸米白色雾
-        zone.fogStart = 35.0                            -- 35m 开始起雾
-        zone.fogEnd = 90.0                              -- 90m 完全融入雾色（远处留白）
-        zone.heightFog = true                           -- 启用高度雾
-        zone.fogHeight = 0.5                            -- 雾面高度 Y=0.5m
-        zone.fogHeightScale = 0.2                       -- 轻柔衰减
+        zone.fogColor = Color(0.62, 0.64, 0.68, 1.0)  -- 淡青灰雾（远山朦胧感）
+        zone.fogStart = 50.0                            -- 50m 开始起雾（近处清晰）
+        zone.fogEnd = 120.0                             -- 120m 完全融入雾色
+        zone.heightFog = false                          -- 关闭高度雾，避免地面泛白
     end
 
-    -- 获取 LightGroup 中的方向光（水墨风：柔和偏冷白光）
+    -- 获取 LightGroup 中的方向光（水墨风：柔和自然光）
     local dirLight = lightGroup:GetComponent("Light", true)
     if dirLight then
-        dirLight.color = Color(0.95, 0.93, 0.90, 1.0)  -- 冷白微暖（晨光）
-        dirLight.brightness = 1.2                        -- 偏亮，突出墨色对比
+        dirLight.color = Color(0.90, 0.88, 0.85, 1.0)  -- 微暖白光
+        dirLight.brightness = 0.9                        -- 适中亮度，保留墨色层次
     end
 
     CreateFloor()
