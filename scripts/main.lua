@@ -131,7 +131,7 @@ function CreateScene()
 end
 
 function CreateFloor()
-    -- 主地面：水墨宣纸质感地面
+    -- 主地面：水墨风黄土
     local floorNode = scene_:CreateChild("Floor")
     floorNode.position = Vector3(0, -0.25, 0)
     floorNode.scale = Vector3(120, 0.5, 120)
@@ -140,17 +140,51 @@ function CreateFloor()
 
     local floorMat = Material:new()
     floorMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRMetallicRoughDiffNormalSpec.xml"))
-    local groundTex = cache:GetResource("Texture2D", "image/tex_ink_ground_20260611072145.png")
+    local groundTex = cache:GetResource("Texture2D", "image/tex_ink_yellow_earth_20260611074942.png")
     groundTex:SetAddressMode(COORD_U, ADDRESS_WRAP)
     groundTex:SetAddressMode(COORD_V, ADDRESS_WRAP)
     floorMat:SetTexture(TU_DIFFUSE, groundTex)
     floorMat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 1.0, 1.0, 1.0)))
     floorMat:SetShaderParameter("Metallic", Variant(0.0))
-    floorMat:SetShaderParameter("Roughness", Variant(0.85))
-    floorMat:SetShaderParameter("UOffset", Variant(Vector4(20, 0, 0, 0)))
-    floorMat:SetShaderParameter("VOffset", Variant(Vector4(0, 20, 0, 0)))
+    floorMat:SetShaderParameter("Roughness", Variant(0.88))
+    floorMat:SetShaderParameter("UOffset", Variant(Vector4(22, 0, 0, 0)))
+    floorMat:SetShaderParameter("VOffset", Variant(Vector4(0, 22, 0, 0)))
     floorModel:SetMaterial(floorMat)
     floorModel.castShadows = false
+
+    -- 绿草坪区域：水墨风青草散布在黄土上
+    local grassTex = cache:GetResource("Texture2D", "image/tex_ink_grass_green_20260611074938.png")
+    grassTex:SetAddressMode(COORD_U, ADDRESS_WRAP)
+    grassTex:SetAddressMode(COORD_V, ADDRESS_WRAP)
+    local grassMat = Material:new()
+    grassMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRMetallicRoughDiffNormalSpec.xml"))
+    grassMat:SetTexture(TU_DIFFUSE, grassTex)
+    grassMat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 1.0, 1.0, 1.0)))
+    grassMat:SetShaderParameter("Metallic", Variant(0.0))
+    grassMat:SetShaderParameter("Roughness", Variant(0.9))
+    grassMat:SetShaderParameter("UOffset", Variant(Vector4(3, 0, 0, 0)))
+    grassMat:SetShaderParameter("VOffset", Variant(Vector4(0, 3, 0, 0)))
+
+    local grassPatches = {
+        { pos = Vector3(-12, 0.01, 10),  sx = 8,  sz = 6 },
+        { pos = Vector3(15, 0.01, -8),   sx = 10, sz = 7 },
+        { pos = Vector3(-25, 0.01, -20), sx = 7,  sz = 9 },
+        { pos = Vector3(8, 0.01, 25),    sx = 9,  sz = 6 },
+        { pos = Vector3(-5, 0.01, -30),  sx = 6,  sz = 8 },
+        { pos = Vector3(30, 0.01, 12),   sx = 7,  sz = 5 },
+        { pos = Vector3(-35, 0.01, 15),  sx = 6,  sz = 7 },
+        { pos = Vector3(20, 0.01, -25),  sx = 8,  sz = 6 },
+    }
+    for i, gp in ipairs(grassPatches) do
+        local gNode = scene_:CreateChild("GrassPatch_" .. i)
+        gNode.position = gp.pos
+        gNode.rotation = Quaternion(math.random() * 30 - 15, Vector3.UP)
+        gNode.scale = Vector3(gp.sx, 0.05, gp.sz)
+        local gModel = gNode:CreateComponent("StaticModel")
+        gModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
+        gModel:SetMaterial(grassMat)
+        gModel.castShadows = false
+    end
 end
 
 function CreateSceneDecorations()
