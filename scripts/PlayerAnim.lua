@@ -33,40 +33,44 @@ PlayerAnim.animState = animState
 PlayerAnim.hitFeedback = hitFeedback
 
 -- ============================================================================
--- 人形骨架配置
+-- 人形骨架配置（优化版 - 更精细的比例和体形）
 -- 关键设计：bone 节点 scale 始终为 (1,1,1)，仅管理旋转+位置
 --          视觉网格放在 bone 的子节点 "mesh" 中带独立 scale
 -- ============================================================================
 local BONE_DEFS = {
-    -- 躯干
-    pelvis   = { parent = nil,       pos = {0, 0.50, 0},   meshScale = {0.35, 0.22, 0.22}, model = "Box" },
-    chest    = { parent = "pelvis",  pos = {0, 0.22, 0},   meshScale = {0.42, 0.32, 0.25}, model = "Box" },
-    -- 头部
-    neck     = { parent = "chest",   pos = {0, 0.20, 0},   meshScale = {0.08, 0.10, 0.08}, model = "Cylinder" },
-    head     = { parent = "neck",    pos = {0, 0.15, 0},   meshScale = {0.26, 0.26, 0.26}, model = "Sphere" },
-    -- 左臂（pivot 在肩膀处）
-    lUpperArm = { parent = "chest",  pos = {-0.26, 0.10, 0}, meshScale = {0.09, 0.20, 0.09}, model = "Cylinder", meshOffset = {0, -0.10, 0} },
-    lForeArm  = { parent = "lUpperArm", pos = {0, -0.22, 0}, meshScale = {0.07, 0.18, 0.07}, model = "Cylinder", meshOffset = {0, -0.09, 0} },
-    lHand     = { parent = "lForeArm", pos = {0, -0.19, 0},  meshScale = {0.08, 0.05, 0.10}, model = "Box" },
+    -- 躯干（更合理的人体比例）
+    pelvis   = { parent = nil,       pos = {0, 0.52, 0},   meshScale = {0.30, 0.16, 0.18}, model = "Box" },
+    belly    = { parent = "pelvis",  pos = {0, 0.12, 0},   meshScale = {0.28, 0.12, 0.17}, model = "Box" },
+    chest    = { parent = "belly",   pos = {0, 0.12, 0},   meshScale = {0.38, 0.28, 0.20}, model = "Box" },
+    collar   = { parent = "chest",   pos = {0, 0.16, 0},   meshScale = {0.34, 0.08, 0.16}, model = "Box" },  -- 锁骨区域
+    -- 头部（更自然）
+    neck     = { parent = "collar",  pos = {0, 0.06, 0},   meshScale = {0.07, 0.09, 0.07}, model = "Cylinder" },
+    head     = { parent = "neck",    pos = {0, 0.12, 0},   meshScale = {0.22, 0.24, 0.22}, model = "Sphere" },
+    -- 左臂（增加肩关节过渡）
+    lShoulder = { parent = "collar", pos = {-0.19, 0.0, 0}, meshScale = {0.10, 0.08, 0.10}, model = "Sphere" },
+    lUpperArm = { parent = "lShoulder", pos = {-0.06, -0.02, 0}, meshScale = {0.07, 0.19, 0.07}, model = "Cylinder", meshOffset = {0, -0.095, 0} },
+    lForeArm  = { parent = "lUpperArm", pos = {0, -0.21, 0}, meshScale = {0.055, 0.17, 0.055}, model = "Cylinder", meshOffset = {0, -0.085, 0} },
+    lHand     = { parent = "lForeArm", pos = {0, -0.18, 0},  meshScale = {0.06, 0.04, 0.08}, model = "Box" },
     -- 右臂
-    rUpperArm = { parent = "chest",  pos = {0.26, 0.10, 0},  meshScale = {0.09, 0.20, 0.09}, model = "Cylinder", meshOffset = {0, -0.10, 0} },
-    rForeArm  = { parent = "rUpperArm", pos = {0, -0.22, 0}, meshScale = {0.07, 0.18, 0.07}, model = "Cylinder", meshOffset = {0, -0.09, 0} },
-    rHand     = { parent = "rForeArm", pos = {0, -0.19, 0},  meshScale = {0.08, 0.05, 0.10}, model = "Box" },
-    -- 左腿（pivot 在胯部）
-    lThigh   = { parent = "pelvis", pos = {-0.11, -0.05, 0}, meshScale = {0.11, 0.24, 0.11}, model = "Cylinder", meshOffset = {0, -0.12, 0} },
-    lShin    = { parent = "lThigh", pos = {0, -0.26, 0},     meshScale = {0.09, 0.22, 0.09}, model = "Cylinder", meshOffset = {0, -0.11, 0} },
-    lFoot    = { parent = "lShin",  pos = {0, -0.24, 0.03},  meshScale = {0.09, 0.05, 0.15}, model = "Box" },
+    rShoulder = { parent = "collar", pos = {0.19, 0.0, 0},  meshScale = {0.10, 0.08, 0.10}, model = "Sphere" },
+    rUpperArm = { parent = "rShoulder", pos = {0.06, -0.02, 0}, meshScale = {0.07, 0.19, 0.07}, model = "Cylinder", meshOffset = {0, -0.095, 0} },
+    rForeArm  = { parent = "rUpperArm", pos = {0, -0.21, 0}, meshScale = {0.055, 0.17, 0.055}, model = "Cylinder", meshOffset = {0, -0.085, 0} },
+    rHand     = { parent = "rForeArm", pos = {0, -0.18, 0},  meshScale = {0.06, 0.04, 0.08}, model = "Box" },
+    -- 左腿（更合理的腿型）
+    lThigh   = { parent = "pelvis", pos = {-0.10, -0.04, 0}, meshScale = {0.10, 0.24, 0.10}, model = "Cylinder", meshOffset = {0, -0.12, 0} },
+    lShin    = { parent = "lThigh", pos = {0, -0.26, 0},     meshScale = {0.075, 0.22, 0.075}, model = "Cylinder", meshOffset = {0, -0.11, 0} },
+    lFoot    = { parent = "lShin",  pos = {0, -0.24, 0.03},  meshScale = {0.08, 0.04, 0.14}, model = "Box" },
     -- 右腿
-    rThigh   = { parent = "pelvis", pos = {0.11, -0.05, 0},  meshScale = {0.11, 0.24, 0.11}, model = "Cylinder", meshOffset = {0, -0.12, 0} },
-    rShin    = { parent = "rThigh", pos = {0, -0.26, 0},     meshScale = {0.09, 0.22, 0.09}, model = "Cylinder", meshOffset = {0, -0.11, 0} },
-    rFoot    = { parent = "rShin",  pos = {0, -0.24, 0.03},  meshScale = {0.09, 0.05, 0.15}, model = "Box" },
+    rThigh   = { parent = "pelvis", pos = {0.10, -0.04, 0},  meshScale = {0.10, 0.24, 0.10}, model = "Cylinder", meshOffset = {0, -0.12, 0} },
+    rShin    = { parent = "rThigh", pos = {0, -0.26, 0},     meshScale = {0.075, 0.22, 0.075}, model = "Cylinder", meshOffset = {0, -0.11, 0} },
+    rFoot    = { parent = "rShin",  pos = {0, -0.24, 0.03},  meshScale = {0.08, 0.04, 0.14}, model = "Box" },
 }
 
 -- 构建顺序（确保父节点先创建）
 local BUILD_ORDER = {
-    "pelvis", "chest", "neck", "head",
-    "lUpperArm", "lForeArm", "lHand",
-    "rUpperArm", "rForeArm", "rHand",
+    "pelvis", "belly", "chest", "collar", "neck", "head",
+    "lShoulder", "lUpperArm", "lForeArm", "lHand",
+    "rShoulder", "rUpperArm", "rForeArm", "rHand",
     "lThigh", "lShin", "lFoot",
     "rThigh", "rShin", "rFoot",
 }
@@ -119,6 +123,7 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors)
         -- 材质分配：头/手/脖子=肤色，铠甲部位=贴图，腿部=暗色贴图
         local isSkin = (name == "head" or name == "neck" or name == "lHand" or name == "rHand")
         local isLeg = (name == "lThigh" or name == "lShin" or name == "rThigh" or name == "rShin" or name == "lFoot" or name == "rFoot")
+        local isShoulder = (name == "lShoulder" or name == "rShoulder")
 
         local mat = Material:new()
 
@@ -131,13 +136,19 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors)
             -- 有贴图：铠甲/腿部都使用贴图材质
             mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRMetallicRoughDiffNormalSpec.xml"))
             mat:SetTexture(TU_DIFFUSE, armorTex)
-            if isLeg then
-                mat:SetShaderParameter("MatDiffColor", Variant(Color(0.7, 0.7, 0.7, 1.0)))  -- 腿部稍暗
-                mat:SetShaderParameter("Roughness", Variant(0.6))
+            if isShoulder then
+                -- 肩甲：高金属质感
+                mat:SetShaderParameter("MatDiffColor", Variant(Color(1.1, 1.0, 0.9, 1.0)))
+                mat:SetShaderParameter("Roughness", Variant(0.25))
+                mat:SetShaderParameter("Metallic", Variant(0.8))
+                mat:SetShaderParameter("MatEmissiveColor", Variant(Color(armorColor.r * 0.08, armorColor.g * 0.08, armorColor.b * 0.08)))
+            elseif isLeg then
+                mat:SetShaderParameter("MatDiffColor", Variant(Color(0.75, 0.72, 0.70, 1.0)))
+                mat:SetShaderParameter("Roughness", Variant(0.55))
                 mat:SetShaderParameter("Metallic", Variant(0.2))
             else
                 mat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 1.0, 1.0, 1.0)))
-                mat:SetShaderParameter("Roughness", Variant(0.45))
+                mat:SetShaderParameter("Roughness", Variant(0.40))
                 mat:SetShaderParameter("Metallic", Variant(0.35))
                 if name == "chest" then
                     mat:SetShaderParameter("MatEmissiveColor", Variant(Color(armorColor.r * 0.12, armorColor.g * 0.12, armorColor.b * 0.12)))
@@ -146,7 +157,11 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors)
         else
             -- 无贴图 fallback：纯色
             mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
-            if isLeg then
+            if isShoulder then
+                mat:SetShaderParameter("MatDiffColor", Variant(Color(armorColor.r * 1.2, armorColor.g * 1.1, armorColor.b * 0.9, 1.0)))
+                mat:SetShaderParameter("Roughness", Variant(0.25))
+                mat:SetShaderParameter("Metallic", Variant(0.75))
+            elseif isLeg then
                 local legColor = Color(armorColor.r * 0.7, armorColor.g * 0.7, armorColor.b * 0.7, 1.0)
                 mat:SetShaderParameter("MatDiffColor", Variant(legColor))
                 mat:SetShaderParameter("Roughness", Variant(0.5))
@@ -174,6 +189,138 @@ end
 -- 职业装饰（武器/法杖/法器）
 -- ============================================================================
 function PlayerAnim._AddClassDecoration(playerNode, classId, colors)
+    local armorColor = colors[classId == "warrior" and "Vermilion" or classId == "mage" and "Azure" or "Jade"]
+    local goldMat = Material:new()
+    goldMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
+    goldMat:SetShaderParameter("MatDiffColor", Variant(Color(0.78, 0.60, 0.12, 1.0)))
+    goldMat:SetShaderParameter("Roughness", Variant(0.22))
+    goldMat:SetShaderParameter("Metallic", Variant(0.92))
+    goldMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.10, 0.07, 0.01)))
+
+    -- ================================================================
+    -- 通用装饰：腰带 + 腰带扣
+    -- ================================================================
+    local belt = bones.pelvis:CreateChild("Belt")
+    belt.position = Vector3(0, 0.09, 0)
+    belt.scale = Vector3(0.34, 0.05, 0.20)
+    local beltModel = belt:CreateComponent("StaticModel")
+    beltModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
+    local beltMat = Material:new()
+    beltMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
+    beltMat:SetShaderParameter("MatDiffColor", Variant(Color(0.25, 0.13, 0.05, 1.0)))
+    beltMat:SetShaderParameter("Roughness", Variant(0.7))
+    beltMat:SetShaderParameter("Metallic", Variant(0.15))
+    beltModel:SetMaterial(beltMat)
+    beltModel.castShadows = true
+    -- 腰带扣（金属方块）
+    local buckle = bones.pelvis:CreateChild("Buckle")
+    buckle.position = Vector3(0, 0.09, 0.10)
+    buckle.scale = Vector3(0.08, 0.06, 0.02)
+    local buckleModel = buckle:CreateComponent("StaticModel")
+    buckleModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
+    buckleModel:SetMaterial(goldMat)
+    buckleModel.castShadows = true
+
+    -- ================================================================
+    -- 通用装饰：护腕（双手）
+    -- ================================================================
+    for _, side in ipairs({"l", "r"}) do
+        local foreArm = bones[side .. "ForeArm"]
+        if foreArm then
+            local bracer = foreArm:CreateChild(side .. "Bracer")
+            bracer.position = Vector3(0, -0.02, 0)
+            bracer.scale = Vector3(0.068, 0.08, 0.068)
+            local bracerModel = bracer:CreateComponent("StaticModel")
+            bracerModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+            local bracerMat = Material:new()
+            bracerMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
+            bracerMat:SetShaderParameter("MatDiffColor", Variant(Color(armorColor.r * 0.8, armorColor.g * 0.8, armorColor.b * 0.8, 1.0)))
+            bracerMat:SetShaderParameter("Roughness", Variant(0.35))
+            bracerMat:SetShaderParameter("Metallic", Variant(0.6))
+            bracerModel:SetMaterial(bracerMat)
+            bracerModel.castShadows = true
+        end
+    end
+
+    -- ================================================================
+    -- 职业特有服装装饰
+    -- ================================================================
+    if classId == "warrior" then
+        -- 武士：肩甲加强件 + 胸甲中央竖条纹
+        local chestPlate = bones.chest:CreateChild("ChestPlate")
+        chestPlate.position = Vector3(0, 0.0, 0.11)
+        chestPlate.scale = Vector3(0.06, 0.24, 0.02)
+        local cpModel = chestPlate:CreateComponent("StaticModel")
+        cpModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
+        cpModel:SetMaterial(goldMat)
+        cpModel.castShadows = true
+        -- 肩甲突出块（两侧）
+        for _, sx in ipairs({-1, 1}) do
+            local sPad = bones[sx < 0 and "lShoulder" or "rShoulder"]:CreateChild("ShoulderPad")
+            sPad.position = Vector3(sx * 0.02, 0.03, 0)
+            sPad.scale = Vector3(0.13, 0.06, 0.12)
+            local spModel = sPad:CreateComponent("StaticModel")
+            spModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
+            spModel:SetMaterial(goldMat)
+            spModel.castShadows = true
+        end
+
+    elseif classId == "mage" then
+        -- 法师：高领斗篷 + 衣摆
+        local capeCollar = bones.collar:CreateChild("CapeCollar")
+        capeCollar.position = Vector3(0, 0.06, -0.05)
+        capeCollar.scale = Vector3(0.30, 0.12, 0.10)
+        local ccModel = capeCollar:CreateComponent("StaticModel")
+        ccModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
+        local capeMat = Material:new()
+        capeMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
+        capeMat:SetShaderParameter("MatDiffColor", Variant(Color(0.12, 0.15, 0.35, 1.0)))
+        capeMat:SetShaderParameter("Roughness", Variant(0.8))
+        capeMat:SetShaderParameter("Metallic", Variant(0.05))
+        ccModel:SetMaterial(capeMat)
+        ccModel.castShadows = true
+        -- 法师衣摆（骨盆处下垂的裙摆）
+        local skirt = bones.pelvis:CreateChild("MageSkirt")
+        skirt.position = Vector3(0, -0.02, 0)
+        skirt.scale = Vector3(0.36, 0.18, 0.22)
+        local skirtModel = skirt:CreateComponent("StaticModel")
+        skirtModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+        local skirtMat = Material:new()
+        skirtMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
+        skirtMat:SetShaderParameter("MatDiffColor", Variant(Color(0.15, 0.25, 0.50, 1.0)))
+        skirtMat:SetShaderParameter("Roughness", Variant(0.75))
+        skirtMat:SetShaderParameter("Metallic", Variant(0.0))
+        skirtModel:SetMaterial(skirtMat)
+        skirtModel.castShadows = true
+
+    elseif classId == "taoist" then
+        -- 道士：道冠头饰 + 八卦腰牌
+        local crown = bones.head:CreateChild("TaoistCrown")
+        crown.position = Vector3(0, 0.12, 0.02)
+        crown.scale = Vector3(0.10, 0.08, 0.08)
+        local crownModel = crown:CreateComponent("StaticModel")
+        crownModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
+        crownModel:SetMaterial(goldMat)
+        crownModel.castShadows = true
+        -- 八卦腰牌（挂在腰带上）
+        local pendant = bones.pelvis:CreateChild("BaguaPendant")
+        pendant.position = Vector3(0.14, 0.06, 0.08)
+        pendant.scale = Vector3(0.07, 0.07, 0.015)
+        local pendantModel = pendant:CreateComponent("StaticModel")
+        pendantModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+        local pendantMat = Material:new()
+        pendantMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
+        pendantMat:SetShaderParameter("MatDiffColor", Variant(Color(0.82, 0.78, 0.65, 1.0)))
+        pendantMat:SetShaderParameter("Roughness", Variant(0.4))
+        pendantMat:SetShaderParameter("Metallic", Variant(0.3))
+        pendantMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.08, 0.12, 0.05)))
+        pendantModel:SetMaterial(pendantMat)
+        pendantModel.castShadows = true
+    end
+
+    -- ================================================================
+    -- 职业武器
+    -- ================================================================
     if classId == "warrior" then
         -- ================================================================
         -- 屠龙刀（扛在右肩上，参考传奇经典造型）
