@@ -37,13 +37,17 @@ local animModel_ = nil
 ---@type Node
 local playerNode_ = nil  -- 引用玩家节点，用于每帧同步位置
 
--- modelNode_ scale 补偿方案：
--- uuid 动画的 Root(Bip001) scale=1.0，而 DefaultMale 的 Root scale=0.01
--- InverseBind 包含 1/0.01=100 的缩放因子，所以 uuid 动画播放时模型膨胀 100 倍
--- 解决：uuid 动画播放时 modelNode_.scale 缩小 100 倍来抵消
+-- modelNode_ scale 补偿方案（延迟1帧生效，与骨骼更新同步）：
+-- 问题：uuid 动画 Root(Bip001) scale=1.0，DefaultMale 的 Root scale=0.01
+--   InverseBind 含 1/0.01=100 缩放，uuid 播放时 skinMatrix 膨胀 100 倍
+-- 解决：uuid 动画时 modelNode_.scale 缩小 100 倍来抵消
+-- 关键：UrhoX 帧序列为 Scene::Update(骨骼) → E_UPDATE(我们的代码) → RenderUpdate(蒙皮)
+--   Play() 中调 PlayExclusive 后，骨骼要到下一帧 Scene::Update 才更新
+--   所以 scale 变更也必须延迟 1 帧，在下一帧 Update 开头（Scene::Update 后）执行
 local baseScale_ = 1.0        -- CreateSkeleton 中计算的基础 scale 值
 local baseFootOffset_ = 0.0   -- CreateSkeleton 中计算的脚底偏移
-local isUuidAnim_ = false     -- 当前是否在播放 uuid 动画（用于 scale 切换）
+local isUuidAnim_ = false     -- 当前是否在播放 uuid 动画
+local scaleDirty_ = false     -- 标记需要在下一帧应用 scale 变更
 
 
 
@@ -675,36 +679,17 @@ function PlayerAnim.Play(animName, onComplete, opts)
     animState.onComplete = onComplete
     animState.speed = speed  -- 记录当前速度（用于顿帧恢复）
 
-    -- ⚠️ 关键：modelNode_ scale 补偿方案
-    -- uuid 动画的 Root(Bip001) scale=1.0，而 DefaultMale 的 Root scale=0.01
-    -- 蒙皮公式：vertex_final = modelNode.worldTransform × BoneLocal × InverseBind × vertex
-    -- InverseBind 包含 1/0.01=100 的缩放，所以：
-    --   DefaultMale: modelNode(s) × Bip001(0.01) × InverseBind(100) = s × 1 = s (正常)
-    --   uuid动画:    modelNode(s) × Bip001(1.0)  × InverseBind(100) = s × 100 (膨胀!)
-    -- 解决：uuid 动画时 modelNode_.scale = baseScale/100，抵消 100 倍膨胀
+    -- ⚠️ 关键：scale 补偿标记（延迟 1 帧执行）
+    -- uuid 动画 Bip001.scale=1.0 → skinMatrix 膨胀 100 倍 → 需要 modelNode.scale/=100 抵消
+    -- 但 PlayExclusive 后骨骼要下一帧 Scene::Update 才更新
+    -- 所以 scale 也延迟 1 帧在 Update 开头应用，确保与骨骼值同步
     local needUuid = animPath:find("uuid://") ~= nil
     if needUuid ~= isUuidAnim_ then
         isUuidAnim_ = needUuid
-        if modelNode_ then
-            if isUuidAnim_ then
-                -- uuid 动画：Bip001.scale 从 0.01→1.0，skinMatrix 膨胀 100 倍
-                -- 将 modelNode scale 缩小 100 倍来抵消
-                local cs = baseScale_ / 100.0
-                modelNode_.scale = Vector3(cs, cs, cs)
-                -- position 不变：skin 后 vertex.y = minY*100，经 node scale(s/100) → minY*s
-                -- 加 baseFootOffset_(-minY*s) → 0 ✓
-                modelNode_.position = Vector3(0, baseFootOffset_, 0)
-                print(string.format("[PlayerAnim] UUID anim → modelNode scale=%.6f", cs))
-            else
-                -- DefaultMale 动画：Bip001.scale=0.01，恢复正常 scale
-                modelNode_.scale = Vector3(baseScale_, baseScale_, baseScale_)
-                modelNode_.position = Vector3(0, baseFootOffset_, 0)
-                print(string.format("[PlayerAnim] Native anim → modelNode scale=%.5f", baseScale_))
-            end
-        end
+        scaleDirty_ = true  -- 标记：下一帧 Update 开头应用 scale 变更
     end
 
-    -- fadeTime=0：避免动画交叉淡入淡出时 Bip001.scale 在 0.01↔1.0 之间插值导致尺寸闪烁
+    -- fadeTime=0：避免交叉淡入淡出时 Bip001.scale 在 0.01↔1.0 之间插值
     animCtrl_:PlayExclusive(animPath, 0, isLoop, 0.0)
     animCtrl_:SetSpeed(animPath, speed)
 end
@@ -744,6 +729,25 @@ local animDiagCounter_ = 0
 
 function PlayerAnim.Update(dt, isMoving)
     -- modelNode_ 是 playerNode_ 的子节点，自动继承位置/旋转，无需手动同步
+
+    -- ⚠️ 延迟 1 帧 scale 补偿：此时 Scene::Update 已完成，骨骼已更新为新动画的值
+    -- 现在才修改 modelNode_.scale，确保与骨骼 transform 同步（无 1 帧错位）
+    if scaleDirty_ and modelNode_ then
+        scaleDirty_ = false
+        if isUuidAnim_ then
+            -- uuid 动画: Bip001.scale=1.0 → InverseBind(100×) → 膨胀
+            -- modelNode.scale 缩小 100 倍抵消: (s/100) × 1.0 × 100 = s ✓
+            local cs = baseScale_ / 100.0
+            modelNode_.scale = Vector3(cs, cs, cs)
+            print(string.format("[PlayerAnim] Scale→UUID mode: %.6f (base/100)", cs))
+        else
+            -- 原生动画: Bip001.scale=0.01 → InverseBind(100×) → s × 0.01 × 100 = s ✓
+            modelNode_.scale = Vector3(baseScale_, baseScale_, baseScale_)
+            print(string.format("[PlayerAnim] Scale→Native mode: %.5f", baseScale_))
+        end
+        -- position 始终保持相同的脚底偏移（模型视觉高度不变）
+        modelNode_.position = Vector3(0, baseFootOffset_, 0)
+    end
 
     -- 诊断：每 180 帧输出 worldBBox
     animDiagCounter_ = animDiagCounter_ + 1
