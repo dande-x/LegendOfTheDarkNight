@@ -36,6 +36,8 @@ local animCtrl_ = nil
 local animModel_ = nil
 ---@type Node
 local playerNode_ = nil  -- 引用玩家节点，用于每帧同步位置
+---@type Node
+local rootBoneNode_ = nil  -- Root骨骼节点引用（用于PostUpdate强制重置scale）
 
 
 
@@ -557,14 +559,16 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors)
         modelNode_.scale = Vector3(0.4, 1.6, 0.4)
         modelNode_.position = Vector3(0, 0.8, 0)
     else
-        -- ⚠️ 关键：锁定 Root 骨骼(Bip001)，阻止外部动画覆盖其 scale=0.01
-        -- 资源库"标准男"动画的 Root scale=1.0，如果不锁定会导致角色膨胀100倍
+        -- ⚠️ 关键：获取 Root 骨骼(Bip001) 节点引用
+        -- 资源库"标准男"动画的 Root scale=1.0，bone.animated=false 无效
+        -- 改用 PostUpdate 每帧强制重置 scale=0.01
         local skeleton = animModel_:GetSkeleton()
         if skeleton then
             local rootBone = skeleton:GetBone("Bip001")
-            if rootBone then
-                rootBone.animated = false
-                print("[PlayerAnim] Root bone 'Bip001' locked (animated=false) to preserve scale=0.01")
+            if rootBone and rootBone.node then
+                rootBoneNode_ = rootBone.node
+                print("[PlayerAnim] Root bone node captured: " .. rootBoneNode_.name
+                    .. " scale=" .. tostring(rootBoneNode_.scale))
             end
         end
 
@@ -811,6 +815,22 @@ end
 function PlayerAnim.GetAnimForSkillType(skillType)
     local config = PlayerAnim.GetSkillAnimConfig(skillType)
     return config.anim
+end
+
+-- ============================================================================
+-- PostUpdate：强制重置 Root 骨骼 scale（修复资源库动画膨胀）
+-- AnimationController 在 SceneUpdate 阶段更新骨骼 transform，
+-- PostUpdate 在其之后执行，可以覆盖动画写入的错误 scale。
+-- ============================================================================
+function PlayerAnim.HandlePostUpdate(dt)
+    if rootBoneNode_ then
+        -- 强制保持 Root 骨骼 scale=0.01（FBX cm→m 转换值）
+        -- 资源库"标准男"动画会将此值覆盖为 1.0，导致100倍膨胀
+        local s = rootBoneNode_.scale
+        if math.abs(s.x - 0.01) > 0.001 or math.abs(s.y - 0.01) > 0.001 or math.abs(s.z - 0.01) > 0.001 then
+            rootBoneNode_.scale = Vector3(0.01, 0.01, 0.01)
+        end
+    end
 end
 
 -- ============================================================================

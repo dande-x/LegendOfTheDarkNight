@@ -83,6 +83,7 @@ function Start()
     end)
 
     SubscribeToEvent("Update", "HandleUpdate")
+    SubscribeToEvent("PostUpdate", "HandlePostUpdate")
     print("=== 贪玩渣渣灰 Started ===")
 end
 
@@ -1068,6 +1069,14 @@ function HandleUpdate(eventType, eventData)
     GameUI.UpdateHUD(player_, dt)
     GameUI.UpdateKillCount(Combat.killCount)
     GameUI.UpdateGold(inv.gold)
+end
+
+-- ============================================================================
+-- PostUpdate：动画系统更新后强制修正 Root 骨骼 scale
+-- ============================================================================
+function HandlePostUpdate(eventType, eventData)
+    local dt = eventData["TimeStep"]:GetFloat()
+    PlayerAnim.HandlePostUpdate(dt)
 end
 
 -- ============================================================================
