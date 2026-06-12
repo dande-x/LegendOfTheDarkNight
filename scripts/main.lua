@@ -541,10 +541,37 @@ function SetupCamera()
     GameUI.SetScene(scene_)
 end
 
+-- 诊断计数器
+local diagFrameCount_ = 0
+
 function UpdateCamera(dt)
     if not playerNode_ then return end
+
+    -- 【修复】强制锁定玩家 Y=0（物理引擎碰撞穿透修正可能绕过 linearFactor）
+    local pos = playerNode_.position
+    if math.abs(pos.y) > 0.01 then
+        playerNode_.position = Vector3(pos.x, 0, pos.z)
+        -- 同时重置物理速度的 Y 分量
+        local body = playerNode_:GetComponent("RigidBody")
+        if body then
+            local v = body:GetLinearVelocity()
+            if math.abs(v.y) > 0.01 then
+                body:SetLinearVelocity(Vector3(v.x, 0, v.z))
+            end
+        end
+    end
+
     local playerPos = playerNode_.worldPosition
     local targetPos = playerPos + CAM_OFFSET
+
+    -- 诊断日志：每 120 帧打印一次关键数据
+    diagFrameCount_ = diagFrameCount_ + 1
+    if diagFrameCount_ % 120 == 1 then
+        print(string.format("[DIAG] playerPos=(%.2f,%.2f,%.2f) camTarget=(%.2f,%.2f,%.2f)",
+            playerPos.x, playerPos.y, playerPos.z,
+            targetPos.x, targetPos.y, targetPos.z))
+    end
+
     -- 打击感屏幕震动
     local shakeOffset = PlayerAnim.GetCameraShakeOffset()
     targetPos = targetPos + shakeOffset

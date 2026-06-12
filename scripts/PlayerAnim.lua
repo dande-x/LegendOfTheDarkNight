@@ -146,17 +146,19 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors)
                 -- 复制模型和骨骼到我们的子节点
                 animModel_ = modelNode_:CreateComponent("AnimatedModel")
                 animModel_:SetModel(prefabModel:GetModel())
-                -- 自动缩放
+                -- 自动缩放：让模型高度为 1.6m
                 local bb = animModel_.boundingBox
                 local h = bb.size.y
-                print("[PlayerAnim] Model height: " .. tostring(h))
-                if h > 10 then
-                    -- 厘米单位，需要缩小
+                local minY = bb.min.y  -- 模型最低点（脚底相对模型原点）
+                print("[PlayerAnim] Model height: " .. tostring(h) .. " minY: " .. tostring(minY))
+                if h > 0 then
                     local s = 1.6 / h
                     modelNode_.scale = Vector3(s, s, s)
-                elseif h > 0 then
-                    local s = 1.6 / h
-                    modelNode_.scale = Vector3(s, s, s)
+                    -- 修正 Y 偏移：确保脚底在 Y=0（父节点 playerNode 的本地空间）
+                    -- 缩放后脚底 = minY * s，需要向上偏移 -minY*s
+                    local footOffset = -minY * s
+                    modelNode_.position = Vector3(0, footOffset, 0)
+                    print("[PlayerAnim] Scale=" .. string.format("%.3f", s) .. " footOffset=" .. string.format("%.3f", footOffset))
                 end
             end
             -- 清除临时预制体节点
