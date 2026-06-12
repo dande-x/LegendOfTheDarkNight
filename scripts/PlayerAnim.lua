@@ -47,25 +47,28 @@ PlayerAnim.hitFeedback = hitFeedback
 -- ============================================================================
 local CHARACTER_PREFAB = "uuid://DEkZaUTQvLlCdjdIzpnHa4n-"  -- DefaultMale_Base (标准男骨架)
 
--- DefaultMale_Base 专属动画（Bip001 骨骼体系，路径引用）
--- 这些动画与 DefaultMale_Base 模型骨骼完全匹配
+-- DefaultMale_Base 专属动画（Bip001 骨骼体系）
+-- 基础动画使用 DefaultMale 路径；战斗动画使用资源库"标准男"骨架动画（骨骼兼容）
 local ANIM_PATHS = {
-    -- 基础移动
+    -- 基础移动（DefaultMale 原生动画，100%兼容）
     idle       = "DefaultMale/Animations/DefaultMale_Idle.ani",
     walk       = "DefaultMale/Animations/DefaultMale_Walk.ani",
     move       = "DefaultMale/Animations/DefaultMale_Run.ani",
     jump_start = "DefaultMale/Animations/DefaultMale_JumpStart.ani",
     jump_air   = "DefaultMale/Animations/DefaultMale_JumpAir.ani",
     jump_land  = "DefaultMale/Animations/DefaultMale_JumpLanding.ani",
-    -- 战斗待机（持武器）
-    combat_idle = "DefaultMale/Animations/DefaultMale_RifleIdle.ani",
-    -- 战斗动画
-    melee_fast  = "DefaultMale/Animations/DefaultMale_RifleShoot.ani",  -- 快速攻击
-    melee_heavy = "DefaultMale/Animations/DefaultMale_RifleShoot.ani",  -- 重击（速度减慢）
-    cast_quick  = "DefaultMale/Animations/DefaultMale_RifleShoot.ani",  -- 快速施法
-    cast_long   = "DefaultMale/Animations/DefaultMale_RifleReload.ani", -- 长时间施法/召唤
-    dash_strike = "DefaultMale/Animations/DefaultMale_RifleShoot.ani",  -- 冲锋攻击
-    die         = "DefaultMale/Animations/DefaultMale_JumpStart.ani",   -- 暂用跳跃起手代替
+    -- 战斗待机（持武器）— 魔法导师待机姿态(标准男)
+    combat_idle = "uuid://Cipz8bNT1q0Hk2NMNBgvzfH_",
+    -- 近战攻击 — 杨戬(标准男): 突刺穿心(快)、斜劈重斩(重)
+    melee_fast  = "uuid://Ai-SCaONHGJAnRCLZmoO2QJ8",  -- 杨戬 attack_01 突刺穿心 1.07s
+    melee_heavy = "uuid://HFCMaTM1TqMyp12CL-treYHh",  -- 杨戬 attack_02 斜劈重斩 1.07s
+    -- 施法攻击 — 魔法导师(标准男): 挥击(快)、法杖重砸(长)
+    cast_quick  = "uuid://E3rZmUDaM9pq2-V2gj3pCyW4",  -- 魔法导师 attack_01 挥击 1.5s
+    cast_long   = "uuid://Hs3_meWUZg22cD1e_0d-BCO6",  -- 魔法导师 skill_01 法杖重砸 1.5s
+    -- 冲锋突刺 — 杨戬(标准男): 突刺重击
+    dash_strike = "uuid://C1NO-SdM51lg1PCrBmXoiUWO",  -- 杨戬 attack_03 突刺重击 1.33s
+    -- 死亡（暂用跳跃起手代替）
+    die         = "DefaultMale/Animations/DefaultMale_JumpStart.ani",
 }
 
 -- 技能动画映射：根据技能类型和职业返回 {animKey, speed, duration}
@@ -105,21 +108,21 @@ local SKILL_ANIM_MAP = {
     },
 }
 
--- 动画时长（基础时长，实际由 SKILL_ANIM_MAP 指定）
+-- 动画时长（基础时长，与资源库动画实际时长对齐；技能使用时由 SKILL_ANIM_MAP 覆盖）
 local ANIM_DURATIONS = {
-    idle       = 2.0,
-    walk       = 1.0,
-    move       = 0.8,
-    jump_start = 0.3,
-    jump_air   = 1.0,
-    jump_land  = 0.5,
-    combat_idle = 1.33,
-    melee_fast  = 0.5,
-    melee_heavy = 0.7,
-    cast_quick  = 0.5,
-    cast_long   = 1.5,
-    dash_strike = 0.3,
-    die        = 1.0,
+    idle        = 2.0,
+    walk        = 1.0,
+    move        = 0.8,
+    jump_start  = 0.3,
+    jump_air    = 1.0,
+    jump_land   = 0.5,
+    combat_idle = 2.0,      -- 魔法导师待机 2.0s
+    melee_fast  = 1.07,     -- 杨戬 attack_01 突刺穿心 1.07s
+    melee_heavy = 1.07,     -- 杨戬 attack_02 斜劈重斩 1.07s
+    cast_quick  = 1.5,      -- 魔法导师 attack_01 挥击 1.5s
+    cast_long   = 1.5,      -- 魔法导师 skill_01 法杖重砸 1.5s
+    dash_strike = 1.33,     -- 杨戬 attack_03 突刺重击 1.33s
+    die         = 1.0,
 }
 
 -- 动画是否循环
@@ -138,31 +141,35 @@ local ANIM_LOOPING = {
 local weaponNode_ = nil
 
 -- 武器配置（各职业不同）
+-- ⚠️ 关键：Root骨骼scale=0.01, modelNode_.scale≈0.868
+-- 武器挂在骨骼上继承累计缩放 0.01*0.868=0.00868
+-- 因此武器需要放大 1/0.00868≈115 倍才能在世界空间中显示为正常尺寸
+local WEAPON_SCALE = 115.0
+
 local WEAPON_CONFIG = {
     warrior = {
         name = "朱雀赤剑",
         bone = "Bip001 R Hand",
-        -- 偏移/旋转使剑柄在手心、剑刃向前上方
-        offset = Vector3(0.0, 0.08, 0.02),
+        -- 偏移/旋转使剑柄在手心、剑刃向前上方（骨骼本地坐标，单位cm因为Root=0.01）
+        offset = Vector3(0.0, 8.0, 2.0),
         rotation = Quaternion(0, 0, -90),
-        scale = Vector3(1.0, 1.0, 1.0),
-        -- 程序化几何：剑
+        scale = Vector3(WEAPON_SCALE, WEAPON_SCALE, WEAPON_SCALE),
         buildFunc = "BuildSword",
     },
     mage = {
         name = "玄冰法杖",
         bone = "Bip001 R Hand",
-        offset = Vector3(0.0, 0.1, 0.0),
+        offset = Vector3(0.0, 10.0, 0.0),
         rotation = Quaternion(0, 0, -90),
-        scale = Vector3(1.0, 1.0, 1.0),
+        scale = Vector3(WEAPON_SCALE, WEAPON_SCALE, WEAPON_SCALE),
         buildFunc = "BuildStaff",
     },
     taoist = {
         name = "翠灵符剑",
         bone = "Bip001 R Hand",
-        offset = Vector3(0.0, 0.06, 0.02),
+        offset = Vector3(0.0, 6.0, 2.0),
         rotation = Quaternion(0, 0, -90),
-        scale = Vector3(1.0, 1.0, 1.0),
+        scale = Vector3(WEAPON_SCALE, WEAPON_SCALE, WEAPON_SCALE),
         buildFunc = "BuildTalisman",
     },
 }
@@ -443,7 +450,10 @@ local function AttachWeapon(classId)
     local builder = WEAPON_BUILDERS[config.buildFunc]
     if builder then
         builder(weaponNode_)
-        print("[PlayerAnim] Weapon attached: " .. config.name .. " → " .. config.bone)
+        -- 诊断：确认世界缩放
+        local ws = weaponNode_.worldScale
+        print(string.format("[PlayerAnim] Weapon attached: %s → %s | localScale=%.1f worldScale=(%.4f,%.4f,%.4f)",
+            config.name, config.bone, config.scale.x, ws.x, ws.y, ws.z))
     else
         print("[PlayerAnim] WARNING: Unknown build func: " .. tostring(config.buildFunc))
     end
