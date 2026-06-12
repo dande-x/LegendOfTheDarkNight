@@ -36,8 +36,7 @@ local animCtrl_ = nil
 local animModel_ = nil
 ---@type Node
 local playerNode_ = nil  -- 引用玩家节点，用于每帧同步位置
----@type Node
-local rootBoneNode_ = nil  -- Root骨骼节点引用（用于PostUpdate强制重置scale）
+local rootBoneChildName_ = nil  -- Root骨骼(Bip001)的第一个子骨骼名称（用于SetStartBone跳过Root）
 
 
 
@@ -559,16 +558,24 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors)
         modelNode_.scale = Vector3(0.4, 1.6, 0.4)
         modelNode_.position = Vector3(0, 0.8, 0)
     else
-        -- ⚠️ 关键：获取 Root 骨骼(Bip001) 节点引用
-        -- 资源库"标准男"动画的 Root scale=1.0，bone.animated=false 无效
-        -- 改用 PostUpdate 每帧强制重置 scale=0.01
+        -- ⚠️ 关键：找到 Root 骨骼(Bip001)的第一个子骨骼名称
+        -- 资源库"标准男"动画的 Root scale=1.0 会覆盖 DefaultMale 的 0.01
+        -- bone.animated=false 无效，PostUpdate 也无效（骨骼在 RenderUpdate 才被写入）
+        -- 唯一可靠方案：用 SetStartBone 让 uuid 动画从子骨骼开始，完全跳过 Root
         local skeleton = animModel_:GetSkeleton()
         if skeleton then
             local rootBone = skeleton:GetBone("Bip001")
             if rootBone and rootBone.node then
-                rootBoneNode_ = rootBone.node
-                print("[PlayerAnim] Root bone node captured: " .. rootBoneNode_.name
-                    .. " scale=" .. tostring(rootBoneNode_.scale))
+                local rootNode = rootBone.node
+                -- 遍历子节点，找到第一个也是骨骼的子节点名
+                if rootNode.numChildren > 0 then
+                    local firstChild = rootNode:GetChild(0)
+                    rootBoneChildName_ = firstChild.name
+                    print("[PlayerAnim] Root bone 'Bip001' first child: '" .. rootBoneChildName_ .. "'")
+                else
+                    print("[PlayerAnim] WARNING: Bip001 has no children, cannot SetStartBone")
+                end
+                print("[PlayerAnim] Bip001 scale=" .. tostring(rootNode.scale))
             end
         end
 
@@ -675,6 +682,13 @@ function PlayerAnim.Play(animName, onComplete, opts)
     -- 使用 PlayExclusive 播放（自动淡出其他动画）
     animCtrl_:PlayExclusive(animPath, 0, isLoop, 0.15)
     animCtrl_:SetSpeed(animPath, speed)
+
+    -- ⚠️ 关键：对 uuid 动画设置 StartBone，跳过 Root 骨骼(Bip001)
+    -- 资源库"标准男"动画的 Root 轨道含 scale=1.0，会覆盖 DefaultMale 的 0.01
+    -- SetStartBone 让动画仅从子骨骼开始应用，Root 的 transform 不受影响
+    if rootBoneChildName_ and animPath:find("uuid://") then
+        animCtrl_:SetStartBone(animPath, rootBoneChildName_)
+    end
 end
 
 --- 播放技能动画（根据职业+技能类型自动选择动画和参数）
@@ -815,22 +829,6 @@ end
 function PlayerAnim.GetAnimForSkillType(skillType)
     local config = PlayerAnim.GetSkillAnimConfig(skillType)
     return config.anim
-end
-
--- ============================================================================
--- PostUpdate：强制重置 Root 骨骼 scale（修复资源库动画膨胀）
--- AnimationController 在 SceneUpdate 阶段更新骨骼 transform，
--- PostUpdate 在其之后执行，可以覆盖动画写入的错误 scale。
--- ============================================================================
-function PlayerAnim.HandlePostUpdate(dt)
-    if rootBoneNode_ then
-        -- 强制保持 Root 骨骼 scale=0.01（FBX cm→m 转换值）
-        -- 资源库"标准男"动画会将此值覆盖为 1.0，导致100倍膨胀
-        local s = rootBoneNode_.scale
-        if math.abs(s.x - 0.01) > 0.001 or math.abs(s.y - 0.01) > 0.001 or math.abs(s.z - 0.01) > 0.001 then
-            rootBoneNode_.scale = Vector3(0.01, 0.01, 0.01)
-        end
-    end
 end
 
 -- ============================================================================
