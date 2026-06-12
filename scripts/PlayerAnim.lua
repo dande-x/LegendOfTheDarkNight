@@ -39,7 +39,7 @@ local playerNode_ = nil  -- 引用玩家节点，用于每帧同步位置
 -- 一次性 scale 校准系统
 local scaleCalibrated_ = false
 local calibrationFrames_ = 0
-local CALIBRATION_DELAY = 3  -- 等待 3 帧让动画/蒙皮稳定
+local CALIBRATION_MAX_WAIT = 60  -- 最多等 60 帧（~1秒）
 
 PlayerAnim.animState = animState
 PlayerAnim.hitFeedback = hitFeedback
@@ -328,25 +328,28 @@ local animDiagCounter_ = 0
 function PlayerAnim.Update(dt, isMoving)
     -- modelNode_ 是 playerNode_ 的子节点，自动继承位置/旋转，无需手动同步
 
-    -- 一次性 scale 校准：等动画/蒙皮稳定后，根据实际 worldBBox 修正 scale
+    -- 一次性 scale 校准：等动画覆盖 Root bone 后（worldBBox 变大），再修正 scale
+    -- 动画会把 Root.scale 从 0.01 覆盖为 1.0，导致渲染放大约 40-100 倍
+    -- 需要等这个放大发生后再做一次性修正
     if not scaleCalibrated_ and animModel_ and modelNode_ then
         calibrationFrames_ = calibrationFrames_ + 1
-        if calibrationFrames_ >= CALIBRATION_DELAY then
-            local wbb = animModel_.worldBoundingBox
-            local wbbH = wbb.size.y
-            local currentScale = modelNode_.scale.x
-            if wbbH > 0.1 then
-                local TARGET_HEIGHT = 1.6
-                local correction = TARGET_HEIGHT / wbbH
-                local newScale = currentScale * correction
-                modelNode_.scale = Vector3(newScale, newScale, newScale)
-                -- 重新计算脚底偏移
-                local bb = animModel_.boundingBox
-                local footOffset = -bb.min.y * newScale
-                modelNode_.position = Vector3(0, footOffset, 0)
-                print(string.format("[PlayerAnim] ONE-SHOT calibration: wBBox.h=%.2f scale %.5f -> %.5f",
-                    wbbH, currentScale, newScale))
-            end
+        local wbb = animModel_.worldBoundingBox
+        local wbbH = wbb.size.y
+        local currentScale = modelNode_.scale.x
+        -- 等待条件：worldBBox 明显异常大（>5m 说明动画已覆盖 Root scale）
+        -- 或已等待足够长时间（防止永远等不到）
+        local shouldCalibrate = (wbbH > 5.0) or (calibrationFrames_ >= CALIBRATION_MAX_WAIT)
+        if shouldCalibrate and wbbH > 0.1 then
+            local TARGET_HEIGHT = 1.6
+            local correction = TARGET_HEIGHT / wbbH
+            local newScale = currentScale * correction
+            modelNode_.scale = Vector3(newScale, newScale, newScale)
+            -- 重新计算脚底偏移（用校准后的 scale）
+            local bb = animModel_.boundingBox
+            local footOffset = -bb.min.y * newScale
+            modelNode_.position = Vector3(0, footOffset, 0)
+            print(string.format("[PlayerAnim] ONE-SHOT calibration: frame=%d wBBox.h=%.2f scale %.5f -> %.5f",
+                calibrationFrames_, wbbH, currentScale, newScale))
             scaleCalibrated_ = true  -- 永远不再校准
         end
     end
