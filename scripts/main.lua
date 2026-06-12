@@ -25,10 +25,8 @@ local player_ = nil
 
 local C = CharacterClass.Colors
 
--- 俯视角相机参数
--- 斜45度视角（类传奇/暗黑风格，能看清人形角色）
-local CAM_OFFSET = Vector3(0, 12, -14)
-local CAM_PITCH = 42
+-- 俯视角相机参数（传奇/暗黑风格斜45度俯视）
+local CAM_OFFSET = Vector3(0, 12, -14)  -- 相机在玩家上方12m、后方14m
 local CAM_FOV = 35
 
 -- 药瓶系统
@@ -523,14 +521,15 @@ end
 -- ============================================================================
 function SetupCamera()
     cameraNode_ = scene_:CreateChild("Camera")
-    cameraNode_.position = CAM_OFFSET
+    cameraNode_.worldPosition = CAM_OFFSET
 
     local camera = cameraNode_:CreateComponent("Camera")
-    camera.nearClip = 1.0
+    camera.nearClip = 0.5
     camera.farClip = 200.0
     camera.fov = CAM_FOV
 
-    cameraNode_.rotation = Quaternion(CAM_PITCH, Vector3.RIGHT)
+    -- 初始朝向原点（玩家初始位置）
+    cameraNode_:LookAt(Vector3(0, 0.8, 0))
 
     local viewport = Viewport:new(scene_, camera)
     renderer:SetViewport(0, viewport)
@@ -544,13 +543,15 @@ end
 
 function UpdateCamera(dt)
     if not playerNode_ then return end
-    local targetPos = playerNode_.position + CAM_OFFSET
+    local playerPos = playerNode_.worldPosition
+    local targetPos = playerPos + CAM_OFFSET
     -- 打击感屏幕震动
     local shakeOffset = PlayerAnim.GetCameraShakeOffset()
     targetPos = targetPos + shakeOffset
-    local currentPos = cameraNode_.position
-    local lerpSpeed = 8.0  -- 更快跟随，避免角色跑出视野
-    cameraNode_.position = currentPos + (targetPos - currentPos) * math.min(1.0, lerpSpeed * dt)
+    -- 即时跟随（不用 lerp，消除延迟）
+    cameraNode_.worldPosition = targetPos
+    -- 始终朝向玩家位置（看角色腰部）
+    cameraNode_:LookAt(playerPos + Vector3(0, 0.8, 0))
 end
 
 -- ============================================================================
