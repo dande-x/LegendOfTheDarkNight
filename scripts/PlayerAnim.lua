@@ -557,6 +557,17 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors)
         modelNode_.scale = Vector3(0.4, 1.6, 0.4)
         modelNode_.position = Vector3(0, 0.8, 0)
     else
+        -- ⚠️ 关键：锁定 Root 骨骼(Bip001)，阻止外部动画覆盖其 scale=0.01
+        -- 资源库"标准男"动画的 Root scale=1.0，如果不锁定会导致角色膨胀100倍
+        local skeleton = animModel_:GetSkeleton()
+        if skeleton then
+            local rootBone = skeleton:GetBone("Bip001")
+            if rootBone then
+                rootBone.animated = false
+                print("[PlayerAnim] Root bone 'Bip001' locked (animated=false) to preserve scale=0.01")
+            end
+        end
+
         -- AnimationController（预制体中可能已存在，或新建）
         animCtrl_ = modelNode_:GetComponent("AnimationController")
             or modelNode_:GetComponent("AnimationController", true)
