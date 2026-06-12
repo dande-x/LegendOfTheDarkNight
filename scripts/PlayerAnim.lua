@@ -137,13 +137,27 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors)
     end
     modelNode_.name = "CharacterModel"
     -- 不 reparent！保持为场景根节点，每帧手动同步位置/旋转
-    modelNode_.scale = Vector3(0.85, 0.85, 0.85)
 
     -- 获取 AnimatedModel 组件
     animModel_ = modelNode_:GetComponent("AnimatedModel")
     if not animModel_ then
         -- 尝试从子节点获取
         animModel_ = modelNode_:GetComponent("AnimatedModel", true)
+    end
+
+    -- 根据实际 BoundingBox 自动缩放到合理高度（目标 1.6m）
+    if animModel_ then
+        local bb = animModel_.boundingBox
+        local actualHeight = bb.size.y
+        print("[PlayerAnim] Model bounding box height: " .. tostring(actualHeight))
+        if actualHeight > 0 then
+            local desiredHeight = 1.6  -- 目标角色高度（米）
+            local scaleFactor = desiredHeight / actualHeight
+            modelNode_.scale = Vector3(scaleFactor, scaleFactor, scaleFactor)
+            print("[PlayerAnim] Auto-scale factor: " .. tostring(scaleFactor))
+        end
+    else
+        modelNode_.scale = Vector3(0.01, 0.01, 0.01)  -- 安全 fallback
     end
 
     -- 创建 AnimationController
