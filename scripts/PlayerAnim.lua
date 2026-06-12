@@ -37,18 +37,16 @@ local animModel_ = nil
 ---@type Node
 local playerNode_ = nil  -- 引用玩家节点，用于每帧同步位置
 
--- modelNode_ scale 补偿方案（每帧动态读取骨骼实际值）：
+-- modelNode_ scale 补偿方案（每帧根据动画类型强制设置）：
 -- 问题：uuid 动画 Root(Bip001) scale=1.0，DefaultMale bind pose Root scale=0.01
 --   InverseBind 含 1/0.01=100 缩放，uuid 播放时 skinMatrix 膨胀 100 倍
--- 解决：每帧在 PostUpdate 中读取 Bip001.node.scale 实际值 S，计算：
---   modelNode_.scale = baseScale_ / (S * 100)
---   验证: S=0.01(原生) → baseScale_/(0.01*100) = baseScale_ ✓
---   验证: S=1.0(uuid)  → baseScale_/(1.0*100) = baseScale_/100 ✓
--- 时序：E_UPDATE → AnimCtrl更新骨骼 → E_POSTUPDATE(此处补偿) → RenderUpdate(蒙皮)
+-- 解决：每帧在 PostUpdate 中根据当前动画类型强制设置 modelNode_.scale：
+--   uuid 动画: modelNode_.scale = baseScale_ / 100（抵消 1.0×100 的膨胀）
+--   原生动画: modelNode_.scale = baseScale_（正常：0.01×100=1 无膨胀）
+-- 为什么每帧强制：确保无论什么时序，scale 始终与当前动画类型匹配
 local baseScale_ = 1.0        -- CreateSkeleton 中计算的基础 scale 值
 local baseFootOffset_ = 0.0   -- CreateSkeleton 中计算的脚底偏移
----@type Node
-local rootBoneNode_ = nil     -- Bip001 骨骼节点引用（每帧读取其 scale）
+local isUuidAnim_ = false     -- 当前是否在播放 uuid 动画（Play 中设置）
 
 
 
@@ -571,15 +569,12 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors)
         modelNode_.scale = Vector3(0.4, 1.6, 0.4)
         modelNode_.position = Vector3(0, 0.8, 0)
     else
-        -- 缓存 Root 骨骼节点引用（用于 PostUpdate 每帧动态读取 scale）
+        -- 打印 Root 骨骼信息（诊断）
         local skeleton = animModel_:GetSkeleton()
         if skeleton then
             local rootBone = skeleton:GetBone("Bip001")
             if rootBone and rootBone.node then
-                rootBoneNode_ = rootBone.node
-                print("[PlayerAnim] Bip001 cached, scale=" .. tostring(rootBoneNode_.scale))
-            else
-                print("[PlayerAnim] WARNING: Bip001 bone node not found!")
+                print("[PlayerAnim] Bip001 scale=" .. tostring(rootBone.node.scale))
             end
         end
 
@@ -683,8 +678,10 @@ function PlayerAnim.Play(animName, onComplete, opts)
     animState.onComplete = onComplete
     animState.speed = speed  -- 记录当前速度（用于顿帧恢复）
 
+    -- 判断是否为 uuid 动画（uuid 动画的 Root scale=1.0，需要补偿）
+    isUuidAnim_ = (animPath:find("uuid://") ~= nil)
+
     -- fadeTime=0：避免交叉淡入淡出时 Bip001.scale 在 0.01↔1.0 之间插值
-    -- scale 补偿由 PostUpdate 每帧动态计算（读取 Bip001.scale 实际值），无需标记
     animCtrl_:PlayExclusive(animPath, 0, isLoop, 0.0)
     animCtrl_:SetSpeed(animPath, speed)
 end
@@ -845,27 +842,24 @@ function PlayerAnim.GetAnimController()
 end
 
 -- ============================================================================
--- PostUpdate：每帧动态 scale 补偿（由 main.lua 的 PostUpdate 事件回调调用）
+-- PostUpdate：每帧根据动画类型强制设置 modelNode_.scale（由 main.lua 回调）
 -- 时序：E_UPDATE → AnimCtrl 更新骨骼 → E_POSTUPDATE(此函数) → RenderUpdate(蒙皮)
--- 原理：读取 Bip001.scale 实际值 S，计算 modelNode.scale = baseScale_ / (S * 100)
+-- 原理：
 --   InverseBind 含 1/bindScale = 1/0.01 = 100 的缩放因子
---   skinMatrix 缩放 = S × 100，要求 modelScale × S × 100 = baseScale_
---   所以 modelScale = baseScale_ / (S × 100)
+--   原生动画 Root=0.01 → skinMatrix 缩放 = 0.01×100 = 1 → modelScale = baseScale_
+--   uuid 动画 Root=1.0  → skinMatrix 缩放 = 1.0×100 = 100 → modelScale = baseScale_/100
 -- ============================================================================
 function PlayerAnim.PostUpdate()
-    if not modelNode_ or not rootBoneNode_ then return end
+    if not modelNode_ then return end
 
-    -- 读取 AnimationController 更新后的 Bip001 实际 scale（各轴相同，取 x）
-    local rootScale = rootBoneNode_.scale.x
-
-    -- 防御：rootScale 不应该为 0（避免除零）
-    if rootScale < 0.0001 then
-        rootScale = 0.01  -- fallback 到 bind pose 值
+    if isUuidAnim_ then
+        -- uuid 动画：Root scale=1.0，skinMatrix 膨胀 100 倍，需要缩小 100 倍补偿
+        local cs = baseScale_ / 100.0
+        modelNode_.scale = Vector3(cs, cs, cs)
+    else
+        -- 原生动画：Root scale=0.01，skinMatrix 正常（0.01×100=1），正常 scale
+        modelNode_.scale = Vector3(baseScale_, baseScale_, baseScale_)
     end
-
-    -- 动态计算补偿 scale
-    local compensated = baseScale_ / (rootScale * 100.0)
-    modelNode_.scale = Vector3(compensated, compensated, compensated)
     modelNode_.position = Vector3(0, baseFootOffset_, 0)
 end
 
