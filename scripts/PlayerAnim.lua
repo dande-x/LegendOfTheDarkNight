@@ -37,18 +37,18 @@ local animModel_ = nil
 ---@type Node
 local playerNode_ = nil  -- 引用玩家节点，用于每帧同步位置
 
--- modelNode_ scale 补偿方案（延迟1帧生效，与骨骼更新同步）：
--- 问题：uuid 动画 Root(Bip001) scale=1.0，DefaultMale 的 Root scale=0.01
+-- modelNode_ scale 补偿方案（每帧动态读取骨骼实际值）：
+-- 问题：uuid 动画 Root(Bip001) scale=1.0，DefaultMale bind pose Root scale=0.01
 --   InverseBind 含 1/0.01=100 缩放，uuid 播放时 skinMatrix 膨胀 100 倍
--- 解决：uuid 动画时 modelNode_.scale 缩小 100 倍来抵消
--- 关键：UrhoX 帧序列为 Scene::Update(骨骼) → E_UPDATE(我们的代码) → RenderUpdate(蒙皮)
---   Play() 中调 PlayExclusive 后，骨骼要到下一帧 Scene::Update 才更新
---   所以 scale 变更也必须延迟 1 帧，在下一帧 Update 开头（Scene::Update 后）执行
+-- 解决：每帧在 PostUpdate 中读取 Bip001.node.scale 实际值 S，计算：
+--   modelNode_.scale = baseScale_ / (S * 100)
+--   验证: S=0.01(原生) → baseScale_/(0.01*100) = baseScale_ ✓
+--   验证: S=1.0(uuid)  → baseScale_/(1.0*100) = baseScale_/100 ✓
+-- 时序：E_UPDATE → AnimCtrl更新骨骼 → E_POSTUPDATE(此处补偿) → RenderUpdate(蒙皮)
 local baseScale_ = 1.0        -- CreateSkeleton 中计算的基础 scale 值
 local baseFootOffset_ = 0.0   -- CreateSkeleton 中计算的脚底偏移
-local isUuidAnim_ = false     -- 当前是否在播放 uuid 动画
-local scaleDirty_ = false     -- 标记需要应用 scale 变更（在 PostUpdate 中执行）
-local postUpdateSubscribed_ = false  -- 是否已订阅 PostUpdate 事件
+---@type Node
+local rootBoneNode_ = nil     -- Bip001 骨骼节点引用（每帧读取其 scale）
 
 
 
@@ -571,12 +571,15 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors)
         modelNode_.scale = Vector3(0.4, 1.6, 0.4)
         modelNode_.position = Vector3(0, 0.8, 0)
     else
-        -- 打印 Root 骨骼信息（诊断）
+        -- 缓存 Root 骨骼节点引用（用于 PostUpdate 每帧动态读取 scale）
         local skeleton = animModel_:GetSkeleton()
         if skeleton then
             local rootBone = skeleton:GetBone("Bip001")
             if rootBone and rootBone.node then
-                print("[PlayerAnim] Bip001 scale=" .. tostring(rootBone.node.scale))
+                rootBoneNode_ = rootBone.node
+                print("[PlayerAnim] Bip001 cached, scale=" .. tostring(rootBoneNode_.scale))
+            else
+                print("[PlayerAnim] WARNING: Bip001 bone node not found!")
             end
         end
 
@@ -598,15 +601,6 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors)
 
         -- 挂载武器到手部骨骼
         AttachWeapon(classId)
-    end
-
-    -- 订阅 PostUpdate 事件（仅一次）：在此事件中应用 scale 补偿
-    -- 时序：E_UPDATE(Play调用+AnimCtrl更新骨骼) → E_POSTUPDATE(我们改scale) → RenderUpdate(蒙皮)
-    -- 这确保 modelNode_.scale 变更与骨骼值在同一帧生效，无错位
-    if not postUpdateSubscribed_ then
-        postUpdateSubscribed_ = true
-        SubscribeToEvent("PostUpdate", "HandlePlayerAnimPostUpdate")
-        print("[PlayerAnim] PostUpdate event subscribed for scale compensation")
     end
 
     print("[PlayerAnim] Character created: " .. classId)
@@ -689,17 +683,8 @@ function PlayerAnim.Play(animName, onComplete, opts)
     animState.onComplete = onComplete
     animState.speed = speed  -- 记录当前速度（用于顿帧恢复）
 
-    -- ⚠️ 关键：scale 补偿标记（延迟 1 帧执行）
-    -- uuid 动画 Bip001.scale=1.0 → skinMatrix 膨胀 100 倍 → 需要 modelNode.scale/=100 抵消
-    -- 但 PlayExclusive 后骨骼要下一帧 Scene::Update 才更新
-    -- 所以 scale 也延迟 1 帧在 Update 开头应用，确保与骨骼值同步
-    local needUuid = animPath:find("uuid://") ~= nil
-    if needUuid ~= isUuidAnim_ then
-        isUuidAnim_ = needUuid
-        scaleDirty_ = true  -- 标记：下一帧 Update 开头应用 scale 变更
-    end
-
     -- fadeTime=0：避免交叉淡入淡出时 Bip001.scale 在 0.01↔1.0 之间插值
+    -- scale 补偿由 PostUpdate 每帧动态计算（读取 Bip001.scale 实际值），无需标记
     animCtrl_:PlayExclusive(animPath, 0, isLoop, 0.0)
     animCtrl_:SetSpeed(animPath, speed)
 end
@@ -860,24 +845,27 @@ function PlayerAnim.GetAnimController()
 end
 
 -- ============================================================================
--- PostUpdate 事件：scale 补偿（在 AnimationController 更新骨骼后、RenderUpdate 蒙皮前）
--- 这是修复 uuid 动画膨胀的关键：确保 modelNode_.scale 与 Bip001.scale 在同一帧同步
+-- PostUpdate：每帧动态 scale 补偿（由 main.lua 的 PostUpdate 事件回调调用）
+-- 时序：E_UPDATE → AnimCtrl 更新骨骼 → E_POSTUPDATE(此函数) → RenderUpdate(蒙皮)
+-- 原理：读取 Bip001.scale 实际值 S，计算 modelNode.scale = baseScale_ / (S * 100)
+--   InverseBind 含 1/bindScale = 1/0.01 = 100 的缩放因子
+--   skinMatrix 缩放 = S × 100，要求 modelScale × S × 100 = baseScale_
+--   所以 modelScale = baseScale_ / (S × 100)
 -- ============================================================================
-function HandlePlayerAnimPostUpdate(eventType, eventData)
-    if not scaleDirty_ or not modelNode_ then return end
+function PlayerAnim.PostUpdate()
+    if not modelNode_ or not rootBoneNode_ then return end
 
-    scaleDirty_ = false
-    if isUuidAnim_ then
-        -- uuid 动画: Bip001.scale=1.0 → InverseBind(100×) → 膨胀
-        -- modelNode.scale 缩小 100 倍抵消: (s/100) × 1.0 × 100 = s ✓
-        local cs = baseScale_ / 100.0
-        modelNode_.scale = Vector3(cs, cs, cs)
-        print(string.format("[PlayerAnim] PostUpdate Scale→UUID: %.6f", cs))
-    else
-        -- 原生动画: Bip001.scale=0.01 → InverseBind(100×) → s × 0.01 × 100 = s ✓
-        modelNode_.scale = Vector3(baseScale_, baseScale_, baseScale_)
-        print(string.format("[PlayerAnim] PostUpdate Scale→Native: %.5f", baseScale_))
+    -- 读取 AnimationController 更新后的 Bip001 实际 scale（各轴相同，取 x）
+    local rootScale = rootBoneNode_.scale.x
+
+    -- 防御：rootScale 不应该为 0（避免除零）
+    if rootScale < 0.0001 then
+        rootScale = 0.01  -- fallback 到 bind pose 值
     end
+
+    -- 动态计算补偿 scale
+    local compensated = baseScale_ / (rootScale * 100.0)
+    modelNode_.scale = Vector3(compensated, compensated, compensated)
     modelNode_.position = Vector3(0, baseFootOffset_, 0)
 end
 
