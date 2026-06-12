@@ -33,6 +33,8 @@ local modelNode_ = nil
 local animCtrl_ = nil
 ---@type AnimatedModel
 local animModel_ = nil
+---@type Node
+local playerNode_ = nil  -- 引用玩家节点，用于每帧同步位置
 
 PlayerAnim.animState = animState
 PlayerAnim.hitFeedback = hitFeedback
@@ -116,6 +118,7 @@ local CLASS_MATERIALS = {
 -- ============================================================================
 function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors)
     currentClassId = classId
+    playerNode_ = playerNode
 
     -- 清理旧模型
     if modelNode_ then
@@ -125,18 +128,15 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors)
         animModel_ = nil
     end
 
-    -- 实例化3D人形预制体（从playerNode的scene获取）
+    -- 实例化3D人形预制体（不做 reparent，避免父子变换链与物理引擎冲突）
     local parentScene = playerNode:GetScene()
-    modelNode_ = parentScene:InstantiateXML(CHARACTER_PREFAB, Vector3.ZERO, Quaternion.IDENTITY, LOCAL)
+    modelNode_ = parentScene:InstantiateXML(CHARACTER_PREFAB, playerNode.worldPosition, Quaternion.IDENTITY, LOCAL)
     if not modelNode_ then
         print("[PlayerAnim] ERROR: Failed to instantiate character prefab!")
         return
     end
     modelNode_.name = "CharacterModel"
-    modelNode_.parent = playerNode
-    modelNode_.position = Vector3(0, 0, 0)
-    modelNode_.rotation = Quaternion.IDENTITY
-    -- 缩放模型到合理大小（原始1.84m → 约1.6m，匹配碰撞胶囊1.4m + 头部余量）
+    -- 不 reparent！保持为场景根节点，每帧手动同步位置/旋转
     modelNode_.scale = Vector3(0.85, 0.85, 0.85)
 
     -- 获取 AnimatedModel 组件
@@ -149,10 +149,10 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors)
     -- 创建 AnimationController
     animCtrl_ = modelNode_:GetOrCreateComponent("AnimationController")
 
-    -- 应用职业材质（用水墨铠甲贴图覆盖默认材质）
+    -- 应用职业材质
     PlayerAnim._ApplyClassMaterial(classId, color)
 
-    print("[PlayerAnim] Character created: " .. classId .. " (3D model with skeleton)")
+    print("[PlayerAnim] Character created: " .. classId .. " (3D model, scene-level node)")
 end
 
 -- ============================================================================
@@ -241,6 +241,12 @@ end
 -- 每帧更新
 -- ============================================================================
 function PlayerAnim.Update(dt, isMoving)
+    -- 同步模型位置/旋转到玩家节点（不使用 parent 继承，手动同步）
+    if modelNode_ and playerNode_ then
+        modelNode_.worldPosition = playerNode_.worldPosition
+        modelNode_.worldRotation = playerNode_.worldRotation
+    end
+
     -- 打击感顿帧
     if hitFeedback.hitPause > 0 then
         hitFeedback.hitPause = hitFeedback.hitPause - dt
