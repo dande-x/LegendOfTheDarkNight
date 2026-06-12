@@ -165,19 +165,21 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors)
             end
 
             if animModel_ then
-                -- 检测内部骨骼根节点的缩放因子（FBX cm→m 转换）
+                -- 修复：Root 骨骼有 scale=0.01（FBX cm→m 转换），但 MDL 的逆绑定矩阵
+                -- 是基于 Root scale=1.0 计算的。运行时 Root=0.01 导致蒙皮错配放大 100x。
+                -- 解决方案：将 Root scale 重置为 1.0，让蒙皮正确工作。
                 local rootChild = modelNode_:GetChild("Root")
-                local internalScale = 1.0
                 if rootChild then
-                    internalScale = rootChild.scale.x  -- 通常是 0.01（cm→m）
-                    print("[PlayerAnim] Root bone scale=" .. string.format("%.4f", internalScale))
+                    local origScale = rootChild.scale.x
+                    print("[PlayerAnim] Root bone original scale=" .. string.format("%.4f", origScale))
+                    if math.abs(origScale - 0.01) < 0.001 then
+                        rootChild.scale = Vector3(1.0, 1.0, 1.0)
+                        print("[PlayerAnim] Root bone scale reset to 1.0 (was 0.01)")
+                    end
                 end
 
-                -- boundingBox 返回的高度已经包含了 Root 0.01 的影响
-                -- 但实际渲染时 AnimatedModel 的蒙皮不会再应用这个缩放
-                -- 所以真实渲染高度 = boundingBox.size.y / internalScale
-                -- 我们需要: target = (bb.size.y / internalScale) * modelScale
-                -- 因此: modelScale = target * internalScale / bb.size.y
+                -- Root scale 已重置为 1.0，蒙皮渲染高度 = bb.height * modelScale
+                -- 所以 modelScale = targetHeight / bb.height
                 local bb = animModel_.boundingBox
                 local h = bb.size.y
                 local minY = bb.min.y
@@ -185,13 +187,11 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors)
 
                 if h > 0 then
                     local TARGET_HEIGHT = 1.6
-                    local s = TARGET_HEIGHT * internalScale / h
+                    local s = TARGET_HEIGHT / h
                     modelNode_.scale = Vector3(s, s, s)
-                    -- 脚底偏移也需要乘以 internalScale 修正
                     local footOffset = -minY * s
                     modelNode_.position = Vector3(0, footOffset, 0)
                     print("[PlayerAnim] Applied scale=" .. string.format("%.5f", s)
-                        .. " (internalScale=" .. string.format("%.4f", internalScale) .. ")"
                         .. " footOffset=" .. string.format("%.5f", footOffset))
                 end
             else
