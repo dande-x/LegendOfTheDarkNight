@@ -117,6 +117,7 @@ local CLASS_MATERIALS = {
 -- 创建角色（替代旧的 CreateSkeleton）
 -- ============================================================================
 function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors)
+    print("[PlayerAnim] CreateSkeleton called: " .. tostring(classId))
     currentClassId = classId
     playerNode_ = playerNode
 
@@ -128,45 +129,71 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors)
         animModel_ = nil
     end
 
-    -- 实例化3D人形预制体（不做 reparent，避免父子变换链与物理引擎冲突）
-    local parentScene = playerNode:GetScene()
-    modelNode_ = parentScene:InstantiateXML(CHARACTER_PREFAB, playerNode.worldPosition, Quaternion.IDENTITY, LOCAL)
-    if not modelNode_ then
-        print("[PlayerAnim] ERROR: Failed to instantiate character prefab!")
-        return
-    end
-    modelNode_.name = "CharacterModel"
-    -- 不 reparent！保持为场景根节点，每帧手动同步位置/旋转
+    -- 方案：作为 playerNode 子节点直接创建模型（避免 InstantiateXML + reparent 问题）
+    modelNode_ = playerNode:CreateChild("CharacterModel")
+    modelNode_.position = Vector3(0, 0, 0)
 
-    -- 获取 AnimatedModel 组件
-    animModel_ = modelNode_:GetComponent("AnimatedModel")
-    if not animModel_ then
-        -- 尝试从子节点获取
-        animModel_ = modelNode_:GetComponent("AnimatedModel", true)
-    end
-
-    -- 根据实际 BoundingBox 自动缩放到合理高度（目标 1.6m）
-    if animModel_ then
-        local bb = animModel_.boundingBox
-        local actualHeight = bb.size.y
-        print("[PlayerAnim] Model bounding box height: " .. tostring(actualHeight))
-        if actualHeight > 0 then
-            local desiredHeight = 1.6  -- 目标角色高度（米）
-            local scaleFactor = desiredHeight / actualHeight
-            modelNode_.scale = Vector3(scaleFactor, scaleFactor, scaleFactor)
-            print("[PlayerAnim] Auto-scale factor: " .. tostring(scaleFactor))
+    -- 尝试加载预制体模型
+    local ok, err = pcall(function()
+        local parentScene = playerNode:GetScene()
+        local prefabNode = parentScene:InstantiateXML(CHARACTER_PREFAB, Vector3.ZERO, Quaternion.IDENTITY, LOCAL)
+        if prefabNode then
+            print("[PlayerAnim] Prefab loaded successfully")
+            -- 获取 AnimatedModel 组件
+            local prefabModel = prefabNode:GetComponent("AnimatedModel")
+                or prefabNode:GetComponent("AnimatedModel", true)
+            if prefabModel then
+                -- 复制模型和骨骼到我们的子节点
+                animModel_ = modelNode_:CreateComponent("AnimatedModel")
+                animModel_:SetModel(prefabModel:GetModel())
+                -- 自动缩放
+                local bb = animModel_.boundingBox
+                local h = bb.size.y
+                print("[PlayerAnim] Model height: " .. tostring(h))
+                if h > 10 then
+                    -- 厘米单位，需要缩小
+                    local s = 1.6 / h
+                    modelNode_.scale = Vector3(s, s, s)
+                elseif h > 0 then
+                    local s = 1.6 / h
+                    modelNode_.scale = Vector3(s, s, s)
+                end
+            end
+            -- 清除临时预制体节点
+            prefabNode:Remove()
+        else
+            print("[PlayerAnim] WARNING: Prefab instantiation returned nil")
         end
-    else
-        modelNode_.scale = Vector3(0.01, 0.01, 0.01)  -- 安全 fallback
+    end)
+
+    if not ok then
+        print("[PlayerAnim] Prefab load error: " .. tostring(err))
     end
 
-    -- 创建 AnimationController
-    animCtrl_ = modelNode_:GetOrCreateComponent("AnimationController")
+    -- 如果 AnimatedModel 没创建成功，用 Capsule 作为可视 fallback
+    if not animModel_ then
+        print("[PlayerAnim] Using fallback capsule model")
+        local staticModel = modelNode_:CreateComponent("StaticModel")
+        staticModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+        local mat = Material:new()
+        mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
+        local tint = CLASS_MATERIALS[classId] and CLASS_MATERIALS[classId].body.color
+            or Color(0.5, 0.5, 0.5, 1.0)
+        mat:SetShaderParameter("MatDiffColor", Variant(tint))
+        mat:SetShaderParameter("Roughness", Variant(0.3))
+        mat:SetShaderParameter("Metallic", Variant(0.7))
+        staticModel:SetMaterial(mat)
+        -- Cylinder 高度1m，缩放到1.6m
+        modelNode_.scale = Vector3(0.4, 1.6, 0.4)
+        modelNode_.position = Vector3(0, 0.8, 0)  -- 胶囊中心偏上
+    else
+        -- 创建 AnimationController
+        animCtrl_ = modelNode_:GetOrCreateComponent("AnimationController")
+        -- 应用职业材质
+        PlayerAnim._ApplyClassMaterial(classId, color)
+    end
 
-    -- 应用职业材质
-    PlayerAnim._ApplyClassMaterial(classId, color)
-
-    print("[PlayerAnim] Character created: " .. classId .. " (3D model, scene-level node)")
+    print("[PlayerAnim] Character created: " .. classId)
 end
 
 -- ============================================================================
@@ -255,11 +282,7 @@ end
 -- 每帧更新
 -- ============================================================================
 function PlayerAnim.Update(dt, isMoving)
-    -- 同步模型位置/旋转到玩家节点（不使用 parent 继承，手动同步）
-    if modelNode_ and playerNode_ then
-        modelNode_.worldPosition = playerNode_.worldPosition
-        modelNode_.worldRotation = playerNode_.worldRotation
-    end
+    -- modelNode_ 是 playerNode_ 的子节点，自动继承位置/旋转，无需手动同步
 
     -- 打击感顿帧
     if hitFeedback.hitPause > 0 then
