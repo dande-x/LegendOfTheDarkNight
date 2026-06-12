@@ -36,10 +36,7 @@ local animModel_ = nil
 ---@type Node
 local playerNode_ = nil  -- 引用玩家节点，用于每帧同步位置
 
--- 一次性 scale 校准系统
-local scaleCalibrated_ = false
-local calibrationFrames_ = 0
-local CALIBRATION_MAX_WAIT = 60  -- 最多等 60 帧（~1秒）
+
 
 PlayerAnim.animState = animState
 PlayerAnim.hitFeedback = hitFeedback
@@ -49,35 +46,44 @@ PlayerAnim.hitFeedback = hitFeedback
 -- ============================================================================
 local CHARACTER_PREFAB = "uuid://DEkZaUTQvLlCdjdIzpnHa4n-"  -- DefaultMale_Base (标准男骨架)
 
--- 动画 UUID 引用（全部兼容"标准男"骨架）
-local ANIM_UUIDS = {
-    idle       = "uuid://G7yDSZdD2lEh3EdNzc0MGQkV",  -- 杨戬待机警戒 1.6s 可循环
-    move       = "uuid://CLwWYfIHxVykOtlpDhB_-T2E",  -- 皇帝中速战斗奔跑 0.8s 可循环
-    -- 武士攻击
-    melee      = "uuid://HFCMaTM1TqMyp12CL-treYHh",  -- 斜劈重斩 1.07s
-    melee_alt  = "uuid://Ai-SCaONHGJAnRCLZmoO2QJ8",  -- 突刺穿心 1.07s
-    -- 法师/道士攻击
-    ranged     = "uuid://Bt3J4RQwGIykpkw8NH1NGZEC",  -- 魔法导师重击 1.5s
-    summon     = "uuid://HNZkaRcCKM51-9ZXmCoIfPot",  -- 能量推掌施法 2.0s
-    -- 通用
-    die        = "uuid://AUfu8YE3YF2txEtOpyr2CSci",  -- 受击倒地 2.6s
+-- DefaultMale_Base 专属动画（Bip001 骨骼体系，路径引用）
+-- 这些动画与 DefaultMale_Base 模型骨骼完全匹配
+local ANIM_PATHS = {
+    idle       = "DefaultMale/Animations/DefaultMale_Idle.ani",
+    walk       = "DefaultMale/Animations/DefaultMale_Walk.ani",
+    move       = "DefaultMale/Animations/DefaultMale_Run.ani",
+    jump_start = "DefaultMale/Animations/DefaultMale_JumpStart.ani",
+    jump_air   = "DefaultMale/Animations/DefaultMale_JumpAir.ani",
+    jump_land  = "DefaultMale/Animations/DefaultMale_JumpLanding.ani",
+    -- 战斗动画（使用 Rifle 系列临时替代）
+    melee      = "DefaultMale/Animations/DefaultMale_RifleShoot.ani",
+    melee_alt  = "DefaultMale/Animations/DefaultMale_RifleShoot.ani",
+    ranged     = "DefaultMale/Animations/DefaultMale_RifleShoot.ani",
+    summon     = "DefaultMale/Animations/DefaultMale_RifleReload.ani",
+    die        = "DefaultMale/Animations/DefaultMale_JumpStart.ani",  -- 暂无死亡动画，用跳跃起手代替
 }
 
 -- 动画时长（秒）
 local ANIM_DURATIONS = {
-    idle       = 1.6,
+    idle       = 2.0,
+    walk       = 1.0,
     move       = 0.8,
-    melee      = 1.067,
-    melee_alt  = 1.067,
-    ranged     = 1.5,
-    summon     = 2.0,
-    die        = 2.6,
+    jump_start = 0.3,
+    jump_air   = 1.0,
+    jump_land  = 0.5,
+    melee      = 0.5,
+    melee_alt  = 0.5,
+    ranged     = 0.5,
+    summon     = 1.5,
+    die        = 1.0,
 }
 
 -- 动画是否循环
 local ANIM_LOOPING = {
     idle  = true,
+    walk  = true,
     move  = true,
+    jump_air = true,
 }
 
 -- 职业 PBR 材质配置（纯色金属/玉石质感，不依赖贴图）
@@ -134,9 +140,6 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors)
         animCtrl_ = nil
         animModel_ = nil
     end
-    -- 重置校准状态
-    scaleCalibrated_ = false
-    calibrationFrames_ = 0
 
     -- 尝试加载预制体（保留完整骨骼层级）
     local ok, err = pcall(function()
@@ -225,15 +228,12 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors)
         if not animCtrl_ then
             animCtrl_ = modelNode_:CreateComponent("AnimationController")
         end
-        -- [DEBUG] 禁用动画播放，验证 bind pose 是否正确（站立/T-pose）
-        -- 如果 bind pose 正常站立，说明问题出在动画兼容性
-        -- if animCtrl_ and ANIM_UUIDS.idle then
-        --     animCtrl_:PlayExclusive(ANIM_UUIDS.idle, 0, true, 0.0)
-        --     animState.current = "idle"
-        --     print("[PlayerAnim] Immediate idle animation started")
-        -- end
-        animState.current = "idle"
-        print("[PlayerAnim] Animation DISABLED for bind pose verification")
+        -- 播放 idle 动画（使用 DefaultMale 专属动画，骨骼完全匹配）
+        if animCtrl_ and ANIM_PATHS.idle then
+            animCtrl_:PlayExclusive(ANIM_PATHS.idle, 0, true, 0.0)
+            animState.current = "idle"
+            print("[PlayerAnim] Idle animation started: " .. ANIM_PATHS.idle)
+        end
 
         -- 应用职业材质
         PlayerAnim._ApplyClassMaterial(classId, color)
@@ -288,25 +288,16 @@ end
 -- ============================================================================
 -- 动画播放
 -- ============================================================================
--- [DEBUG] 动画播放暂时禁用，仅更新状态用于外部查询
-local ANIM_DISABLED = true  -- 设为 false 可恢复动画
-
 function PlayerAnim.Play(animName, onComplete)
-    local uuid = ANIM_UUIDS[animName]
-    if not uuid then
+    local animPath = ANIM_PATHS[animName]
+    if not animPath then
         -- 尝试映射别名
-        if animName == "walk" then uuid = ANIM_UUIDS.move
-        elseif animName == "hit" then uuid = ANIM_UUIDS.melee
+        if animName == "walk" then animPath = ANIM_PATHS.walk or ANIM_PATHS.move
+        elseif animName == "hit" then animPath = ANIM_PATHS.melee
         else return end
     end
 
     if not animCtrl_ then return end
-
-    -- [DEBUG] 动画禁用期间不实际播放
-    if ANIM_DISABLED then
-        animState.current = animName
-        return
-    end
 
     local isLoop = ANIM_LOOPING[animName] or false
     local duration = ANIM_DURATIONS[animName] or 1.0
@@ -322,8 +313,8 @@ function PlayerAnim.Play(animName, onComplete)
     animState.onComplete = onComplete
 
     -- 使用 PlayExclusive 播放（自动淡出其他动画）
-    animCtrl_:PlayExclusive(uuid, 0, isLoop, 0.2)
-    animCtrl_:SetSpeed(uuid, 1.0)
+    animCtrl_:PlayExclusive(animPath, 0, isLoop, 0.2)
+    animCtrl_:SetSpeed(animPath, 1.0)
 end
 
 function PlayerAnim.IsPlaying(name)
@@ -341,26 +332,53 @@ local animDiagCounter_ = 0
 function PlayerAnim.Update(dt, isMoving)
     -- modelNode_ 是 playerNode_ 的子节点，自动继承位置/旋转，无需手动同步
 
-    -- [DEBUG] 动画已禁用，不再需要 scale 校准
-    -- 没有动画 → Root bone 保持 0.01 → worldBBox 不会膨胀
-    -- 校准逻辑暂时移除
-
-    -- 诊断：每 60 帧输出 worldBBox（验证 bind pose 尺寸）
+    -- 诊断：每 180 帧输出 worldBBox
     animDiagCounter_ = animDiagCounter_ + 1
-    if animModel_ and animDiagCounter_ % 60 == 1 then
+    if animModel_ and animDiagCounter_ % 180 == 1 then
         local wbb = animModel_.worldBoundingBox
         local wbbSize = wbb.size
-        local wbbCenter = wbb.center
         local ws = modelNode_.worldScale
-        print(string.format("[DIAG-BindPose] worldScale=(%.5f) wBBox sz(%.2f, %.2f, %.2f) center(%.2f, %.2f, %.2f)",
-            ws.x, wbbSize.x, wbbSize.y, wbbSize.z, wbbCenter.x, wbbCenter.y, wbbCenter.z))
+        print(string.format("[DIAG] worldScale=(%.5f) wBBox sz(%.2f, %.2f, %.2f) state=%s",
+            ws.x, wbbSize.x, wbbSize.y, wbbSize.z, animState.current))
     end
 
-    -- [DEBUG] 动画切换已禁用 — 纯 bind pose 验证
-    -- 打击感顿帧（保留，但无动画不会实际生效）
+    -- 打击感顿帧
     if hitFeedback.hitPause > 0 then
         hitFeedback.hitPause = hitFeedback.hitPause - dt
+        -- 暂停动画
+        if animCtrl_ and ANIM_PATHS[animState.current] then
+            animCtrl_:SetSpeed(ANIM_PATHS[animState.current], 0.0)
+        end
         return
+    else
+        -- 恢复动画速度
+        if animCtrl_ and ANIM_PATHS[animState.current] then
+            animCtrl_:SetSpeed(ANIM_PATHS[animState.current], 1.0)
+        end
+    end
+
+    -- 自动切换 idle/move
+    if animState.current == "idle" and isMoving then
+        PlayerAnim.Play("move")
+    elseif (animState.current == "move" or animState.current == "walk") and not isMoving then
+        PlayerAnim.Play("idle")
+    end
+
+    -- 更新时间
+    animState.elapsed = animState.elapsed + dt
+
+    -- 非循环动画结束检测
+    local isLoop = ANIM_LOOPING[animState.current] or false
+    if not isLoop and animState.elapsed >= animState.duration then
+        if animState.onComplete then
+            animState.onComplete()
+        end
+        -- 回到 idle/move
+        if isMoving then
+            PlayerAnim.Play("move")
+        else
+            PlayerAnim.Play("idle")
+        end
     end
 
     -- 更新打击感反馈
