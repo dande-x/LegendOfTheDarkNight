@@ -225,12 +225,16 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors)
         if not animCtrl_ then
             animCtrl_ = modelNode_:CreateComponent("AnimationController")
         end
-        -- 立即播放 idle 动画，避免首帧无动画时 worldBBox 异常大
-        if animCtrl_ and ANIM_UUIDS.idle then
-            animCtrl_:PlayExclusive(ANIM_UUIDS.idle, 0, true, 0.0)
-            animState.current = "idle"
-            print("[PlayerAnim] Immediate idle animation started")
-        end
+        -- [DEBUG] 禁用动画播放，验证 bind pose 是否正确（站立/T-pose）
+        -- 如果 bind pose 正常站立，说明问题出在动画兼容性
+        -- if animCtrl_ and ANIM_UUIDS.idle then
+        --     animCtrl_:PlayExclusive(ANIM_UUIDS.idle, 0, true, 0.0)
+        --     animState.current = "idle"
+        --     print("[PlayerAnim] Immediate idle animation started")
+        -- end
+        animState.current = "idle"
+        print("[PlayerAnim] Animation DISABLED for bind pose verification")
+
         -- 应用职业材质
         PlayerAnim._ApplyClassMaterial(classId, color)
     end
@@ -284,16 +288,25 @@ end
 -- ============================================================================
 -- 动画播放
 -- ============================================================================
+-- [DEBUG] 动画播放暂时禁用，仅更新状态用于外部查询
+local ANIM_DISABLED = true  -- 设为 false 可恢复动画
+
 function PlayerAnim.Play(animName, onComplete)
     local uuid = ANIM_UUIDS[animName]
     if not uuid then
         -- 尝试映射别名
         if animName == "walk" then uuid = ANIM_UUIDS.move
-        elseif animName == "hit" then uuid = ANIM_UUIDS.melee  -- 受击使用短攻击动画凑合
+        elseif animName == "hit" then uuid = ANIM_UUIDS.melee
         else return end
     end
 
     if not animCtrl_ then return end
+
+    -- [DEBUG] 动画禁用期间不实际播放
+    if ANIM_DISABLED then
+        animState.current = animName
+        return
+    end
 
     local isLoop = ANIM_LOOPING[animName] or false
     local duration = ANIM_DURATIONS[animName] or 1.0
@@ -328,79 +341,26 @@ local animDiagCounter_ = 0
 function PlayerAnim.Update(dt, isMoving)
     -- modelNode_ 是 playerNode_ 的子节点，自动继承位置/旋转，无需手动同步
 
-    -- 一次性 scale 校准：等动画覆盖 Root bone 后（worldBBox 变大），再修正 scale
-    -- 动画会把 Root.scale 从 0.01 覆盖为 1.0，导致渲染放大约 40-100 倍
-    -- 需要等这个放大发生后再做一次性修正
-    if not scaleCalibrated_ and animModel_ and modelNode_ then
-        calibrationFrames_ = calibrationFrames_ + 1
-        local wbb = animModel_.worldBoundingBox
-        local wbbH = wbb.size.y
-        local currentScale = modelNode_.scale.x
-        -- 等待条件：worldBBox 明显异常大（>5m 说明动画已覆盖 Root scale）
-        -- 或已等待足够长时间（防止永远等不到）
-        local shouldCalibrate = (wbbH > 5.0) or (calibrationFrames_ >= CALIBRATION_MAX_WAIT)
-        if shouldCalibrate and wbbH > 0.1 then
-            local TARGET_HEIGHT = 1.6
-            local correction = TARGET_HEIGHT / wbbH
-            local newScale = currentScale * correction
-            modelNode_.scale = Vector3(newScale, newScale, newScale)
-            -- 重新计算脚底偏移（用校准后的 scale）
-            local bb = animModel_.boundingBox
-            local footOffset = -bb.min.y * newScale
-            modelNode_.position = Vector3(0, footOffset, 0)
-            print(string.format("[PlayerAnim] ONE-SHOT calibration: frame=%d wBBox.h=%.2f scale %.5f -> %.5f",
-                calibrationFrames_, wbbH, currentScale, newScale))
-            scaleCalibrated_ = true  -- 永远不再校准
-        end
-    end
+    -- [DEBUG] 动画已禁用，不再需要 scale 校准
+    -- 没有动画 → Root bone 保持 0.01 → worldBBox 不会膨胀
+    -- 校准逻辑暂时移除
 
-    -- 诊断：每 120 帧输出（仅日志）
+    -- 诊断：每 60 帧输出 worldBBox（验证 bind pose 尺寸）
     animDiagCounter_ = animDiagCounter_ + 1
-    if animModel_ and animDiagCounter_ % 120 == 1 then
+    if animModel_ and animDiagCounter_ % 60 == 1 then
         local wbb = animModel_.worldBoundingBox
         local wbbSize = wbb.size
+        local wbbCenter = wbb.center
         local ws = modelNode_.worldScale
-        print(string.format("[DIAG-Model] scale=(%.5f) wBBox.h=%.2f calibrated=%s",
-            ws.x, wbbSize.y, tostring(scaleCalibrated_)))
+        print(string.format("[DIAG-BindPose] worldScale=(%.5f) wBBox sz(%.2f, %.2f, %.2f) center(%.2f, %.2f, %.2f)",
+            ws.x, wbbSize.x, wbbSize.y, wbbSize.z, wbbCenter.x, wbbCenter.y, wbbCenter.z))
     end
 
-    -- 打击感顿帧
+    -- [DEBUG] 动画切换已禁用 — 纯 bind pose 验证
+    -- 打击感顿帧（保留，但无动画不会实际生效）
     if hitFeedback.hitPause > 0 then
         hitFeedback.hitPause = hitFeedback.hitPause - dt
-        -- 暂停动画
-        if animCtrl_ and ANIM_UUIDS[animState.current] then
-            animCtrl_:SetSpeed(ANIM_UUIDS[animState.current], 0.0)
-        end
         return
-    else
-        -- 恢复动画速度
-        if animCtrl_ and ANIM_UUIDS[animState.current] then
-            animCtrl_:SetSpeed(ANIM_UUIDS[animState.current], 1.0)
-        end
-    end
-
-    -- 自动切换 idle/walk
-    if animState.current == "idle" and isMoving then
-        PlayerAnim.Play("move")
-    elseif (animState.current == "move" or animState.current == "walk") and not isMoving then
-        PlayerAnim.Play("idle")
-    end
-
-    -- 更新时间
-    animState.elapsed = animState.elapsed + dt
-
-    -- 非循环动画结束检测
-    local isLoop = ANIM_LOOPING[animState.current] or false
-    if not isLoop and animState.elapsed >= animState.duration then
-        if animState.onComplete then
-            animState.onComplete()
-        end
-        -- 回到 idle/walk
-        if isMoving then
-            PlayerAnim.Play("move")
-        else
-            PlayerAnim.Play("idle")
-        end
     end
 
     -- 更新打击感反馈
