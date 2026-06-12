@@ -11,9 +11,10 @@ local PlayerAnim = {}
 -- 状态管理
 -- ============================================================================
 local animState = {
-    current = "idle",     -- idle | walk | melee | ranged | summon | hit | death
+    current = "idle",     -- 当前动画key
     elapsed = 0,
     duration = 0,
+    speed = 1.0,          -- 当前播放速度（用于顿帧恢复）
     onComplete = nil,
 }
 
@@ -49,21 +50,62 @@ local CHARACTER_PREFAB = "uuid://DEkZaUTQvLlCdjdIzpnHa4n-"  -- DefaultMale_Base 
 -- DefaultMale_Base 专属动画（Bip001 骨骼体系，路径引用）
 -- 这些动画与 DefaultMale_Base 模型骨骼完全匹配
 local ANIM_PATHS = {
+    -- 基础移动
     idle       = "DefaultMale/Animations/DefaultMale_Idle.ani",
     walk       = "DefaultMale/Animations/DefaultMale_Walk.ani",
     move       = "DefaultMale/Animations/DefaultMale_Run.ani",
     jump_start = "DefaultMale/Animations/DefaultMale_JumpStart.ani",
     jump_air   = "DefaultMale/Animations/DefaultMale_JumpAir.ani",
     jump_land  = "DefaultMale/Animations/DefaultMale_JumpLanding.ani",
-    -- 战斗动画（使用 Rifle 系列临时替代）
-    melee      = "DefaultMale/Animations/DefaultMale_RifleShoot.ani",
-    melee_alt  = "DefaultMale/Animations/DefaultMale_RifleShoot.ani",
-    ranged     = "DefaultMale/Animations/DefaultMale_RifleShoot.ani",
-    summon     = "DefaultMale/Animations/DefaultMale_RifleReload.ani",
-    die        = "DefaultMale/Animations/DefaultMale_JumpStart.ani",  -- 暂无死亡动画，用跳跃起手代替
+    -- 战斗待机（持武器）
+    combat_idle = "DefaultMale/Animations/DefaultMale_RifleIdle.ani",
+    -- 战斗动画
+    melee_fast  = "DefaultMale/Animations/DefaultMale_RifleShoot.ani",  -- 快速攻击
+    melee_heavy = "DefaultMale/Animations/DefaultMale_RifleShoot.ani",  -- 重击（速度减慢）
+    cast_quick  = "DefaultMale/Animations/DefaultMale_RifleShoot.ani",  -- 快速施法
+    cast_long   = "DefaultMale/Animations/DefaultMale_RifleReload.ani", -- 长时间施法/召唤
+    dash_strike = "DefaultMale/Animations/DefaultMale_RifleShoot.ani",  -- 冲锋攻击
+    die         = "DefaultMale/Animations/DefaultMale_JumpStart.ani",   -- 暂用跳跃起手代替
 }
 
--- 动画时长（秒）
+-- 技能动画映射：根据技能类型和职业返回 {animKey, speed, duration}
+local SKILL_ANIM_MAP = {
+    -- 武士：近战为主，快速挥砍
+    warrior = {
+        melee  = { anim = "melee_fast",  speed = 1.8, duration = 0.35 },  -- 快速剑击
+        ranged = { anim = "melee_fast",  speed = 1.2, duration = 0.50 },  -- 剑气
+        aoe    = { anim = "melee_heavy", speed = 0.8, duration = 0.70 },  -- 半月弧光（慢而有力）
+        dash   = { anim = "dash_strike", speed = 2.0, duration = 0.30 },  -- 冲锋
+        buff   = { anim = "cast_long",   speed = 1.5, duration = 0.60 },  -- 护盾
+        heal   = { anim = "cast_long",   speed = 1.2, duration = 0.80 },
+        dot    = { anim = "melee_fast",  speed = 1.5, duration = 0.40 },
+        summon = { anim = "cast_long",   speed = 1.0, duration = 1.20 },
+    },
+    -- 法师：远程施法为主，较慢但华丽
+    mage = {
+        melee  = { anim = "melee_fast",  speed = 1.5, duration = 0.40 },
+        ranged = { anim = "cast_quick",  speed = 1.4, duration = 0.45 },  -- 火球
+        aoe    = { anim = "cast_long",   speed = 1.0, duration = 0.80 },  -- 范围法术
+        dash   = { anim = "dash_strike", speed = 2.0, duration = 0.30 },
+        buff   = { anim = "cast_long",   speed = 0.8, duration = 1.00 },  -- 魔法盾
+        heal   = { anim = "cast_long",   speed = 0.8, duration = 1.00 },
+        dot    = { anim = "cast_quick",  speed = 1.2, duration = 0.55 },  -- 火墙
+        summon = { anim = "cast_long",   speed = 0.7, duration = 1.50 },
+    },
+    -- 道士：辅助/召唤为主，动作平缓
+    taoist = {
+        melee  = { anim = "melee_fast",  speed = 1.3, duration = 0.45 },
+        ranged = { anim = "cast_quick",  speed = 1.5, duration = 0.40 },  -- 符纸
+        aoe    = { anim = "cast_long",   speed = 1.0, duration = 0.80 },
+        dash   = { anim = "dash_strike", speed = 1.8, duration = 0.35 },
+        buff   = { anim = "cast_long",   speed = 0.9, duration = 1.00 },  -- 增益
+        heal   = { anim = "cast_long",   speed = 0.7, duration = 1.20 },  -- 治愈术
+        dot    = { anim = "cast_quick",  speed = 1.3, duration = 0.50 },  -- 毒术
+        summon = { anim = "cast_long",   speed = 0.6, duration = 1.80 },  -- 召唤神兽
+    },
+}
+
+-- 动画时长（基础时长，实际由 SKILL_ANIM_MAP 指定）
 local ANIM_DURATIONS = {
     idle       = 2.0,
     walk       = 1.0,
@@ -71,10 +113,12 @@ local ANIM_DURATIONS = {
     jump_start = 0.3,
     jump_air   = 1.0,
     jump_land  = 0.5,
-    melee      = 0.5,
-    melee_alt  = 0.5,
-    ranged     = 0.5,
-    summon     = 1.5,
+    combat_idle = 1.33,
+    melee_fast  = 0.5,
+    melee_heavy = 0.7,
+    cast_quick  = 0.5,
+    cast_long   = 1.5,
+    dash_strike = 0.3,
     die        = 1.0,
 }
 
@@ -84,6 +128,43 @@ local ANIM_LOOPING = {
     walk  = true,
     move  = true,
     jump_air = true,
+    combat_idle = true,
+}
+
+-- ============================================================================
+-- 武器系统：程序化生成并挂载到骨骼
+-- ============================================================================
+---@type Node
+local weaponNode_ = nil
+
+-- 武器配置（各职业不同）
+local WEAPON_CONFIG = {
+    warrior = {
+        name = "朱雀赤剑",
+        bone = "Bip001 R Hand",
+        -- 偏移/旋转使剑柄在手心、剑刃向前上方
+        offset = Vector3(0.0, 0.08, 0.02),
+        rotation = Quaternion(0, 0, -90),
+        scale = Vector3(1.0, 1.0, 1.0),
+        -- 程序化几何：剑
+        buildFunc = "BuildSword",
+    },
+    mage = {
+        name = "玄冰法杖",
+        bone = "Bip001 R Hand",
+        offset = Vector3(0.0, 0.1, 0.0),
+        rotation = Quaternion(0, 0, -90),
+        scale = Vector3(1.0, 1.0, 1.0),
+        buildFunc = "BuildStaff",
+    },
+    taoist = {
+        name = "翠灵符剑",
+        bone = "Bip001 R Hand",
+        offset = Vector3(0.0, 0.06, 0.02),
+        rotation = Quaternion(0, 0, -90),
+        scale = Vector3(1.0, 1.0, 1.0),
+        buildFunc = "BuildTalisman",
+    },
 }
 
 -- 职业 PBR 材质配置（纯色金属/玉石质感，不依赖贴图）
@@ -123,6 +204,250 @@ local CLASS_MATERIALS = {
                  emissive = Color(0.0, 0.0, 0.0) },
     },
 }
+
+-- ============================================================================
+-- 武器构建函数（CustomGeometry 程序化生成）
+-- ============================================================================
+
+--- 构建剑：朱红色金属长剑
+local function BuildSword(weaponNode)
+    local geom = weaponNode:CreateComponent("CustomGeometry")
+    geom:BeginGeometry(0, TRIANGLE_LIST)
+
+    -- 剑的尺寸（本地坐标，Y=长度方向）
+    local bladeLen = 0.7    -- 剑刃长度
+    local bladeW   = 0.04   -- 剑刃宽度
+    local bladeT   = 0.008  -- 剑刃厚度
+    local handleLen = 0.15  -- 剑柄长度
+    local handleW   = 0.02  -- 剑柄宽度
+    local guardW    = 0.08  -- 护手宽度
+    local guardT    = 0.015
+
+    -- 辅助：添加一个 Box 面
+    local function addQuad(p1, p2, p3, p4, normal)
+        -- 三角形 1: p1, p2, p3
+        geom:DefineVertex(p1) geom:DefineNormal(normal) geom:DefineTexCoord(Vector2(0,0))
+        geom:DefineVertex(p2) geom:DefineNormal(normal) geom:DefineTexCoord(Vector2(1,0))
+        geom:DefineVertex(p3) geom:DefineNormal(normal) geom:DefineTexCoord(Vector2(1,1))
+        -- 三角形 2: p1, p3, p4
+        geom:DefineVertex(p1) geom:DefineNormal(normal) geom:DefineTexCoord(Vector2(0,0))
+        geom:DefineVertex(p3) geom:DefineNormal(normal) geom:DefineTexCoord(Vector2(1,1))
+        geom:DefineVertex(p4) geom:DefineNormal(normal) geom:DefineTexCoord(Vector2(0,1))
+    end
+
+    -- 辅助：添加一个长方体（6面）
+    local function addBox(cx, cy, cz, hx, hy, hz)
+        local x0, x1 = cx - hx, cx + hx
+        local y0, y1 = cy - hy, cy + hy
+        local z0, z1 = cz - hz, cz + hz
+        -- 前后左右上下
+        addQuad(Vector3(x0,y0,z1), Vector3(x1,y0,z1), Vector3(x1,y1,z1), Vector3(x0,y1,z1), Vector3(0,0,1))
+        addQuad(Vector3(x1,y0,z0), Vector3(x0,y0,z0), Vector3(x0,y1,z0), Vector3(x1,y1,z0), Vector3(0,0,-1))
+        addQuad(Vector3(x0,y0,z0), Vector3(x0,y0,z1), Vector3(x0,y1,z1), Vector3(x0,y1,z0), Vector3(-1,0,0))
+        addQuad(Vector3(x1,y0,z1), Vector3(x1,y0,z0), Vector3(x1,y1,z0), Vector3(x1,y1,z1), Vector3(1,0,0))
+        addQuad(Vector3(x0,y1,z1), Vector3(x1,y1,z1), Vector3(x1,y1,z0), Vector3(x0,y1,z0), Vector3(0,1,0))
+        addQuad(Vector3(x0,y0,z0), Vector3(x1,y0,z0), Vector3(x1,y0,z1), Vector3(x0,y0,z1), Vector3(0,-1,0))
+    end
+
+    -- 剑柄（暗色）
+    addBox(0, -handleLen/2, 0, handleW/2, handleLen/2, handleW/2)
+    -- 护手（金色区域）
+    addBox(0, 0, 0, guardW/2, guardT/2, guardT/2)
+    -- 剑刃（从护手向上延伸）
+    addBox(0, bladeLen/2, 0, bladeW/2, bladeLen/2, bladeT/2)
+
+    geom:Commit()
+
+    -- PBR 材质：朱红金属
+    local mat = Material:new()
+    mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
+    mat:SetShaderParameter("MatDiffColor", Variant(Color(0.72, 0.18, 0.12, 1.0)))
+    mat:SetShaderParameter("Roughness", Variant(0.18))
+    mat:SetShaderParameter("Metallic", Variant(0.92))
+    mat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.15, 0.03, 0.02)))
+    geom:SetMaterial(mat)
+end
+
+--- 构建法杖：深蓝色水晶杖
+local function BuildStaff(weaponNode)
+    local geom = weaponNode:CreateComponent("CustomGeometry")
+    geom:BeginGeometry(0, TRIANGLE_LIST)
+
+    local staffLen = 1.0   -- 杖身长度
+    local staffR   = 0.015 -- 杖身半径
+    local orbR     = 0.04  -- 顶部水晶球半径
+    local segments = 8
+
+    -- 辅助：添加面片
+    local function addQuad(p1, p2, p3, p4, normal)
+        geom:DefineVertex(p1) geom:DefineNormal(normal) geom:DefineTexCoord(Vector2(0,0))
+        geom:DefineVertex(p2) geom:DefineNormal(normal) geom:DefineTexCoord(Vector2(1,0))
+        geom:DefineVertex(p3) geom:DefineNormal(normal) geom:DefineTexCoord(Vector2(1,1))
+        geom:DefineVertex(p1) geom:DefineNormal(normal) geom:DefineTexCoord(Vector2(0,0))
+        geom:DefineVertex(p3) geom:DefineNormal(normal) geom:DefineTexCoord(Vector2(1,1))
+        geom:DefineVertex(p4) geom:DefineNormal(normal) geom:DefineTexCoord(Vector2(0,1))
+    end
+
+    -- 杖身：八棱柱近似圆柱
+    for i = 0, segments - 1 do
+        local a0 = (i / segments) * math.pi * 2
+        local a1 = ((i + 1) / segments) * math.pi * 2
+        local x0, z0 = math.cos(a0) * staffR, math.sin(a0) * staffR
+        local x1, z1 = math.cos(a1) * staffR, math.sin(a1) * staffR
+        local nx = math.cos((a0 + a1) / 2)
+        local nz = math.sin((a0 + a1) / 2)
+        addQuad(
+            Vector3(x0, 0, z0), Vector3(x1, 0, z1),
+            Vector3(x1, staffLen, z1), Vector3(x0, staffLen, z0),
+            Vector3(nx, 0, nz)
+        )
+    end
+
+    -- 顶部水晶球：八棱体近似（上下锥体）
+    local orbY = staffLen + orbR * 0.5
+    for i = 0, segments - 1 do
+        local a0 = (i / segments) * math.pi * 2
+        local a1 = ((i + 1) / segments) * math.pi * 2
+        local x0, z0 = math.cos(a0) * orbR, math.sin(a0) * orbR
+        local x1, z1 = math.cos(a1) * orbR, math.sin(a1) * orbR
+        -- 上锥
+        geom:DefineVertex(Vector3(0, orbY + orbR, 0))
+        geom:DefineNormal(Vector3(0, 1, 0))
+        geom:DefineTexCoord(Vector2(0.5, 0))
+        geom:DefineVertex(Vector3(x1, orbY, z1))
+        geom:DefineNormal(Vector3(x1, 0.5, z1):Normalized())
+        geom:DefineTexCoord(Vector2(1, 1))
+        geom:DefineVertex(Vector3(x0, orbY, z0))
+        geom:DefineNormal(Vector3(x0, 0.5, z0):Normalized())
+        geom:DefineTexCoord(Vector2(0, 1))
+        -- 下锥
+        geom:DefineVertex(Vector3(0, orbY - orbR, 0))
+        geom:DefineNormal(Vector3(0, -1, 0))
+        geom:DefineTexCoord(Vector2(0.5, 1))
+        geom:DefineVertex(Vector3(x0, orbY, z0))
+        geom:DefineNormal(Vector3(x0, -0.5, z0):Normalized())
+        geom:DefineTexCoord(Vector2(0, 0))
+        geom:DefineVertex(Vector3(x1, orbY, z1))
+        geom:DefineNormal(Vector3(x1, -0.5, z1):Normalized())
+        geom:DefineTexCoord(Vector2(1, 0))
+    end
+
+    geom:Commit()
+
+    -- PBR 材质：深蓝冰晶
+    local mat = Material:new()
+    mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
+    mat:SetShaderParameter("MatDiffColor", Variant(Color(0.12, 0.25, 0.60, 1.0)))
+    mat:SetShaderParameter("Roughness", Variant(0.12))
+    mat:SetShaderParameter("Metallic", Variant(0.60))
+    mat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.05, 0.10, 0.30)))
+    geom:SetMaterial(mat)
+end
+
+--- 构建符剑：翠绿短剑 + 发光符文效果
+local function BuildTalisman(weaponNode)
+    local geom = weaponNode:CreateComponent("CustomGeometry")
+    geom:BeginGeometry(0, TRIANGLE_LIST)
+
+    -- 符剑比战士剑短，但更宽
+    local bladeLen = 0.45
+    local bladeW   = 0.05
+    local bladeT   = 0.006
+    local handleLen = 0.12
+    local handleW   = 0.018
+
+    local function addQuad(p1, p2, p3, p4, normal)
+        geom:DefineVertex(p1) geom:DefineNormal(normal) geom:DefineTexCoord(Vector2(0,0))
+        geom:DefineVertex(p2) geom:DefineNormal(normal) geom:DefineTexCoord(Vector2(1,0))
+        geom:DefineVertex(p3) geom:DefineNormal(normal) geom:DefineTexCoord(Vector2(1,1))
+        geom:DefineVertex(p1) geom:DefineNormal(normal) geom:DefineTexCoord(Vector2(0,0))
+        geom:DefineVertex(p3) geom:DefineNormal(normal) geom:DefineTexCoord(Vector2(1,1))
+        geom:DefineVertex(p4) geom:DefineNormal(normal) geom:DefineTexCoord(Vector2(0,1))
+    end
+
+    local function addBox(cx, cy, cz, hx, hy, hz)
+        local x0, x1 = cx - hx, cx + hx
+        local y0, y1 = cy - hy, cy + hy
+        local z0, z1 = cz - hz, cz + hz
+        addQuad(Vector3(x0,y0,z1), Vector3(x1,y0,z1), Vector3(x1,y1,z1), Vector3(x0,y1,z1), Vector3(0,0,1))
+        addQuad(Vector3(x1,y0,z0), Vector3(x0,y0,z0), Vector3(x0,y1,z0), Vector3(x1,y1,z0), Vector3(0,0,-1))
+        addQuad(Vector3(x0,y0,z0), Vector3(x0,y0,z1), Vector3(x0,y1,z1), Vector3(x0,y1,z0), Vector3(-1,0,0))
+        addQuad(Vector3(x1,y0,z1), Vector3(x1,y0,z0), Vector3(x1,y1,z0), Vector3(x1,y1,z1), Vector3(1,0,0))
+        addQuad(Vector3(x0,y1,z1), Vector3(x1,y1,z1), Vector3(x1,y1,z0), Vector3(x0,y1,z0), Vector3(0,1,0))
+        addQuad(Vector3(x0,y0,z0), Vector3(x1,y0,z0), Vector3(x1,y0,z1), Vector3(x0,y0,z1), Vector3(0,-1,0))
+    end
+
+    -- 柄
+    addBox(0, -handleLen/2, 0, handleW/2, handleLen/2, handleW/2)
+    -- 剑刃
+    addBox(0, bladeLen/2, 0, bladeW/2, bladeLen/2, bladeT/2)
+
+    geom:Commit()
+
+    -- PBR 材质：翠绿玉石质感 + 发光
+    local mat = Material:new()
+    mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
+    mat:SetShaderParameter("MatDiffColor", Variant(Color(0.15, 0.55, 0.30, 1.0)))
+    mat:SetShaderParameter("Roughness", Variant(0.22))
+    mat:SetShaderParameter("Metallic", Variant(0.50))
+    mat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.08, 0.20, 0.10)))
+    geom:SetMaterial(mat)
+end
+
+-- 武器构建函数表
+local WEAPON_BUILDERS = {
+    BuildSword = BuildSword,
+    BuildStaff = BuildStaff,
+    BuildTalisman = BuildTalisman,
+}
+
+--- 挂载武器到角色骨骼
+local function AttachWeapon(classId)
+    -- 移除旧武器
+    if weaponNode_ then
+        weaponNode_:Remove()
+        weaponNode_ = nil
+    end
+
+    if not animModel_ then return end
+
+    local config = WEAPON_CONFIG[classId]
+    if not config then return end
+
+    -- 获取骨骼节点
+    local skeleton = animModel_:GetSkeleton()
+    if not skeleton then
+        print("[PlayerAnim] WARNING: No skeleton found")
+        return
+    end
+
+    local bone = skeleton:GetBone(config.bone)
+    if not bone then
+        print("[PlayerAnim] WARNING: Bone '" .. config.bone .. "' not found")
+        return
+    end
+
+    local boneNode = bone.node
+    if not boneNode then
+        print("[PlayerAnim] WARNING: Bone node is nil for '" .. config.bone .. "'")
+        return
+    end
+
+    -- 在骨骼节点上创建武器子节点
+    weaponNode_ = boneNode:CreateChild(config.name)
+    weaponNode_.position = config.offset
+    weaponNode_.rotation = config.rotation
+    weaponNode_.scale = config.scale
+
+    -- 调用对应的构建函数
+    local builder = WEAPON_BUILDERS[config.buildFunc]
+    if builder then
+        builder(weaponNode_)
+        print("[PlayerAnim] Weapon attached: " .. config.name .. " → " .. config.bone)
+    else
+        print("[PlayerAnim] WARNING: Unknown build func: " .. tostring(config.buildFunc))
+    end
+end
 
 -- ============================================================================
 -- 创建角色（替代旧的 CreateSkeleton）
@@ -237,6 +562,9 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors)
 
         -- 应用职业材质
         PlayerAnim._ApplyClassMaterial(classId, color)
+
+        -- 挂载武器到手部骨骼
+        AttachWeapon(classId)
     end
 
     print("[PlayerAnim] Character created: " .. classId)
@@ -288,19 +616,25 @@ end
 -- ============================================================================
 -- 动画播放
 -- ============================================================================
-function PlayerAnim.Play(animName, onComplete)
+
+--- 播放基础动画（idle/walk/move/jump等）或技能动画
+--- @param animName string 动画键名（ANIM_PATHS中的key）或 "skill" 特殊类型
+--- @param onComplete function|nil 非循环动画结束回调
+--- @param opts table|nil {speed=1.0, duration=override}
+function PlayerAnim.Play(animName, onComplete, opts)
     local animPath = ANIM_PATHS[animName]
     if not animPath then
         -- 尝试映射别名
         if animName == "walk" then animPath = ANIM_PATHS.walk or ANIM_PATHS.move
-        elseif animName == "hit" then animPath = ANIM_PATHS.melee
+        elseif animName == "hit" then animPath = ANIM_PATHS.melee_fast
         else return end
     end
 
     if not animCtrl_ then return end
 
+    local speed = (opts and opts.speed) or 1.0
     local isLoop = ANIM_LOOPING[animName] or false
-    local duration = ANIM_DURATIONS[animName] or 1.0
+    local duration = (opts and opts.duration) or ANIM_DURATIONS[animName] or 1.0
 
     -- 如果是同一个循环动画已经在播放，不重复触发
     if animState.current == animName and isLoop then
@@ -311,10 +645,32 @@ function PlayerAnim.Play(animName, onComplete)
     animState.elapsed = 0
     animState.duration = duration
     animState.onComplete = onComplete
+    animState.speed = speed  -- 记录当前速度（用于顿帧恢复）
 
     -- 使用 PlayExclusive 播放（自动淡出其他动画）
-    animCtrl_:PlayExclusive(animPath, 0, isLoop, 0.2)
-    animCtrl_:SetSpeed(animPath, 1.0)
+    animCtrl_:PlayExclusive(animPath, 0, isLoop, 0.15)
+    animCtrl_:SetSpeed(animPath, speed)
+end
+
+--- 播放技能动画（根据职业+技能类型自动选择动画和参数）
+--- @param skillType string 技能类型: melee/ranged/aoe/buff/heal/dot/dash/summon
+--- @param onComplete function|nil 结束回调
+function PlayerAnim.PlaySkill(skillType, onComplete)
+    local classMap = SKILL_ANIM_MAP[currentClassId]
+    if not classMap then
+        classMap = SKILL_ANIM_MAP.warrior  -- fallback
+    end
+
+    local config = classMap[skillType]
+    if not config then
+        config = classMap.melee  -- fallback
+    end
+
+    -- 使用 SKILL_ANIM_MAP 中配置的 animKey、speed、duration
+    PlayerAnim.Play(config.anim, onComplete, {
+        speed = config.speed,
+        duration = config.duration,
+    })
 end
 
 function PlayerAnim.IsPlaying(name)
@@ -351,9 +707,9 @@ function PlayerAnim.Update(dt, isMoving)
         end
         return
     else
-        -- 恢复动画速度
+        -- 恢复动画速度（使用记录的 speed，而非固定 1.0）
         if animCtrl_ and ANIM_PATHS[animState.current] then
-            animCtrl_:SetSpeed(ANIM_PATHS[animState.current], 1.0)
+            animCtrl_:SetSpeed(ANIM_PATHS[animState.current], animState.speed or 1.0)
         end
     end
 
@@ -419,19 +775,21 @@ function PlayerAnim.IsFlashing()
 end
 
 -- ============================================================================
--- 攻击动画映射
+-- 攻击动画映射（兼容旧接口 + 新 PlaySkill 接口）
 -- ============================================================================
+
+--- 获取技能对应的动画配置（新接口，推荐使用 PlaySkill 代替）
+--- @param skillType string
+--- @return table {anim=string, speed=number, duration=number}
+function PlayerAnim.GetSkillAnimConfig(skillType)
+    local classMap = SKILL_ANIM_MAP[currentClassId] or SKILL_ANIM_MAP.warrior
+    return classMap[skillType] or classMap.melee
+end
+
+--- 兼容旧接口：返回动画 key（现在返回 SKILL_ANIM_MAP 中的 anim 字段）
 function PlayerAnim.GetAnimForSkillType(skillType)
-    if skillType == "melee" then return "melee"
-    elseif skillType == "ranged" then return "ranged"
-    elseif skillType == "aoe" then return "melee"
-    elseif skillType == "dot" then return "ranged"
-    elseif skillType == "summon" then return "summon"
-    elseif skillType == "buff" then return "summon"
-    elseif skillType == "heal" then return "summon"
-    elseif skillType == "dash" then return "melee"
-    end
-    return "melee"
+    local config = PlayerAnim.GetSkillAnimConfig(skillType)
+    return config.anim
 end
 
 -- ============================================================================

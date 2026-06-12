@@ -637,9 +637,8 @@ function OnClassSelected(classId)
         castState.windupDuration = windup
         castState.recoveryDuration = recovery
 
-        -- 播放对应攻击动画
-        local animName = PlayerAnim.GetAnimForSkillType(skill.type)
-        PlayerAnim.Play(animName)
+        -- 播放对应攻击动画（根据职业+技能类型自动选择动画和速度）
+        PlayerAnim.PlaySkill(skill.type)
 
         -- 法师蓄力判定
         local isCharging = (player_.classId == "mage" and windup >= 0.3)
