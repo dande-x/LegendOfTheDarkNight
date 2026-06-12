@@ -36,7 +36,14 @@ local animCtrl_ = nil
 local animModel_ = nil
 ---@type Node
 local playerNode_ = nil  -- 引用玩家节点，用于每帧同步位置
-local rootBoneChildName_ = nil  -- Root骨骼(Bip001)的第一个子骨骼名称（用于SetStartBone跳过Root）
+
+-- modelNode_ scale 补偿方案：
+-- uuid 动画的 Root(Bip001) scale=1.0，而 DefaultMale 的 Root scale=0.01
+-- InverseBind 包含 1/0.01=100 的缩放因子，所以 uuid 动画播放时模型膨胀 100 倍
+-- 解决：uuid 动画播放时 modelNode_.scale 缩小 100 倍来抵消
+local baseScale_ = 1.0        -- CreateSkeleton 中计算的基础 scale 值
+local baseFootOffset_ = 0.0   -- CreateSkeleton 中计算的脚底偏移
+local isUuidAnim_ = false     -- 当前是否在播放 uuid 动画（用于 scale 切换）
 
 
 
@@ -523,11 +530,12 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors)
                 if h > 0 then
                     local TARGET_HEIGHT = 1.6
                     local s = TARGET_HEIGHT / h
+                    baseScale_ = s
+                    baseFootOffset_ = -minY * s
                     modelNode_.scale = Vector3(s, s, s)
-                    local footOffset = -minY * s
-                    modelNode_.position = Vector3(0, footOffset, 0)
-                    print("[PlayerAnim] Applied scale=" .. string.format("%.5f", s)
-                        .. " footOffset=" .. string.format("%.5f", footOffset))
+                    modelNode_.position = Vector3(0, baseFootOffset_, 0)
+                    print("[PlayerAnim] Applied baseScale=" .. string.format("%.5f", baseScale_)
+                        .. " footOffset=" .. string.format("%.5f", baseFootOffset_))
                 end
             else
                 print("[PlayerAnim] WARNING: No AnimatedModel found in prefab!")
@@ -558,24 +566,12 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors)
         modelNode_.scale = Vector3(0.4, 1.6, 0.4)
         modelNode_.position = Vector3(0, 0.8, 0)
     else
-        -- ⚠️ 关键：找到 Root 骨骼(Bip001)的第一个子骨骼名称
-        -- 资源库"标准男"动画的 Root scale=1.0 会覆盖 DefaultMale 的 0.01
-        -- bone.animated=false 无效，PostUpdate 也无效（骨骼在 RenderUpdate 才被写入）
-        -- 唯一可靠方案：用 SetStartBone 让 uuid 动画从子骨骼开始，完全跳过 Root
+        -- 打印 Root 骨骼信息（诊断）
         local skeleton = animModel_:GetSkeleton()
         if skeleton then
             local rootBone = skeleton:GetBone("Bip001")
             if rootBone and rootBone.node then
-                local rootNode = rootBone.node
-                -- 遍历子节点，找到第一个也是骨骼的子节点名
-                if rootNode.numChildren > 0 then
-                    local firstChild = rootNode:GetChild(0)
-                    rootBoneChildName_ = firstChild.name
-                    print("[PlayerAnim] Root bone 'Bip001' first child: '" .. rootBoneChildName_ .. "'")
-                else
-                    print("[PlayerAnim] WARNING: Bip001 has no children, cannot SetStartBone")
-                end
-                print("[PlayerAnim] Bip001 scale=" .. tostring(rootNode.scale))
+                print("[PlayerAnim] Bip001 scale=" .. tostring(rootBone.node.scale))
             end
         end
 
@@ -679,16 +675,38 @@ function PlayerAnim.Play(animName, onComplete, opts)
     animState.onComplete = onComplete
     animState.speed = speed  -- 记录当前速度（用于顿帧恢复）
 
-    -- 使用 PlayExclusive 播放（自动淡出其他动画）
-    animCtrl_:PlayExclusive(animPath, 0, isLoop, 0.15)
-    animCtrl_:SetSpeed(animPath, speed)
-
-    -- ⚠️ 关键：对 uuid 动画设置 StartBone，跳过 Root 骨骼(Bip001)
-    -- 资源库"标准男"动画的 Root 轨道含 scale=1.0，会覆盖 DefaultMale 的 0.01
-    -- SetStartBone 让动画仅从子骨骼开始应用，Root 的 transform 不受影响
-    if rootBoneChildName_ and animPath:find("uuid://") then
-        animCtrl_:SetStartBone(animPath, rootBoneChildName_)
+    -- ⚠️ 关键：modelNode_ scale 补偿方案
+    -- uuid 动画的 Root(Bip001) scale=1.0，而 DefaultMale 的 Root scale=0.01
+    -- 蒙皮公式：vertex_final = modelNode.worldTransform × BoneLocal × InverseBind × vertex
+    -- InverseBind 包含 1/0.01=100 的缩放，所以：
+    --   DefaultMale: modelNode(s) × Bip001(0.01) × InverseBind(100) = s × 1 = s (正常)
+    --   uuid动画:    modelNode(s) × Bip001(1.0)  × InverseBind(100) = s × 100 (膨胀!)
+    -- 解决：uuid 动画时 modelNode_.scale = baseScale/100，抵消 100 倍膨胀
+    local needUuid = animPath:find("uuid://") ~= nil
+    if needUuid ~= isUuidAnim_ then
+        isUuidAnim_ = needUuid
+        if modelNode_ then
+            if isUuidAnim_ then
+                -- uuid 动画：Bip001.scale 从 0.01→1.0，skinMatrix 膨胀 100 倍
+                -- 将 modelNode scale 缩小 100 倍来抵消
+                local cs = baseScale_ / 100.0
+                modelNode_.scale = Vector3(cs, cs, cs)
+                -- position 不变：skin 后 vertex.y = minY*100，经 node scale(s/100) → minY*s
+                -- 加 baseFootOffset_(-minY*s) → 0 ✓
+                modelNode_.position = Vector3(0, baseFootOffset_, 0)
+                print(string.format("[PlayerAnim] UUID anim → modelNode scale=%.6f", cs))
+            else
+                -- DefaultMale 动画：Bip001.scale=0.01，恢复正常 scale
+                modelNode_.scale = Vector3(baseScale_, baseScale_, baseScale_)
+                modelNode_.position = Vector3(0, baseFootOffset_, 0)
+                print(string.format("[PlayerAnim] Native anim → modelNode scale=%.5f", baseScale_))
+            end
+        end
     end
+
+    -- fadeTime=0：避免动画交叉淡入淡出时 Bip001.scale 在 0.01↔1.0 之间插值导致尺寸闪烁
+    animCtrl_:PlayExclusive(animPath, 0, isLoop, 0.0)
+    animCtrl_:SetSpeed(animPath, speed)
 end
 
 --- 播放技能动画（根据职业+技能类型自动选择动画和参数）
