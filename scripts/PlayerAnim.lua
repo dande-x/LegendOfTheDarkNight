@@ -115,6 +115,7 @@ local CLASS_MATERIALS = {
 
 -- ============================================================================
 -- 创建角色（替代旧的 CreateSkeleton）
+-- 核心：保留预制体完整骨骼层级，reparent 为 playerNode 子节点
 -- ============================================================================
 function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors)
     print("[PlayerAnim] CreateSkeleton called: " .. tostring(classId))
@@ -129,42 +130,44 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors)
         animModel_ = nil
     end
 
-    -- 方案：作为 playerNode 子节点直接创建模型（避免 InstantiateXML + reparent 问题）
-    modelNode_ = playerNode:CreateChild("CharacterModel")
-    modelNode_.position = Vector3(0, 0, 0)
-
-    -- 尝试加载预制体模型
+    -- 尝试加载预制体（保留完整骨骼层级）
     local ok, err = pcall(function()
         local parentScene = playerNode:GetScene()
+        -- InstantiateXML 会在场景根创建完整节点树（含骨骼子节点）
         local prefabNode = parentScene:InstantiateXML(CHARACTER_PREFAB, Vector3.ZERO, Quaternion.IDENTITY, LOCAL)
         if prefabNode then
-            print("[PlayerAnim] Prefab loaded successfully")
-            -- 获取 AnimatedModel 组件
-            local prefabModel = prefabNode:GetComponent("AnimatedModel")
-                or prefabNode:GetComponent("AnimatedModel", true)
-            if prefabModel then
-                -- 复制模型和骨骼到我们的子节点
-                animModel_ = modelNode_:CreateComponent("AnimatedModel")
-                animModel_:SetModel(prefabModel:GetModel())
+            print("[PlayerAnim] Prefab instantiated, reparenting to playerNode...")
+            -- 关键：reparent 为 playerNode 的子节点（保留所有子节点=骨骼）
+            prefabNode.parent = playerNode
+            prefabNode.name = "CharacterModel"
+            modelNode_ = prefabNode
+
+            -- 获取 AnimatedModel（可能在本节点或第一层子节点）
+            animModel_ = modelNode_:GetComponent("AnimatedModel")
+            if not animModel_ then
+                -- 尝试递归查找
+                animModel_ = modelNode_:GetComponent("AnimatedModel", true)
+            end
+
+            if animModel_ then
                 -- 自动缩放：让模型高度为 1.6m
                 local bb = animModel_.boundingBox
                 local h = bb.size.y
-                local minY = bb.min.y  -- 模型最低点（脚底相对模型原点）
-                print("[PlayerAnim] Model height: " .. tostring(h) .. " minY: " .. tostring(minY))
+                local minY = bb.min.y
+                print("[PlayerAnim] Model height=" .. string.format("%.3f", h) .. " minY=" .. string.format("%.3f", minY))
                 if h > 0 then
                     local s = 1.6 / h
                     modelNode_.scale = Vector3(s, s, s)
-                    -- 修正 Y 偏移：确保脚底在 Y=0（父节点 playerNode 的本地空间）
-                    -- 缩放后脚底 = minY * s，需要向上偏移 -minY*s
+                    -- 确保脚底在 Y=0
                     local footOffset = -minY * s
                     modelNode_.position = Vector3(0, footOffset, 0)
-                    print("[PlayerAnim] Scale=" .. string.format("%.3f", s) .. " footOffset=" .. string.format("%.3f", footOffset))
+                    print("[PlayerAnim] Applied scale=" .. string.format("%.3f", s) .. " footOffset=" .. string.format("%.3f", footOffset))
                 end
+            else
+                print("[PlayerAnim] WARNING: No AnimatedModel found in prefab!")
             end
-            -- 清除临时预制体节点
-            prefabNode:Remove()
         else
-            print("[PlayerAnim] WARNING: Prefab instantiation returned nil")
+            print("[PlayerAnim] WARNING: InstantiateXML returned nil")
         end
     end)
 
@@ -175,6 +178,7 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors)
     -- 如果 AnimatedModel 没创建成功，用 Capsule 作为可视 fallback
     if not animModel_ then
         print("[PlayerAnim] Using fallback capsule model")
+        modelNode_ = playerNode:CreateChild("CharacterModel")
         local staticModel = modelNode_:CreateComponent("StaticModel")
         staticModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
         local mat = Material:new()
@@ -185,12 +189,15 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors)
         mat:SetShaderParameter("Roughness", Variant(0.3))
         mat:SetShaderParameter("Metallic", Variant(0.7))
         staticModel:SetMaterial(mat)
-        -- Cylinder 高度1m，缩放到1.6m
         modelNode_.scale = Vector3(0.4, 1.6, 0.4)
-        modelNode_.position = Vector3(0, 0.8, 0)  -- 胶囊中心偏上
+        modelNode_.position = Vector3(0, 0.8, 0)
     else
-        -- 创建 AnimationController
-        animCtrl_ = modelNode_:GetOrCreateComponent("AnimationController")
+        -- AnimationController（预制体中可能已存在，或新建）
+        animCtrl_ = modelNode_:GetComponent("AnimationController")
+            or modelNode_:GetComponent("AnimationController", true)
+        if not animCtrl_ then
+            animCtrl_ = modelNode_:CreateComponent("AnimationController")
+        end
         -- 应用职业材质
         PlayerAnim._ApplyClassMaterial(classId, color)
     end
@@ -283,8 +290,20 @@ end
 -- ============================================================================
 -- 每帧更新
 -- ============================================================================
+local animDiagCounter_ = 0
+
 function PlayerAnim.Update(dt, isMoving)
     -- modelNode_ 是 playerNode_ 的子节点，自动继承位置/旋转，无需手动同步
+
+    -- 诊断：每 180 帧检查一次模型 scale 是否异常
+    animDiagCounter_ = animDiagCounter_ + 1
+    if modelNode_ and animDiagCounter_ % 180 == 1 then
+        local ws = modelNode_.worldScale
+        local ls = modelNode_.scale
+        print(string.format("[DIAG-Model] localScale=(%.3f,%.3f,%.3f) worldScale=(%.3f,%.3f,%.3f) pos=(%.3f,%.3f,%.3f)",
+            ls.x, ls.y, ls.z, ws.x, ws.y, ws.z,
+            modelNode_.worldPosition.x, modelNode_.worldPosition.y, modelNode_.worldPosition.z))
+    end
 
     -- 打击感顿帧
     if hitFeedback.hitPause > 0 then
