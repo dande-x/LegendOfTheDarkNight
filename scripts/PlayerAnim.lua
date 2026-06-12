@@ -165,21 +165,9 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors)
             end
 
             if animModel_ then
-                -- 修复：Root 骨骼有 scale=0.01（FBX cm→m 转换），但 MDL 的逆绑定矩阵
-                -- 是基于 Root scale=1.0 计算的。运行时 Root=0.01 导致蒙皮错配放大 100x。
-                -- 解决方案：将 Root scale 重置为 1.0，让蒙皮正确工作。
-                local rootChild = modelNode_:GetChild("Root")
-                if rootChild then
-                    local origScale = rootChild.scale.x
-                    print("[PlayerAnim] Root bone original scale=" .. string.format("%.4f", origScale))
-                    if math.abs(origScale - 0.01) < 0.001 then
-                        rootChild.scale = Vector3(1.0, 1.0, 1.0)
-                        print("[PlayerAnim] Root bone scale reset to 1.0 (was 0.01)")
-                    end
-                end
-
-                -- Root scale 已重置为 1.0，蒙皮渲染高度 = bb.height * modelScale
-                -- 所以 modelScale = targetHeight / bb.height
+                -- Root 骨骼的 0.01 缩放是 FBX cm→m 转换，不要修改它！
+                -- 逆绑定矩阵基于 Root=0.01 计算，蒙皮依赖此值正确工作。
+                -- scale = targetHeight / boundingBox.height 即可（动画稳定后 worldBBox ≈ 1.6m）
                 local bb = animModel_.boundingBox
                 local h = bb.size.y
                 local minY = bb.min.y
@@ -228,6 +216,12 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors)
             or modelNode_:GetComponent("AnimationController", true)
         if not animCtrl_ then
             animCtrl_ = modelNode_:CreateComponent("AnimationController")
+        end
+        -- 立即播放 idle 动画，避免首帧无动画时 worldBBox 异常大
+        if animCtrl_ and ANIM_UUIDS.idle then
+            animCtrl_:PlayExclusive(ANIM_UUIDS.idle, 0, true, 0.0)
+            animState.current = "idle"
+            print("[PlayerAnim] Immediate idle animation started")
         end
         -- 应用职业材质
         PlayerAnim._ApplyClassMaterial(classId, color)
