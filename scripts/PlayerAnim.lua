@@ -165,18 +165,34 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors)
             end
 
             if animModel_ then
-                -- 自动缩放：让模型高度为 1.6m
+                -- 检测内部骨骼根节点的缩放因子（FBX cm→m 转换）
+                local rootChild = modelNode_:GetChild("Root")
+                local internalScale = 1.0
+                if rootChild then
+                    internalScale = rootChild.scale.x  -- 通常是 0.01（cm→m）
+                    print("[PlayerAnim] Root bone scale=" .. string.format("%.4f", internalScale))
+                end
+
+                -- boundingBox 返回的高度已经包含了 Root 0.01 的影响
+                -- 但实际渲染时 AnimatedModel 的蒙皮不会再应用这个缩放
+                -- 所以真实渲染高度 = boundingBox.size.y / internalScale
+                -- 我们需要: target = (bb.size.y / internalScale) * modelScale
+                -- 因此: modelScale = target * internalScale / bb.size.y
                 local bb = animModel_.boundingBox
                 local h = bb.size.y
                 local minY = bb.min.y
-                print("[PlayerAnim] Model height=" .. string.format("%.3f", h) .. " minY=" .. string.format("%.3f", minY))
+                print("[PlayerAnim] BBox height=" .. string.format("%.3f", h) .. " minY=" .. string.format("%.3f", minY))
+
                 if h > 0 then
-                    local s = 1.6 / h
+                    local TARGET_HEIGHT = 1.6
+                    local s = TARGET_HEIGHT * internalScale / h
                     modelNode_.scale = Vector3(s, s, s)
-                    -- 确保脚底在 Y=0
+                    -- 脚底偏移也需要乘以 internalScale 修正
                     local footOffset = -minY * s
                     modelNode_.position = Vector3(0, footOffset, 0)
-                    print("[PlayerAnim] Applied scale=" .. string.format("%.3f", s) .. " footOffset=" .. string.format("%.3f", footOffset))
+                    print("[PlayerAnim] Applied scale=" .. string.format("%.5f", s)
+                        .. " (internalScale=" .. string.format("%.4f", internalScale) .. ")"
+                        .. " footOffset=" .. string.format("%.5f", footOffset))
                 end
             else
                 print("[PlayerAnim] WARNING: No AnimatedModel found in prefab!")
@@ -310,29 +326,14 @@ local animDiagCounter_ = 0
 function PlayerAnim.Update(dt, isMoving)
     -- modelNode_ 是 playerNode_ 的子节点，自动继承位置/旋转，无需手动同步
 
-    -- 诊断 + 自动修正：检查 worldBoundingBox 实际渲染高度
+    -- 诊断：每 120 帧检查 worldBoundingBox（仅日志，不修改 scale）
     animDiagCounter_ = animDiagCounter_ + 1
     if animModel_ and animDiagCounter_ % 120 == 1 then
         local wbb = animModel_.worldBoundingBox
         local wbbSize = wbb.size
-        local wbbCenter = wbb.center
         local ws = modelNode_.worldScale
-        print(string.format("[DIAG-Model] worldScale=(%.3f) wBBox size=(%.2f,%.2f,%.2f) center=(%.2f,%.2f,%.2f)",
-            ws.x, wbbSize.x, wbbSize.y, wbbSize.z,
-            wbbCenter.x, wbbCenter.y, wbbCenter.z))
-
-        -- 自动修正：如果实际渲染高度偏离目标1.6m超过50%，重新计算scale
-        local TARGET_HEIGHT = 1.6
-        if wbbSize.y > 0.01 then
-            local ratio = wbbSize.y / TARGET_HEIGHT
-            if ratio > 2.0 or ratio < 0.3 then
-                -- 渲染尺寸异常！自动修正 scale
-                local correction = TARGET_HEIGHT / wbbSize.y * ws.x
-                print(string.format("[DIAG-Model] ⚠️ HEIGHT MISMATCH! actual=%.2f target=%.2f ratio=%.2f → correcting scale to %.4f",
-                    wbbSize.y, TARGET_HEIGHT, ratio, correction))
-                modelNode_.scale = Vector3(correction, correction, correction)
-            end
-        end
+        print(string.format("[DIAG-Model] scale=(%.5f) wBBox.h=%.2f",
+            ws.x, wbbSize.y))
     end
 
     -- 打击感顿帧
