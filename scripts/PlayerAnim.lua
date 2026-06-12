@@ -47,7 +47,8 @@ local playerNode_ = nil  -- 引用玩家节点，用于每帧同步位置
 local baseScale_ = 1.0        -- CreateSkeleton 中计算的基础 scale 值
 local baseFootOffset_ = 0.0   -- CreateSkeleton 中计算的脚底偏移
 local isUuidAnim_ = false     -- 当前是否在播放 uuid 动画
-local scaleDirty_ = false     -- 标记需要在下一帧应用 scale 变更
+local scaleDirty_ = false     -- 标记需要应用 scale 变更（在 PostUpdate 中执行）
+local postUpdateSubscribed_ = false  -- 是否已订阅 PostUpdate 事件
 
 
 
@@ -599,6 +600,15 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors)
         AttachWeapon(classId)
     end
 
+    -- 订阅 PostUpdate 事件（仅一次）：在此事件中应用 scale 补偿
+    -- 时序：E_UPDATE(Play调用+AnimCtrl更新骨骼) → E_POSTUPDATE(我们改scale) → RenderUpdate(蒙皮)
+    -- 这确保 modelNode_.scale 变更与骨骼值在同一帧生效，无错位
+    if not postUpdateSubscribed_ then
+        postUpdateSubscribed_ = true
+        SubscribeToEvent("PostUpdate", "HandlePlayerAnimPostUpdate")
+        print("[PlayerAnim] PostUpdate event subscribed for scale compensation")
+    end
+
     print("[PlayerAnim] Character created: " .. classId)
 end
 
@@ -730,25 +740,6 @@ local animDiagCounter_ = 0
 function PlayerAnim.Update(dt, isMoving)
     -- modelNode_ 是 playerNode_ 的子节点，自动继承位置/旋转，无需手动同步
 
-    -- ⚠️ 延迟 1 帧 scale 补偿：此时 Scene::Update 已完成，骨骼已更新为新动画的值
-    -- 现在才修改 modelNode_.scale，确保与骨骼 transform 同步（无 1 帧错位）
-    if scaleDirty_ and modelNode_ then
-        scaleDirty_ = false
-        if isUuidAnim_ then
-            -- uuid 动画: Bip001.scale=1.0 → InverseBind(100×) → 膨胀
-            -- modelNode.scale 缩小 100 倍抵消: (s/100) × 1.0 × 100 = s ✓
-            local cs = baseScale_ / 100.0
-            modelNode_.scale = Vector3(cs, cs, cs)
-            print(string.format("[PlayerAnim] Scale→UUID mode: %.6f (base/100)", cs))
-        else
-            -- 原生动画: Bip001.scale=0.01 → InverseBind(100×) → s × 0.01 × 100 = s ✓
-            modelNode_.scale = Vector3(baseScale_, baseScale_, baseScale_)
-            print(string.format("[PlayerAnim] Scale→Native mode: %.5f", baseScale_))
-        end
-        -- position 始终保持相同的脚底偏移（模型视觉高度不变）
-        modelNode_.position = Vector3(0, baseFootOffset_, 0)
-    end
-
     -- 诊断：每 180 帧输出 worldBBox
     animDiagCounter_ = animDiagCounter_ + 1
     if animModel_ and animDiagCounter_ % 180 == 1 then
@@ -866,6 +857,28 @@ end
 
 function PlayerAnim.GetAnimController()
     return animCtrl_
+end
+
+-- ============================================================================
+-- PostUpdate 事件：scale 补偿（在 AnimationController 更新骨骼后、RenderUpdate 蒙皮前）
+-- 这是修复 uuid 动画膨胀的关键：确保 modelNode_.scale 与 Bip001.scale 在同一帧同步
+-- ============================================================================
+function HandlePlayerAnimPostUpdate(eventType, eventData)
+    if not scaleDirty_ or not modelNode_ then return end
+
+    scaleDirty_ = false
+    if isUuidAnim_ then
+        -- uuid 动画: Bip001.scale=1.0 → InverseBind(100×) → 膨胀
+        -- modelNode.scale 缩小 100 倍抵消: (s/100) × 1.0 × 100 = s ✓
+        local cs = baseScale_ / 100.0
+        modelNode_.scale = Vector3(cs, cs, cs)
+        print(string.format("[PlayerAnim] PostUpdate Scale→UUID: %.6f", cs))
+    else
+        -- 原生动画: Bip001.scale=0.01 → InverseBind(100×) → s × 0.01 × 100 = s ✓
+        modelNode_.scale = Vector3(baseScale_, baseScale_, baseScale_)
+        print(string.format("[PlayerAnim] PostUpdate Scale→Native: %.5f", baseScale_))
+    end
+    modelNode_.position = Vector3(0, baseFootOffset_, 0)
 end
 
 return PlayerAnim
