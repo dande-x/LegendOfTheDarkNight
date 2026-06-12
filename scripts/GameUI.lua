@@ -225,6 +225,38 @@ function GameUI._RenderNanoVG()
     -- Toast 提示（始终绘制，不受地图遮挡）
     GameUI._DrawToasts(nvgCtx, sw, sh)
 
+    -- DEBUG: 屏幕左上角显示相机/角色/worldBBox 实时数据
+    if uiState.phase == "playing" and cameraRef then
+        local camNode = cameraRef:GetNode()
+        local camPos = camNode.worldPosition
+        local PlayerAnim = require("PlayerAnim")
+        local mn = PlayerAnim.GetModelNode()
+        local am = PlayerAnim.GetAnimModel()
+        local mnScale = mn and mn.worldScale or Vector3(0,0,0)
+        local mnPos = mn and mn.worldPosition or Vector3(0,0,0)
+        -- worldBoundingBox: 实际渲染范围
+        local wbbStr = "N/A"
+        if am then
+            local wbb = am.worldBoundingBox
+            local sz = wbb.size
+            local ct = wbb.center
+            wbbStr = string.format("sz(%.1f,%.1f,%.1f) ct(%.1f,%.1f,%.1f)",
+                sz.x, sz.y, sz.z, ct.x, ct.y, ct.z)
+        end
+
+        nvgFontSize(nvgCtx, 13)
+        nvgFontFace(nvgCtx, "sans")
+        nvgFillColor(nvgCtx, nvgRGBA(0, 255, 0, 220))
+        nvgTextAlign(nvgCtx, NVG_ALIGN_LEFT + NVG_ALIGN_TOP)
+        local line1 = string.format("CAM(%.1f,%.1f,%.1f) S=%.2f P(%.1f,%.1f,%.1f)",
+            camPos.x, camPos.y, camPos.z,
+            mnScale.x,
+            mnPos.x, mnPos.y, mnPos.z)
+        local line2 = "WBBox:" .. wbbStr
+        nvgText(nvgCtx, 10, 10, line1)
+        nvgText(nvgCtx, 10, 26, line2)
+    end
+
     nvgEndFrame(nvgCtx)
 end
 

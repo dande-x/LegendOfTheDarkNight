@@ -136,7 +136,22 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors)
         -- InstantiateXML 会在场景根创建完整节点树（含骨骼子节点）
         local prefabNode = parentScene:InstantiateXML(CHARACTER_PREFAB, Vector3.ZERO, Quaternion.IDENTITY, LOCAL)
         if prefabNode then
-            print("[PlayerAnim] Prefab instantiated, reparenting to playerNode...")
+            print("[PlayerAnim] Prefab instantiated, inspecting structure...")
+            -- 打印预制体节点结构（诊断）
+            print("[PlayerAnim] PrefabRoot: name=" .. prefabNode.name
+                .. " pos=" .. tostring(prefabNode.position)
+                .. " scale=" .. tostring(prefabNode.scale)
+                .. " numChildren=" .. tostring(prefabNode.numChildren))
+            for i = 0, prefabNode.numChildren - 1 do
+                local child = prefabNode:GetChild(i)
+                local hasModel = child:GetComponent("AnimatedModel") ~= nil
+                print("[PlayerAnim]   child[" .. i .. "]: name=" .. child.name
+                    .. " pos=" .. tostring(child.position)
+                    .. " scale=" .. tostring(child.scale)
+                    .. " hasAnimModel=" .. tostring(hasModel)
+                    .. " numChildren=" .. tostring(child.numChildren))
+            end
+
             -- 关键：reparent 为 playerNode 的子节点（保留所有子节点=骨骼）
             prefabNode.parent = playerNode
             prefabNode.name = "CharacterModel"
@@ -295,14 +310,29 @@ local animDiagCounter_ = 0
 function PlayerAnim.Update(dt, isMoving)
     -- modelNode_ 是 playerNode_ 的子节点，自动继承位置/旋转，无需手动同步
 
-    -- 诊断：每 180 帧检查一次模型 scale 是否异常
+    -- 诊断 + 自动修正：检查 worldBoundingBox 实际渲染高度
     animDiagCounter_ = animDiagCounter_ + 1
-    if modelNode_ and animDiagCounter_ % 180 == 1 then
+    if animModel_ and animDiagCounter_ % 120 == 1 then
+        local wbb = animModel_.worldBoundingBox
+        local wbbSize = wbb.size
+        local wbbCenter = wbb.center
         local ws = modelNode_.worldScale
-        local ls = modelNode_.scale
-        print(string.format("[DIAG-Model] localScale=(%.3f,%.3f,%.3f) worldScale=(%.3f,%.3f,%.3f) pos=(%.3f,%.3f,%.3f)",
-            ls.x, ls.y, ls.z, ws.x, ws.y, ws.z,
-            modelNode_.worldPosition.x, modelNode_.worldPosition.y, modelNode_.worldPosition.z))
+        print(string.format("[DIAG-Model] worldScale=(%.3f) wBBox size=(%.2f,%.2f,%.2f) center=(%.2f,%.2f,%.2f)",
+            ws.x, wbbSize.x, wbbSize.y, wbbSize.z,
+            wbbCenter.x, wbbCenter.y, wbbCenter.z))
+
+        -- 自动修正：如果实际渲染高度偏离目标1.6m超过50%，重新计算scale
+        local TARGET_HEIGHT = 1.6
+        if wbbSize.y > 0.01 then
+            local ratio = wbbSize.y / TARGET_HEIGHT
+            if ratio > 2.0 or ratio < 0.3 then
+                -- 渲染尺寸异常！自动修正 scale
+                local correction = TARGET_HEIGHT / wbbSize.y * ws.x
+                print(string.format("[DIAG-Model] ⚠️ HEIGHT MISMATCH! actual=%.2f target=%.2f ratio=%.2f → correcting scale to %.4f",
+                    wbbSize.y, TARGET_HEIGHT, ratio, correction))
+                modelNode_.scale = Vector3(correction, correction, correction)
+            end
+        end
     end
 
     -- 打击感顿帧
@@ -402,6 +432,10 @@ end
 -- ============================================================================
 function PlayerAnim.GetModelNode()
     return modelNode_
+end
+
+function PlayerAnim.GetAnimModel()
+    return animModel_
 end
 
 function PlayerAnim.GetAnimController()
