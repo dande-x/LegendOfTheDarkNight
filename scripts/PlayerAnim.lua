@@ -40,7 +40,10 @@ local playerNode_ = nil  -- 引用玩家节点，用于每帧同步位置
 local baseScale_ = 1.0        -- CreateSkeleton 中计算的基础 scale 值
 local baseFootOffset_ = 0.0   -- CreateSkeleton 中计算的脚底偏移
 local isUuidAnim_ = false     -- 当前是否为 UUID 动画
-local activeModelScale_ = 1.0 -- 当前帧 modelNode 应使用的 scale（Play 时计算）
+local activeModelScale_ = 1.0 -- 当前 modelNode 应使用的 scale
+local TARGET_HEIGHT_ = 1.6    -- 目标角色高度（米）
+local scaleNeedsCorrection_ = false  -- 切换动画后需要校正一次
+local correctionFrameWait_ = 0       -- 等待帧数（动画需要1-2帧才能影响bbox）
 
 
 
@@ -671,30 +674,23 @@ function PlayerAnim.Play(animName, onComplete, opts)
     animState.onComplete = onComplete
     animState.speed = speed  -- 记录当前速度（用于顿帧恢复）
 
-    -- 检测动画类型并设置 modelNode scale 补偿
-    -- UUID 动画将 Bip001.scale 设为 1.0（而非 native 的 0.01），
-    -- InverseBind 中有 100x 放大，导致蒙皮膨胀 100 倍。
-    -- 解决：UUID 动画时 modelNode.scale 缩小 100 倍抵消。
+    -- 切换动画类型时标记需要校正 scale
     local wasUuid = isUuidAnim_
     isUuidAnim_ = (animPath:find("uuid://") ~= nil)
-
-    if isUuidAnim_ then
-        activeModelScale_ = baseScale_ / 100.0
-    else
-        activeModelScale_ = baseScale_
-    end
-    -- 立即应用（不等 PostUpdate，避免一帧闪烁）
-    if modelNode_ then
-        modelNode_.scale = Vector3(activeModelScale_, activeModelScale_, activeModelScale_)
-    end
 
     -- fadeTime=0：避免交叉淡入淡出时骨骼 pose 跳帧
     animCtrl_:PlayExclusive(animPath, 0, isLoop, 0.0)
     animCtrl_:SetSpeed(animPath, speed)
 
-    if wasUuid ~= isUuidAnim_ then
-        print(string.format("[PlayerAnim] Scale switch: uuid=%s → modelScale=%.5f",
-            tostring(isUuidAnim_), activeModelScale_))
+    -- 动画类型切换时：先恢复 baseScale_，再标记需要校正
+    -- 必须先恢复，否则反复校正会叠加误差
+    if wasUuid ~= isUuidAnim_ and animModel_ then
+        activeModelScale_ = baseScale_
+        baseFootOffset_ = -animModel_.boundingBox.min.y * baseScale_  -- 重新计算原始偏移
+        scaleNeedsCorrection_ = true
+        correctionFrameWait_ = 0
+        print(string.format("[PlayerAnim] Anim type changed: uuid=%s, reset to baseScale=%.5f, will measure next frames",
+            tostring(isUuidAnim_), baseScale_))
     end
 end
 
@@ -854,15 +850,50 @@ function PlayerAnim.GetAnimController()
 end
 
 -- ============================================================================
--- PostUpdate：维持 modelNode 的 scale 和 position
+-- PostUpdate：基于 worldBoundingBox 反馈的动态缩放校正
 -- 时序：E_UPDATE → AnimCtrl 更新骨骼 → E_POSTUPDATE(此函数) → RenderUpdate(蒙皮)
 --
--- 不再尝试读写骨骼 transform（引擎蒙皮系统不允许 Lua 干预）。
--- Play() 已根据动画类型（UUID vs native）计算好 activeModelScale_，
--- 此处只需每帧维持该值，防止其他系统意外覆盖。
+-- 核心方法：不假设膨胀因子，直接测量实际渲染高度，
+-- 若偏离 TARGET_HEIGHT_ 则动态修正 modelNode.scale。
 -- ============================================================================
+
 function PlayerAnim.PostUpdate()
     if not modelNode_ then return end
+
+    -- 缩放校正逻辑
+    if scaleNeedsCorrection_ and animModel_ then
+        -- 等待2帧让动画骨骼变换生效到 worldBoundingBox
+        correctionFrameWait_ = correctionFrameWait_ + 1
+        if correctionFrameWait_ >= 2 then
+            local wbb = animModel_.worldBoundingBox
+            local measuredHeight = wbb.size.y
+
+            if measuredHeight > 0.01 then
+                -- 计算当前实际高度与目标高度的比值
+                local ratio = TARGET_HEIGHT_ / measuredHeight
+                -- 如果偏差超过 10%，进行校正
+                if math.abs(ratio - 1.0) > 0.1 then
+                    activeModelScale_ = activeModelScale_ * ratio
+                    -- 同步更新脚底偏移：按新 scale 重新计算
+                    -- baseFootOffset_ 在 CreateSkeleton 中基于 baseScale_ 计算
+                    -- 新偏移 = baseFootOffset_ * (activeModelScale_ / baseScale_)
+                    baseFootOffset_ = baseFootOffset_ * ratio
+                    print(string.format(
+                        "[PlayerAnim] Scale corrected: measured=%.2fm, target=%.2fm, ratio=%.4f, newScale=%.5f",
+                        measuredHeight, TARGET_HEIGHT_, ratio, activeModelScale_))
+                else
+                    print(string.format(
+                        "[PlayerAnim] Scale OK: measured=%.2fm (within 10%% of target %.2fm)",
+                        measuredHeight, TARGET_HEIGHT_))
+                end
+            end
+
+            scaleNeedsCorrection_ = false
+            correctionFrameWait_ = 0
+        end
+    end
+
+    -- 每帧维持 scale 和 position
     modelNode_.scale = Vector3(activeModelScale_, activeModelScale_, activeModelScale_)
     modelNode_.position = Vector3(0, baseFootOffset_, 0)
 end
