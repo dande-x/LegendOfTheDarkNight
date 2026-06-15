@@ -142,6 +142,75 @@ local ANIM_LOOPING = {
 }
 
 -- ============================================================================
+-- 职业外观材质（武士保留原贴图铠甲，法师/道士染色覆盖）
+-- ============================================================================
+
+-- 原始贴图 UUID（导入时生成的漫反射贴图）
+local ORIGINAL_TEXTURE_UUID = "uuid://ARGvkYnzrbbOxkjh2N68upmG"
+
+-- 职业材质配置
+local CLASS_MATERIAL_CONFIG = {
+    -- 武士：保留原始铠甲贴图，增加金属光泽
+    warrior = {
+        technique = "Techniques/PBR/PBRDiff.xml",
+        texture = ORIGINAL_TEXTURE_UUID,
+        diffColor = Color(1.0, 0.95, 0.9, 1.0),   -- 略微暖色调
+        roughness = 0.28,
+        metallic = 0.75,
+        emissive = Color(0.02, 0.01, 0.0),
+    },
+    -- 法师：深蓝紫色法袍 + 冰晶能量光泽（无贴图纯色 PBR）
+    mage = {
+        technique = "Techniques/PBR/PBRNoTexture.xml",
+        texture = nil,
+        diffColor = Color(0.10, 0.12, 0.48, 1.0),   -- 深蓝紫
+        roughness = 0.32,
+        metallic = 0.20,
+        emissive = Color(0.04, 0.06, 0.22),          -- 蓝紫色能量发光
+    },
+    -- 道士：翠绿金色道袍 + 玉石温润质感（无贴图纯色 PBR）
+    taoist = {
+        technique = "Techniques/PBR/PBRNoTexture.xml",
+        texture = nil,
+        diffColor = Color(0.14, 0.40, 0.22, 1.0),   -- 翡翠绿
+        roughness = 0.30,
+        metallic = 0.25,
+        emissive = Color(0.03, 0.10, 0.05),          -- 翠绿灵力光泽
+    },
+}
+
+--- 应用职业材质到角色模型
+local function ApplyClassMaterial(classId)
+    if not animModel_ then return end
+
+    local config = CLASS_MATERIAL_CONFIG[classId]
+    if not config then
+        config = CLASS_MATERIAL_CONFIG.warrior
+    end
+
+    local mat = Material:new()
+    mat:SetTechnique(0, cache:GetResource("Technique", config.technique))
+
+    -- 设置贴图（武士有贴图，法师/道士纯色）
+    if config.texture then
+        mat:SetTexture(TU_DIFFUSE, cache:GetResource("Texture2D", config.texture))
+    end
+
+    mat:SetShaderParameter("MatDiffColor", Variant(config.diffColor))
+    mat:SetShaderParameter("Roughness", Variant(config.roughness))
+    mat:SetShaderParameter("Metallic", Variant(config.metallic))
+    mat:SetShaderParameter("MatEmissiveColor", Variant(config.emissive))
+
+    -- 应用到所有材质槽位
+    local numGeom = animModel_:GetNumGeometries()
+    for i = 0, numGeom - 1 do
+        animModel_:SetMaterial(i, mat)
+    end
+
+    print(string.format("[PlayerAnim] Class material applied: %s (technique=%s)", classId, config.technique))
+end
+
+-- ============================================================================
 -- 武器系统：程序化生成并挂载到骨骼
 -- ============================================================================
 ---@type Node
@@ -516,6 +585,9 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors)
             animState.current = "idle"
             print("[PlayerAnim] Idle animation started: " .. ANIM_PATHS.idle)
         end
+
+        -- 应用职业材质
+        ApplyClassMaterial(classId)
 
         -- 挂载武器到手部骨骼
         AttachWeapon(classId)
