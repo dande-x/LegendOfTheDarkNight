@@ -47,9 +47,16 @@ local BEAST_TARGET_HEIGHT = 2.3  -- 神兽目标高度（比主角高）
 
 -- 动画资源（使用通用骨骼动画，运行时自动重定向）
 local BEAST_ANIMS = {
-    idle = "uuid://GikiEX04hbY9D5ALGNz051Zh",   -- 战斗待机 1.33s loop
-    move = "uuid://F-afGUmbZwlJu4crZmqR_4kR",   -- 中速跑 1.0s loop
+    idle = "uuid://FJ8feZ5F0ATSOJfJYCRvO0W6",   -- 蓄势待发（孙悟空弓步警觉姿态）1.33s loop
+    move = "uuid://BT-o0eWZje-OX5PTrhvSjU_k",   -- 慢速奔跑（稳健步伐）0.87s loop
     attack = "uuid://Ai-SCaONHGJAnRCLZmoO2QJ8",  -- 突刺 1.07s（喷火时播放）
+}
+
+-- 动画播放速度（神兽体型大，动作应更沉重缓慢）
+local BEAST_ANIM_SPEEDS = {
+    idle = 0.8,     -- 待机稍慢，显得稳重
+    move = 0.7,     -- 行走慢速，体现体重感
+    attack = 0.9,   -- 攻击稍慢，显得力量大
 }
 
 -- 头部骨骼名候选列表（Tripo rig 可能使用不同命名）
@@ -90,7 +97,7 @@ local beast = {
     atk = 18,
     baseAtk = 18,
     def = 8,
-    speed = 4.0,
+    speed = 3.2,
     attackCD = 2.0,
     attackTimer = 0,
     attackRange = 5.0,
@@ -231,7 +238,11 @@ local function PlayBeastAnim(animName, loop)
 
     beast.currentAnim = animName
     local isLoop = loop ~= false and (animName == "idle" or animName == "move")
-    beast.animCtrl:PlayExclusive(animPath, 0, isLoop, 0.2)
+    beast.animCtrl:PlayExclusive(animPath, 0, isLoop, 0.3)
+
+    -- 应用播放速度（让动作更沉重）
+    local speed = BEAST_ANIM_SPEEDS[animName] or 1.0
+    beast.animCtrl:SetSpeed(animPath, speed)
 end
 
 -- ============================================================================
@@ -252,7 +263,7 @@ function DivineBeast.Summon(scene, playerPos, playerAtk)
     beast.maxHP = 300
     beast.hp = 300
     beast.def = 8
-    beast.speed = 4.0
+    beast.speed = 3.2
     beast.attackCD = 2.0
     beast.attackTimer = 0
     beast.state = "follow"
