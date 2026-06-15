@@ -18,14 +18,17 @@ Taoist.weapon = {
     scale = Vector3(WEAPON_SCALE, WEAPON_SCALE, WEAPON_SCALE),
 }
 
--- 职业材质：传奇道袍（深金黄色强叠乘，压制铠甲原色，布料质感）
+-- 道士使用独立模型 prefab（非共享铠甲模型）
+Taoist.prefab = "Prefabs/TaoistRobe.prefab"
+
+-- 职业材质：道袍使用自身贴图，不做额外叠色
 Taoist.material = {
     technique = "Techniques/PBR/PBRDiff.xml",
-    useTexture = true,
-    diffColor = Color(0.55, 0.60, 0.25, 1.0),    -- 深金黄绿（强饱和度覆盖铠甲色）
-    roughness = 0.80,                             -- 布料质感
-    metallic = 0.0,                               -- 零金属，消除铠甲反光
-    emissive = Color(0.02, 0.03, 0.01),           -- 微弱暖光
+    useTexture = false,  -- 使用模型自带材质，不覆盖
+    diffColor = Color(1.0, 1.0, 1.0, 1.0),
+    roughness = 0.70,
+    metallic = 0.0,
+    emissive = Color(0.0, 0.0, 0.0),
 }
 
 -- 技能动画映射

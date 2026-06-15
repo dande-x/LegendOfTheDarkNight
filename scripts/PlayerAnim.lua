@@ -128,6 +128,12 @@ local function ApplyClassMaterial(classId)
     local classMod = ClassModules[classId] or ClassModules.warrior
     local config = classMod.material
 
+    -- 如果职业使用独立模型且不覆盖材质，保留模型自带贴图
+    if classMod.prefab and not config.useTexture then
+        print(string.format("[PlayerAnim] Class '%s' uses own prefab material, skipping override", classId))
+        return
+    end
+
     local mat = Material:new()
     mat:SetTechnique(0, cache:GetResource("Technique", config.technique))
 
@@ -212,9 +218,12 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors)
 
     local ok, err = pcall(function()
         local parentScene = playerNode:GetScene()
-        local prefabFile = cache:GetFile(CHARACTER_PREFAB)
+        -- 支持按职业加载独立 prefab（如道士有自己的道袍模型）
+        local classMod = ClassModules[classId] or ClassModules.warrior
+        local prefabPath = classMod.prefab or CHARACTER_PREFAB
+        local prefabFile = cache:GetFile(prefabPath)
         if not prefabFile then
-            print("[PlayerAnim] ERROR: Cannot find prefab: " .. CHARACTER_PREFAB)
+            print("[PlayerAnim] ERROR: Cannot find prefab: " .. prefabPath)
             return
         end
 
