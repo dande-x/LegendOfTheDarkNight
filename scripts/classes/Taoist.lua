@@ -18,14 +18,14 @@ Taoist.weapon = {
     scale = Vector3(WEAPON_SCALE, WEAPON_SCALE, WEAPON_SCALE),
 }
 
--- 职业材质：传奇道袍（纯色，不使用原贴图，彻底去除铠甲外观）
+-- 职业材质：传奇道袍（深金黄色强叠乘，压制铠甲原色，布料质感）
 Taoist.material = {
-    technique = "Techniques/PBR/PBRNoTexture.xml",
-    useTexture = false,
-    diffColor = Color(0.92, 0.88, 0.72, 1.0),    -- 暖黄白道袍
-    roughness = 0.82,                             -- 布料质感
-    metallic = 0.0,                               -- 零金属
-    emissive = Color(0.03, 0.03, 0.01),           -- 微弱暖色灵气
+    technique = "Techniques/PBR/PBRDiff.xml",
+    useTexture = true,
+    diffColor = Color(0.55, 0.60, 0.25, 1.0),    -- 深金黄绿（强饱和度覆盖铠甲色）
+    roughness = 0.80,                             -- 布料质感
+    metallic = 0.0,                               -- 零金属，消除铠甲反光
+    emissive = Color(0.02, 0.03, 0.01),           -- 微弱暖光
 }
 
 -- 技能动画映射
