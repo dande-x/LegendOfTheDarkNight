@@ -1,5 +1,5 @@
 -- ============================================================================
--- Mage.lua — 法师职业：精致木质法杖（弯曲顶端+魔法宝珠）+ 传奇法袍
+-- Mage.lua — 法师职业：大型木质法杖（顶部白光大宝珠）+ 传奇法袍
 -- ============================================================================
 local G = require("classes.GeomUtils")
 
@@ -9,18 +9,18 @@ local Mage = {}
 
 -- ========================================================================
 -- 武器挂载配置
--- 几何体以 Y=0 为握持点，下半段向 -Y 延伸，上半段向 +Y 延伸
--- offset 只需微调手掌中心对齐
+-- 几何体以 Y=0 为握持点（掌心位置）
+-- offset 向手指方向微移，使杖身从掌心穿过而非手掌根部
 -- ========================================================================
 Mage.weapon = {
     name = "法杖",
     bone = "R_Hand",
-    offset = Vector3(0.0, 0.02, 0.0),
+    offset = Vector3(0.0, 0.06, 0.0),
     rotation = Quaternion(0, 0, 90),
     scale = Vector3(WEAPON_SCALE, WEAPON_SCALE, WEAPON_SCALE),
 }
 
--- 职业材质：传奇法袍（深紫色布料质感，低金属高粗糙）
+-- 职业材质：传奇法袍（深紫色布料质感）
 Mage.material = {
     technique = "Techniques/PBR/PBRDiff.xml",
     useTexture = true,
@@ -43,97 +43,87 @@ Mage.skillAnims = {
 }
 
 -- ========================================================================
--- 法杖建模（以 Y=0 为握持中心）
+-- 法杖建模（以 Y=0 为掌心握持中心）
 --
--- 结构设计示意：
---        ◆ 宝珠 (Y≈0.68)
---       / (弧形弯曲段 90°)
---      |  (Y≈0.50~0.68)
---      |
---      | 上杖身 (Y=0 ~ 0.50)  - 主体直杆，微微向上收细
---   ===|=== 握持装饰环 (Y=0)  ← 手握这里
---      |
---      | 下杖身 (Y=0 ~ -0.32) - 向下微微加粗
---      |
---     ╚╝ 底端金属尖 (Y≈-0.35)
+-- 结构示意（更大尺寸，无弯曲，直杆顶宝珠）：
+--
+--        ★ 白光大宝珠 (Y≈0.78)     ← 发强白光
+--       [爪形托座] (Y≈0.72)
+--        |
+--        | 上杖身 (Y=0 ~ 0.70)     ← 直杆，向上渐细
+--    ====|==== 握持装饰区 (Y=0)     ← 掌心握这里
+--        |
+--        | 下杖身 (Y=0 ~ -0.40)    ← 向下微粗
+--        |
+--       ╚╝ 底端铁尖 (Y≈-0.44)
+--
+-- 总长约 1.22m，比之前大一号
 -- ========================================================================
 function Mage.buildWeapon(weaponNode)
     local geom = weaponNode:CreateComponent("CustomGeometry")
     geom:BeginGeometry(0, TRIANGLE_LIST)
 
-    local seg = 12   -- 圆周段数（更圆滑）
+    local seg = 12   -- 圆周段数
 
-    -- ===== 尺寸参数 =====
-    local gripR     = 0.016   -- 握持处半径
-    local shaftR    = 0.014   -- 杖身主体半径
-    local bottomLen = 0.32    -- 下半段长度
-    local topLen    = 0.50    -- 上半段直杆长度
-    local bottomR   = 0.018   -- 底端半径（稍粗）
+    -- ===== 尺寸参数（加大） =====
+    local gripR     = 0.020   -- 握持处半径
+    local shaftR    = 0.017   -- 杖身主体半径
+    local bottomLen = 0.40    -- 下半段长度
+    local topLen    = 0.68    -- 上半段直杆长度
+    local bottomR   = 0.022   -- 底端半径
 
-    -- ===== 1. 底端金属尖（锥台） =====
-    local tipH = 0.04
-    local tipBot = -bottomLen - tipH
-    G.addTapered(geom, 0, tipBot + tipH/2, 0, 0.004, bottomR, tipH, seg)
+    -- ===== 1. 底端铁尖（锥形） =====
+    local tipH = 0.05
+    G.addTapered(geom, 0, -bottomLen - tipH/2, 0, 0.005, bottomR, tipH, seg)
 
-    -- ===== 2. 下杖身（从底端到握持点，微微锥形收细） =====
+    -- ===== 2. 下杖身（底端到握持点，向上渐细） =====
     G.addTapered(geom, 0, -bottomLen/2, 0, bottomR, gripR, bottomLen, seg)
 
-    -- ===== 3. 握持区域装饰（三道环纹，标识手握位置） =====
-    local wrapR = gripR * 1.45
-    G.addCylinder(geom, 0, -0.015, 0, wrapR, 0.012, seg)
-    G.addCylinder(geom, 0,  0.0,   0, wrapR * 1.05, 0.008, seg)
-    G.addCylinder(geom, 0,  0.015, 0, wrapR, 0.012, seg)
+    -- ===== 3. 握持装饰区（皮革缠绕感 — 多道环纹） =====
+    local wR = gripR * 1.4
+    G.addCylinder(geom, 0, -0.020, 0, wR, 0.010, seg)
+    G.addCylinder(geom, 0, -0.008, 0, wR * 1.05, 0.008, seg)
+    G.addCylinder(geom, 0,  0.004, 0, wR * 1.08, 0.008, seg)
+    G.addCylinder(geom, 0,  0.016, 0, wR * 1.05, 0.008, seg)
+    G.addCylinder(geom, 0,  0.028, 0, wR, 0.010, seg)
 
-    -- ===== 4. 上杖身（从握持点向上，微微收细） =====
-    G.addTapered(geom, 0, topLen/2, 0, gripR, shaftR * 0.85, topLen, seg)
+    -- ===== 4. 上杖身（握持点向上，直杆渐细） =====
+    G.addTapered(geom, 0, topLen / 2, 0, gripR, shaftR * 0.80, topLen, seg)
 
-    -- ===== 5. 杖身顶端过渡节（稍粗的结节，仿木头结疤） =====
-    local knotY = topLen + 0.015
-    G.addSphere(geom, 0, knotY, 0, shaftR * 1.5, 6, seg)
+    -- ===== 5. 杖顶木结节（过渡到宝珠托座） =====
+    local topY = topLen + 0.01
+    G.addSphere(geom, 0, topY, 0, shaftR * 1.6, 6, seg)
 
-    -- ===== 6. 弯曲段（优雅的90°弧形，8段平滑） =====
-    local curveSegs   = 8
-    local curveArc    = math.rad(90)   -- 90度弧
-    local curveR      = 0.12           -- 弧线曲率半径
-    local curveStartY = knotY + 0.015
-    local curveStartR = shaftR * 0.80  -- 起始端粗细
-    local curveEndR   = shaftR * 0.50  -- 末端细
-
-    local prevX, prevY = 0, curveStartY
-    for i = 1, curveSegs do
-        local t = i / curveSegs
-        local angle = curveArc * t
-        local cx = math.sin(angle) * curveR
-        local cy = curveStartY + (1 - math.cos(angle)) * curveR
-        -- 段的中心和长度
-        local midX = (prevX + cx) / 2
-        local midY = (prevY + cy) / 2
-        local segLen = math.sqrt((cx - prevX)^2 + (cy - prevY)^2)
-        -- 从粗到细渐变
-        local rBot = curveStartR * (1 - (i-1)/curveSegs) + curveEndR * ((i-1)/curveSegs)
-        local rTop = curveStartR * (1 - t) + curveEndR * t
-        G.addTapered(geom, midX, midY, 0, rBot, rTop, segLen, seg)
-        prevX, prevY = cx, cy
+    -- ===== 6. 宝珠托座（4爪形支撑，环抱宝珠底部） =====
+    local seatY = topY + 0.02
+    local seatR = shaftR * 1.2
+    -- 中心柱连接
+    G.addCylinder(geom, 0, seatY + 0.015, 0, seatR * 0.8, 0.03, seg)
+    -- 4个爪（用小圆柱模拟，向外倾斜）
+    local orbR = 0.065  -- 大宝珠半径
+    local clawLen = 0.04
+    for c = 0, 3 do
+        local angle = (c / 4) * math.pi * 2
+        local dx = math.cos(angle) * orbR * 0.5
+        local dz = math.sin(angle) * orbR * 0.5
+        local clawY = seatY + 0.035
+        G.addCylinder(geom, dx, clawY, dz, 0.006, clawLen, 8)
     end
 
-    -- ===== 7. 末端宝珠（发光球体） =====
-    local orbR = 0.038
-    local orbX = prevX
-    local orbY = prevY + orbR * 0.8
-    G.addSphere(geom, orbX, orbY, 0, orbR, 8, seg)
-
-    -- ===== 8. 宝珠底座（小型托环连接弧段和球体） =====
-    G.addTapered(geom, prevX, prevY + 0.005, 0, curveEndR * 1.2, orbR * 0.7, 0.015, seg)
+    -- ===== 7. 顶部大宝珠（白光发光球体） =====
+    local orbY = seatY + 0.045 + orbR
+    G.addSphere(geom, 0, orbY, 0, orbR, 10, seg)
 
     geom:Commit()
 
-    -- === 木质材质：温暖深棕，自然木头感 ===
+    -- === 材质：木质杖身 + 宝珠白光（统一材质，用 emissive 模拟发光） ===
     local mat = Material:new()
     mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
-    mat:SetShaderParameter("MatDiffColor", Variant(Color(0.38, 0.22, 0.10, 1.0)))
-    mat:SetShaderParameter("Roughness", Variant(0.72))
-    mat:SetShaderParameter("Metallic", Variant(0.04))
-    mat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.01, 0.04, 0.02)))
+    mat:SetShaderParameter("MatDiffColor", Variant(Color(0.40, 0.24, 0.12, 1.0)))
+    mat:SetShaderParameter("Roughness", Variant(0.68))
+    mat:SetShaderParameter("Metallic", Variant(0.05))
+    -- 白色发光（宝珠整体泛白光）
+    mat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.8, 0.85, 1.0)))
     geom:SetMaterial(mat)
 end
 
