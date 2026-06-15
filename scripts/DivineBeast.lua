@@ -1,7 +1,7 @@
 -- ============================================================================
 -- DivineBeast.lua — 神兽系统
--- 永久随从，3D模型（胖哥斯拉造型：双足直立，圆胖身体，2角），喷火攻击，可升级
--- 体型为角色的1.5倍高度（约2.7m），火焰从嘴里喷出
+-- 使用 prefab 模型（AnimatedModel + AnimationController），与主角一致
+-- 体型为角色的1.3倍高度（约2.3m），深色神兽材质，喷火攻击，可升级
 -- ============================================================================
 
 local CharacterClass = require("scripts.CharacterClass")
@@ -40,14 +40,33 @@ local BEAST_GROWTH = {
 }
 
 -- ============================================================================
+-- Prefab 和动画配置
+-- ============================================================================
+local BEAST_PREFAB = "Prefabs/LegendWarrior.prefab"
+local BEAST_TARGET_HEIGHT = 2.3  -- 神兽目标高度（比主角高）
+
+-- 动画资源（复用主角骨骼兼容的动画）
+local BEAST_ANIMS = {
+    idle = "uuid://GikiEX04hbY9D5ALGNz051Zh",   -- 战斗待机 1.33s loop
+    move = "uuid://F-afGUmbZwlJu4crZmqR_4kR",   -- 中速跑 1.0s loop
+    attack = "uuid://Ai-SCaONHGJAnRCLZmoO2QJ8",  -- 突刺 1.07s（喷火时播放）
+}
+
+-- 头部骨骼名（用于定位嘴巴喷火位置）
+local HEAD_BONE_NAME = "Head"
+
+-- ============================================================================
 -- 工具函数
 -- ============================================================================
-local function CreatePBRMat(color, roughness, metallic)
+local function CreatePBRMat(color, roughness, metallic, emissive)
     local mat = Material:new()
     mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
     mat:SetShaderParameter("MatDiffColor", Variant(color))
     mat:SetShaderParameter("Roughness", Variant(roughness or 0.6))
     mat:SetShaderParameter("Metallic", Variant(metallic or 0.0))
+    if emissive then
+        mat:SetShaderParameter("MatEmissiveColor", Variant(emissive))
+    end
     return mat
 end
 
@@ -57,10 +76,12 @@ end
 local beast = {
     alive = false,
     node = nil,
-    meshRoot = nil,     -- 模型根节点
-    headNode = nil,     -- 头部节点（用于定位嘴巴喷火）
-    mouthNode = nil,    -- 嘴巴位置标记
-    bodyParts = {},     -- 所有部件引用（材质闪烁用）
+    modelNode = nil,      -- prefab 根节点
+    animModel = nil,      -- AnimatedModel 组件
+    animCtrl = nil,       -- AnimationController 组件
+    headBoneNode = nil,   -- 头部骨骼节点
+    mouthNode = nil,      -- 嘴巴位置标记（头部子节点）
+    originalMats = {},    -- 原始材质列表（闪烁恢复用）
     level = 1,
     exp = 0,
     expToNext = LEVEL_EXP[1],
@@ -79,12 +100,12 @@ local beast = {
     buffMult = 1.0,
     fireTimer = 0,
     hitFlashTimer = 0,
-    -- 行走动画
-    walkPhase = 0,        -- 步态周期相位 (0~2π)
-    walkSpeed = 5.5,      -- 步态频率（适中，让迈步清晰可见）
+    -- 动画状态
+    currentAnim = "idle",
     isMoving = false,
-    -- 肢体节点引用（模型创建后赋值）
-    limbs = nil,
+    -- 模型缩放信息
+    baseScale = 1.0,
+    baseFootOffset = 0.0,
 }
 
 DivineBeast.beast = beast
@@ -98,243 +119,123 @@ local fireBreath = {
     nodes = {},
     coneAngle = 35,
     range = 5.0,
-    hitSet = {},  -- 记录本次喷火已命中的敌人，每个敌人只受击一次
+    hitSet = {},
 }
 
 -- ============================================================================
--- 创建3D模型：胖哥斯拉（直立双足，圆胖身体，2角，背脊板）
--- 角色高度约1.8m，神兽高度 1.2倍 → 约2.16m
+-- 创建模型：使用 Prefab + AnimatedModel（与主角相同方式）
 -- ============================================================================
-local function CreateBeastModel(parentNode)
-    -- 整体比例：角色1.8m，神兽约2.16m（比之前矮一些）
-    local S = 1.2
-
-    -- 材质 —— 棕红色皮肤，浅色腹部，深色纹理过渡
-    local bodyMat = CreatePBRMat(Color(0.52, 0.22, 0.12, 1.0), 0.72, 0.05)     -- 棕红色身体
-    local bodyDarkMat = CreatePBRMat(Color(0.35, 0.15, 0.08, 1.0), 0.8, 0.05)  -- 深棕色（背部/肩部）
-    local bellyMat = CreatePBRMat(Color(0.78, 0.58, 0.38, 1.0), 0.85, 0.0)     -- 浅棕色腹部
-    local hornMat = CreatePBRMat(Color(0.35, 0.2, 0.08, 1.0), 0.45, 0.25)      -- 深棕犄角（略有光泽）
-    local spineMat = CreatePBRMat(Color(0.45, 0.2, 0.05, 1.0), 0.5, 0.15)      -- 脊背板材质
-    local eyeMat = CreatePBRMat(Color(1.0, 0.7, 0.0, 1.0), 0.15, 0.0)          -- 橙黄色眼睛（更亮）
-    local pupilMat = CreatePBRMat(Color(0.05, 0.02, 0.0, 1.0), 0.9, 0.0)       -- 黑色瞳孔
-    local clawMat = CreatePBRMat(Color(0.18, 0.1, 0.05, 1.0), 0.55, 0.1)       -- 深棕色爪子
-    local noseMat = CreatePBRMat(Color(0.3, 0.12, 0.06, 1.0), 0.9, 0.0)        -- 鼻孔
-
-    local parts = {}
-
-    -- 辅助：添加部件
-    local function AddPart(name, pos, rot, scl, modelPath, mat, castShadow)
-        local n = parentNode:CreateChild(name)
-        n.position = pos
-        if rot then n.rotation = rot end
-        n.scale = scl
-        local m = n:CreateComponent("StaticModel")
-        m:SetModel(cache:GetResource("Model", modelPath or "Models/Sphere.mdl"))
-        m:SetMaterial(mat)
-        m.castShadows = castShadow ~= false
-        table.insert(parts, {node = n, mat = mat, model = m})
-        return n
+local function CreateBeastModel(parentNode, scene)
+    -- 加载 prefab
+    local prefabFile = cache:GetFile(BEAST_PREFAB)
+    if not prefabFile then
+        print("[DivineBeast] ERROR: Cannot find prefab: " .. BEAST_PREFAB)
+        return false
     end
 
-    -- meshRoot
-    local root = parentNode:CreateChild("BeastMesh")
-    root.position = Vector3(0, 0, 0)
+    local prefabNode = scene:InstantiateXML(prefabFile, Vector3.ZERO, Quaternion.IDENTITY, LOCAL)
+    prefabFile:Close()
 
-    -- 将 AddPart 改为相对于 root 创建
-    local function Add(name, pos, rot, scl, modelPath, mat, castShadow)
-        local n = root:CreateChild(name)
-        n.position = pos
-        if rot then n.rotation = rot end
-        n.scale = scl
-        local m = n:CreateComponent("StaticModel")
-        m:SetModel(cache:GetResource("Model", modelPath or "Models/Sphere.mdl"))
-        m:SetMaterial(mat)
-        m.castShadows = castShadow ~= false
-        table.insert(parts, {node = n, mat = mat, model = m})
-        return n
+    if not prefabNode then
+        print("[DivineBeast] ERROR: Failed to instantiate prefab")
+        return false
     end
 
-    -- === 躯干（大椭球，宽胖） ===
-    Add("body", Vector3(0, 0.88*S, 0), nil,
-        Vector3(0.62*S, 0.68*S, 0.48*S), "Models/Sphere.mdl", bodyMat)
+    -- 挂到父节点下
+    prefabNode.parent = parentNode
+    prefabNode.name = "BeastModel"
+    beast.modelNode = prefabNode
 
-    -- === 大肚子（前面突出的浅色椭球，嵌入身体） ===
-    Add("belly", Vector3(0, 0.72*S, 0.16*S), nil,
-        Vector3(0.46*S, 0.52*S, 0.36*S), "Models/Sphere.mdl", bellyMat)
-
-    -- === 背部加深色过渡（让身体看起来不是单一颜色） ===
-    Add("back", Vector3(0, 0.95*S, -0.12*S), nil,
-        Vector3(0.5*S, 0.55*S, 0.35*S), "Models/Sphere.mdl", bodyDarkMat)
-
-    -- === 脖子（短粗过渡，连接头和身体） ===
-    Add("neck", Vector3(0, 1.25*S, 0.06*S), nil,
-        Vector3(0.22*S, 0.18*S, 0.2*S), "Models/Sphere.mdl", bodyMat)
-
-    -- === 头部（比身体小，略扁） ===
-    local head = Add("head", Vector3(0, 1.4*S, 0.12*S), nil,
-        Vector3(0.34*S, 0.28*S, 0.32*S), "Models/Sphere.mdl", bodyMat)
-
-    -- === 吻部/鼻吻（头部前方突出的椭球，让头不是纯圆球） ===
-    Add("snout", Vector3(0, 1.34*S, 0.3*S), nil,
-        Vector3(0.2*S, 0.14*S, 0.18*S), "Models/Sphere.mdl", bodyMat)
-
-    -- === 下颚（吻部下方） ===
-    Add("jaw", Vector3(0, 1.28*S, 0.28*S), nil,
-        Vector3(0.18*S, 0.08*S, 0.14*S), "Models/Sphere.mdl", bellyMat)
-
-    -- === 鼻孔（吻部前端两个小点） ===
-    Add("nostrilL", Vector3(-0.04*S, 1.36*S, 0.4*S), nil,
-        Vector3(0.03*S, 0.025*S, 0.03*S), "Models/Sphere.mdl", noseMat, false)
-    Add("nostrilR", Vector3(0.04*S, 1.36*S, 0.4*S), nil,
-        Vector3(0.03*S, 0.025*S, 0.03*S), "Models/Sphere.mdl", noseMat, false)
-
-    -- === 嘴巴位置标记（喷火出发点） ===
-    local mouth = root:CreateChild("mouth")
-    mouth.position = Vector3(0, 1.28*S, 0.42*S)
-
-    -- === 犄角（头顶2个，向后上方弯，稍弯曲感） ===
-    Add("hornL", Vector3(-0.09*S, 1.58*S, 0.02*S),
-        Quaternion(-20, Vector3.FORWARD) * Quaternion(-20, Vector3.RIGHT),
-        Vector3(0.04*S, 0.22*S, 0.04*S), "Models/Cone.mdl", hornMat)
-    Add("hornR", Vector3(0.09*S, 1.58*S, 0.02*S),
-        Quaternion(20, Vector3.FORWARD) * Quaternion(-20, Vector3.RIGHT),
-        Vector3(0.04*S, 0.22*S, 0.04*S), "Models/Cone.mdl", hornMat)
-
-    -- === 眼睛（黄色眼白 + 黑色瞳孔） ===
-    Add("eyeL", Vector3(-0.11*S, 1.45*S, 0.26*S), nil,
-        Vector3(0.06*S, 0.05*S, 0.04*S), "Models/Sphere.mdl", eyeMat, false)
-    Add("eyeR", Vector3(0.11*S, 1.45*S, 0.26*S), nil,
-        Vector3(0.06*S, 0.05*S, 0.04*S), "Models/Sphere.mdl", eyeMat, false)
-    -- 瞳孔
-    Add("pupilL", Vector3(-0.11*S, 1.45*S, 0.29*S), nil,
-        Vector3(0.03*S, 0.03*S, 0.02*S), "Models/Sphere.mdl", pupilMat, false)
-    Add("pupilR", Vector3(0.11*S, 1.45*S, 0.29*S), nil,
-        Vector3(0.03*S, 0.03*S, 0.02*S), "Models/Sphere.mdl", pupilMat, false)
-
-    -- === 眉脊（眼睛上方的骨质突起，增添凶狠感） ===
-    Add("browL", Vector3(-0.1*S, 1.5*S, 0.25*S), Quaternion(5, Vector3.FORWARD),
-        Vector3(0.08*S, 0.025*S, 0.04*S), "Models/Sphere.mdl", bodyDarkMat, false)
-    Add("browR", Vector3(0.1*S, 1.5*S, 0.25*S), Quaternion(-5, Vector3.FORWARD),
-        Vector3(0.08*S, 0.025*S, 0.04*S), "Models/Sphere.mdl", bodyDarkMat, false)
-
-    -- === 背脊板（哥斯拉标志性，沿脊柱3片） ===
-    for i = 1, 3 do
-        local t = (i - 1) / 2  -- 0, 0.5, 1
-        local y = 1.15*S - t * 0.3*S
-        local z = -0.2*S - t * 0.12*S
-        local spineSize = (0.06 - t * 0.015) * S
-        Add("spine" .. i, Vector3(0, y, z),
-            Quaternion(-10 - t*5, Vector3.RIGHT),
-            Vector3(0.02*S, spineSize, spineSize * 0.6), "Models/Cone.mdl", spineMat)
+    -- 获取 AnimatedModel 组件
+    beast.animModel = prefabNode:GetComponent("AnimatedModel")
+    if not beast.animModel then
+        beast.animModel = prefabNode:GetComponent("AnimatedModel", true)
     end
 
-    -- === 肩部隆起（增加厚实感） ===
-    Add("shoulderL", Vector3(-0.35*S, 1.05*S, 0), nil,
-        Vector3(0.15*S, 0.12*S, 0.12*S), "Models/Sphere.mdl", bodyDarkMat)
-    Add("shoulderR", Vector3(0.35*S, 1.05*S, 0), nil,
-        Vector3(0.15*S, 0.12*S, 0.12*S), "Models/Sphere.mdl", bodyDarkMat)
+    if not beast.animModel then
+        print("[DivineBeast] ERROR: No AnimatedModel in prefab!")
+        prefabNode:Remove()
+        return false
+    end
 
-    -- === 上臂（从肩部下垂） ===
-    local armL = Add("armL", Vector3(-0.38*S, 0.85*S, 0.04*S),
-        Quaternion(12, Vector3.FORWARD),
-        Vector3(0.08*S, 0.22*S, 0.08*S), "Models/Cylinder.mdl", bodyMat)
-    local armR = Add("armR", Vector3(0.38*S, 0.85*S, 0.04*S),
-        Quaternion(-12, Vector3.FORWARD),
-        Vector3(0.08*S, 0.22*S, 0.08*S), "Models/Cylinder.mdl", bodyMat)
+    -- 计算缩放，使神兽达到目标高度
+    local bb = beast.animModel.boundingBox
+    local h = bb.size.y
+    local minY = bb.min.y
 
-    -- === 前臂（略细） ===
-    local forearmL = Add("forearmL", Vector3(-0.4*S, 0.62*S, 0.06*S),
-        Quaternion(5, Vector3.FORWARD),
-        Vector3(0.065*S, 0.16*S, 0.065*S), "Models/Cylinder.mdl", bodyMat)
-    local forearmR = Add("forearmR", Vector3(0.4*S, 0.62*S, 0.06*S),
-        Quaternion(-5, Vector3.FORWARD),
-        Vector3(0.065*S, 0.16*S, 0.065*S), "Models/Cylinder.mdl", bodyMat)
+    if h > 0 then
+        local s = BEAST_TARGET_HEIGHT / h
+        beast.baseScale = s
+        beast.baseFootOffset = -minY * s
+        prefabNode.scale = Vector3(s, s, s)
+        prefabNode.position = Vector3(0, beast.baseFootOffset, 0)
+    end
 
-    -- === 爪子（前肢末端，3指造型） ===
-    local handL = Add("handL", Vector3(-0.41*S, 0.48*S, 0.08*S), nil,
-        Vector3(0.09*S, 0.05*S, 0.08*S), "Models/Sphere.mdl", clawMat, false)
-    local handR = Add("handR", Vector3(0.41*S, 0.48*S, 0.08*S), nil,
-        Vector3(0.09*S, 0.05*S, 0.08*S), "Models/Sphere.mdl", clawMat, false)
+    -- 获取 AnimationController
+    beast.animCtrl = prefabNode:GetComponent("AnimationController")
+        or prefabNode:GetComponent("AnimationController", true)
+    if not beast.animCtrl then
+        beast.animCtrl = prefabNode:CreateComponent("AnimationController")
+    end
 
-    -- === 大腿（粗壮，支撑整个身体） ===
-    local thighL = Add("thighL", Vector3(-0.18*S, 0.45*S, -0.02*S), nil,
-        Vector3(0.14*S, 0.28*S, 0.14*S), "Models/Cylinder.mdl", bodyMat)
-    local thighR = Add("thighR", Vector3(0.18*S, 0.45*S, -0.02*S), nil,
-        Vector3(0.14*S, 0.28*S, 0.14*S), "Models/Cylinder.mdl", bodyMat)
+    -- 应用神兽专属材质（深色鳞甲质感）
+    local beastMat = CreatePBRMat(
+        Color(0.15, 0.22, 0.12, 1.0),  -- 深墨绿色（神兽鳞甲）
+        0.55,                            -- 中等粗糙度
+        0.35,                            -- 偏金属质感
+        Color(0.02, 0.06, 0.01)          -- 微弱绿色自发光
+    )
 
-    -- === 小腿（略细，连接膝盖和脚） ===
-    local shinL = Add("shinL", Vector3(-0.18*S, 0.2*S, 0.02*S), nil,
-        Vector3(0.1*S, 0.2*S, 0.1*S), "Models/Cylinder.mdl", bodyMat)
-    local shinR = Add("shinR", Vector3(0.18*S, 0.2*S, 0.02*S), nil,
-        Vector3(0.1*S, 0.2*S, 0.1*S), "Models/Cylinder.mdl", bodyMat)
+    local numGeom = beast.animModel:GetNumGeometries()
+    beast.originalMats = {}
+    for i = 0, numGeom - 1 do
+        beast.originalMats[i] = beastMat  -- 记录原始材质用于闪烁恢复
+        beast.animModel:SetMaterial(i, beastMat)
+    end
 
-    -- === 大脚掌（扁宽，稳定支撑） ===
-    local footL = Add("footL", Vector3(-0.18*S, 0.04*S, 0.06*S), nil,
-        Vector3(0.15*S, 0.06*S, 0.22*S), "Models/Sphere.mdl", clawMat)
-    local footR = Add("footR", Vector3(0.18*S, 0.04*S, 0.06*S), nil,
-        Vector3(0.15*S, 0.06*S, 0.22*S), "Models/Sphere.mdl", clawMat)
-
-    -- === 脚趾（每只脚3个小凸起，增加细节） ===
-    for side = -1, 1, 2 do
-        local prefix = side < 0 and "toeL" or "toeR"
-        local bx = 0.18 * S * side
-        for t = 1, 3 do
-            local ox = (t - 2) * 0.04 * S * side
-            Add(prefix..t, Vector3(bx + ox, 0.02*S, 0.16*S), nil,
-                Vector3(0.03*S, 0.025*S, 0.04*S), "Models/Sphere.mdl", clawMat, false)
+    -- 获取头部骨骼节点（用于定位嘴巴喷火）
+    local skeleton = beast.animModel:GetSkeleton()
+    if skeleton then
+        local headBone = skeleton:GetBone(HEAD_BONE_NAME)
+        if headBone and headBone.node then
+            beast.headBoneNode = headBone.node
+            -- 在头部骨骼前方创建嘴巴标记节点
+            beast.mouthNode = headBone.node:CreateChild("BeastMouth")
+            beast.mouthNode.position = Vector3(0, 0, 0.3)  -- 头部前方
+            print("[DivineBeast] Head bone found, mouth node attached")
+        else
+            print("[DivineBeast] WARNING: Head bone not found, using fallback mouth position")
         end
     end
 
-    -- === 尾巴根部（粗） ===
-    local tailBase = Add("tailBase", Vector3(0, 0.6*S, -0.32*S),
-        Quaternion(-30, Vector3.RIGHT),
-        Vector3(0.12*S, 0.12*S, 0.28*S), "Models/Cylinder.mdl", bodyMat)
+    -- 如果没有找到头部骨骼，创建一个固定位置的嘴巴节点
+    if not beast.mouthNode then
+        beast.mouthNode = prefabNode:CreateChild("BeastMouthFallback")
+        beast.mouthNode.position = Vector3(0, 1.8 / beast.baseScale, 0.4 / beast.baseScale)
+    end
 
-    -- === 尾巴中段 ===
-    local tailMid = Add("tailMid", Vector3(0, 0.48*S, -0.55*S),
-        Quaternion(-40, Vector3.RIGHT),
-        Vector3(0.08*S, 0.08*S, 0.22*S), "Models/Cylinder.mdl", bodyDarkMat)
+    -- 播放初始 idle 动画
+    if beast.animCtrl and BEAST_ANIMS.idle then
+        beast.animCtrl:PlayExclusive(BEAST_ANIMS.idle, 0, true, 0.0)
+        beast.currentAnim = "idle"
+    end
 
-    -- === 尾尖（锥体） ===
-    local tailTip = Add("tailTip", Vector3(0, 0.35*S, -0.72*S),
-        Quaternion(-50, Vector3.RIGHT),
-        Vector3(0.06*S, 0.06*S, 0.15*S), "Models/Cone.mdl", bodyDarkMat)
+    print("[DivineBeast] Beast model created with prefab, height=" .. BEAST_TARGET_HEIGHT)
+    return true
+end
 
-    -- === 保存肢体引用（用于程序化行走动画） ===
-    local limbs = {
-        -- 静止时的初始位置（用于计算偏移）
-        S = S,
-        -- 大腿
-        thighL = thighL, thighR = thighR,
-        thighLPos = Vector3(-0.18*S, 0.45*S, -0.02*S),
-        thighRPos = Vector3(0.18*S, 0.45*S, -0.02*S),
-        -- 小腿
-        shinL = shinL, shinR = shinR,
-        shinLPos = Vector3(-0.18*S, 0.2*S, 0.02*S),
-        shinRPos = Vector3(0.18*S, 0.2*S, 0.02*S),
-        -- 脚
-        footL = footL, footR = footR,
-        footLPos = Vector3(-0.18*S, 0.04*S, 0.06*S),
-        footRPos = Vector3(0.18*S, 0.04*S, 0.06*S),
-        -- 上臂
-        armL = armL, armR = armR,
-        armLPos = Vector3(-0.38*S, 0.85*S, 0.04*S),
-        armRPos = Vector3(0.38*S, 0.85*S, 0.04*S),
-        -- 前臂
-        forearmL = forearmL, forearmR = forearmR,
-        forearmLPos = Vector3(-0.4*S, 0.62*S, 0.06*S),
-        forearmRPos = Vector3(0.4*S, 0.62*S, 0.06*S),
-        -- 爪子
-        handL = handL, handR = handR,
-        handLPos = Vector3(-0.41*S, 0.48*S, 0.08*S),
-        handRPos = Vector3(0.41*S, 0.48*S, 0.08*S),
-        -- 尾巴
-        tailBase = tailBase, tailMid = tailMid, tailTip = tailTip,
-        -- 身体根节点（用于上下起伏）
-        root = root,
-    }
+-- ============================================================================
+-- 动画控制
+-- ============================================================================
+local function PlayBeastAnim(animName, loop)
+    if not beast.animCtrl then return end
+    local animPath = BEAST_ANIMS[animName]
+    if not animPath then return end
+    if beast.currentAnim == animName then return end
 
-    return root, head, mouth, parts, bodyMat, limbs
+    beast.currentAnim = animName
+    local isLoop = loop ~= false and (animName == "idle" or animName == "move")
+    beast.animCtrl:PlayExclusive(animPath, 0, isLoop, 0.2)
 end
 
 -- ============================================================================
@@ -363,22 +264,32 @@ function DivineBeast.Summon(scene, playerPos, playerAtk)
     beast.buffMult = 1.0
     beast.fireTimer = 0
     beast.hitFlashTimer = 0
+    beast.isMoving = false
+    beast.currentAnim = "idle"
 
     -- 创建根节点
     local beastNode = scene:CreateChild("DivineBeast")
     beastNode.position = playerPos + Vector3(2, 0, 2)
 
-    -- 创建3D模型
-    local meshRoot, headNode, mouthNode, parts, bodyMat, limbs = CreateBeastModel(beastNode)
-    beast.meshRoot = meshRoot
-    beast.headNode = headNode
-    beast.mouthNode = mouthNode
-    beast.bodyParts = parts
-    beast.limbs = limbs
-    beast.walkPhase = 0
-    beast.isMoving = false
+    -- 创建 3D 模型（prefab 方式）
+    local success = CreateBeastModel(beastNode, scene)
+    if not success then
+        print("[DivineBeast] ERROR: Failed to create beast model, using fallback")
+        -- fallback: 简单圆柱体
+        local fallbackNode = beastNode:CreateChild("BeastFallback")
+        local sm = fallbackNode:CreateComponent("StaticModel")
+        sm:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+        sm:SetMaterial(CreatePBRMat(Color(0.15, 0.22, 0.12, 1.0), 0.5, 0.3))
+        fallbackNode.scale = Vector3(0.8, 2.3, 0.8)
+        fallbackNode.position = Vector3(0, 1.15, 0)
+        beast.modelNode = fallbackNode
 
-    -- 物理碰撞体（适配1.2倍体型：宽1.2m 高2.16m）
+        -- fallback 嘴巴节点
+        beast.mouthNode = beastNode:CreateChild("BeastMouthFallback")
+        beast.mouthNode.position = Vector3(0, 2.0, 0.5)
+    end
+
+    -- 物理碰撞体（适配体型：宽1.3m 高2.3m）
     local rbody = beastNode:CreateComponent("RigidBody")
     rbody.mass = 1.0
     rbody.collisionLayer = 2          -- 玩家层（不被玩家攻击）
@@ -388,7 +299,7 @@ function DivineBeast.Summon(scene, playerPos, playerAtk)
     rbody.friction = 0.5
     rbody.linearDamping = 0.1
     local shape = beastNode:CreateComponent("CollisionShape")
-    shape:SetCapsule(1.2, 2.16, Vector3(0, 1.08, 0))
+    shape:SetCapsule(1.3, 2.3, Vector3(0, 1.15, 0))
 
     beast.node = beastNode
     beast.alive = true
@@ -425,10 +336,12 @@ function DivineBeast.Die()
         beast.node:Remove()
         beast.node = nil
     end
-    beast.meshRoot = nil
-    beast.headNode = nil
+    beast.modelNode = nil
+    beast.animModel = nil
+    beast.animCtrl = nil
+    beast.headBoneNode = nil
     beast.mouthNode = nil
-    beast.bodyParts = {}
+    beast.originalMats = {}
     beast.hp = 0
 
     -- 清理喷火效果
@@ -458,7 +371,36 @@ function DivineBeast.AddExp(exp)
         beast.atk = math.floor(beast.baseAtk * beast.buffMult)
         beast.def = beast.def + BEAST_GROWTH.def_per_level
 
+        -- 升级后更新材质颜色（等级越高越偏蓝绿）
+        DivineBeast.UpdateLevelMaterial()
+
         print("[DivineBeast] 升级! Lv." .. beast.level .. " HP=" .. beast.maxHP .. " ATK=" .. beast.atk)
+    end
+end
+
+-- ============================================================================
+-- 等级材质更新（升级后颜色渐变）
+-- ============================================================================
+function DivineBeast.UpdateLevelMaterial()
+    if not beast.animModel then return end
+
+    local lc = LEVEL_COLORS[beast.level] or LEVEL_COLORS[1]
+    -- 将等级颜色混合到基础深绿色上
+    local r = 0.15 + (lc[1] / 255 - 0.5) * 0.15
+    local g = 0.22 + (lc[2] / 255 - 0.5) * 0.15
+    local b = 0.12 + (lc[3] / 255 - 0.5) * 0.15
+
+    local beastMat = CreatePBRMat(
+        Color(r, g, b, 1.0),
+        0.50,
+        0.35 + beast.level * 0.03,  -- 等级越高越有金属光泽
+        Color(0.02 * beast.level * 0.3, 0.06 * beast.level * 0.3, 0.01)
+    )
+
+    local numGeom = beast.animModel:GetNumGeometries()
+    for i = 0, numGeom - 1 do
+        beast.originalMats[i] = beastMat
+        beast.animModel:SetMaterial(i, beastMat)
     end
 end
 
@@ -469,7 +411,7 @@ function DivineBeast.ApplyBuff(multiplier, duration)
     beast.buffMult = multiplier
     beast.buffTimer = duration
     beast.atk = math.floor(beast.baseAtk * multiplier)
-    beast.attackCD = beast.attackCD / multiplier  -- 攻速也提升
+    beast.attackCD = beast.attackCD / multiplier
     print("[DivineBeast] 获得增益! ATKx" .. multiplier .. " 持续" .. duration .. "s")
 end
 
@@ -507,7 +449,6 @@ local function UpdateFacing(beastPos, targetPos)
     if dir:Length() < 0.1 then return end
     dir = dir:Normalized()
 
-    -- 通过 atan 计算朝向角度，Z+ 为前方
     local angle = math.deg(math.atan(dir.x, dir.z))
     beast.node.rotation = Quaternion(angle, Vector3.UP)
 end
@@ -520,7 +461,6 @@ end
 local function CreateFireMat(progress)
     local mat = Material:new()
     mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
-    -- 近处亮黄，远处暗红
     local r = 1.0
     local g = 0.8 - progress * 0.6
     local b = 0.2 - progress * 0.2
@@ -535,7 +475,7 @@ end
 -- 开始喷火
 local function StartFireBreath(scene, targetPos)
     if not beast.mouthNode then return end
-    if fireBreath.active then return end  -- 已在喷火中
+    if fireBreath.active then return end
 
     local mouthWorldPos = beast.mouthNode.worldPosition
     local dir = targetPos - mouthWorldPos
@@ -546,14 +486,17 @@ local function StartFireBreath(scene, targetPos)
     fireBreath.active = true
     fireBreath.timer = fireBreath.duration
     fireBreath.dir = dir
-    fireBreath.hitSet = {}  -- 重置命中记录，新一轮喷火
+    fireBreath.hitSet = {}
 
-    -- 创建火焰锥形视觉：沿喷火方向放置多个逐渐变大的火焰球
+    -- 播放攻击动画
+    PlayBeastAnim("attack", false)
+
+    -- 创建火焰锥形视觉
     local segCount = 6
     for i = 1, segCount do
-        local t = i / segCount  -- 0~1 从嘴巴到末端
+        local t = i / segCount
         local dist = t * fireBreath.range
-        local size = 0.3 + t * 1.2  -- 近处小，远处大（锥形）
+        local size = 0.3 + t * 1.2
 
         local fireNode = scene:CreateChild("BreathFlame")
         fireNode.position = mouthWorldPos + dir * dist
@@ -568,24 +511,22 @@ local function StartFireBreath(scene, targetPos)
     end
 end
 
--- 更新火焰视觉（让火焰粒子抖动 + 随时间消散）
+-- 更新火焰视觉
 local function UpdateFireBreathVisual(dt)
     if not fireBreath.active then return end
 
     fireBreath.timer = fireBreath.timer - dt
 
-    -- 更新每个火焰球的位置（轻微随机抖动模拟火焰）
     if beast.mouthNode then
         local mouthWorldPos = beast.mouthNode.worldPosition
         local segCount = #fireBreath.nodes
         for i, node in ipairs(fireBreath.nodes) do
             local t = i / segCount
             local dist = t * fireBreath.range
-            local size = (0.3 + t * 1.2) * (0.7 + math.random() * 0.6)  -- 随机大小抖动
+            local size = (0.3 + t * 1.2) * (0.7 + math.random() * 0.6)
 
-            -- 位置：基线 + 随机偏移
             local jitterX = (math.random() - 0.5) * 0.4 * t
-            local jitterY = (math.random() - 0.5) * 0.3 * t + 0.1 * t  -- 火焰略微上飘
+            local jitterY = (math.random() - 0.5) * 0.3 * t + 0.1 * t
             local jitterZ = (math.random() - 0.5) * 0.4 * t
 
             node.position = mouthWorldPos + fireBreath.dir * dist + Vector3(jitterX, jitterY, jitterZ)
@@ -593,7 +534,6 @@ local function UpdateFireBreathVisual(dt)
         end
     end
 
-    -- 时间到，清除火焰
     if fireBreath.timer <= 0 then
         for _, node in ipairs(fireBreath.nodes) do
             node:Remove()
@@ -603,28 +543,24 @@ local function UpdateFireBreathVisual(dt)
     end
 end
 
--- 喷火锥形范围伤害检测（每个敌人每次喷火只命中一次，避免永久硬直）
+-- 喷火锥形范围伤害检测
 local function UpdateFireBreathDamage(dt, enemies, player, dealDamageFn)
     if not fireBreath.active then return end
     if not beast.mouthNode then return end
 
-    -- 对锥形范围内所有敌人造成伤害（只命中一次）
     local mouthWorldPos = beast.mouthNode.worldPosition
     local coneAngleRad = math.rad(fireBreath.coneAngle)
     local cosThreshold = math.cos(coneAngleRad)
 
     if not enemies then return end
     for _, e in ipairs(enemies) do
-        -- 跳过已死亡、正在死亡、以及本次喷火已命中过的敌人
         if e.state ~= "dead" and e.state ~= "dying" and not fireBreath.hitSet[e] then
             local toEnemy = e.node.position - mouthWorldPos
             toEnemy.y = 0
             local dist = toEnemy:Length()
 
-            -- 在射程内？
             if dist <= fireBreath.range + 1.0 then
                 local hit = false
-                -- 在锥角内？
                 if dist > 0.1 then
                     local dirToEnemy = toEnemy:Normalized()
                     local dot = fireBreath.dir.x * dirToEnemy.x + fireBreath.dir.z * dirToEnemy.z
@@ -632,13 +568,12 @@ local function UpdateFireBreathDamage(dt, enemies, player, dealDamageFn)
                         hit = true
                     end
                 else
-                    -- 距离太近，直接命中
                     hit = true
                 end
 
                 if hit and dealDamageFn then
                     dealDamageFn(e, beast.atk, player)
-                    fireBreath.hitSet[e] = true  -- 标记为已命中，本轮不再重复
+                    fireBreath.hitSet[e] = true
                 end
             end
         end
@@ -646,122 +581,31 @@ local function UpdateFireBreathDamage(dt, enemies, player, dealDamageFn)
 end
 
 -- ============================================================================
--- 受击闪烁效果（材质颜色闪红）
+-- 受击闪烁效果（AnimatedModel 材质闪红）
 -- ============================================================================
 local function UpdateHitFlash(dt)
+    if not beast.animModel then return end
+
     if beast.hitFlashTimer > 0 then
         beast.hitFlashTimer = beast.hitFlashTimer - dt
-        -- 闪烁: 偶数时段变红
         local flash = math.floor(beast.hitFlashTimer * 10) % 2 == 0
-        for _, part in ipairs(beast.bodyParts) do
-            if part.model then
-                if flash then
-                    local flashMat = Material:new()
-                    flashMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
-                    flashMat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 0.2, 0.2, 1.0)))
-                    flashMat:SetShaderParameter("MatEmissiveColor", Variant(Color(1.0, 0.0, 0.0)))
-                    flashMat:SetShaderParameter("Roughness", Variant(0.5))
-                    flashMat:SetShaderParameter("Metallic", Variant(0.0))
-                    part.model:SetMaterial(flashMat)
-                else
-                    part.model:SetMaterial(part.mat)
+        local numGeom = beast.animModel:GetNumGeometries()
+
+        if flash then
+            local flashMat = CreatePBRMat(
+                Color(1.0, 0.2, 0.2, 1.0), 0.5, 0.0,
+                Color(1.0, 0.0, 0.0)
+            )
+            for i = 0, numGeom - 1 do
+                beast.animModel:SetMaterial(i, flashMat)
+            end
+        else
+            for i = 0, numGeom - 1 do
+                if beast.originalMats[i] then
+                    beast.animModel:SetMaterial(i, beast.originalMats[i])
                 end
             end
         end
-    else
-        -- 确保恢复原始材质
-        for _, part in ipairs(beast.bodyParts) do
-            if part.model and part.needsRestore then
-                part.model:SetMaterial(part.mat)
-                part.needsRestore = false
-            end
-        end
-    end
-end
-
--- ============================================================================
--- 程序化行走动画（腿部前后摆动、身体上下起伏、手臂摆动、尾巴晃动）
--- ============================================================================
--- 行走动画混合因子（0=站立，1=完全行走），用于平滑过渡
-local walkBlend = 0
-
-local function UpdateWalkAnimation(dt)
-    local limbs = beast.limbs
-    if not limbs then return end
-
-    local S = limbs.S
-
-    -- 混合因子平滑过渡
-    if beast.isMoving then
-        walkBlend = math.min(1.0, walkBlend + dt * 4.0)  -- 0.25秒渐入
-    else
-        walkBlend = math.max(0.0, walkBlend - dt * 3.0)  -- 0.33秒渐出
-    end
-
-    -- 相位推进（只在混合>0时继续）
-    if walkBlend > 0.01 then
-        beast.walkPhase = beast.walkPhase + dt * beast.walkSpeed
-        if beast.walkPhase > math.pi * 2 then
-            beast.walkPhase = beast.walkPhase - math.pi * 2
-        end
-    else
-        beast.walkPhase = 0
-        return  -- 完全站立，不需要更新位置
-    end
-
-    local phase = beast.walkPhase
-    local sinP = math.sin(phase)
-    local b = walkBlend  -- 简写混合因子
-
-    -- === 腿部动画（大幅度，俯视角也要看得清） ===
-    local legSwing = 0.35 * S   -- 前后摆幅（大幅增加）
-    local legLift = 0.12 * S    -- 抬腿高度（大幅增加）
-
-    -- 大腿：前后平移 + 抬起
-    local liftL = math.max(0, sinP) * legLift * b
-    local liftR = math.max(0, -sinP) * legLift * b
-    local swingL = sinP * legSwing * b
-    local swingR = -sinP * legSwing * b
-
-    limbs.thighL.position = limbs.thighLPos + Vector3(0, liftL, swingL)
-    limbs.thighR.position = limbs.thighRPos + Vector3(0, liftR, swingR)
-
-    -- 小腿跟随大腿（稍小幅度）
-    local shinSwing = 0.25 * S
-    limbs.shinL.position = limbs.shinLPos + Vector3(0, liftL * 0.6, sinP * shinSwing * b)
-    limbs.shinR.position = limbs.shinRPos + Vector3(0, liftR * 0.6, -sinP * shinSwing * b)
-
-    -- 脚掌跟随
-    local footSwing = 0.18 * S
-    limbs.footL.position = limbs.footLPos + Vector3(0, liftL * 0.4, sinP * footSwing * b)
-    limbs.footR.position = limbs.footRPos + Vector3(0, liftR * 0.4, -sinP * footSwing * b)
-
-    -- === 手臂动画（与同侧腿相反摆动，也大幅增加） ===
-    local armSwing = 0.18 * S
-    limbs.armL.position = limbs.armLPos + Vector3(0, 0, -sinP * armSwing * b)
-    limbs.armR.position = limbs.armRPos + Vector3(0, 0, sinP * armSwing * b)
-
-    local forearmSwing = 0.14 * S
-    limbs.forearmL.position = limbs.forearmLPos + Vector3(0, 0, -sinP * forearmSwing * b)
-    limbs.forearmR.position = limbs.forearmRPos + Vector3(0, 0, sinP * forearmSwing * b)
-
-    limbs.handL.position = limbs.handLPos + Vector3(0, 0, -sinP * forearmSwing * 0.8 * b)
-    limbs.handR.position = limbs.handRPos + Vector3(0, 0, sinP * forearmSwing * 0.8 * b)
-
-    -- === 身体上下起伏（明显的"笨重感"上下颠） ===
-    local bodyBob = math.abs(sinP) * 0.08 * S * b
-    limbs.root.position = Vector3(0, bodyBob, 0)
-
-    -- === 尾巴左右大幅摆动 ===
-    local tailSway = math.sin(phase * 0.7) * 0.15 * S * b
-    if limbs.tailBase then
-        limbs.tailBase.position = Vector3(tailSway * 0.5, 0.6*S, -0.32*S)
-    end
-    if limbs.tailMid then
-        limbs.tailMid.position = Vector3(tailSway, 0.48*S, -0.55*S)
-    end
-    if limbs.tailTip then
-        limbs.tailTip.position = Vector3(tailSway * 1.5, 0.35*S, -0.72*S)
     end
 end
 
@@ -819,6 +663,11 @@ function DivineBeast.Update(dt, scene, playerNode, player, enemies, dealDamageFn
                 beast.attackTimer = beast.attackCD
             end
 
+            -- 非攻击动画时回到 idle
+            if not fireBreath.active and beast.currentAnim ~= "idle" then
+                PlayBeastAnim("idle")
+            end
+
             UpdateFacing(beastPos, nearestEnemy.node.position)
         else
             -- 追击
@@ -829,6 +678,8 @@ function DivineBeast.Update(dt, scene, playerNode, player, enemies, dealDamageFn
             dir = dir:Normalized()
             if rbody then rbody:SetLinearVelocity(dir * beast.speed) end
             UpdateFacing(beastPos, nearestEnemy.node.position)
+
+            PlayBeastAnim("move")
         end
     else
         -- 跟随玩家
@@ -843,9 +694,13 @@ function DivineBeast.Update(dt, scene, playerNode, player, enemies, dealDamageFn
             local followSpeed = beast.speed * 1.2
             if rbody then rbody:SetLinearVelocity(dir * followSpeed) end
             UpdateFacing(beastPos, playerPos)
+
+            PlayBeastAnim("move")
         else
             beast.isMoving = false
             if rbody then rbody:SetLinearVelocity(Vector3.ZERO) end
+
+            PlayBeastAnim("idle")
         end
 
         -- 太远则传送
@@ -853,9 +708,6 @@ function DivineBeast.Update(dt, scene, playerNode, player, enemies, dealDamageFn
             beast.node.position = playerPos + Vector3(2, 0, 2)
         end
     end
-
-    -- 更新行走动画
-    UpdateWalkAnimation(dt)
 
     -- 更新喷火效果（视觉 + 伤害）
     UpdateFireBreathVisual(dt)
@@ -873,10 +725,12 @@ function DivineBeast.Clear()
     beast.alive = false
     beast.level = 1
     beast.exp = 0
-    beast.meshRoot = nil
-    beast.headNode = nil
+    beast.modelNode = nil
+    beast.animModel = nil
+    beast.animCtrl = nil
+    beast.headBoneNode = nil
     beast.mouthNode = nil
-    beast.bodyParts = {}
+    beast.originalMats = {}
     beast.hp = 0
 
     -- 清理喷火效果
