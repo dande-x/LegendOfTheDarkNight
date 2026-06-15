@@ -638,6 +638,14 @@ function OnClassSelected(classId)
         castState.windupDuration = windup
         castState.recoveryDuration = recovery
 
+        -- 立即停止移动（清零物理速度，防止惯性滑行）
+        if playerNode_ then
+            local body = playerNode_:GetComponent("RigidBody")
+            if body then
+                body:SetLinearVelocity(Vector3.ZERO)
+            end
+        end
+
         -- 播放对应攻击动画（根据职业+技能类型自动选择动画和速度）
         PlayerAnim.PlaySkill(skill.type)
 
