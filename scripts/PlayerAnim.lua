@@ -149,33 +149,35 @@ local ANIM_LOOPING = {
 local ORIGINAL_TEXTURE_UUID = "uuid://ARGvkYnzrbbOxkjh2N68upmG"
 
 -- 职业材质配置
+-- 所有职业都使用原始贴图（贴图中皮肤和服装已经分开绘制）
+-- 通过 MatDiffColor 乘法染色来改变服装色调，皮肤区域因为贴图本身是肤色所以会保持自然
 local CLASS_MATERIAL_CONFIG = {
-    -- 武士：保留原始铠甲贴图，增加金属光泽
+    -- 武士：保留原始铠甲贴图，增加金属质感
     warrior = {
         technique = "Techniques/PBR/PBRDiff.xml",
         texture = ORIGINAL_TEXTURE_UUID,
-        diffColor = Color(1.0, 0.95, 0.9, 1.0),   -- 略微暖色调
+        diffColor = Color(1.0, 0.95, 0.9, 1.0),   -- 原色，略微暖色调
         roughness = 0.28,
         metallic = 0.75,
         emissive = Color(0.02, 0.01, 0.0),
     },
-    -- 法师：深蓝紫色法袍 + 冰晶能量光泽（无贴图纯色 PBR）
+    -- 法师：原始贴图 + 蓝紫色调染色
     mage = {
-        technique = "Techniques/PBR/PBRNoTexture.xml",
-        texture = nil,
-        diffColor = Color(0.10, 0.12, 0.48, 1.0),   -- 深蓝紫
-        roughness = 0.32,
+        technique = "Techniques/PBR/PBRDiff.xml",
+        texture = ORIGINAL_TEXTURE_UUID,
+        diffColor = Color(0.55, 0.55, 1.3, 1.0),  -- 蓝紫色调（乘法：压暖色提蓝色）
+        roughness = 0.35,
         metallic = 0.20,
-        emissive = Color(0.04, 0.06, 0.22),          -- 蓝紫色能量发光
+        emissive = Color(0.02, 0.03, 0.12),        -- 淡蓝色能量发光
     },
-    -- 道士：翠绿金色道袍 + 玉石温润质感（无贴图纯色 PBR）
+    -- 道士：原始贴图 + 翠绿色调染色
     taoist = {
-        technique = "Techniques/PBR/PBRNoTexture.xml",
-        texture = nil,
-        diffColor = Color(0.14, 0.40, 0.22, 1.0),   -- 翡翠绿
-        roughness = 0.30,
+        technique = "Techniques/PBR/PBRDiff.xml",
+        texture = ORIGINAL_TEXTURE_UUID,
+        diffColor = Color(0.6, 1.2, 0.6, 1.0),    -- 绿色调（乘法：压红蓝提绿色）
+        roughness = 0.32,
         metallic = 0.25,
-        emissive = Color(0.03, 0.10, 0.05),          -- 翠绿灵力光泽
+        emissive = Color(0.02, 0.06, 0.03),        -- 淡绿色灵力光泽
     },
 }
 
