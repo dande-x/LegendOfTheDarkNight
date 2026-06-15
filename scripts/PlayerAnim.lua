@@ -37,16 +37,11 @@ local animModel_ = nil
 ---@type Node
 local playerNode_ = nil  -- 引用玩家节点，用于每帧同步位置
 
--- modelNode_ scale 补偿方案（每帧根据动画类型强制设置）：
--- 问题：uuid 动画 Root(Bip001) scale=1.0，DefaultMale bind pose Root scale=0.01
---   InverseBind 含 1/0.01=100 缩放，uuid 播放时 skinMatrix 膨胀 100 倍
--- 解决：每帧在 PostUpdate 中根据当前动画类型强制设置 modelNode_.scale：
---   uuid 动画: modelNode_.scale = baseScale_ / 100（抵消 1.0×100 的膨胀）
---   原生动画: modelNode_.scale = baseScale_（正常：0.01×100=1 无膨胀）
--- 为什么每帧强制：确保无论什么时序，scale 始终与当前动画类型匹配
+-- Bip001.animated=false 使根骨骼始终保持 bind-pose scale=0.01，
+-- skinMatrix 缩放恒为 0.01×100=1，PostUpdate 只需设置 baseScale_ 即可。
 local baseScale_ = 1.0        -- CreateSkeleton 中计算的基础 scale 值
 local baseFootOffset_ = 0.0   -- CreateSkeleton 中计算的脚底偏移
-local isUuidAnim_ = false     -- 当前是否在播放 uuid 动画（Play 中设置）
+
 
 
 
@@ -569,12 +564,21 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors)
         modelNode_.scale = Vector3(0.4, 1.6, 0.4)
         modelNode_.position = Vector3(0, 0.8, 0)
     else
-        -- 打印 Root 骨骼信息（诊断）
+        -- 禁用 Bip001 根骨骼的动画驱动：
+        -- UUID 动画会把 Bip001.scale 从 bind-pose 的 0.01 改为 1.0，
+        -- 导致 InverseBind(100x) 使网格膨胀 100 倍（表现为身体先缩后涨）。
+        -- 禁用后根骨骼保持 bind-pose scale=0.01，蒙皮始终正常。
+        -- 实际肢体动作由子骨骼（Pelvis/Spine/UpperArm 等）驱动，不受影响。
         local skeleton = animModel_:GetSkeleton()
         if skeleton then
             local rootBone = skeleton:GetBone("Bip001")
-            if rootBone and rootBone.node then
-                print("[PlayerAnim] Bip001 scale=" .. tostring(rootBone.node.scale))
+            if rootBone then
+                rootBone.animated = false
+                if rootBone.node then
+                    -- 确保根骨骼保持 bind-pose scale
+                    rootBone.node.scale = Vector3(0.01, 0.01, 0.01)
+                    print("[PlayerAnim] Bip001 animated=false, scale locked to 0.01")
+                end
             end
         end
 
@@ -678,10 +682,7 @@ function PlayerAnim.Play(animName, onComplete, opts)
     animState.onComplete = onComplete
     animState.speed = speed  -- 记录当前速度（用于顿帧恢复）
 
-    -- 判断是否为 uuid 动画（uuid 动画的 Root scale=1.0，需要补偿）
-    isUuidAnim_ = (animPath:find("uuid://") ~= nil)
-
-    -- fadeTime=0：避免交叉淡入淡出时 Bip001.scale 在 0.01↔1.0 之间插值
+    -- fadeTime=0：避免交叉淡入淡出时骨骼 pose 跳帧
     animCtrl_:PlayExclusive(animPath, 0, isLoop, 0.0)
     animCtrl_:SetSpeed(animPath, speed)
 end
@@ -842,24 +843,13 @@ function PlayerAnim.GetAnimController()
 end
 
 -- ============================================================================
--- PostUpdate：每帧根据动画类型强制设置 modelNode_.scale（由 main.lua 回调）
--- 时序：E_UPDATE → AnimCtrl 更新骨骼 → E_POSTUPDATE(此函数) → RenderUpdate(蒙皮)
--- 原理：
---   InverseBind 含 1/bindScale = 1/0.01 = 100 的缩放因子
---   原生动画 Root=0.01 → skinMatrix 缩放 = 0.01×100 = 1 → modelScale = baseScale_
---   uuid 动画 Root=1.0  → skinMatrix 缩放 = 1.0×100 = 100 → modelScale = baseScale_/100
+-- PostUpdate：每帧设置 modelNode_ 的 scale 和 position（由 main.lua 回调）
+-- Bip001.animated=false 使根骨骼始终保持 bind-pose scale=0.01，
+-- skinMatrix 缩放恒为 0.01×100=1，因此 modelNode_.scale 统一为 baseScale_。
 -- ============================================================================
 function PlayerAnim.PostUpdate()
     if not modelNode_ then return end
-
-    if isUuidAnim_ then
-        -- uuid 动画：Root scale=1.0，skinMatrix 膨胀 100 倍，需要缩小 100 倍补偿
-        local cs = baseScale_ / 100.0
-        modelNode_.scale = Vector3(cs, cs, cs)
-    else
-        -- 原生动画：Root scale=0.01，skinMatrix 正常（0.01×100=1），正常 scale
-        modelNode_.scale = Vector3(baseScale_, baseScale_, baseScale_)
-    end
+    modelNode_.scale = Vector3(baseScale_, baseScale_, baseScale_)
     modelNode_.position = Vector3(0, baseFootOffset_, 0)
 end
 
