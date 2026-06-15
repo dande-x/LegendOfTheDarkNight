@@ -3,16 +3,16 @@
 -- ============================================================================
 local G = require("classes.GeomUtils")
 
-local WEAPON_SCALE = 1.16
+local WEAPON_SCALE = 1.55
 
 local Warrior = {}
 
--- 武器挂载配置
+-- 武器挂载配置（正手持刀：刀刃朝前，刀尖朝上）
 Warrior.weapon = {
     name = "屠龙刀",
     bone = "R_Hand",
     offset = Vector3(0.0, 0.10, 0.02),
-    rotation = Quaternion(0, 0, -90),
+    rotation = Quaternion(90, 0, 0),
     scale = Vector3(WEAPON_SCALE, WEAPON_SCALE, WEAPON_SCALE),
 }
 
@@ -38,44 +38,85 @@ Warrior.skillAnims = {
     summon = { anim = "spin_strike", speed = 0.7, duration = 1.30 },  -- 慢速回旋蓄力
 }
 
--- 武器构建：屠龙刀 — 宽刃单刀，金柄红缨，霸气侧漏
+-- 武器构建：屠龙刀 — 传奇风格宽刃大刀，寒银刃+暗金护手+血红刀柄
 function Warrior.buildWeapon(weaponNode)
-    local geom = weaponNode:CreateComponent("CustomGeometry")
-    geom:BeginGeometry(0, TRIANGLE_LIST)
+    -- ========================================
+    -- 刀柄（血红木+金丝缠绕）
+    -- ========================================
+    local handleNode = weaponNode:CreateChild("Handle")
+    local handleLen  = 0.26
+    local handleW    = 0.028
 
-    local bladeLen   = 0.75
-    local bladeW     = 0.08
-    local bladeT     = 0.012
-    local handleLen  = 0.20
-    local handleW    = 0.025
-    local guardW     = 0.12
-    local guardT     = 0.02
-    local guardH     = 0.03
-    local spineW     = 0.02
+    local handleGeom = handleNode:CreateComponent("CustomGeometry")
+    handleGeom:BeginGeometry(0, TRIANGLE_LIST)
+    G.addBox(handleGeom, 0, -handleLen/2, 0, handleW/2, handleLen/2, handleW/2)
+    -- 柄底金属环
+    G.addBox(handleGeom, 0, -handleLen + 0.015, 0, handleW * 0.7, 0.015, handleW * 0.7)
+    handleGeom:Commit()
 
-    -- 刀柄
-    G.addBox(geom, 0, -handleLen/2, 0, handleW/2, handleLen/2, handleW/2)
-    -- 刀格
-    G.addBox(geom, 0, 0, 0, guardW/2, guardH/2, guardT/2)
-    -- 刀身主体
+    local handleMat = Material:new()
+    handleMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
+    handleMat:SetShaderParameter("MatDiffColor", Variant(Color(0.45, 0.08, 0.05, 1.0)))  -- 暗血红
+    handleMat:SetShaderParameter("Roughness", Variant(0.55))
+    handleMat:SetShaderParameter("Metallic", Variant(0.2))
+    handleMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.08, 0.01, 0.0)))
+    handleGeom:SetMaterial(handleMat)
+
+    -- ========================================
+    -- 刀格/护手（暗金色，宽大厚实）
+    -- ========================================
+    local guardNode = weaponNode:CreateChild("Guard")
+    local guardW    = 0.16
+    local guardH    = 0.04
+    local guardT    = 0.025
+
+    local guardGeom = guardNode:CreateComponent("CustomGeometry")
+    guardGeom:BeginGeometry(0, TRIANGLE_LIST)
+    G.addBox(guardGeom, 0, 0, 0, guardW/2, guardH/2, guardT/2)
+    -- 护手两端装饰突起
+    G.addBox(guardGeom, -guardW/2 + 0.015, 0, 0, 0.015, guardH * 0.7, guardT * 0.6)
+    G.addBox(guardGeom,  guardW/2 - 0.015, 0, 0, 0.015, guardH * 0.7, guardT * 0.6)
+    guardGeom:Commit()
+
+    local guardMat = Material:new()
+    guardMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
+    guardMat:SetShaderParameter("MatDiffColor", Variant(Color(0.55, 0.40, 0.10, 1.0)))  -- 暗金色
+    guardMat:SetShaderParameter("Roughness", Variant(0.25))
+    guardMat:SetShaderParameter("Metallic", Variant(0.90))
+    guardMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.12, 0.08, 0.0)))
+    guardGeom:SetMaterial(guardMat)
+
+    -- ========================================
+    -- 刀身（寒银色，加宽加长，传奇质感）
+    -- ========================================
+    local bladeNode = weaponNode:CreateChild("Blade")
+    local bladeLen  = 0.95     -- 加长刀身
+    local bladeW    = 0.11     -- 加宽
+    local bladeT    = 0.014
+    local spineW    = 0.025
     local bladeBaseY = guardH/2
-    G.addBox(geom, 0, bladeBaseY + bladeLen/2, 0, bladeW/2, bladeLen/2, bladeT/2)
-    -- 刀脊
-    G.addBox(geom, -bladeW/2 + spineW/2, bladeBaseY + bladeLen/2, 0, spineW/2, bladeLen/2, bladeT * 0.8)
-    -- 刀尖
+
+    local bladeGeom = bladeNode:CreateComponent("CustomGeometry")
+    bladeGeom:BeginGeometry(0, TRIANGLE_LIST)
+    -- 主刀身
+    G.addBox(bladeGeom, 0, bladeBaseY + bladeLen/2, 0, bladeW/2, bladeLen/2, bladeT/2)
+    -- 刀脊（厚实的背脊，增加立体感）
+    G.addBox(bladeGeom, -bladeW/2 + spineW/2, bladeBaseY + bladeLen/2, 0, spineW/2, bladeLen/2, bladeT * 1.0)
+    -- 刀尖（斜切三角，上宽下窄）
     local tipY = bladeBaseY + bladeLen
-    local tipLen = 0.08
-    G.addBox(geom, 0.01, tipY + tipLen/2, 0, bladeW * 0.3, tipLen/2, bladeT * 0.4)
+    local tipLen = 0.12
+    G.addBox(bladeGeom, 0.015, tipY + tipLen/2, 0, bladeW * 0.28, tipLen/2, bladeT * 0.35)
+    -- 刀刃血槽（中部凹痕装饰）
+    G.addBox(bladeGeom, 0.01, bladeBaseY + bladeLen * 0.35, 0, bladeW * 0.15, bladeLen * 0.3, bladeT * 0.3)
+    bladeGeom:Commit()
 
-    geom:Commit()
-
-    local mat = Material:new()
-    mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
-    mat:SetShaderParameter("MatDiffColor", Variant(Color(0.75, 0.55, 0.15, 1.0)))
-    mat:SetShaderParameter("Roughness", Variant(0.15))
-    mat:SetShaderParameter("Metallic", Variant(0.95))
-    mat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.20, 0.05, 0.02)))
-    geom:SetMaterial(mat)
+    local bladeMat = Material:new()
+    bladeMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
+    bladeMat:SetShaderParameter("MatDiffColor", Variant(Color(0.82, 0.84, 0.88, 1.0)))  -- 寒银色
+    bladeMat:SetShaderParameter("Roughness", Variant(0.10))
+    bladeMat:SetShaderParameter("Metallic", Variant(0.98))
+    bladeMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.06, 0.08, 0.12)))  -- 微冷光泽
+    bladeGeom:SetMaterial(bladeMat)
 end
 
 return Warrior
