@@ -37,10 +37,12 @@ local animModel_ = nil
 ---@type Node
 local playerNode_ = nil  -- 引用玩家节点，用于每帧同步位置
 
--- Bip001.animated=false 使根骨骼始终保持 bind-pose scale=0.01，
--- skinMatrix 缩放恒为 0.01×100=1，PostUpdate 只需设置 baseScale_ 即可。
+-- PostUpdate 每帧覆盖 Bip001.node.scale = 0.01（bind-pose），
+-- 防止 UUID 动画将其改为 1.0 导致 InverseBind(100x) 膨胀。
 local baseScale_ = 1.0        -- CreateSkeleton 中计算的基础 scale 值
 local baseFootOffset_ = 0.0   -- CreateSkeleton 中计算的脚底偏移
+---@type Node|nil
+local bip001Node_ = nil       -- Bip001 骨骼 Node 引用（PostUpdate 中覆盖 scale）
 
 
 
@@ -564,21 +566,17 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors)
         modelNode_.scale = Vector3(0.4, 1.6, 0.4)
         modelNode_.position = Vector3(0, 0.8, 0)
     else
-        -- 禁用 Bip001 根骨骼的动画驱动：
-        -- UUID 动画会把 Bip001.scale 从 bind-pose 的 0.01 改为 1.0，
-        -- 导致 InverseBind(100x) 使网格膨胀 100 倍（表现为身体先缩后涨）。
-        -- 禁用后根骨骼保持 bind-pose scale=0.01，蒙皮始终正常。
-        -- 实际肢体动作由子骨骼（Pelvis/Spine/UpperArm 等）驱动，不受影响。
+        -- 记录 Bip001 骨骼 Node 引用，用于 PostUpdate 中覆盖 scale。
+        -- UUID 动画会把 Bip001.scale 从 bind-pose 0.01 改为 1.0，
+        -- 导致 InverseBind(100x) 使蒙皮膨胀 100 倍（表现为身体先缩后涨）。
+        -- 方案：PostUpdate 中每帧强制 Bip001.node.scale = 0.01，
+        -- 保留 position/rotation 不变（子骨骼层级运动正常）。
         local skeleton = animModel_:GetSkeleton()
         if skeleton then
             local rootBone = skeleton:GetBone("Bip001")
-            if rootBone then
-                rootBone.animated = false
-                if rootBone.node then
-                    -- 确保根骨骼保持 bind-pose scale
-                    rootBone.node.scale = Vector3(0.01, 0.01, 0.01)
-                    print("[PlayerAnim] Bip001 animated=false, scale locked to 0.01")
-                end
+            if rootBone and rootBone.node then
+                bip001Node_ = rootBone.node
+                print("[PlayerAnim] Bip001 node cached for PostUpdate scale override")
             end
         end
 
@@ -843,14 +841,20 @@ function PlayerAnim.GetAnimController()
 end
 
 -- ============================================================================
--- PostUpdate：每帧设置 modelNode_ 的 scale 和 position（由 main.lua 回调）
--- Bip001.animated=false 使根骨骼始终保持 bind-pose scale=0.01，
--- skinMatrix 缩放恒为 0.01×100=1，因此 modelNode_.scale 统一为 baseScale_。
+-- PostUpdate：每帧覆盖 modelNode_ 的 scale/position 以及 Bip001 的 scale
+-- 时序：E_UPDATE → AnimCtrl 更新骨骼 → E_POSTUPDATE(此函数) → RenderUpdate(蒙皮)
+-- 在 AnimCtrl 更新骨骼之后、蒙皮之前，强制 Bip001.scale = 0.01（bind-pose），
+-- 使 skinMatrix 缩放恒为 0.01×100=1，消除 UUID 动画的膨胀副作用。
 -- ============================================================================
 function PlayerAnim.PostUpdate()
     if not modelNode_ then return end
     modelNode_.scale = Vector3(baseScale_, baseScale_, baseScale_)
     modelNode_.position = Vector3(0, baseFootOffset_, 0)
+
+    -- 强制 Bip001 scale = bind-pose（0.01），防止 UUID 动画改为 1.0 导致膨胀
+    if bip001Node_ then
+        bip001Node_.scale = Vector3(0.01, 0.01, 0.01)
+    end
 end
 
 return PlayerAnim
