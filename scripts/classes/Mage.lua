@@ -1,5 +1,5 @@
 -- ============================================================================
--- Mage.lua — 法师职业：骨玉权杖 + 施法猛砸动画
+-- Mage.lua — 法师职业：木质法杖（弯曲顶端+宝珠）+ 传奇法袍
 -- ============================================================================
 local G = require("classes.GeomUtils")
 
@@ -7,75 +7,95 @@ local WEAPON_SCALE = 1.16
 
 local Mage = {}
 
--- 武器挂载配置（正手握持：Z轴翻转180°）
+-- 武器挂载配置（手握杖身中间位置）
 Mage.weapon = {
-    name = "骨玉权杖",
+    name = "法杖",
     bone = "R_Hand",
-    offset = Vector3(0.0, 0.10, 0.0),
+    offset = Vector3(0.0, -0.38, 0.0),   -- 向下偏移，使手握在杖身中段
     rotation = Quaternion(0, 0, 90),
     scale = Vector3(WEAPON_SCALE, WEAPON_SCALE, WEAPON_SCALE),
 }
 
--- 职业材质（蓝紫色调染色）
+-- 职业材质：传奇法袍（深紫色布料质感，低金属高粗糙）
 Mage.material = {
     technique = "Techniques/PBR/PBRDiff.xml",
     useTexture = true,
-    diffColor = Color(0.55, 0.55, 1.3, 1.0),
-    roughness = 0.35,
-    metallic = 0.20,
-    emissive = Color(0.02, 0.03, 0.12),
+    diffColor = Color(0.40, 0.25, 0.75, 1.0),   -- 深紫色法袍
+    roughness = 0.75,                             -- 布料质感（高粗糙度）
+    metallic = 0.05,                              -- 几乎无金属光泽
+    emissive = Color(0.03, 0.01, 0.08),           -- 微弱紫色魔力光泽
 }
 
--- 技能动画映射（骨玉权杖：权杖施法+猛砸，华丽而有力）
+-- 技能动画映射
 Mage.skillAnims = {
-    melee  = { anim = "staff_slam",  speed = 1.5, duration = 0.45 },  -- 权杖猛砸
-    ranged = { anim = "cast_heavy",  speed = 1.3, duration = 0.50 },  -- 蓄力重击
-    aoe    = { anim = "cast_long",   speed = 1.0, duration = 0.80 },  -- 法杖重砸(大范围)
+    melee  = { anim = "staff_slam",  speed = 1.5, duration = 0.45 },
+    ranged = { anim = "cast_heavy",  speed = 1.3, duration = 0.50 },
+    aoe    = { anim = "cast_long",   speed = 1.0, duration = 0.80 },
     dash   = { anim = "dash_strike", speed = 2.0, duration = 0.30 },
-    buff   = { anim = "cast_quick",  speed = 0.8, duration = 1.00 },  -- 缓慢施法
-    heal   = { anim = "cast_quick",  speed = 0.7, duration = 1.10 },  -- 温和施法
-    dot    = { anim = "cast_heavy",  speed = 1.5, duration = 0.45 },  -- 快速释放
-    summon = { anim = "cast_long",   speed = 0.6, duration = 1.50 },  -- 长时间施法
+    buff   = { anim = "cast_quick",  speed = 0.8, duration = 1.00 },
+    heal   = { anim = "cast_quick",  speed = 0.7, duration = 1.10 },
+    dot    = { anim = "cast_heavy",  speed = 1.5, duration = 0.45 },
+    summon = { anim = "cast_long",   speed = 0.6, duration = 1.50 },
 }
 
--- 武器构建：骨玉权杖 — 骨质杖身 + 玉色宝珠 + 骨爪
+-- 武器构建：木质法杖 — 深棕木杖身 + 顶部弯曲 + 发光宝珠
 function Mage.buildWeapon(weaponNode)
     local geom = weaponNode:CreateComponent("CustomGeometry")
     geom:BeginGeometry(0, TRIANGLE_LIST)
 
-    local staffLen  = 1.05
-    local staffR    = 0.016
-    local orbR      = 0.045
-    local clawLen   = 0.06
+    local staffLen  = 1.10     -- 杖身总长
+    local staffR    = 0.018    -- 杖身半径
     local segments  = 8
+    local orbR      = 0.04     -- 顶部宝珠半径
 
-    -- 底端握柄加粗
-    G.addCylinder(geom, 0, 0.06, 0, staffR * 1.4, 0.12, segments)
-    -- 杖身主体
-    G.addCylinder(geom, 0, staffLen * 0.5, 0, staffR, staffLen * 0.85, segments)
-    -- 顶端节环
-    local ringY = staffLen * 0.85
-    G.addCylinder(geom, 0, ringY, 0, staffR * 1.8, 0.025, segments)
-    G.addCylinder(geom, 0, ringY + 0.04, 0, staffR * 1.5, 0.02, segments)
-    -- 骨爪（3根）
-    local orbY = staffLen + orbR * 0.3
-    for i = 0, 2 do
-        local angle = (i / 3) * math.pi * 2
-        local cx = math.cos(angle) * staffR * 1.2
-        local cz = math.sin(angle) * staffR * 1.2
-        G.addBox(geom, cx * 1.5, ringY + 0.04 + clawLen/2, cz * 1.5, 0.008, clawLen/2, 0.008)
+    -- ===== 底端：略粗的根部（树根感） =====
+    G.addCylinder(geom, 0, 0.04, 0, staffR * 1.6, 0.08, segments)
+
+    -- ===== 主杖身：从底到弯曲起点 =====
+    local straightLen = staffLen * 0.78   -- 直线段长度
+    G.addCylinder(geom, 0, 0.08 + straightLen / 2, 0, staffR, straightLen, segments)
+
+    -- ===== 顶端弯曲段：用多段偏移圆柱模拟弧形弯曲 =====
+    local curveSegments = 5
+    local curveStartY = 0.08 + straightLen
+    local curveRadius = 0.15   -- 弯曲弧度半径
+    local curveAngleTotal = math.rad(120)  -- 总弯曲角度
+
+    local prevX, prevY = 0, curveStartY
+    for i = 1, curveSegments do
+        local t = i / curveSegments
+        local angle = curveAngleTotal * t
+        -- 弧线：从垂直向前方弯曲
+        local cx = math.sin(angle) * curveRadius
+        local cy = curveStartY + (1 - math.cos(angle)) * curveRadius
+        local segH = math.sqrt((cx - prevX)^2 + (cy - prevY)^2)
+        local midX = (prevX + cx) / 2
+        local midY = (prevY + cy) / 2
+        -- 逐渐变细
+        local r = staffR * (1.0 - t * 0.35)
+        G.addCylinder(geom, midX, midY, 0, r, segH, segments)
+        prevX, prevY = cx, cy
     end
-    -- 翡翠宝珠
-    G.addDiamond(geom, 0, orbY, 0, orbR, orbR * 1.2, segments)
+
+    -- ===== 弯曲末端的宝珠 =====
+    local orbX = prevX
+    local orbY = prevY + orbR * 0.5
+    G.addDiamond(geom, orbX, orbY, 0, orbR, orbR * 1.3, segments)
+
+    -- ===== 杖身中段装饰环（握持位置标记） =====
+    local gripY = 0.08 + straightLen * 0.45
+    G.addCylinder(geom, 0, gripY, 0, staffR * 1.5, 0.02, segments)
+    G.addCylinder(geom, 0, gripY + 0.035, 0, staffR * 1.3, 0.015, segments)
 
     geom:Commit()
 
+    -- 木质材质：深棕色，粗糙，无金属感
     local mat = Material:new()
     mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
-    mat:SetShaderParameter("MatDiffColor", Variant(Color(0.85, 0.80, 0.65, 1.0)))
-    mat:SetShaderParameter("Roughness", Variant(0.25))
-    mat:SetShaderParameter("Metallic", Variant(0.35))
-    mat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.05, 0.25, 0.12)))
+    mat:SetShaderParameter("MatDiffColor", Variant(Color(0.35, 0.20, 0.08, 1.0)))  -- 深棕木色
+    mat:SetShaderParameter("Roughness", Variant(0.70))    -- 木头粗糙
+    mat:SetShaderParameter("Metallic", Variant(0.05))     -- 几乎无金属
+    mat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.02, 0.08, 0.04)))  -- 微弱绿光（宝珠映射）
     geom:SetMaterial(mat)
 end
 
