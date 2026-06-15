@@ -97,20 +97,24 @@ end
 
 -- ---------- 验证逻辑 ----------
 
-local function checkVisibility()
+local function checkVisibility(phase)
     local animModel = PlayerAnim.GetAnimModel()
     if not animModel then
-        addResult("角色可见性", false, "AnimatedModel 为 nil")
+        addResult(phase .. "-角色可见性", false, "AnimatedModel 为 nil")
         return
     end
     local wbb = animModel.worldBoundingBox
     local size = wbb.size
     -- 角色高约 1.6m，合理范围 0.5~5.0
     local h = size.y
+    local modelNode = PlayerAnim.GetModelNode()
+    local msStr = modelNode and string.format("modelScale=%.4f", modelNode.scale.x) or "?"
     if h >= 0.5 and h <= 5.0 then
-        addResult("角色可见性", true, string.format("高度=%.2fm (合理)", h))
+        addResult(phase .. "-角色可见性", true,
+            string.format("高度=%.2fm (%s)", h, msStr))
     else
-        addResult("角色可见性", false, string.format("高度=%.2fm (异常，期望0.5~5.0m)", h))
+        addResult(phase .. "-角色可见性", false,
+            string.format("高度=%.2fm (异常! 期望0.5~5.0m, %s)", h, msStr))
     end
 end
 
@@ -249,8 +253,8 @@ function HandleUpdate(eventType, eventData)
         -- 在 idle 状态下采样几帧
         sampleBones()
         if phaseTimer > 0.5 then
-            -- 检查可见性
-            checkVisibility()
+            -- 检查 idle 状态可见性
+            checkVisibility("idle")
             -- 触发攻击动画
             testPhase = "attack_start"
             phaseTimer = 0
@@ -265,7 +269,8 @@ function HandleUpdate(eventType, eventData)
         -- 攻击动画播放中，采样骨骼数据
         sampleBones()
         if phaseTimer > 1.0 then
-            -- 1 秒后检查结果
+            -- 1 秒后先检查攻击中的可见性
+            checkVisibility("attack")
             testPhase = "attack_check"
             phaseTimer = 0
             print("[TestAnim] Phase: attack_check — analyzing samples")

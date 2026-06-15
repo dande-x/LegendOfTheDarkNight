@@ -37,12 +37,12 @@ local animModel_ = nil
 ---@type Node
 local playerNode_ = nil  -- 引用玩家节点，用于每帧同步位置
 
--- PostUpdate 每帧覆盖 Bip001.node.scale = 0.01（bind-pose），
--- 防止 UUID 动画将其改为 1.0 导致 InverseBind(100x) 膨胀。
 local baseScale_ = 1.0        -- CreateSkeleton 中计算的基础 scale 值
 local baseFootOffset_ = 0.0   -- CreateSkeleton 中计算的脚底偏移
 ---@type Node|nil
 local bip001Node_ = nil       -- Bip001 骨骼 Node 引用（PostUpdate 中覆盖 scale）
+local bip001Found_ = false    -- 是否已成功找到 Bip001 节点
+local isUuidAnim_ = false     -- 当前是否为 UUID 动画（fallback 补偿用）
 
 
 
@@ -566,18 +566,16 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors)
         modelNode_.scale = Vector3(0.4, 1.6, 0.4)
         modelNode_.position = Vector3(0, 0.8, 0)
     else
-        -- 记录 Bip001 骨骼 Node 引用，用于 PostUpdate 中覆盖 scale。
-        -- UUID 动画会把 Bip001.scale 从 bind-pose 0.01 改为 1.0，
-        -- 导致 InverseBind(100x) 使蒙皮膨胀 100 倍（表现为身体先缩后涨）。
-        -- 方案：PostUpdate 中每帧强制 Bip001.node.scale = 0.01，
-        -- 保留 position/rotation 不变（子骨骼层级运动正常）。
-        local skeleton = animModel_:GetSkeleton()
-        if skeleton then
-            local rootBone = skeleton:GetBone("Bip001")
-            if rootBone and rootBone.node then
-                bip001Node_ = rootBone.node
-                print("[PlayerAnim] Bip001 node cached for PostUpdate scale override")
-            end
+        -- 查找 Bip001 骨骼 Node（用 Node 树查找，比 GetBone 更可靠）
+        -- UUID 动画会将 Bip001.scale 从 0.01 改为 1.0，
+        -- 导致 InverseBind(100x) 使蒙皮膨胀 100 倍。
+        -- PostUpdate 中每帧强制回写 Bip001.scale = 0.01。
+        bip001Node_ = modelNode_:GetChild("Bip001", true)
+        if bip001Node_ then
+            bip001Found_ = true
+            print("[PlayerAnim] Bip001 node found via GetChild, scale=" .. tostring(bip001Node_.scale))
+        else
+            print("[PlayerAnim] WARNING: Bip001 node NOT found! Will use modelNode scale fallback")
         end
 
         -- AnimationController（预制体中可能已存在，或新建）
@@ -679,6 +677,9 @@ function PlayerAnim.Play(animName, onComplete, opts)
     animState.duration = duration
     animState.onComplete = onComplete
     animState.speed = speed  -- 记录当前速度（用于顿帧恢复）
+
+    -- 记录动画类型（fallback 补偿用）
+    isUuidAnim_ = (animPath:find("uuid://") ~= nil)
 
     -- fadeTime=0：避免交叉淡入淡出时骨骼 pose 跳帧
     animCtrl_:PlayExclusive(animPath, 0, isLoop, 0.0)
@@ -841,20 +842,41 @@ function PlayerAnim.GetAnimController()
 end
 
 -- ============================================================================
--- PostUpdate：每帧覆盖 modelNode_ 的 scale/position 以及 Bip001 的 scale
+-- PostUpdate：修正 Bip001 scale 问题（双重保险）
 -- 时序：E_UPDATE → AnimCtrl 更新骨骼 → E_POSTUPDATE(此函数) → RenderUpdate(蒙皮)
--- 在 AnimCtrl 更新骨骼之后、蒙皮之前，强制 Bip001.scale = 0.01（bind-pose），
--- 使 skinMatrix 缩放恒为 0.01×100=1，消除 UUID 动画的膨胀副作用。
+--
+-- 问题：UUID 动画 Bip001.scale=1.0, InverseBind=100x → 膨胀 100 倍
+--       native 动画 Bip001.scale=0.01, InverseBind=100x → 正常
+--
+-- 方案 A（主）：直接覆盖 Bip001.node.scale = 0.01，使所有动画统一
+-- 方案 B（fallback）：如果 Bip001 节点找不到，用 modelNode.scale 按动画类型补偿
 -- ============================================================================
 function PlayerAnim.PostUpdate()
     if not modelNode_ then return end
-    modelNode_.scale = Vector3(baseScale_, baseScale_, baseScale_)
-    modelNode_.position = Vector3(0, baseFootOffset_, 0)
 
-    -- 强制 Bip001 scale = bind-pose（0.01），防止 UUID 动画改为 1.0 导致膨胀
-    if bip001Node_ then
-        bip001Node_.scale = Vector3(0.01, 0.01, 0.01)
+    -- Lazy lookup: 第一帧可能 prefab 尚未完全就绪
+    if not bip001Found_ and animModel_ then
+        bip001Node_ = modelNode_:GetChild("Bip001", true)
+        if bip001Node_ then
+            bip001Found_ = true
+            print("[PlayerAnim] Bip001 lazy-found in PostUpdate")
+        end
     end
+
+    if bip001Node_ then
+        -- 方案 A：强制 Bip001 保持 bind-pose scale，modelNode 用统一 baseScale_
+        bip001Node_.scale = Vector3(0.01, 0.01, 0.01)
+        modelNode_.scale = Vector3(baseScale_, baseScale_, baseScale_)
+    else
+        -- 方案 B fallback：根据动画类型调整 modelNode scale
+        if isUuidAnim_ then
+            local cs = baseScale_ / 100.0
+            modelNode_.scale = Vector3(cs, cs, cs)
+        else
+            modelNode_.scale = Vector3(baseScale_, baseScale_, baseScale_)
+        end
+    end
+    modelNode_.position = Vector3(0, baseFootOffset_, 0)
 end
 
 return PlayerAnim
