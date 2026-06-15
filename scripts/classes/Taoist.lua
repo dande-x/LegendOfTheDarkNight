@@ -113,62 +113,46 @@ function Taoist.buildWeapon(weaponNode)
     local boneGeom = boneNode:CreateComponent("CustomGeometry")
     boneGeom:BeginGeometry(0, TRIANGLE_LIST)
 
-    local boneW = 0.005   -- 扇骨宽
-    local boneT = fanT * 1.2
+    local boneW = 0.005   -- 扇骨宽度（沿切线方向的半宽）
+    local boneT = fanT * 1.3
 
-    -- 扇骨（每隔2段一根，共8根）
+    -- 扇骨（每隔2段一根）— 用 Quad 沿径向正确放置
     for i = 0, segments, 2 do
         local a = startAngle + i * stepAngle
         local cosA = math.cos(a)
         local sinA = math.sin(a)
-        local ix = cosA * 0.03
-        local iy = sinA * 0.03
-        local ox = cosA * (fanRadius - 0.01)
-        local oy = sinA * (fanRadius - 0.01)
-        local dx = ox - ix
-        local dy = oy - iy
-        local len = math.sqrt(dx*dx + dy*dy)
-        local midX = (ix + ox) / 2
-        local midY = (iy + oy) / 2
-        G.addBox(boneGeom, midX, midY, 0, boneW/2, len/2, boneT)
+        -- 内端和外端（严格在扇面范围内）
+        local rInner = innerR + 0.01
+        local rOuter = fanRadius - 0.015
+        -- 径向方向的两侧偏移（垂直于径向，即切线方向）
+        local perpX = -sinA * boneW
+        local perpY = cosA * boneW
+        -- 4个顶点：内左、内右、外右、外左
+        local p1 = Vector3(cosA * rInner - perpX, sinA * rInner - perpY, 0)
+        local p2 = Vector3(cosA * rInner + perpX, sinA * rInner + perpY, 0)
+        local p3 = Vector3(cosA * rOuter + perpX, sinA * rOuter + perpY, 0)
+        local p4 = Vector3(cosA * rOuter - perpX, sinA * rOuter - perpY, 0)
+        G.addQuad(boneGeom, p1, p2, p3, p4, Vector3(0, 0, 1))
+        -- 背面
+        G.addQuad(boneGeom, p2, p1, p4, p3, Vector3(0, 0, -1))
     end
 
-    -- 两侧边骨（首尾两根加粗）
+    -- 两侧边骨（首尾加粗，同样沿径向）
     for _, idx in ipairs({0, segments}) do
         local a = startAngle + idx * stepAngle
         local cosA = math.cos(a)
         local sinA = math.sin(a)
-        local ix = cosA * 0.02
-        local iy = sinA * 0.02
-        local ox = cosA * fanRadius
-        local oy = sinA * fanRadius
-        local dx = ox - ix
-        local dy = oy - iy
-        local len = math.sqrt(dx*dx + dy*dy)
-        local midX = (ix + ox) / 2
-        local midY = (iy + oy) / 2
-        G.addBox(boneGeom, midX, midY, 0, boneW * 0.8, len/2, boneT * 1.5)
-    end
-
-    -- 扇面外缘弧条（连接所有扇骨顶端）
-    for i = 0, segments - 1 do
-        local a0 = startAngle + i * stepAngle
-        local a1 = startAngle + (i + 1) * stepAngle
-        local r1 = fanRadius - 0.008
-        local r2 = fanRadius + 0.002
-        local px0 = math.cos(a0) * r1
-        local py0 = math.sin(a0) * r1
-        local px1 = math.cos(a1) * r1
-        local py1 = math.sin(a1) * r1
-        local qx0 = math.cos(a0) * r2
-        local qy0 = math.sin(a0) * r2
-        local qx1 = math.cos(a1) * r2
-        local qy1 = math.sin(a1) * r2
-        G.addQuad(boneGeom,
-            Vector3(px0, py0, 0), Vector3(px1, py1, 0),
-            Vector3(qx1, qy1, 0), Vector3(qx0, qy0, 0),
-            Vector3(0, 0, 1)
-        )
+        local rInner = 0.02
+        local rOuter = fanRadius - 0.005
+        local edgeW = boneW * 1.5
+        local perpX = -sinA * edgeW
+        local perpY = cosA * edgeW
+        local p1 = Vector3(cosA * rInner - perpX, sinA * rInner - perpY, 0)
+        local p2 = Vector3(cosA * rInner + perpX, sinA * rInner + perpY, 0)
+        local p3 = Vector3(cosA * rOuter + perpX, sinA * rOuter + perpY, 0)
+        local p4 = Vector3(cosA * rOuter - perpX, sinA * rOuter - perpY, 0)
+        G.addQuad(boneGeom, p1, p2, p3, p4, Vector3(0, 0, 1))
+        G.addQuad(boneGeom, p2, p1, p4, p3, Vector3(0, 0, -1))
     end
 
     -- === 握柄（深色木质） ===
