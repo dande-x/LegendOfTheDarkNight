@@ -42,18 +42,18 @@ local BEAST_GROWTH = {
 -- ============================================================================
 -- Prefab 和动画配置
 -- ============================================================================
-local BEAST_PREFAB = "Prefabs/LegendWarrior.prefab"
+local BEAST_PREFAB = "Prefabs/DivineBeast.prefab"
 local BEAST_TARGET_HEIGHT = 2.3  -- 神兽目标高度（比主角高）
 
--- 动画资源（复用主角骨骼兼容的动画）
+-- 动画资源（使用通用骨骼动画，运行时自动重定向）
 local BEAST_ANIMS = {
     idle = "uuid://GikiEX04hbY9D5ALGNz051Zh",   -- 战斗待机 1.33s loop
     move = "uuid://F-afGUmbZwlJu4crZmqR_4kR",   -- 中速跑 1.0s loop
     attack = "uuid://Ai-SCaONHGJAnRCLZmoO2QJ8",  -- 突刺 1.07s（喷火时播放）
 }
 
--- 头部骨骼名（用于定位嘴巴喷火位置）
-local HEAD_BONE_NAME = "Head"
+-- 头部骨骼名候选列表（Tripo rig 可能使用不同命名）
+local HEAD_BONE_CANDIDATES = {"Head", "head", "Bip001 Head", "mixamorig:Head"}
 
 -- ============================================================================
 -- 工具函数
@@ -178,40 +178,36 @@ local function CreateBeastModel(parentNode, scene)
         beast.animCtrl = prefabNode:CreateComponent("AnimationController")
     end
 
-    -- 应用神兽专属材质（深色鳞甲质感）
-    local beastMat = CreatePBRMat(
-        Color(0.15, 0.22, 0.12, 1.0),  -- 深墨绿色（神兽鳞甲）
-        0.55,                            -- 中等粗糙度
-        0.35,                            -- 偏金属质感
-        Color(0.02, 0.06, 0.01)          -- 微弱绿色自发光
-    )
-
+    -- 保留模型自带的贴图材质（不覆盖），记录原始材质用于受击闪烁恢复
     local numGeom = beast.animModel:GetNumGeometries()
     beast.originalMats = {}
     for i = 0, numGeom - 1 do
-        beast.originalMats[i] = beastMat  -- 记录原始材质用于闪烁恢复
-        beast.animModel:SetMaterial(i, beastMat)
+        beast.originalMats[i] = beast.animModel:GetMaterial(i)
     end
 
     -- 获取头部骨骼节点（用于定位嘴巴喷火）
     local skeleton = beast.animModel:GetSkeleton()
     if skeleton then
-        local headBone = skeleton:GetBone(HEAD_BONE_NAME)
-        if headBone and headBone.node then
-            beast.headBoneNode = headBone.node
-            -- 在头部骨骼前方创建嘴巴标记节点
-            beast.mouthNode = headBone.node:CreateChild("BeastMouth")
-            beast.mouthNode.position = Vector3(0, 0, 0.3)  -- 头部前方
-            print("[DivineBeast] Head bone found, mouth node attached")
-        else
-            print("[DivineBeast] WARNING: Head bone not found, using fallback mouth position")
+        for _, boneName in ipairs(HEAD_BONE_CANDIDATES) do
+            local headBone = skeleton:GetBone(boneName)
+            if headBone and headBone.node then
+                beast.headBoneNode = headBone.node
+                -- 在头部骨骼前方创建嘴巴标记节点
+                beast.mouthNode = headBone.node:CreateChild("BeastMouth")
+                beast.mouthNode.position = Vector3(0, 0.1, 0.4)  -- 头部前方偏上
+                print("[DivineBeast] Head bone found: " .. boneName .. ", mouth node attached")
+                break
+            end
+        end
+        if not beast.headBoneNode then
+            print("[DivineBeast] WARNING: No head bone found in candidates, using fallback")
         end
     end
 
     -- 如果没有找到头部骨骼，创建一个固定位置的嘴巴节点
     if not beast.mouthNode then
         beast.mouthNode = prefabNode:CreateChild("BeastMouthFallback")
-        beast.mouthNode.position = Vector3(0, 1.8 / beast.baseScale, 0.4 / beast.baseScale)
+        beast.mouthNode.position = Vector3(0, 1.8 / beast.baseScale, 0.5 / beast.baseScale)
     end
 
     -- 播放初始 idle 动画
@@ -379,28 +375,30 @@ function DivineBeast.AddExp(exp)
 end
 
 -- ============================================================================
--- 等级材质更新（升级后颜色渐变）
+-- 等级材质更新（通过自发光叠加体现等级，保留原始贴图）
 -- ============================================================================
 function DivineBeast.UpdateLevelMaterial()
     if not beast.animModel then return end
 
     local lc = LEVEL_COLORS[beast.level] or LEVEL_COLORS[1]
-    -- 将等级颜色混合到基础深绿色上
-    local r = 0.15 + (lc[1] / 255 - 0.5) * 0.15
-    local g = 0.22 + (lc[2] / 255 - 0.5) * 0.15
-    local b = 0.12 + (lc[3] / 255 - 0.5) * 0.15
-
-    local beastMat = CreatePBRMat(
-        Color(r, g, b, 1.0),
-        0.50,
-        0.35 + beast.level * 0.03,  -- 等级越高越有金属光泽
-        Color(0.02 * beast.level * 0.3, 0.06 * beast.level * 0.3, 0.01)
+    -- 等级越高，自发光越强（不改变漫反射贴图）
+    local emissiveStrength = beast.level * 0.08
+    local emissiveColor = Color(
+        lc[1] / 255 * emissiveStrength,
+        lc[2] / 255 * emissiveStrength,
+        lc[3] / 255 * emissiveStrength
     )
 
     local numGeom = beast.animModel:GetNumGeometries()
     for i = 0, numGeom - 1 do
-        beast.originalMats[i] = beastMat
-        beast.animModel:SetMaterial(i, beastMat)
+        local mat = beast.originalMats[i]
+        if mat then
+            -- Clone 材质以避免修改共享资源
+            local levelMat = mat:Clone()
+            levelMat:SetShaderParameter("MatEmissiveColor", Variant(emissiveColor))
+            beast.originalMats[i] = levelMat
+            beast.animModel:SetMaterial(i, levelMat)
+        end
     end
 end
 
