@@ -12,7 +12,7 @@ Mage.weapon = {
     name = "骨玉权杖",
     bone = "R_Hand",
     offset = Vector3(0.0, 0.10, 0.0),
-    rotation = Quaternion(180, 0, -90),
+    rotation = Quaternion(0, 0, 90),
     scale = Vector3(WEAPON_SCALE, WEAPON_SCALE, WEAPON_SCALE),
 }
 
