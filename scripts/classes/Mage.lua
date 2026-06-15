@@ -20,14 +20,17 @@ Mage.weapon = {
     scale = Vector3(WEAPON_SCALE, WEAPON_SCALE, WEAPON_SCALE),
 }
 
--- 职业材质：传奇法袍（深紫色布料质感）
+-- 法师使用独立模型 prefab（布甲法袍+火红边饰）
+Mage.prefab = "Prefabs/MageRobe.prefab"
+
+-- 职业材质：使用模型自带贴图，不覆盖
 Mage.material = {
     technique = "Techniques/PBR/PBRDiff.xml",
-    useTexture = true,
-    diffColor = Color(0.40, 0.25, 0.75, 1.0),
-    roughness = 0.75,
-    metallic = 0.05,
-    emissive = Color(0.03, 0.01, 0.08),
+    useTexture = false,
+    diffColor = Color(1.0, 1.0, 1.0, 1.0),
+    roughness = 0.70,
+    metallic = 0.0,
+    emissive = Color(0.0, 0.0, 0.0),
 }
 
 -- 技能动画映射

@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<node>
+	<attribute name="Is Enabled" value="true" />
+	<attribute name="Name" value="MageRobe" />
+	<attribute name="Tags" value="" />
+	<attribute name="Position" value="0 0 0" />
+	<attribute name="Rotation" value="1 0 0 0" />
+	<attribute name="Scale" value="1 1 1" />
+	<attribute name="Variables" value="" />
+	<component type="AnimatedModel">
+		<attribute name="Model" value="Model;uuid://GSbtMSxGnEmO2UPam-aKbhwJ" />
+		<attribute name="Material" value="Material;uuid://AOx3AQHKg5rwAyQrTS09s8jQ" />
+		<attribute name="Cast Shadows" value="true" />
+	</component>
+</node>
