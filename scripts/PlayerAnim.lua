@@ -39,10 +39,8 @@ local playerNode_ = nil  -- 引用玩家节点，用于每帧同步位置
 
 local baseScale_ = 1.0        -- CreateSkeleton 中计算的基础 scale 值
 local baseFootOffset_ = 0.0   -- CreateSkeleton 中计算的脚底偏移
----@type Node|nil
-local bip001Node_ = nil       -- Bip001 骨骼 Node 引用（PostUpdate 中覆盖 scale）
-local bip001Found_ = false    -- 是否已成功找到 Bip001 节点
-local isUuidAnim_ = false     -- 当前是否为 UUID 动画（fallback 补偿用）
+local isUuidAnim_ = false     -- 当前是否为 UUID 动画
+local activeModelScale_ = 1.0 -- 当前帧 modelNode 应使用的 scale（Play 时计算）
 
 
 
@@ -566,17 +564,12 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors)
         modelNode_.scale = Vector3(0.4, 1.6, 0.4)
         modelNode_.position = Vector3(0, 0.8, 0)
     else
-        -- 查找 Bip001 骨骼 Node（用 Node 树查找，比 GetBone 更可靠）
-        -- UUID 动画会将 Bip001.scale 从 0.01 改为 1.0，
-        -- 导致 InverseBind(100x) 使蒙皮膨胀 100 倍。
-        -- PostUpdate 中每帧强制回写 Bip001.scale = 0.01。
-        bip001Node_ = modelNode_:GetChild("Bip001", true)
-        if bip001Node_ then
-            bip001Found_ = true
-            print("[PlayerAnim] Bip001 node found via GetChild, scale=" .. tostring(bip001Node_.scale))
-        else
-            print("[PlayerAnim] WARNING: Bip001 node NOT found! Will use modelNode scale fallback")
-        end
+        -- UUID 动画将 Bip001.scale 从 0.01 设为 1.0，
+        -- 配合 InverseBind(100x) 导致蒙皮膨胀 100 倍。
+        -- 解决方案：在 Play() 中根据动画类型直接设置 modelNode_.scale，
+        -- 不尝试读写骨骼（引擎蒙皮系统不允许 Lua 层干预骨骼 transform）。
+        activeModelScale_ = baseScale_
+        print("[PlayerAnim] Using direct modelNode scale compensation (no bone manipulation)")
 
         -- AnimationController（预制体中可能已存在，或新建）
         animCtrl_ = modelNode_:GetComponent("AnimationController")
@@ -678,12 +671,31 @@ function PlayerAnim.Play(animName, onComplete, opts)
     animState.onComplete = onComplete
     animState.speed = speed  -- 记录当前速度（用于顿帧恢复）
 
-    -- 记录动画类型（fallback 补偿用）
+    -- 检测动画类型并设置 modelNode scale 补偿
+    -- UUID 动画将 Bip001.scale 设为 1.0（而非 native 的 0.01），
+    -- InverseBind 中有 100x 放大，导致蒙皮膨胀 100 倍。
+    -- 解决：UUID 动画时 modelNode.scale 缩小 100 倍抵消。
+    local wasUuid = isUuidAnim_
     isUuidAnim_ = (animPath:find("uuid://") ~= nil)
+
+    if isUuidAnim_ then
+        activeModelScale_ = baseScale_ / 100.0
+    else
+        activeModelScale_ = baseScale_
+    end
+    -- 立即应用（不等 PostUpdate，避免一帧闪烁）
+    if modelNode_ then
+        modelNode_.scale = Vector3(activeModelScale_, activeModelScale_, activeModelScale_)
+    end
 
     -- fadeTime=0：避免交叉淡入淡出时骨骼 pose 跳帧
     animCtrl_:PlayExclusive(animPath, 0, isLoop, 0.0)
     animCtrl_:SetSpeed(animPath, speed)
+
+    if wasUuid ~= isUuidAnim_ then
+        print(string.format("[PlayerAnim] Scale switch: uuid=%s → modelScale=%.5f",
+            tostring(isUuidAnim_), activeModelScale_))
+    end
 end
 
 --- 播放技能动画（根据职业+技能类型自动选择动画和参数）
@@ -842,40 +854,16 @@ function PlayerAnim.GetAnimController()
 end
 
 -- ============================================================================
--- PostUpdate：修正 Bip001 scale 问题（双重保险）
+-- PostUpdate：维持 modelNode 的 scale 和 position
 -- 时序：E_UPDATE → AnimCtrl 更新骨骼 → E_POSTUPDATE(此函数) → RenderUpdate(蒙皮)
 --
--- 问题：UUID 动画 Bip001.scale=1.0, InverseBind=100x → 膨胀 100 倍
---       native 动画 Bip001.scale=0.01, InverseBind=100x → 正常
---
--- 方案 A（主）：直接覆盖 Bip001.node.scale = 0.01，使所有动画统一
--- 方案 B（fallback）：如果 Bip001 节点找不到，用 modelNode.scale 按动画类型补偿
+-- 不再尝试读写骨骼 transform（引擎蒙皮系统不允许 Lua 干预）。
+-- Play() 已根据动画类型（UUID vs native）计算好 activeModelScale_，
+-- 此处只需每帧维持该值，防止其他系统意外覆盖。
 -- ============================================================================
 function PlayerAnim.PostUpdate()
     if not modelNode_ then return end
-
-    -- Lazy lookup: 第一帧可能 prefab 尚未完全就绪
-    if not bip001Found_ and animModel_ then
-        bip001Node_ = modelNode_:GetChild("Bip001", true)
-        if bip001Node_ then
-            bip001Found_ = true
-            print("[PlayerAnim] Bip001 lazy-found in PostUpdate")
-        end
-    end
-
-    if bip001Node_ then
-        -- 方案 A：强制 Bip001 保持 bind-pose scale，modelNode 用统一 baseScale_
-        bip001Node_.scale = Vector3(0.01, 0.01, 0.01)
-        modelNode_.scale = Vector3(baseScale_, baseScale_, baseScale_)
-    else
-        -- 方案 B fallback：根据动画类型调整 modelNode scale
-        if isUuidAnim_ then
-            local cs = baseScale_ / 100.0
-            modelNode_.scale = Vector3(cs, cs, cs)
-        else
-            modelNode_.scale = Vector3(baseScale_, baseScale_, baseScale_)
-        end
-    end
+    modelNode_.scale = Vector3(activeModelScale_, activeModelScale_, activeModelScale_)
     modelNode_.position = Vector3(0, baseFootOffset_, 0)
 end
 
