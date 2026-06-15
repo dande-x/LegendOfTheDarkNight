@@ -98,49 +98,6 @@ function Taoist.buildWeapon(weaponNode)
         )
     end
 
-    -- === 道纹装饰线（扇面中部弧线，用窄条暗色带模拟简单花纹） ===
-    -- 中环弧（约60%半径处）
-    local patternR = fanRadius * 0.62
-    local patternW = 0.004
-    for i = 0, segments - 1 do
-        local a0 = startAngle + i * stepAngle
-        local a1 = startAngle + (i + 1) * stepAngle
-        local px0 = math.cos(a0) * patternR
-        local py0 = math.sin(a0) * patternR
-        local px1 = math.cos(a1) * patternR
-        local py1 = math.sin(a1) * patternR
-        local qx0 = math.cos(a0) * (patternR + patternW)
-        local qy0 = math.sin(a0) * (patternR + patternW)
-        local qx1 = math.cos(a1) * (patternR + patternW)
-        local qy1 = math.sin(a1) * (patternR + patternW)
-        -- 在正面略前方绘制（避免Z-fighting）
-        G.addQuad(fanGeom,
-            Vector3(px0, py0, fanT/2 + 0.001), Vector3(px1, py1, fanT/2 + 0.001),
-            Vector3(qx1, qy1, fanT/2 + 0.001), Vector3(qx0, qy0, fanT/2 + 0.001),
-            Vector3(0, 0, 1)
-        )
-    end
-
-    -- 外环弧（约85%半径处）
-    local outerPatR = fanRadius * 0.85
-    for i = 0, segments - 1 do
-        local a0 = startAngle + i * stepAngle
-        local a1 = startAngle + (i + 1) * stepAngle
-        local px0 = math.cos(a0) * outerPatR
-        local py0 = math.sin(a0) * outerPatR
-        local px1 = math.cos(a1) * outerPatR
-        local py1 = math.sin(a1) * outerPatR
-        local qx0 = math.cos(a0) * (outerPatR + patternW * 0.8)
-        local qy0 = math.sin(a0) * (outerPatR + patternW * 0.8)
-        local qx1 = math.cos(a1) * (outerPatR + patternW * 0.8)
-        local qy1 = math.sin(a1) * (outerPatR + patternW * 0.8)
-        G.addQuad(fanGeom,
-            Vector3(px0, py0, fanT/2 + 0.001), Vector3(px1, py1, fanT/2 + 0.001),
-            Vector3(qx1, qy1, fanT/2 + 0.001), Vector3(qx0, qy0, fanT/2 + 0.001),
-            Vector3(0, 0, 1)
-        )
-    end
-
     fanGeom:Commit()
 
     -- 扇面材质：白色丝绸质感，微微泛暖
