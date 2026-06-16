@@ -1286,68 +1286,54 @@ function GameUI.ShowSaveSlots(slots, callbacks)
         id = "saveSlotScreen",
         width = "100%",
         height = "100%",
-        -- 无背景！让3D场景（深色背板+角色）直接显示
-        justifyContent = "center",
-        alignItems = "center",
+        -- 全屏布局，无背景让3D透出
         children = {
-            -- 主容器（无填充背景，仅边框）
+            -- === 上半部分：角色展示区（透明，3D透出，占满上方空间）===
             UI.Panel {
-                width = "92%",
-                height = "90%",
-                maxWidth = 560,
-                maxHeight = 380,
-                -- 无 backgroundColor！上半部分要透出3D
-                borderWidth = 2,
-                borderColor = {55, 48, 38, 255},
-                borderRadius = 3,
+                width = "100%",
+                flexGrow = 3,
+                flexDirection = "row",
+                padding = 10,
+                gap = 8,
+                -- 无 backgroundColor！让3D角色可见
                 children = {
-                    -- === 上半部分：角色展示区（透明，3D透出）===
+                    BuildViewport(1),
+                    BuildViewport(2),
+                },
+            },
+            -- === 分隔线 ===
+            UI.Panel {
+                width = "100%",
+                height = 2,
+                backgroundColor = {80, 68, 45, 255},
+            },
+            -- === 下半部分：信息卡 + 操作按钮（不透明石头底色）===
+            UI.Panel {
+                width = "100%",
+                flexGrow = 2,
+                flexDirection = "row",
+                padding = 10,
+                paddingHorizontal = 20,
+                gap = 10,
+                alignItems = "stretch",
+                backgroundColor = C_STONE_BG,
+                children = {
+                    -- 左侧信息卡
+                    BuildInfoCard(1),
+                    -- 中间按钮列
                     UI.Panel {
-                        width = "100%",
-                        flexGrow = 3,
-                        flexDirection = "row",
-                        padding = 6,
-                        gap = 4,
-                        -- 无 backgroundColor！让3D角色可见
+                        width = 120,
+                        justifyContent = "center",
+                        alignItems = "center",
+                        gap = 8,
                         children = {
-                            BuildViewport(1),
-                            BuildViewport(2),
+                            btnStart,
+                            btnCreate,
+                            btnDelete,
                         },
                     },
-                    -- === 分隔线 ===
-                    UI.Panel {
-                        width = "100%",
-                        height = 2,
-                        backgroundColor = {80, 68, 45, 255},
-                    },
-                    -- === 下半部分：信息卡 + 操作按钮（不透明石头底色）===
-                    UI.Panel {
-                        width = "100%",
-                        flexGrow = 2,
-                        flexDirection = "row",
-                        padding = 6,
-                        gap = 6,
-                        alignItems = "stretch",
-                        backgroundColor = C_STONE_BG,
-                        children = {
-                            -- 左侧信息卡
-                            BuildInfoCard(1),
-                            -- 中间按钮列
-                            UI.Panel {
-                                width = 110,
-                                justifyContent = "center",
-                                alignItems = "center",
-                                gap = 6,
-                                children = {
-                                    btnStart,
-                                    btnCreate,
-                                    btnDelete,
-                                },
-                            },
-                            -- 右侧信息卡
-                            BuildInfoCard(2),
-                        },
-                    },
+                    -- 右侧信息卡
+                    BuildInfoCard(2),
                 },
             },
         },

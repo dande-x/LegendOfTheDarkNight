@@ -735,9 +735,11 @@ function CleanupPreview()
     for i = 1, 2 do
         DestroyPreviewCharacter(i)
     end
-    -- 移除背板
+    -- 移除背板和地面
     local backdrop = scene_:GetChild("PreviewBackdrop")
     if backdrop then backdrop:Remove() end
+    local floor = scene_:GetChild("PreviewFloor")
+    if floor then floor:Remove() end
     -- 恢复游戏 FOV
     if cameraNode_ then
         local cam = cameraNode_:GetComponent("Camera")
@@ -807,14 +809,29 @@ function ActivatePreview()
     -- 创建深色背板（大黑色平面在角色后方，让预览背景纯黑）
     if not scene_:GetChild("PreviewBackdrop") then
         local backdrop = scene_:CreateChild("PreviewBackdrop")
-        backdrop.position = Vector3(0, 1.0, 201.5)  -- 在角色身后1.5m
-        backdrop.scale = Vector3(6, 4, 0.05)
+        backdrop.position = Vector3(0, 1.0, 202)  -- 在角色身后2m
+        backdrop.scale = Vector3(12, 8, 0.05)     -- 足够大覆盖整个视野
         local mdl = backdrop:CreateComponent("StaticModel")
         mdl:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
         local mat = Material:new()
         mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
         mat:SetShaderParameter("MatDiffColor", Variant(Color(0.02, 0.02, 0.02, 1.0)))
         mat:SetShaderParameter("Roughness", Variant(1.0))
+        mat:SetShaderParameter("Metallic", Variant(0.0))
+        mdl:SetMaterial(mat)
+        mdl.castShadows = false
+    end
+    -- 地面板（角色脚下深色地面）
+    if not scene_:GetChild("PreviewFloor") then
+        local floor = scene_:CreateChild("PreviewFloor")
+        floor.position = Vector3(0, -0.02, 200)
+        floor.scale = Vector3(8, 0.04, 4)
+        local mdl = floor:CreateComponent("StaticModel")
+        mdl:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
+        local mat = Material:new()
+        mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
+        mat:SetShaderParameter("MatDiffColor", Variant(Color(0.04, 0.03, 0.03, 1.0)))
+        mat:SetShaderParameter("Roughness", Variant(0.9))
         mat:SetShaderParameter("Metallic", Variant(0.0))
         mdl:SetMaterial(mat)
         mdl.castShadows = false
