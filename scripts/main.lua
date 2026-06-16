@@ -591,15 +591,91 @@ function UpdateCamera(dt)
 end
 
 -- ============================================================================
--- 角色选择回调
+-- 存档系统：槽位选择界面 & 自动保存
 -- ============================================================================
-function OnClassSelected(classId)
-    print("[main] Selected class: " .. classId)
 
-    player_ = CharacterClass.CreatePlayer(classId, 1)
-    CreatePlayerNode(classId)
-    GameUI.SetPlayerNode(playerNode_)  -- 玩家节点创建后再设置引用
+--- 显示存档槽位选择界面（传奇风格双槽位）
+function ShowSaveSlotScreen()
+    GameUI.ShowSaveSlots(SaveSystem.GetAllSlots(), {
+        onContinue = function(slotIndex)
+            -- 继续游戏：加载存档
+            currentSlotIndex = slotIndex
+            local saveData = SaveSystem.GetSlot(slotIndex)
+            if saveData then
+                LoadFromSave(saveData)
+            end
+        end,
+        onCreate = function(slotIndex)
+            -- 创建新角色：进入职业选择
+            currentSlotIndex = slotIndex
+            GameUI.ShowClassSelect(function(classId)
+                OnClassSelected(classId)
+            end)
+        end,
+        onDelete = function(slotIndex, onDone)
+            -- 删除角色
+            SaveSystem.DeleteSlot(slotIndex)
+            print("[main] Slot " .. slotIndex .. " deleted")
+            if onDone then onDone() end
+            -- 刷新界面
+            ShowSaveSlotScreen()
+        end,
+    })
+end
+
+--- 从存档加载游戏
+function LoadFromSave(saveData)
+    print("[main] Loading save: " .. saveData.className .. " Lv." .. saveData.level)
+
+    -- 先初始化背包系统
+    Inventory.Init()
+
+    -- 恢复背包/装备/金币
+    SaveSystem.RestoreInventory(saveData, Inventory.playerData)
+
+    -- 创建角色运行时对象
+    player_ = CharacterClass.CreatePlayer(saveData.classId, 1)
+
+    -- 恢复角色属性（等级、经验等）
+    SaveSystem.RestorePlayer(saveData, player_)
+
+    -- 恢复击杀数
+    Combat.killCount = saveData.killCount or 0
+
+    -- 创建角色节点并进入游戏
+    CreatePlayerNode(saveData.classId)
+    GameUI.SetPlayerNode(playerNode_)
     GameUI.ShowGameHUD(player_)
+    SetupGameCallbacks()
+
+    -- 初始刷怪
+    for i = 1, 8 do
+        Combat.SpawnEnemy(scene_, playerNode_.position, player_.level)
+    end
+
+    GameUI.StartDoorOpen()
+    print("[main] Game loaded from save: " .. saveData.className .. " Lv." .. saveData.level)
+end
+
+--- 手动保存当前游戏到当前槽位
+function SaveCurrentGame()
+    if not player_ or not currentSlotIndex then return false end
+    local snapshot = SaveSystem.CreateSnapshot(player_, Inventory.playerData, Combat.killCount)
+    local ok = SaveSystem.SaveToSlot(currentSlotIndex, snapshot)
+    if ok then
+        print("[main] Auto-saved to slot " .. currentSlotIndex)
+    end
+    return ok
+end
+
+-- ============================================================================
+-- 通用回调绑定（新建角色 & 加载存档共用）
+-- ============================================================================
+function SetupGameCallbacks()
+    if not player_ or not playerNode_ then
+        print("[main] ERROR: SetupGameCallbacks called without player/node")
+        return
+    end
 
     -- 绑定技能按钮回调（现在走施法状态机）
     GameUI.onSkillPressed = function(slot, skill)
@@ -749,7 +825,7 @@ function OnClassSelected(classId)
         local maxLv = 50
         local classDef = CharacterClass.Classes[player_.classId]
         local g = classDef.growth
-        local Inventory = require("Inventory")
+        local Inventory = require("scripts.Inventory")
         local bonusHP = Inventory.playerData.bonusHP or 0
         player_.level = maxLv
         player_.maxHP = classDef.baseHP + g.hp * (maxLv - 1) + bonusHP
@@ -810,7 +886,6 @@ function OnClassSelected(classId)
     end
 
     -- 掉落系统（地面掉落模式）
-    Inventory.Init()
     Combat.onEnemyDeath = function(enemyName, deathPos, exp)
         local droppedItem, gold = Inventory.RollDrop(enemyName)
         -- 金币散落到地面
@@ -857,9 +932,35 @@ function OnClassSelected(classId)
         GameUI.RefreshSkillButtons(player_)
     end
 
+    print("[main] Game callbacks bound")
+end
+
+-- ============================================================================
+-- 角色选择回调（新建角色流程）
+-- ============================================================================
+function OnClassSelected(classId)
+    print("[main] Selected class: " .. classId)
+
+    -- 初始化背包
+    Inventory.Init()
+
+    -- 创建角色
+    player_ = CharacterClass.CreatePlayer(classId, 1)
+    CreatePlayerNode(classId)
+    GameUI.SetPlayerNode(playerNode_)
+    GameUI.ShowGameHUD(player_)
+    SetupGameCallbacks()
+
     -- 初始刷怪
     for i = 1, 8 do
         Combat.SpawnEnemy(scene_, playerNode_.position, player_.level)
+    end
+
+    -- 首次保存到当前槽位
+    if currentSlotIndex then
+        local snapshot = SaveSystem.CreateSnapshot(player_, Inventory.playerData, Combat.killCount)
+        SaveSystem.SaveToSlot(currentSlotIndex, snapshot)
+        print("[main] Initial save to slot " .. currentSlotIndex)
     end
 
     -- 开门动画
@@ -872,6 +973,9 @@ end
 -- ============================================================================
 function ReturnToMainMenu()
     print("[main] Returning to main menu...")
+
+    -- 退出前自动保存
+    SaveCurrentGame()
 
     -- 清理施法状态
     castState.active = false
@@ -902,11 +1006,11 @@ function ReturnToMainMenu()
     deathTimer = 0
     hpPotionCD = 0
     mpPotionCD = 0
+    currentSlotIndex = nil
+    autoSaveTimer = 0
 
-    -- 显示角色选择界面
-    GameUI.ShowClassSelect(function(classId)
-        OnClassSelected(classId)
-    end)
+    -- 返回存档槽位选择界面
+    ShowSaveSlotScreen()
 end
 
 -- ============================================================================
@@ -1024,6 +1128,15 @@ function HandleUpdate(eventType, eventData)
     local dt = eventData["TimeStep"]:GetFloat()
 
     if not player_ then return end
+
+    -- 自动保存计时
+    if currentSlotIndex then
+        autoSaveTimer = autoSaveTimer + dt
+        if autoSaveTimer >= AUTO_SAVE_INTERVAL then
+            autoSaveTimer = 0
+            SaveCurrentGame()
+        end
+    end
 
     -- M 键切换全图 / ESC 键关闭全图
     if input:GetKeyPress(KEY_M) then
