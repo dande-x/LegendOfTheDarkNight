@@ -710,10 +710,9 @@ function CreatePreviewCharacter(slotIndex, classId)
                 -- 清除法线和属性贴图
                 mat:SetTexture(TU_NORMAL, nil)
                 mat:SetTexture(TU_SPECULAR, nil)
-                -- 统一设置光滑参数 + 微弱自发光填充暗部
+                -- 统一设置光滑参数
                 mat:SetShaderParameter("Roughness", Variant(0.8))
                 mat:SetShaderParameter("Metallic", Variant(0.0))
-                mat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.08, 0.07, 0.06)))
                 animModel:SetMaterial(i, mat)
             end
         end
