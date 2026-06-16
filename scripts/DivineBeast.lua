@@ -97,7 +97,7 @@ local beast = {
     atk = 18,
     baseAtk = 18,
     def = 8,
-    speed = 3.2,
+    speed = 4.0,
     attackCD = 2.0,
     attackTimer = 0,
     attackRange = 5.0,
@@ -195,26 +195,6 @@ local function CreateBeastModel(parentNode, scene)
     -- 获取头部骨骼节点（用于定位嘴巴喷火）
     local skeleton = beast.animModel:GetSkeleton()
     if skeleton then
-        -- ★ Tripo Rig 动画重定向关键修复：
-        -- 禁用 Root 和 Hip 骨骼的动画，防止位移数据覆盖肢体运动
-        -- 这样官方动画的腿部关键帧才能正确驱动 L_Thigh/R_Thigh 等骨骼
-        local rootBone = skeleton:GetBone("Root")
-        if rootBone then
-            rootBone.animated = false
-            print("[DivineBeast] Root bone animation disabled (retarget fix)")
-        end
-        local hipBone = skeleton:GetBone("Hip")
-        if hipBone then
-            hipBone.animated = false
-            print("[DivineBeast] Hip bone animation disabled (retarget fix)")
-        end
-        -- Pelvis 也是中间节点（Tripo变体独有），禁用防止干扰腿部
-        local pelvisBone = skeleton:GetBone("Pelvis")
-        if pelvisBone then
-            pelvisBone.animated = false
-            print("[DivineBeast] Pelvis bone animation disabled (retarget fix)")
-        end
-
         for _, boneName in ipairs(HEAD_BONE_CANDIDATES) do
             local headBone = skeleton:GetBone(boneName)
             if headBone and headBone.node then
@@ -283,7 +263,7 @@ function DivineBeast.Summon(scene, playerPos, playerAtk)
     beast.maxHP = 300
     beast.hp = 300
     beast.def = 8
-    beast.speed = 3.2
+    beast.speed = 4.0
     beast.attackCD = 2.0
     beast.attackTimer = 0
     beast.state = "follow"
@@ -717,10 +697,21 @@ function DivineBeast.Update(dt, scene, playerNode, player, enemies, dealDamageFn
         toPlayer.y = 0
         local distToPlayer = toPlayer:Length()
 
-        if distToPlayer > 3.0 then
+        -- 跟随逻辑：使用滞回（hysteresis）避免频繁启停
+        -- 开始跟随距离 2.5m，停下距离 1.5m（有0.5m死区防止抖动）
+        local startFollowDist = 2.5
+        local stopFollowDist = 1.5
+
+        if distToPlayer > startFollowDist or (beast.isMoving and distToPlayer > stopFollowDist) then
             beast.isMoving = true
             local dir = toPlayer:Normalized()
-            local followSpeed = beast.speed * 1.2
+            -- 跟随速度匹配主角：距离越远速度越快（确保能跟上）
+            local followSpeed = beast.speed
+            if distToPlayer > 6.0 then
+                followSpeed = beast.speed * 1.8  -- 距离远时快速追赶
+            elseif distToPlayer > 4.0 then
+                followSpeed = beast.speed * 1.4
+            end
             if rbody then rbody:SetLinearVelocity(dir * followSpeed) end
             UpdateFacing(beastPos, playerPos)
 
