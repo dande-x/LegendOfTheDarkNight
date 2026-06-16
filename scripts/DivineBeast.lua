@@ -378,9 +378,6 @@ function DivineBeast.AddExp(exp)
         beast.atk = math.floor(beast.baseAtk * beast.buffMult)
         beast.def = beast.def + BEAST_GROWTH.def_per_level
 
-        -- 升级后更新材质颜色（等级越高越偏蓝绿）
-        DivineBeast.UpdateLevelMaterial()
-
         print("[DivineBeast] 升级! Lv." .. beast.level .. " HP=" .. beast.maxHP .. " ATK=" .. beast.atk)
     end
 end
