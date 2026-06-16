@@ -1163,171 +1163,102 @@ function Combat.SpawnAOEVisual(scene, center, radius, classId, skillId)
         node:SetVar("removeTimer", Variant(3.0))
         return node
 
-    -- ========== 法师 - 火墙：方形持续燃烧区域（固定尺寸，不缩小） ==========
+    -- ========== 法师 - 火墙：圆形燃烧区域（自然火焰形态，固定尺寸） ==========
     elseif skillId == "m_firewall" then
         local node = scene:CreateChild("AOEVisual")
         node.position = Vector3(center.x, 0.0, center.z)
-        -- 标记不缩小：火墙固定大小持续燃烧直到消失
         node:SetVar("noShrink", Variant(true))
 
-        -- 方形火墙尺寸
-        local wallW = radius * 2.0
-        local wallD = radius * 1.2
+        local r = radius  -- 圆形半径
 
-        -- 1) 地面灼烧层（暗红焦黑 + 发光裂纹效果）
+        -- 1) 地面焦灼圆盘（Cylinder 圆形，不是 Box）
         local burnBase = node:CreateChild("burnBase")
         burnBase.position = Vector3(0, 0.02, 0)
-        burnBase.scale = Vector3(wallW, 0.02, wallD)
+        burnBase.scale = Vector3(r * 2, 0.02, r * 2)
         local bModel = burnBase:CreateComponent("StaticModel")
-        bModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
+        bModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
         local burnMat = Material:new()
         burnMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
-        burnMat:SetShaderParameter("MatDiffColor", Variant(Color(0.1, 0.01, 0.0, 0.85)))
-        burnMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.8, 0.1, 0.0)))
+        burnMat:SetShaderParameter("MatDiffColor", Variant(Color(0.08, 0.01, 0.0, 0.8)))
+        burnMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.5, 0.06, 0.0)))
         burnMat:SetShaderParameter("Metallic", Variant(0.0))
         burnMat:SetShaderParameter("Roughness", Variant(0.95))
         bModel:SetMaterial(burnMat)
         bModel.castShadows = false
 
-        -- 地面发光裂纹交叉线（用细长 Box 模拟熔岩裂纹）
-        for ci = 1, 5 do
-            local crack = node:CreateChild("crack" .. ci)
-            local cx = (math.random() - 0.5) * wallW * 0.8
-            local cz = (math.random() - 0.5) * wallD * 0.8
-            local cAngle = math.random() * 180
-            crack.position = Vector3(cx, 0.04, cz)
-            crack.rotation = Quaternion(cAngle, Vector3.UP)
-            crack.scale = Vector3(0.6 + math.random() * 0.8, 0.015, 0.04)
-            local cModel = crack:CreateComponent("StaticModel")
-            cModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
-            local crackMat = Material:new()
-            crackMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
-            crackMat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 0.4, 0.0, 0.9)))
-            crackMat:SetShaderParameter("MatEmissiveColor", Variant(Color(1.5, 0.5, 0.0)))
-            crackMat:SetShaderParameter("Metallic", Variant(0.0))
-            crackMat:SetShaderParameter("Roughness", Variant(0.1))
-            cModel:SetMaterial(crackMat)
-            cModel.castShadows = false
-        end
-
-        -- 2) 四面方形火墙（竖立的 Box 薄板，高发光）
-        local wallHeight = 2.0
-        local wallThick = 0.06
-        local sides = {
-            { pos = Vector3(0, wallHeight * 0.5, wallD * 0.5), sx = wallW, sz = wallThick },
-            { pos = Vector3(0, wallHeight * 0.5, -wallD * 0.5), sx = wallW, sz = wallThick },
-            { pos = Vector3(wallW * 0.5, wallHeight * 0.5, 0), sx = wallThick, sz = wallD },
-            { pos = Vector3(-wallW * 0.5, wallHeight * 0.5, 0), sx = wallThick, sz = wallD },
-        }
-        for si, s in ipairs(sides) do
-            local wallNode = node:CreateChild("wall" .. si)
-            wallNode.position = s.pos
-            wallNode.scale = Vector3(s.sx, wallHeight, s.sz)
-            local wModel = wallNode:CreateComponent("StaticModel")
-            wModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
-            local wallMat = Material:new()
-            wallMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
-            wallMat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 0.4, 0.0, 0.5)))
-            wallMat:SetShaderParameter("MatEmissiveColor", Variant(Color(1.2, 0.3, 0.0)))
-            wallMat:SetShaderParameter("Metallic", Variant(0.0))
-            wallMat:SetShaderParameter("Roughness", Variant(0.15))
-            wModel:SetMaterial(wallMat)
-            wModel.castShadows = false
-        end
-
-        -- 3) 火焰粒子群（大量随机散布的火焰体，模拟活跃燃烧）
-        -- 外圈大火焰（沿墙壁分布，较高较亮）
-        for fi = 1, 12 do
-            local angle = (fi / 12) * math.pi * 2
-            local distW = wallW * 0.45 + math.random() * 0.2
-            local distD = wallD * 0.45 + math.random() * 0.2
-            local fx = math.cos(angle) * distW * (math.abs(math.cos(angle)) > 0.7 and 1.0 or 0.6)
-            local fz = math.sin(angle) * distD * (math.abs(math.sin(angle)) > 0.7 and 1.0 or 0.6)
-            -- 沿矩形边缘分布
-            if fi % 3 == 0 then
-                fx = (math.random() - 0.5) * wallW * 0.95
-                fz = (math.random() > 0.5 and 1 or -1) * wallD * 0.48
-            elseif fi % 3 == 1 then
-                fx = (math.random() > 0.5 and 1 or -1) * wallW * 0.48
-                fz = (math.random() - 0.5) * wallD * 0.95
-            end
-            local flame = node:CreateChild("edgeFlame" .. fi)
-            local fh = 1.2 + math.random() * 1.2
+        -- 2) 外圈火焰（环形分布，高度不均匀 — 像篝火围栏）
+        local outerCount = 10
+        for fi = 1, outerCount do
+            local angle = (fi / outerCount) * math.pi * 2 + (math.random() - 0.5) * 0.3
+            local dist = r * (0.75 + math.random() * 0.2)
+            local fx = math.cos(angle) * dist
+            local fz = math.sin(angle) * dist
+            local flame = node:CreateChild("outerFlame" .. fi)
+            local fh = 1.0 + math.random() * 1.4
             flame.position = Vector3(fx, 0, fz)
-            flame.scale = Vector3(0.2 + math.random() * 0.12, fh, 0.2 + math.random() * 0.12)
-            -- 轻微随机旋转让火焰不那么整齐
-            flame.rotation = Quaternion(math.random() * 15 - 7.5, Vector3.UP)
+            flame.scale = Vector3(0.22 + math.random() * 0.15, fh, 0.22 + math.random() * 0.15)
+            -- 火焰微微向外倾斜（更自然）
+            local tiltAngle = 5 + math.random() * 10
+            local tiltDir = math.deg(angle) + 180
+            flame.rotation = Quaternion(tiltAngle, Vector3(math.cos(angle), 0, math.sin(angle)))
             local fModel = flame:CreateComponent("StaticModel")
             fModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
             local flameMat = Material:new()
             flameMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
             local bright = 0.7 + math.random() * 0.3
-            flameMat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 0.35 * bright, 0.0, 0.6)))
-            flameMat:SetShaderParameter("MatEmissiveColor", Variant(Color(1.5 * bright, 0.4 * bright, 0.0)))
+            flameMat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 0.3 * bright, 0.0, 0.55)))
+            flameMat:SetShaderParameter("MatEmissiveColor", Variant(Color(1.4 * bright, 0.35 * bright, 0.0)))
             flameMat:SetShaderParameter("Metallic", Variant(0.0))
-            flameMat:SetShaderParameter("Roughness", Variant(0.2))
+            flameMat:SetShaderParameter("Roughness", Variant(0.25))
             fModel:SetMaterial(flameMat)
             fModel.castShadows = false
         end
 
-        -- 内部小火焰粒子（更密集、更矮、颜色偏黄白 — 模拟火芯）
-        for fi = 1, 15 do
-            local fx = (math.random() - 0.5) * wallW * 0.7
-            local fz = (math.random() - 0.5) * wallD * 0.7
+        -- 3) 内部火焰（较矮、黄白色火芯，随机分散）
+        for fi = 1, 8 do
+            local angle = math.random() * math.pi * 2
+            local dist = math.random() * r * 0.6
+            local fx = math.cos(angle) * dist
+            local fz = math.sin(angle) * dist
             local flame = node:CreateChild("innerFlame" .. fi)
-            local fh = 0.4 + math.random() * 0.8
+            local fh = 0.5 + math.random() * 0.7
             flame.position = Vector3(fx, 0, fz)
-            flame.scale = Vector3(0.1 + math.random() * 0.08, fh, 0.1 + math.random() * 0.08)
+            flame.scale = Vector3(0.12 + math.random() * 0.1, fh, 0.12 + math.random() * 0.1)
             flame.rotation = Quaternion(math.random() * 360, Vector3.UP)
             local fModel = flame:CreateComponent("StaticModel")
             fModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
             local flameMat = Material:new()
             flameMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
-            flameMat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 0.7, 0.2, 0.5)))
-            flameMat:SetShaderParameter("MatEmissiveColor", Variant(Color(1.8, 0.9, 0.2)))
+            flameMat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 0.75, 0.25, 0.5)))
+            flameMat:SetShaderParameter("MatEmissiveColor", Variant(Color(1.8, 0.9, 0.15)))
             flameMat:SetShaderParameter("Metallic", Variant(0.0))
             flameMat:SetShaderParameter("Roughness", Variant(0.15))
             fModel:SetMaterial(flameMat)
             fModel.castShadows = false
         end
 
-        -- 飘浮火星/余烬粒子（高处随机散布的小球，模拟飞溅火星）
-        for fi = 1, 10 do
+        -- 4) 飘浮火星（小球体，高处随机散布）
+        for fi = 1, 8 do
             local ember = node:CreateChild("ember" .. fi)
-            local ex = (math.random() - 0.5) * wallW * 0.9
-            local ez = (math.random() - 0.5) * wallD * 0.9
-            local ey = 0.8 + math.random() * 1.8
-            ember.position = Vector3(ex, ey, ez)
-            ember.scale = Vector3(0.06, 0.06, 0.06)
+            local angle = math.random() * math.pi * 2
+            local dist = math.random() * r * 0.85
+            local ey = 0.6 + math.random() * 1.5
+            ember.position = Vector3(math.cos(angle) * dist, ey, math.sin(angle) * dist)
+            ember.scale = Vector3(0.05, 0.05, 0.05)
             local eModel = ember:CreateComponent("StaticModel")
             eModel:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
             local emberMat = Material:new()
             emberMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
-            emberMat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 0.6, 0.1, 0.8)))
-            emberMat:SetShaderParameter("MatEmissiveColor", Variant(Color(2.0, 0.8, 0.0)))
+            emberMat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 0.5, 0.1, 0.85)))
+            emberMat:SetShaderParameter("MatEmissiveColor", Variant(Color(2.0, 0.7, 0.0)))
             emberMat:SetShaderParameter("Metallic", Variant(0.0))
             emberMat:SetShaderParameter("Roughness", Variant(0.1))
             eModel:SetMaterial(emberMat)
             eModel.castShadows = false
         end
 
-        -- 4) 顶部热浪/烟雾层
-        local heatNode = node:CreateChild("heatTop")
-        heatNode.position = Vector3(0, wallHeight * 0.9, 0)
-        heatNode.scale = Vector3(wallW * 0.85, 0.3, wallD * 0.85)
-        local hModel = heatNode:CreateComponent("StaticModel")
-        hModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
-        local heatMat = Material:new()
-        heatMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
-        heatMat:SetShaderParameter("MatDiffColor", Variant(Color(0.8, 0.3, 0.0, 0.15)))
-        heatMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.6, 0.2, 0.0)))
-        heatMat:SetShaderParameter("Metallic", Variant(0.0))
-        heatMat:SetShaderParameter("Roughness", Variant(0.1))
-        hModel:SetMaterial(heatMat)
-        hModel.castShadows = false
-
-        -- removeTimer 与 DOT duration 一致（9秒），火墙固定燃烧然后消失
-        node:SetVar("removeTimer", Variant(9.0))
+        -- removeTimer 与 DOT duration 一致
+        node:SetVar("removeTimer", Variant(5.0))
         return node
 
     -- ========== 武士 - 烈火剑法：火焰爆发环 ==========

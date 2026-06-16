@@ -172,8 +172,8 @@ CharacterClass.Classes = {
                 desc = "点燃不灭之火，烈焰如怨念般不息",
                 slot = 5, cooldown = 14, manaCost = 20,
                 unlockLevel = 11,
-                damage = 60, -- ATK倍率60%/秒 (DOT持续)
-                duration = 9,
+                damage = 45, -- ATK倍率45%/秒 (DOT持续)
+                duration = 5,
                 range = 6.0, aoeRadius = 2.0, castTime = 0.55,
             },
             {
