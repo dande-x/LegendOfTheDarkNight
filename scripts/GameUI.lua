@@ -1119,17 +1119,17 @@ function GameUI.ShowSaveSlots(slots, callbacks)
     -- 下半：左右角色信息卡 + 中间操作按钮
     -- ========================================================================
 
-    -- 颜色配置（暗灰石纹风格）
-    local C_BORDER_ACTIVE = {180, 155, 80, 255}     -- 选中金色边框
-    local C_BORDER_NORMAL = {70, 65, 55, 200}       -- 未选中石灰色边框
-    local C_STONE_BG      = {28, 24, 20, 255}       -- 石头底色（完全不透明）
-    local C_INFO_BG       = {22, 19, 16, 255}       -- 信息卡底色（完全不透明）
-    local C_LABEL          = {170, 155, 120, 220}   -- 正文信息色
-    local C_LABEL_DIM      = {90, 80, 65, 160}      -- 暗淡标签色
-    local C_GOLD           = {220, 195, 100, 255}   -- 金色高亮
-    local C_BTN_BG         = {50, 42, 32, 240}      -- 按钮底色
-    local C_BTN_BORDER     = {110, 90, 50, 220}     -- 按钮边框
-    local C_BTN_DISABLED   = {32, 28, 22, 200}      -- 按钮禁用底色
+    -- 颜色配置（老旧灰色石块风格 — 经典传奇石砖UI）
+    local C_BORDER_ACTIVE = {160, 160, 150, 255}    -- 选中：亮石灰色边框
+    local C_BORDER_NORMAL = {55, 55, 52, 200}       -- 未选中：暗石缝色
+    local C_STONE_BG      = {38, 38, 36, 255}       -- 石块底色（深灰岩）
+    local C_INFO_BG       = {48, 47, 44, 255}       -- 信息卡底色（浅灰石板）
+    local C_LABEL          = {190, 188, 180, 220}   -- 正文信息色（浅灰白）
+    local C_LABEL_DIM      = {110, 108, 100, 180}   -- 暗淡标签色
+    local C_GOLD           = {210, 208, 195, 255}   -- 高亮文字（亮白灰，非金色）
+    local C_BTN_BG         = {62, 60, 56, 240}      -- 按钮底色（灰石板）
+    local C_BTN_BORDER     = {90, 88, 80, 220}      -- 按钮边框（石缝灰）
+    local C_BTN_DISABLED   = {35, 34, 32, 200}      -- 按钮禁用底色（深暗灰）
 
     --- 构建角色展示窗口（上半部分，完全透明让3D角色透出）
     local function BuildViewport(index)
@@ -1182,10 +1182,10 @@ function GameUI.ShowSaveSlots(slots, callbacks)
                     width = 52,
                     height = 22,
                     fontSize = 12,
-                    backgroundColor = isSelected and {60, 50, 30, 220} or {40, 35, 28, 200},
+                    backgroundColor = isSelected and {55, 54, 50, 220} or {40, 39, 36, 200},
                     borderRadius = 2,
                     borderWidth = 1,
-                    borderColor = isSelected and {160, 140, 60, 200} or {70, 60, 45, 180},
+                    borderColor = isSelected and {140, 138, 130, 200} or {65, 63, 58, 180},
                     fontColor = isSelected and C_GOLD or C_LABEL_DIM,
                     onClick = function()
                         if selectedSlot ~= index then
@@ -1239,20 +1239,33 @@ function GameUI.ShowSaveSlots(slots, callbacks)
         }
     end
 
-    -- 中间操作按钮
+    -- 中间操作按钮（石砖浮雕风格：双层边框模拟凸起）
     local function MakeActionButton(text, enabled, onPress)
-        return UI.Button {
-            text = text,
-            width = 110,
-            height = 32,
-            backgroundColor = enabled and C_BTN_BG or C_BTN_DISABLED,
-            borderRadius = 2,
-            borderWidth = 1,
-            borderColor = enabled and C_BTN_BORDER or {40, 35, 28, 140},
-            fontSize = 14,
-            fontColor = enabled and C_GOLD or C_LABEL_DIM,
-            disabled = not enabled,
-            onClick = enabled and onPress or nil,
+        -- 外层Panel模拟暗色外沿（石砖缝隙），内层Button亮色上边模拟高光
+        return UI.Panel {
+            width = 114,
+            height = 36,
+            backgroundColor = enabled and {42, 40, 37, 255} or {28, 27, 25, 200},
+            borderRadius = 3,
+            borderWidth = 2,
+            borderColor = enabled and {75, 73, 68, 240} or {38, 36, 33, 160},
+            justifyContent = "center",
+            alignItems = "center",
+            children = {
+                UI.Button {
+                    text = text,
+                    width = 106,
+                    height = 28,
+                    backgroundColor = enabled and C_BTN_BG or C_BTN_DISABLED,
+                    borderRadius = 2,
+                    borderWidth = 1,
+                    borderColor = enabled and {110, 108, 100, 200} or {45, 43, 40, 140},
+                    fontSize = 14,
+                    fontColor = enabled and C_GOLD or C_LABEL_DIM,
+                    disabled = not enabled,
+                    onClick = enabled and onPress or nil,
+                },
+            },
         }
     end
 
@@ -1295,7 +1308,7 @@ function GameUI.ShowSaveSlots(slots, callbacks)
             UI.Panel {
                 width = "100%",
                 height = 2,
-                backgroundColor = {80, 68, 45, 255},
+                backgroundColor = {65, 63, 58, 255},
             },
             -- === 下半部分：信息卡 + 操作按钮（不透明石头底色）===
             UI.Panel {
