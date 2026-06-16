@@ -664,8 +664,8 @@ function CreatePreviewCharacter(slotIndex, classId)
 
     modelNode.parent = node
     modelNode.name = "PreviewModel"
-    -- 重置 local transform（reparent 会保留 world transform，需要手动归零）
-    modelNode.rotation = Quaternion(180, Vector3.UP)  -- 面向摄像机（-Z方向）
+    -- reparent 保留 world transform，需要归零 local transform 以继承 parent 的 180°Y 旋转
+    modelNode.rotation = Quaternion.IDENTITY
     modelNode.position = Vector3.ZERO
 
     local animModel = modelNode:GetComponent("AnimatedModel")
@@ -735,6 +735,7 @@ function CleanupPreview()
     end
     previewActive_ = false
     previewSelectedSlot_ = 0
+    GameUI.ClearSelectedSlot()
     print("[Preview] Cleanup done")
 end
 
@@ -816,14 +817,14 @@ function ShowSaveSlotScreen()
     -- 激活预览摄像机
     ActivatePreview()
 
-    -- 默认选中第一个有数据的槽位
-    local defaultSelected = 0
+    -- 默认选中第一个有数据的槽位（如果没有持久化值的话默认选1）
+    local defaultSelected = 1
     for i = 1, 2 do
         if slots[i] then defaultSelected = i; break end
     end
-    if defaultSelected > 0 then
-        SetPreviewSelected(defaultSelected, classIds)
-    end
+    -- 设置持久化选中（ShowSaveSlots 会读取此值）
+    GameUI.SetSelectedSlot(defaultSelected)
+    SetPreviewSelected(defaultSelected, classIds)
 
     GameUI.ShowSaveSlots(slots, {
         onSelect = function(slotIndex)

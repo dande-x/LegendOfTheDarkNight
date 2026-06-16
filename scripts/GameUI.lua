@@ -1066,10 +1066,22 @@ end
 
 -- 存储预览状态供 main.lua 查询
 local previewClassIds_ = {}
+-- 持久化选中的槽位索引（跨 ShowSaveSlots 重建保留）
+local persistedSelectedSlot_ = nil
 
 --- 获取当前预览界面各槽位的 classId（供 main.lua 更新动画用）
 function GameUI.GetPreviewClassIds()
     return previewClassIds_
+end
+
+--- 设置默认选中槽位（在 ShowSaveSlots 之前调用）
+function GameUI.SetSelectedSlot(index)
+    persistedSelectedSlot_ = index
+end
+
+--- 清除持久化选中状态（退出存档界面时调用）
+function GameUI.ClearSelectedSlot()
+    persistedSelectedSlot_ = nil
 end
 
 ---@param slots table[] 存档槽位数组 (最多2个，nil表示空槽)
@@ -1081,11 +1093,10 @@ function GameUI.ShowSaveSlots(slots, callbacks)
     uiState.systemPanelOpen = false
     uiState.systemPanelRoot = nil
 
-    -- 当前选中的槽位索引（默认选第一个有数据的，或1）
-    local selectedSlot = 1
-    for i = 1, 2 do
-        if slots[i] then selectedSlot = i; break end
-    end
+    -- 当前选中的槽位索引（优先使用持久化值，否则默认选第一个有数据的，或1）
+    local selectedSlot = persistedSelectedSlot_ or 1
+    -- 验证范围合法
+    if selectedSlot < 1 or selectedSlot > 2 then selectedSlot = 1 end
 
     -- 存储 classIds 供预览系统使用
     previewClassIds_ = {}
@@ -1194,8 +1205,10 @@ function GameUI.ShowSaveSlots(slots, callbacks)
                             fontSize = 12,
                             fontColor = btnFontCol,
                             onClick = function()
+                                print("[GameUI] Slot " .. index .. " clicked, current=" .. selectedSlot)
                                 if selectedSlot ~= index then
-                                    selectedSlot = index
+                                    -- 持久化选中状态（跨重建保留）
+                                    persistedSelectedSlot_ = index
                                     -- 通知 main.lua 切换预览动画
                                     if callbacks.onSelect then
                                         callbacks.onSelect(index)
