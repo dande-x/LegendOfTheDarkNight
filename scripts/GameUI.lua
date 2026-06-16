@@ -1084,6 +1084,89 @@ function GameUI.ClearSelectedSlot()
     persistedSelectedSlot_ = nil
 end
 
+-- ============================================================================
+-- 删除确认弹框
+-- ============================================================================
+---@type Modal|nil
+local deleteConfirmModal_ = nil
+
+function GameUI._ShowDeleteConfirm(slotIndex, slots, callbacks)
+    -- 如果已打开则先关闭
+    if deleteConfirmModal_ then
+        deleteConfirmModal_:Close()
+        deleteConfirmModal_ = nil
+    end
+
+    deleteConfirmModal_ = UI.Modal {
+        title = "确认删除",
+        size = "sm",
+        isOpen = false,
+        showCloseButton = false,
+        closeOnOverlay = true,
+        backgroundColor = {45, 44, 40, 250},
+        borderWidth = 2,
+        borderColor = {90, 88, 82, 240},
+        titleTextColor = {220, 100, 80, 255},
+        titleFontSize = 16,
+        onClose = function(self)
+            deleteConfirmModal_ = nil
+        end,
+        children = {
+            UI.Label {
+                text = "确定要删除 NO." .. slotIndex .. " 的角色吗？\n删除后无法恢复！",
+                fontSize = 13,
+                fontColor = {200, 198, 190, 255},
+                textAlign = "center",
+                marginBottom = 16,
+            },
+            UI.Panel {
+                width = "100%",
+                flexDirection = "row",
+                justifyContent = "center",
+                gap = 16,
+                children = {
+                    UI.Button {
+                        text = "取消",
+                        width = 90,
+                        height = 32,
+                        backgroundColor = {62, 60, 56, 240},
+                        borderRadius = 3,
+                        borderWidth = 1,
+                        borderColor = {100, 98, 90, 200},
+                        fontSize = 13,
+                        fontColor = {190, 188, 180, 255},
+                        onClick = function()
+                            if deleteConfirmModal_ then
+                                deleteConfirmModal_:Close()
+                            end
+                        end,
+                    },
+                    UI.Button {
+                        text = "确认删除",
+                        width = 90,
+                        height = 32,
+                        backgroundColor = {140, 55, 45, 240},
+                        borderRadius = 3,
+                        borderWidth = 1,
+                        borderColor = {180, 70, 55, 220},
+                        fontSize = 13,
+                        fontColor = {255, 230, 220, 255},
+                        onClick = function()
+                            if deleteConfirmModal_ then
+                                deleteConfirmModal_:Close()
+                            end
+                            if callbacks.onDelete then
+                                callbacks.onDelete(slotIndex, function() end)
+                            end
+                        end,
+                    },
+                },
+            },
+        },
+    }
+    deleteConfirmModal_:Open()
+end
+
 ---@param slots table[] 存档槽位数组 (最多2个，nil表示空槽)
 ---@param callbacks table { onSelect(idx), onContinue(idx), onCreate(idx), onDelete(idx, onDone) }
 function GameUI.ShowSaveSlots(slots, callbacks)
@@ -1279,7 +1362,7 @@ function GameUI.ShowSaveSlots(slots, callbacks)
         if callbacks.onCreate then callbacks.onCreate(selectedSlot) end
     end)
     local btnDelete = MakeActionButton("删除人物", hasData, function()
-        if callbacks.onDelete then callbacks.onDelete(selectedSlot, function() end) end
+        GameUI._ShowDeleteConfirm(selectedSlot, slots, callbacks)
     end)
 
     -- 构建完整界面
