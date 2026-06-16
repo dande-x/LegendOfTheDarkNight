@@ -608,9 +608,16 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
                 end
             end
         end
-        -- 半月弯刀视觉效果：前方弧形光斩
+        -- 技能专属视觉效果
         if skill.aoeAngle then
+            -- 半月弯刀：前方弧形光斩
             Combat.SpawnCrescentVisual(scene, playerPos, playerDir, skill.range, player.classId)
+        elseif skill.id == "w_fire" then
+            -- 烈火剑法：火焰爆发
+            Combat.SpawnAOEVisual(scene, playerPos, skill.range, player.classId, "w_fire")
+        elseif skill.id == "w_basic" then
+            -- 基本剑术：快速剑弧闪光
+            Combat.SpawnSlashVisual(scene, playerPos, playerDir, player.classId)
         end
         return true, "melee"
 
@@ -653,8 +660,8 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
             end
         end
 
-        -- AOE 视觉效果 (地面光环)
-        Combat.SpawnAOEVisual(scene, center, radius, player.classId)
+        -- AOE 视觉效果（按技能ID分化）
+        Combat.SpawnAOEVisual(scene, center, radius, player.classId, skill.id)
         return true, "aoe"
 
     elseif skill.type == SKILL_TYPE.DOT then
@@ -685,7 +692,7 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
                 dps = dps,
                 timer = dur,
                 ownerId = "player",
-                visualNode = Combat.SpawnAOEVisual(scene, center, radius, player.classId),
+                visualNode = Combat.SpawnAOEVisual(scene, center, radius, player.classId, skill.id),
             })
         end
         return true, "dot"
@@ -707,6 +714,8 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
             local shieldPct = skill.shieldPercent
             player.shieldHP = player.maxHP * shieldPct / 100
             player.shieldTimer = dur
+            -- 护盾视觉效果
+            Combat.SpawnShieldVisual(scene, playerNode, skill.id, dur)
         end
         return true, "buff"
 
@@ -740,6 +749,7 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
 
         -- 瞬移到前方
         local dashDist = math.min(skill.range, 5.0)
+        local startPos = playerPos
         playerNode.position = playerPos + dir * dashDist
 
         -- 对冲撞路径上的敌人造成伤害
@@ -753,6 +763,9 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
                 end
             end
         end
+
+        -- 野蛮冲撞视觉效果：冲撞轨迹 + 落点震波
+        Combat.SpawnDashTrailVisual(scene, startPos, playerNode.position, dir)
         return true, "dash"
 
     elseif skill.type == SKILL_TYPE.SUMMON then
@@ -828,27 +841,90 @@ function Combat.DealDamage(enemy, baseDmg, player)
 end
 
 -- ============================================================================
--- 弹道系统
+-- 弹道系统（根据技能 ID 分化视觉效果）
 -- ============================================================================
 function Combat.SpawnProjectile(scene, origin, dir, damage, skill, player)
     local projNode = scene:CreateChild("Projectile")
     projNode.position = origin
-    projNode.scale = Vector3(0.2, 0.2, 0.2)
 
-    local model = projNode:CreateComponent("StaticModel")
-    model:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
+    local skillId = skill.id or ""
 
-    -- 弹道颜色基于职业
-    local projColor = Color(1.0, 0.6, 0.2, 1.0)
-    if player.classId == "mage" then
-        projColor = Color(0.3, 0.6, 1.0, 1.0)
-    elseif player.classId == "taoist" then
-        projColor = Color(0.8, 0.8, 0.3, 1.0)
+    -- ========== 武士 - 刺杀剑术：长条剑气 ==========
+    if skillId == "w_thrust" then
+        -- 扁长形剑气（X 窄, Y 窄, Z 长）
+        projNode.scale = Vector3(0.08, 0.08, 0.6)
+        local model = projNode:CreateComponent("StaticModel")
+        model:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
+        local swordColor = Color(1.0, 0.85, 0.3, 1.0) -- 金色剑气
+        local mat = CreatePBR(swordColor, 0.0, 0.2)
+        mat:SetShaderParameter("MatEmissiveColor", Variant(Color(1.0, 0.7, 0.1)))
+        model:SetMaterial(mat)
+        model.castShadows = false
+        -- 朝向飞行方向
+        local angle = math.atan2(dir.x, dir.z)
+        projNode.rotation = Quaternion(math.deg(angle), Vector3.UP)
+
+    -- ========== 法师 - 火球术：橙红火焰球 ==========
+    elseif skillId == "m_fireball" then
+        projNode.scale = Vector3(0.25, 0.25, 0.25)
+        local model = projNode:CreateComponent("StaticModel")
+        model:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
+        local fireColor = Color(1.0, 0.45, 0.05, 1.0) -- 火焰橙红
+        local mat = CreatePBR(fireColor, 0.0, 0.2)
+        mat:SetShaderParameter("MatEmissiveColor", Variant(Color(1.0, 0.35, 0.0)))
+        model:SetMaterial(mat)
+        model.castShadows = false
+        -- 火焰尾焰（小球拖尾）
+        local trailNode = projNode:CreateChild("trail")
+        trailNode.position = Vector3(0, 0, -0.4)
+        trailNode.scale = Vector3(0.6, 0.6, 0.6)
+        local tModel = trailNode:CreateComponent("StaticModel")
+        tModel:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
+        local trailMat = CreatePBR(Color(1.0, 0.2, 0.0, 0.5), 0.0, 0.4)
+        trailMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.8, 0.15, 0.0)))
+        tModel:SetMaterial(trailMat)
+        tModel.castShadows = false
+
+    -- ========== 法师 - 雷电术：黄白闪电球 ==========
+    elseif skillId == "m_thunder" then
+        projNode.scale = Vector3(0.3, 0.3, 0.3)
+        local model = projNode:CreateComponent("StaticModel")
+        model:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
+        local thunderColor = Color(0.9, 0.9, 1.0, 1.0) -- 电弧白
+        local mat = CreatePBR(thunderColor, 0.0, 0.1)
+        mat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.8, 0.8, 1.0)))
+        model:SetMaterial(mat)
+        model.castShadows = false
+        -- 电弧外层光晕
+        local glowNode = projNode:CreateChild("glow")
+        glowNode.scale = Vector3(1.6, 1.6, 1.6)
+        local gModel = glowNode:CreateComponent("StaticModel")
+        gModel:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
+        local glowMat = Material:new()
+        glowMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+        glowMat:SetShaderParameter("MatDiffColor", Variant(Color(0.6, 0.5, 1.0, 0.25)))
+        glowMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.5, 0.4, 1.0)))
+        glowMat:SetShaderParameter("Metallic", Variant(0.0))
+        glowMat:SetShaderParameter("Roughness", Variant(0.3))
+        gModel:SetMaterial(glowMat)
+        gModel.castShadows = false
+
+    -- ========== 默认/通用投射物 ==========
+    else
+        projNode.scale = Vector3(0.2, 0.2, 0.2)
+        local model = projNode:CreateComponent("StaticModel")
+        model:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
+        local projColor = Color(1.0, 0.6, 0.2, 1.0)
+        if player.classId == "mage" then
+            projColor = Color(0.3, 0.6, 1.0, 1.0)
+        elseif player.classId == "taoist" then
+            projColor = Color(0.8, 0.8, 0.3, 1.0)
+        end
+        local mat = CreatePBR(projColor, 0.0, 0.3)
+        mat:SetShaderParameter("MatEmissiveColor", Variant(projColor))
+        model:SetMaterial(mat)
+        model.castShadows = false
     end
-
-    local mat = CreatePBR(projColor, 0.0, 0.3)
-    mat:SetShaderParameter("MatEmissiveColor", Variant(projColor))
-    model:SetMaterial(mat)
 
     table.insert(projectiles, {
         node = projNode,
@@ -857,10 +933,11 @@ function Combat.SpawnProjectile(scene, origin, dir, damage, skill, player)
         damage = damage,
         range = skill.range or 8,
         traveled = 0,
+        skillId = skillId,
     })
 end
 
-function Combat.UpdateProjectiles(dt, player)
+function Combat.UpdateProjectiles(scene, dt, player)
     for i = #projectiles, 1, -1 do
         local p = projectiles[i]
         local move = p.dir * p.speed * dt
@@ -869,18 +946,24 @@ function Combat.UpdateProjectiles(dt, player)
 
         -- 碰撞检测
         local hit = false
+        local hitPos = p.node.position
         for _, e in ipairs(enemies) do
             if e.state ~= "dead" and e.state ~= "dying" then
                 local d = (e.node.position - p.node.position):Length()
                 if d < 1.0 then
                     Combat.DealDamage(e, p.damage, player)
                     hit = true
+                    hitPos = e.node.position
                     break
                 end
             end
         end
 
         if hit or p.traveled >= p.range then
+            -- 命中时生成落点特效
+            if hit and p.skillId == "m_thunder" then
+                Combat.SpawnThunderStrikeVisual(scene, hitPos)
+            end
             p.node:Remove()
             table.remove(projectiles, i)
         end
@@ -888,37 +971,214 @@ function Combat.UpdateProjectiles(dt, player)
 end
 
 -- ============================================================================
--- AOE 视觉效果
+-- AOE 视觉效果（根据技能 ID 分化）
 -- ============================================================================
-function Combat.SpawnAOEVisual(scene, center, radius, classId)
-    local node = scene:CreateChild("AOEVisual")
-    node.position = Vector3(center.x, 0.05, center.z)
-    node.scale = Vector3(radius * 2, 0.05, radius * 2)
+function Combat.SpawnAOEVisual(scene, center, radius, classId, skillId)
+    skillId = skillId or ""
 
-    local model = node:CreateComponent("StaticModel")
-    model:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+    -- ========== 法师 - 地狱火：暗红火柱群 ==========
+    if skillId == "m_hellfire" then
+        local node = scene:CreateChild("AOEVisual")
+        node.position = Vector3(center.x, 0.0, center.z)
+        -- 中心火焰柱
+        local pillarCount = 5
+        for pi = 1, pillarCount do
+            local angle = (pi / pillarCount) * math.pi * 2
+            local dist = radius * 0.5 * (0.3 + math.random() * 0.7)
+            local pillar = node:CreateChild("pillar" .. pi)
+            pillar.position = Vector3(math.cos(angle) * dist, 0, math.sin(angle) * dist)
+            local h = 1.0 + math.random() * 1.5
+            pillar.scale = Vector3(0.2, h, 0.2)
+            local pModel = pillar:CreateComponent("StaticModel")
+            pModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+            local fireColor = Color(0.85, 0.15, 0.0, 0.8)
+            local mat = Material:new()
+            mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+            mat:SetShaderParameter("MatDiffColor", Variant(fireColor))
+            mat:SetShaderParameter("MatEmissiveColor", Variant(Color(1.0, 0.2, 0.0)))
+            mat:SetShaderParameter("Metallic", Variant(0.0))
+            mat:SetShaderParameter("Roughness", Variant(0.3))
+            pModel:SetMaterial(mat)
+            pModel.castShadows = false
+        end
+        -- 地面烧焦圈
+        local baseRing = node:CreateChild("baseRing")
+        baseRing.position = Vector3(0, 0.03, 0)
+        baseRing.scale = Vector3(radius * 2, 0.03, radius * 2)
+        local bModel = baseRing:CreateComponent("StaticModel")
+        bModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+        local darkMat = CreatePBR(Color(0.3, 0.05, 0.0, 0.6), 0.0, 0.8)
+        darkMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.5, 0.08, 0.0)))
+        bModel:SetMaterial(darkMat)
+        bModel.castShadows = false
+        node:SetVar("removeTimer", Variant(2.0))
+        return node
 
-    local aoeColor
-    if classId == "warrior" then
-        aoeColor = Color(0.9, 0.3, 0.1, 0.4)
-    elseif classId == "mage" then
-        aoeColor = Color(0.3, 0.5, 1.0, 0.4)
+    -- ========== 法师 - 爆裂火焰：橙红扩散火环 ==========
+    elseif skillId == "m_explosion" then
+        local node = scene:CreateChild("AOEVisual")
+        node.position = Vector3(center.x, 0.1, center.z)
+        -- 内圈火焰爆心
+        local coreNode = node:CreateChild("core")
+        coreNode.scale = Vector3(radius * 0.8, 0.4, radius * 0.8)
+        local cModel = coreNode:CreateComponent("StaticModel")
+        cModel:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
+        local coreColor = Color(1.0, 0.6, 0.0, 0.7)
+        local coreMat = Material:new()
+        coreMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+        coreMat:SetShaderParameter("MatDiffColor", Variant(coreColor))
+        coreMat:SetShaderParameter("MatEmissiveColor", Variant(Color(1.0, 0.4, 0.0)))
+        coreMat:SetShaderParameter("Metallic", Variant(0.0))
+        coreMat:SetShaderParameter("Roughness", Variant(0.2))
+        cModel:SetMaterial(coreMat)
+        cModel.castShadows = false
+        -- 外圈爆炸波
+        local ringNode = node:CreateChild("ring")
+        ringNode.position = Vector3(0, 0.05, 0)
+        ringNode.scale = Vector3(radius * 2, 0.06, radius * 2)
+        local rModel = ringNode:CreateComponent("StaticModel")
+        rModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+        local ringMat = Material:new()
+        ringMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+        ringMat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 0.35, 0.0, 0.4)))
+        ringMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.9, 0.25, 0.0)))
+        ringMat:SetShaderParameter("Metallic", Variant(0.0))
+        ringMat:SetShaderParameter("Roughness", Variant(0.4))
+        rModel:SetMaterial(ringMat)
+        rModel.castShadows = false
+        node:SetVar("removeTimer", Variant(1.8))
+        return node
+
+    -- ========== 法师 - 冰咆哮：冰蓝暴风雪 ==========
+    elseif skillId == "m_blizzard" then
+        local node = scene:CreateChild("AOEVisual")
+        node.position = Vector3(center.x, 0.0, center.z)
+        -- 冰霜地面
+        local iceBase = node:CreateChild("iceBase")
+        iceBase.position = Vector3(0, 0.04, 0)
+        iceBase.scale = Vector3(radius * 2, 0.04, radius * 2)
+        local iModel = iceBase:CreateComponent("StaticModel")
+        iModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+        local iceMat = Material:new()
+        iceMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+        iceMat:SetShaderParameter("MatDiffColor", Variant(Color(0.7, 0.85, 1.0, 0.5)))
+        iceMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.4, 0.6, 1.0)))
+        iceMat:SetShaderParameter("Metallic", Variant(0.8))
+        iceMat:SetShaderParameter("Roughness", Variant(0.1))
+        iModel:SetMaterial(iceMat)
+        iModel.castShadows = false
+        -- 冰柱碎片（随机散落）
+        for ci = 1, 6 do
+            local shard = node:CreateChild("shard" .. ci)
+            local sa = (ci / 6) * math.pi * 2 + math.random() * 0.5
+            local sd = radius * (0.3 + math.random() * 0.6)
+            shard.position = Vector3(math.cos(sa) * sd, 0.2 + math.random() * 0.5, math.sin(sa) * sd)
+            shard.scale = Vector3(0.1, 0.3 + math.random() * 0.4, 0.1)
+            shard.rotation = Quaternion(math.random() * 20 - 10, math.random() * 360, math.random() * 20 - 10)
+            local sModel = shard:CreateComponent("StaticModel")
+            sModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
+            local shardMat = CreatePBR(Color(0.8, 0.92, 1.0, 0.8), 0.9, 0.05)
+            shardMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.5, 0.7, 1.0)))
+            sModel:SetMaterial(shardMat)
+            sModel.castShadows = false
+        end
+        node:SetVar("removeTimer", Variant(2.5))
+        return node
+
+    -- ========== 法师 - 火墙：暗红持续燃烧 ==========
+    elseif skillId == "m_firewall" then
+        local node = scene:CreateChild("AOEVisual")
+        node.position = Vector3(center.x, 0.0, center.z)
+        -- 火焰墙柱群（低矮密集）
+        local wallCount = 8
+        for wi = 1, wallCount do
+            local wa = (wi / wallCount) * math.pi * 2
+            local wd = radius * 0.6 * (0.5 + math.random() * 0.5)
+            local flame = node:CreateChild("flame" .. wi)
+            flame.position = Vector3(math.cos(wa) * wd, 0, math.sin(wa) * wd)
+            local fh = 0.5 + math.random() * 0.8
+            flame.scale = Vector3(0.15, fh, 0.15)
+            local fModel = flame:CreateComponent("StaticModel")
+            fModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+            local fireMat = Material:new()
+            fireMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+            fireMat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 0.3, 0.0, 0.7)))
+            fireMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.9, 0.2, 0.0)))
+            fireMat:SetShaderParameter("Metallic", Variant(0.0))
+            fireMat:SetShaderParameter("Roughness", Variant(0.3))
+            fModel:SetMaterial(fireMat)
+            fModel.castShadows = false
+        end
+        -- 地面灼烧痕
+        local burnBase = node:CreateChild("burnBase")
+        burnBase.position = Vector3(0, 0.02, 0)
+        burnBase.scale = Vector3(radius * 2, 0.02, radius * 2)
+        local bModel = burnBase:CreateComponent("StaticModel")
+        bModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+        local burnMat = CreatePBR(Color(0.2, 0.02, 0.0, 0.5), 0.0, 0.9)
+        burnMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.4, 0.05, 0.0)))
+        bModel:SetMaterial(burnMat)
+        bModel.castShadows = false
+        node:SetVar("removeTimer", Variant(2.5))
+        return node
+
+    -- ========== 武士 - 烈火剑法：火焰爆发环 ==========
+    elseif skillId == "w_fire" then
+        local node = scene:CreateChild("AOEVisual")
+        node.position = Vector3(center.x, 0.0, center.z)
+        -- 中心火焰爆裂球
+        local burstNode = node:CreateChild("burst")
+        burstNode.position = Vector3(0, 0.8, 0)
+        burstNode.scale = Vector3(radius * 0.6, radius * 0.6, radius * 0.6)
+        local burstModel = burstNode:CreateComponent("StaticModel")
+        burstModel:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
+        local burstMat = Material:new()
+        burstMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+        burstMat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 0.5, 0.0, 0.6)))
+        burstMat:SetShaderParameter("MatEmissiveColor", Variant(Color(1.0, 0.4, 0.0)))
+        burstMat:SetShaderParameter("Metallic", Variant(0.0))
+        burstMat:SetShaderParameter("Roughness", Variant(0.2))
+        burstModel:SetMaterial(burstMat)
+        burstModel.castShadows = false
+        -- 地面火焰环
+        local fireRing = node:CreateChild("fireRing")
+        fireRing.position = Vector3(0, 0.05, 0)
+        fireRing.scale = Vector3(radius * 2, 0.08, radius * 2)
+        local frModel = fireRing:CreateComponent("StaticModel")
+        frModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+        local frMat = CreatePBR(Color(1.0, 0.3, 0.0, 0.5), 0.0, 0.3)
+        frMat:SetShaderParameter("MatEmissiveColor", Variant(Color(1.0, 0.25, 0.0)))
+        frModel:SetMaterial(frMat)
+        frModel.castShadows = false
+        node:SetVar("removeTimer", Variant(1.5))
+        return node
+
+    -- ========== 默认通用 AOE ==========
     else
-        aoeColor = Color(0.3, 0.8, 0.4, 0.4)
+        local node = scene:CreateChild("AOEVisual")
+        node.position = Vector3(center.x, 0.05, center.z)
+        node.scale = Vector3(radius * 2, 0.05, radius * 2)
+        local model = node:CreateComponent("StaticModel")
+        model:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+        local aoeColor
+        if classId == "warrior" then
+            aoeColor = Color(0.9, 0.3, 0.1, 0.4)
+        elseif classId == "mage" then
+            aoeColor = Color(0.3, 0.5, 1.0, 0.4)
+        else
+            aoeColor = Color(0.3, 0.8, 0.4, 0.4)
+        end
+        local mat = Material:new()
+        mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
+        mat:SetShaderParameter("MatDiffColor", Variant(aoeColor))
+        mat:SetShaderParameter("MatEmissiveColor", Variant(Color(aoeColor.r, aoeColor.g, aoeColor.b)))
+        mat:SetShaderParameter("Metallic", Variant(0.0))
+        mat:SetShaderParameter("Roughness", Variant(0.5))
+        model:SetMaterial(mat)
+        model.castShadows = false
+        node:SetVar("removeTimer", Variant(2.0))
+        return node
     end
-
-    local mat = Material:new()
-    mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
-    mat:SetShaderParameter("MatDiffColor", Variant(aoeColor))
-    mat:SetShaderParameter("MatEmissiveColor", Variant(Color(aoeColor.r, aoeColor.g, aoeColor.b)))
-    mat:SetShaderParameter("Metallic", Variant(0.0))
-    mat:SetShaderParameter("Roughness", Variant(0.5))
-    model:SetMaterial(mat)
-    model.castShadows = false
-
-    -- 自动移除 (2秒后)
-    node:SetVar("removeTimer", Variant(2.0))
-    return node
 end
 
 -- ============================================================================
@@ -1018,6 +1278,204 @@ function Combat.SpawnCrescentVisual(scene, center, dir, radius, classId)
     -- 自动移除 (0.8秒后消失)
     node:SetVar("removeTimer", Variant(0.8))
     return node
+end
+
+-- ============================================================================
+-- 基本剑术视觉效果：快速剑弧闪光
+-- ============================================================================
+function Combat.SpawnSlashVisual(scene, center, dir, classId)
+    local node = scene:CreateChild("AOEVisual")
+    node.position = Vector3(center.x, 0.8, center.z)
+
+    local fwd = Vector3(dir.x, 0, dir.z):Normalized()
+    local baseAngle = math.atan2(fwd.x, fwd.z)
+
+    -- 短小的剑弧（比半月弯刀更窄更快）
+    local geom = node:CreateComponent("CustomGeometry")
+    geom:BeginGeometry(0, TRIANGLE_LIST)
+
+    local segments = 12
+    local halfAngle = math.rad(35)  -- 窄弧（前方70度）
+    local arcRadius = 1.5
+    local maxThickness = arcRadius * 0.12
+
+    for i = 0, segments - 1 do
+        local t0 = -1.0 + (i / segments) * 2.0
+        local t1 = -1.0 + ((i + 1) / segments) * 2.0
+
+        local a0 = baseAngle + t0 * halfAngle
+        local a1 = baseAngle + t1 * halfAngle
+
+        local c0 = math.cos(t0 * math.pi / 2)
+        local c1 = math.cos(t1 * math.pi / 2)
+        local thick0 = maxThickness * c0 * c0
+        local thick1 = maxThickness * c1 * c1
+
+        local outerR = arcRadius
+        local innerR0 = arcRadius - thick0
+        local innerR1 = arcRadius - thick1
+
+        local ox0 = math.sin(a0) * outerR
+        local oz0 = math.cos(a0) * outerR
+        local ox1 = math.sin(a1) * outerR
+        local oz1 = math.cos(a1) * outerR
+        local ix0 = math.sin(a0) * innerR0
+        local iz0 = math.cos(a0) * innerR0
+        local ix1 = math.sin(a1) * innerR1
+        local iz1 = math.cos(a1) * innerR1
+
+        geom:DefineVertex(Vector3(ix0, 0, iz0))
+        geom:DefineNormal(Vector3.UP)
+        geom:DefineTexCoord(Vector2(0, 0))
+        geom:DefineVertex(Vector3(ox0, 0, oz0))
+        geom:DefineNormal(Vector3.UP)
+        geom:DefineTexCoord(Vector2(1, 0))
+        geom:DefineVertex(Vector3(ox1, 0, oz1))
+        geom:DefineNormal(Vector3.UP)
+        geom:DefineTexCoord(Vector2(1, 1))
+
+        geom:DefineVertex(Vector3(ix0, 0, iz0))
+        geom:DefineNormal(Vector3.UP)
+        geom:DefineTexCoord(Vector2(0, 0))
+        geom:DefineVertex(Vector3(ox1, 0, oz1))
+        geom:DefineNormal(Vector3.UP)
+        geom:DefineTexCoord(Vector2(1, 1))
+        geom:DefineVertex(Vector3(ix1, 0, iz1))
+        geom:DefineNormal(Vector3.UP)
+        geom:DefineTexCoord(Vector2(0, 1))
+    end
+    geom:Commit()
+
+    -- 银白色剑光
+    local slashColor = Color(0.95, 0.95, 1.0, 0.8)
+    local mat = Material:new()
+    mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+    mat:SetShaderParameter("MatDiffColor", Variant(slashColor))
+    mat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.8, 0.8, 0.9)))
+    mat:SetShaderParameter("Metallic", Variant(0.0))
+    mat:SetShaderParameter("Roughness", Variant(0.2))
+    geom:SetMaterial(mat)
+    geom.castShadows = false
+
+    node:SetVar("removeTimer", Variant(0.4))
+    return node
+end
+
+-- ============================================================================
+-- 野蛮冲撞视觉效果：冲撞轨迹残影 + 落点震波
+-- ============================================================================
+function Combat.SpawnDashTrailVisual(scene, startPos, endPos, dir)
+    -- 冲撞轨迹：沿路线放置若干残影
+    local dist = (endPos - startPos):Length()
+    local trailCount = math.max(3, math.floor(dist / 1.0))
+    for ti = 1, trailCount do
+        local t = ti / (trailCount + 1)
+        local pos = startPos + (endPos - startPos) * t
+        local trailNode = scene:CreateChild("AOEVisual")
+        trailNode.position = Vector3(pos.x, 0.5, pos.z)
+        trailNode.scale = Vector3(0.3, 0.8, 0.3)
+        local model = trailNode:CreateComponent("StaticModel")
+        model:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+        -- 朱红色残影，越远越淡
+        local alpha = 0.6 * (1.0 - t * 0.5)
+        local trailMat = Material:new()
+        trailMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+        trailMat:SetShaderParameter("MatDiffColor", Variant(Color(0.85, 0.2, 0.1, alpha)))
+        trailMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.7, 0.15, 0.05)))
+        trailMat:SetShaderParameter("Metallic", Variant(0.0))
+        trailMat:SetShaderParameter("Roughness", Variant(0.4))
+        model:SetMaterial(trailMat)
+        model.castShadows = false
+        trailNode:SetVar("removeTimer", Variant(0.6 + t * 0.3))
+    end
+
+    -- 落点震波环
+    local impactNode = scene:CreateChild("AOEVisual")
+    impactNode.position = Vector3(endPos.x, 0.05, endPos.z)
+    impactNode.scale = Vector3(2.5, 0.06, 2.5)
+    local impModel = impactNode:CreateComponent("StaticModel")
+    impModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+    local impMat = Material:new()
+    impMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+    impMat:SetShaderParameter("MatDiffColor", Variant(Color(0.9, 0.3, 0.05, 0.5)))
+    impMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.8, 0.2, 0.0)))
+    impMat:SetShaderParameter("Metallic", Variant(0.0))
+    impMat:SetShaderParameter("Roughness", Variant(0.3))
+    impModel:SetMaterial(impMat)
+    impModel.castShadows = false
+    impactNode:SetVar("removeTimer", Variant(1.0))
+end
+
+-- ============================================================================
+-- 护盾视觉效果：真气护盾(金色) / 魔法盾(蓝色)
+-- ============================================================================
+function Combat.SpawnShieldVisual(scene, playerNode, skillId, duration)
+    local shieldNode = playerNode:CreateChild("AOEVisual")
+    shieldNode.position = Vector3(0, 1.0, 0)
+    shieldNode.scale = Vector3(1.2, 1.2, 1.2)
+
+    local model = shieldNode:CreateComponent("StaticModel")
+    model:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
+
+    local shieldMat = Material:new()
+    shieldMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+
+    if skillId == "w_shield" then
+        -- 真气护盾：金色气功壁
+        shieldMat:SetShaderParameter("MatDiffColor", Variant(Color(0.9, 0.75, 0.2, 0.2)))
+        shieldMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.8, 0.6, 0.1)))
+    else
+        -- 魔法盾：蓝色魔力护盾
+        shieldMat:SetShaderParameter("MatDiffColor", Variant(Color(0.3, 0.5, 1.0, 0.2)))
+        shieldMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.2, 0.4, 0.9)))
+    end
+    shieldMat:SetShaderParameter("Metallic", Variant(0.0))
+    shieldMat:SetShaderParameter("Roughness", Variant(0.1))
+    model:SetMaterial(shieldMat)
+    model.castShadows = false
+
+    -- 设置移除时间为护盾持续时间
+    shieldNode:SetVar("removeTimer", Variant(math.min(duration, 4.0)))
+end
+
+-- ============================================================================
+-- 雷电术落点效果：闪电柱（命中时生成）
+-- ============================================================================
+function Combat.SpawnThunderStrikeVisual(scene, pos)
+    local node = scene:CreateChild("AOEVisual")
+    node.position = Vector3(pos.x, 0, pos.z)
+
+    -- 闪电柱（垂直光柱从天而降）
+    local boltNode = node:CreateChild("bolt")
+    boltNode.position = Vector3(0, 3.0, 0)
+    boltNode.scale = Vector3(0.12, 6.0, 0.12)
+    local bModel = boltNode:CreateComponent("StaticModel")
+    bModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+    local boltMat = Material:new()
+    boltMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+    boltMat:SetShaderParameter("MatDiffColor", Variant(Color(0.9, 0.85, 1.0, 0.8)))
+    boltMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.8, 0.7, 1.0)))
+    boltMat:SetShaderParameter("Metallic", Variant(0.0))
+    boltMat:SetShaderParameter("Roughness", Variant(0.1))
+    bModel:SetMaterial(boltMat)
+    bModel.castShadows = false
+
+    -- 落点光环
+    local glowNode = node:CreateChild("glow")
+    glowNode.position = Vector3(0, 0.05, 0)
+    glowNode.scale = Vector3(1.5, 0.05, 1.5)
+    local gModel = glowNode:CreateComponent("StaticModel")
+    gModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+    local glowMat = Material:new()
+    glowMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+    glowMat:SetShaderParameter("MatDiffColor", Variant(Color(0.7, 0.6, 1.0, 0.4)))
+    glowMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.6, 0.5, 1.0)))
+    glowMat:SetShaderParameter("Metallic", Variant(0.0))
+    glowMat:SetShaderParameter("Roughness", Variant(0.2))
+    gModel:SetMaterial(glowMat)
+    gModel.castShadows = false
+
+    node:SetVar("removeTimer", Variant(0.8))
 end
 
 -- ============================================================================
@@ -1195,13 +1653,22 @@ end
 -- ============================================================================
 -- AOE 视觉清理 (场景中的临时节点)
 -- ============================================================================
-function Combat.UpdateVisuals(scene, dt)
-    -- 清理 AOE / Crescent 视觉效果
+function Combat.UpdateVisuals(scene, dt, playerNode)
+    -- 清理 AOE / Crescent 视觉效果（场景根级别）
     local children = {}
     for i = 0, scene:GetNumChildren(false) - 1 do
         local child = scene:GetChild(i)
         if child.name == "AOEVisual" or child.name == "CrescentVisual" then
             table.insert(children, child)
+        end
+    end
+    -- 同时清理挂在玩家身上的护盾等视觉效果
+    if playerNode then
+        for i = 0, playerNode:GetNumChildren(false) - 1 do
+            local child = playerNode:GetChild(i)
+            if child.name == "AOEVisual" then
+                table.insert(children, child)
+            end
         end
     end
     for _, child in ipairs(children) do
@@ -1211,9 +1678,11 @@ function Combat.UpdateVisuals(scene, dt)
             child:Remove()
         else
             child:SetVar("removeTimer", Variant(t))
-            -- 渐隐效果：缩小 + 透明
-            local s = child.scale
-            child.scale = s * (1.0 - dt * 0.8)
+            -- 渐隐效果：缩小 + 透明（护盾不缩小，只计时）
+            if child:GetParent() == scene then
+                local s = child.scale
+                child.scale = s * (1.0 - dt * 0.8)
+            end
         end
     end
 end
@@ -1481,10 +1950,10 @@ end
 --- 总更新入口
 function Combat.Update(scene, dt, playerNode, player)
     Combat.UpdateEnemies(dt, playerNode, player)
-    Combat.UpdateProjectiles(dt, player)
+    Combat.UpdateProjectiles(scene, dt, player)
     Combat.UpdateAOEZones(dt, player)
     Combat.UpdateSummons(dt, playerNode, player)
-    Combat.UpdateVisuals(scene, dt)
+    Combat.UpdateVisuals(scene, dt, playerNode)
     Combat.UpdateSpawner(scene, dt, playerNode, player)
     Combat.UpdateGroundItems(dt, playerNode)
     DivineBeast.Update(dt, scene, playerNode, player, enemies, Combat.DealDamage)
