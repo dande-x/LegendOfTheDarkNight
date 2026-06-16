@@ -55,9 +55,9 @@ local PREVIEW_POSITIONS = {      -- 两个预览角色的位置（远离游戏�
     Vector3(-0.4, 0, 200),       -- 槽位1角色（紧凑排列，匹配UI视口窗口）
     Vector3(0.4, 0, 200),        -- 槽位2角色
 }
-local PREVIEW_CAM_POS = Vector3(0, 1.0, 196.8)  -- 预览摄像机位置（正面看角色，近距离）
-local PREVIEW_CAM_LOOKAT = Vector3(0, 0.85, 200) -- 看向角色胸部
-local PREVIEW_FOV = 24                           -- 预览模式 FOV（窄视角聚焦角色）
+local PREVIEW_CAM_POS = Vector3(0, 1.0, 196.5)  -- 预览摄像机位置（稍远，留出头顶空间）
+local PREVIEW_CAM_LOOKAT = Vector3(0, 0.8, 200)  -- 看向角色腰部偏上
+local PREVIEW_FOV = 28                           -- 预览模式 FOV（稍宽视角，确保头部完整）
 
 -- ============================================================================
 -- 施法状态机

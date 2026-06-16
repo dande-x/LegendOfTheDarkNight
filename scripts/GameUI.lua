@@ -1108,7 +1108,7 @@ function GameUI.ShowSaveSlots(slots, callbacks)
 
     -- 职业名中文映射
     local classNames = {
-        warrior = "战 士",
+        warrior = "武 士",
         mage    = "法 师",
         taoist  = "道 士",
     }
@@ -1174,14 +1174,14 @@ function GameUI.ShowSaveSlots(slots, callbacks)
             children = {
                 UI.Label {
                     text = "NO." .. index,
-                    fontSize = 12,
+                    fontSize = 15,
                     fontColor = C_GOLD,
                 },
                 UI.Button {
                     text = isSelected and "已选" or "选择",
-                    width = 48,
-                    height = 20,
-                    fontSize = 10,
+                    width = 52,
+                    height = 22,
+                    fontSize = 12,
                     backgroundColor = isSelected and {60, 50, 30, 220} or {40, 35, 28, 200},
                     borderRadius = 2,
                     borderWidth = 1,
@@ -1205,22 +1205,22 @@ function GameUI.ShowSaveSlots(slots, callbacks)
             table.insert(infoChildren, UI.Panel {
                 width = "100%", flexDirection = "row", marginBottom = 2,
                 children = {
-                    UI.Label { text = "等级", fontSize = 10, fontColor = C_LABEL_DIM, width = 36 },
-                    UI.Label { text = tostring(data.level or 1), fontSize = 10, fontColor = C_LABEL },
+                    UI.Label { text = "等级", fontSize = 13, fontColor = C_LABEL_DIM, width = 40 },
+                    UI.Label { text = tostring(data.level or 1), fontSize = 13, fontColor = C_LABEL },
                 },
             })
             -- 职业行
             table.insert(infoChildren, UI.Panel {
                 width = "100%", flexDirection = "row",
                 children = {
-                    UI.Label { text = "职业", fontSize = 10, fontColor = C_LABEL_DIM, width = 36 },
-                    UI.Label { text = cName, fontSize = 10, fontColor = C_GOLD },
+                    UI.Label { text = "职业", fontSize = 13, fontColor = C_LABEL_DIM, width = 40 },
+                    UI.Label { text = cName, fontSize = 13, fontColor = C_GOLD },
                 },
             })
         else
             table.insert(infoChildren, UI.Label {
                 text = "— 空 —",
-                fontSize = 11,
+                fontSize = 14,
                 fontColor = C_LABEL_DIM,
                 marginTop = 8,
             })
@@ -1243,13 +1243,13 @@ function GameUI.ShowSaveSlots(slots, callbacks)
     local function MakeActionButton(text, enabled, onPress)
         return UI.Button {
             text = text,
-            width = 100,
-            height = 28,
+            width = 110,
+            height = 32,
             backgroundColor = enabled and C_BTN_BG or C_BTN_DISABLED,
             borderRadius = 2,
             borderWidth = 1,
             borderColor = enabled and C_BTN_BORDER or {40, 35, 28, 140},
-            fontSize = 12,
+            fontSize = 14,
             fontColor = enabled and C_GOLD or C_LABEL_DIM,
             disabled = not enabled,
             onClick = enabled and onPress or nil,
