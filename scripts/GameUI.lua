@@ -1201,16 +1201,6 @@ function GameUI.ShowSaveSlots(slots, callbacks)
         if not isEmpty then
             ---@type string
             local cName = classNames[data.classId] or data.className or "???"
-            ---@type string
-            local charName = tostring(data.charName or cName)
-            -- 姓名行
-            table.insert(infoChildren, UI.Panel {
-                width = "100%", flexDirection = "row", marginBottom = 2,
-                children = {
-                    UI.Label { text = "姓名", fontSize = 10, fontColor = C_LABEL_DIM, width = 36 },
-                    UI.Label { text = charName, fontSize = 10, fontColor = C_LABEL },
-                },
-            })
             -- 等级行
             table.insert(infoChildren, UI.Panel {
                 width = "100%", flexDirection = "row", marginBottom = 2,
@@ -1291,7 +1281,7 @@ function GameUI.ShowSaveSlots(slots, callbacks)
             -- === 上半部分：角色展示区（透明，3D透出，占满上方空间）===
             UI.Panel {
                 width = "100%",
-                flexGrow = 3,
+                flexGrow = 5,
                 flexDirection = "row",
                 padding = 10,
                 gap = 8,
@@ -1310,7 +1300,7 @@ function GameUI.ShowSaveSlots(slots, callbacks)
             -- === 下半部分：信息卡 + 操作按钮（不透明石头底色）===
             UI.Panel {
                 width = "100%",
-                flexGrow = 2,
+                flexGrow = 1,
                 flexDirection = "row",
                 padding = 10,
                 paddingHorizontal = 20,
