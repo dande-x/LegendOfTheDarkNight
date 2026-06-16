@@ -698,15 +698,21 @@ function CreatePreviewCharacter(slotIndex, classId)
                 animModel:SetMaterial(i, mat)
             end
         end
-        -- 对所有职业：清除法线贴图 + 提高粗糙度，让脸部/皮肤更光滑
+        -- 对所有职业：强制切换到无法线贴图的 Technique，彻底消除脸部坑洼
+        local smoothTech = cache:GetResource("Technique", "Techniques/PBR/PBRDiff.xml")
         local numGeom = animModel:GetNumGeometries()
         for i = 0, numGeom - 1 do
             local mat = animModel:GetMaterial(i)
             if mat then
                 mat = mat:Clone()
-                mat:SetTexture(TU_NORMAL, nil)       -- 移除法线贴图（消除坑洼凹凸）
-                mat:SetShaderParameter("Roughness", Variant(0.65))  -- 提高粗糙度让表面柔和
-                mat:SetShaderParameter("Metallic", Variant(0.1))    -- 降低金属度减少反射瑕疵
+                -- 切换 Technique 为仅 Diffuse（不采样法线贴图）
+                mat:SetTechnique(0, smoothTech)
+                -- 清除法线和属性贴图
+                mat:SetTexture(TU_NORMAL, nil)
+                mat:SetTexture(TU_SPECULAR, nil)
+                -- 统一设置光滑参数
+                mat:SetShaderParameter("Roughness", Variant(0.75))
+                mat:SetShaderParameter("Metallic", Variant(0.05))
                 animModel:SetMaterial(i, mat)
             end
         end
