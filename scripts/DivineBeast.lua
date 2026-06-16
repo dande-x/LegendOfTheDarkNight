@@ -45,18 +45,18 @@ local BEAST_GROWTH = {
 local BEAST_PREFAB = "Prefabs/DivineBeast.prefab"
 local BEAST_TARGET_HEIGHT = 2.3  -- 神兽目标高度（比主角高）
 
--- 动画资源（使用通用骨骼动画，运行时自动重定向）
+-- 动画资源（使用与 Tripo Rig 兼容的官方动画，运行时自动重定向）
 local BEAST_ANIMS = {
-    idle = "uuid://FJ8feZ5F0ATSOJfJYCRvO0W6",   -- 蓄势待发（孙悟空弓步警觉姿态）1.33s loop
-    move = "uuid://BT-o0eWZje-OX5PTrhvSjU_k",   -- 慢速奔跑（稳健步伐）0.87s loop
+    idle = "uuid://GikiEX04hbY9D5ALGNz051Zh",   -- 枪骑士战斗待机 1.33s loop（Tripo兼容）
+    move = "uuid://F-afGUmbZwlJu4crZmqR_4kR",   -- 中速跑 1.0s loop（Tripo兼容）
     attack = "uuid://Ai-SCaONHGJAnRCLZmoO2QJ8",  -- 突刺 1.07s（喷火时播放）
 }
 
 -- 动画播放速度（神兽体型大，动作应更沉重缓慢）
 local BEAST_ANIM_SPEEDS = {
-    idle = 0.8,     -- 待机稍慢，显得稳重
-    move = 0.7,     -- 行走慢速，体现体重感
-    attack = 0.9,   -- 攻击稍慢，显得力量大
+    idle = 0.7,     -- 待机慢速，显得稳重沉着
+    move = 0.55,    -- 跑步大幅降速，体现巨兽沉重步伐
+    attack = 0.85,  -- 攻击略慢，力量感
 }
 
 -- 头部骨骼名候选列表（Tripo rig 可能使用不同命名）
