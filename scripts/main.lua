@@ -735,6 +735,34 @@ function OnClassSelected(classId)
         GameUI.ShowGameHUD(player_)
     end
 
+    -- 一键满级：设为50级 + 填充全部技能栏
+    GameUI.onDebugMaxLevel = function()
+        if not player_ then return end
+        local maxLv = 50
+        local classDef = CharacterClass.Classes[player_.classId]
+        local g = classDef.growth
+        local Inventory = require("Inventory")
+        local bonusHP = Inventory.playerData.bonusHP or 0
+        player_.level = maxLv
+        player_.maxHP = classDef.baseHP + g.hp * (maxLv - 1) + bonusHP
+        player_.maxMP = classDef.baseMP + g.mp * (maxLv - 1)
+        player_.atk   = classDef.baseATK + g.atk * (maxLv - 1)
+        player_.def   = classDef.baseDEF + g.def * (maxLv - 1)
+        player_.hp = player_.maxHP
+        player_.mp = player_.maxMP
+        player_.expToNext = 50 + maxLv * 60
+        player_.exp = 0
+        -- 装备全部技能到对应 slot
+        player_.equippedSkills = {}
+        for _, skill in ipairs(classDef.skills) do
+            if skill.slot >= 1 and skill.slot <= 6 then
+                player_.equippedSkills[skill.slot] = skill
+            end
+        end
+        print("[Debug] MAX LEVEL! Lv." .. maxLv .. " all skills equipped")
+        GameUI.ShowGameHUD(player_)
+    end
+
     -- 角色面板切换回调
     GameUI.onCharacterPanelToggle = function()
         if GameUI.IsCharacterPanelOpen() then

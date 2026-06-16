@@ -1018,46 +1018,8 @@ end
 function Combat.SpawnAOEVisual(scene, center, radius, classId, skillId)
     skillId = skillId or ""
 
-    -- ========== 法师 - 地狱火：暗红火柱群 ==========
-    if skillId == "m_hellfire" then
-        local node = scene:CreateChild("AOEVisual")
-        node.position = Vector3(center.x, 0.0, center.z)
-        -- 中心火焰柱
-        local pillarCount = 5
-        for pi = 1, pillarCount do
-            local angle = (pi / pillarCount) * math.pi * 2
-            local dist = radius * 0.5 * (0.3 + math.random() * 0.7)
-            local pillar = node:CreateChild("pillar" .. pi)
-            pillar.position = Vector3(math.cos(angle) * dist, 0, math.sin(angle) * dist)
-            local h = 1.0 + math.random() * 1.5
-            pillar.scale = Vector3(0.2, h, 0.2)
-            local pModel = pillar:CreateComponent("StaticModel")
-            pModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
-            local fireColor = Color(0.85, 0.15, 0.0, 0.8)
-            local mat = Material:new()
-            mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
-            mat:SetShaderParameter("MatDiffColor", Variant(fireColor))
-            mat:SetShaderParameter("MatEmissiveColor", Variant(Color(1.0, 0.2, 0.0)))
-            mat:SetShaderParameter("Metallic", Variant(0.0))
-            mat:SetShaderParameter("Roughness", Variant(0.3))
-            pModel:SetMaterial(mat)
-            pModel.castShadows = false
-        end
-        -- 地面烧焦圈
-        local baseRing = node:CreateChild("baseRing")
-        baseRing.position = Vector3(0, 0.03, 0)
-        baseRing.scale = Vector3(radius * 2, 0.03, radius * 2)
-        local bModel = baseRing:CreateComponent("StaticModel")
-        bModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
-        local darkMat = CreatePBR(Color(0.3, 0.05, 0.0, 0.6), 0.0, 0.8)
-        darkMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.5, 0.08, 0.0)))
-        bModel:SetMaterial(darkMat)
-        bModel.castShadows = false
-        node:SetVar("removeTimer", Variant(2.0))
-        return node
-
     -- ========== 法师 - 爆裂火焰：橙红扩散火环 ==========
-    elseif skillId == "m_explosion" then
+    if skillId == "m_explosion" then
         local node = scene:CreateChild("AOEVisual")
         node.position = Vector3(center.x, 0.1, center.z)
         -- 内圈火焰爆心

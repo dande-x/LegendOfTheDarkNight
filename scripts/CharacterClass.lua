@@ -150,14 +150,7 @@ CharacterClass.Classes = {
                 damage = 110,  -- ATK倍率110%
                 range = 6.0, projectileSpeed = 12, castTime = 0.45,
             },
-            {
-                id = "m_hellfire", name = "地狱火", type = SKILL_TYPE.AOE,
-                desc = "直线喷射烈焰，灼烧一列敌人",
-                slot = 2, cooldown = 7, manaCost = 15,
-                unlockLevel = 3,
-                damage = 150,  -- ATK倍率150% (AOE多目标)
-                range = 5.0, maxTargets = 5, castTime = 0.45,
-            },
+
             {
                 id = "m_thunder", name = "雷电术", type = SKILL_TYPE.RANGED,
                 desc = "引下天雷，威力巨大但施法较慢",

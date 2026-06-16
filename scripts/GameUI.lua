@@ -1415,7 +1415,6 @@ local _skillBarIcons = {
     w_fire = "image/icon_w_fire_20260611120801.png",
     w_shield = "image/icon_w_shield_20260611120801.png",
     m_fireball = "image/icon_m_fireball_20260611120855.png",
-    m_hellfire = "image/icon_m_hellfire_20260611120858.png",
     m_thunder = "image/icon_m_thunder_20260611120858.png",
     m_explosion = "image/icon_m_explosion_20260611120859.png",
     m_firewall = "image/icon_m_firewall_20260611120900.png",
@@ -1880,7 +1879,6 @@ local function _BuildSkillTabContent(player)
         w_shield   = "image/icon_w_shield_20260611120801.png",
         -- 法师
         m_fireball  = "image/icon_m_fireball_20260611120855.png",
-        m_hellfire  = "image/icon_m_hellfire_20260611120858.png",
         m_thunder   = "image/icon_m_thunder_20260611120858.png",
         m_explosion = "image/icon_m_explosion_20260611120859.png",
         m_firewall  = "image/icon_m_firewall_20260611120900.png",
@@ -2621,6 +2619,21 @@ function GameUI.ShowSystemPanel()
                                     },
                                 },
                             },
+                            -- 一键满级+技能全开
+                            UI.Panel {
+                                width = 140, height = 36, borderRadius = 6,
+                                backgroundColor = {75, 55, 20, 220},
+                                justifyContent = "center", alignItems = "center",
+                                marginTop = 4,
+                                onPointerUp = function()
+                                    if GameUI.onDebugMaxLevel then GameUI.onDebugMaxLevel() end
+                                    GameUI.HideSystemPanel()
+                                    GameUI.ShowSystemPanel()
+                                end,
+                                children = {
+                                    UI.Label { text = "一键满级", fontSize = 13, fontColor = {255, 220, 100, 255} },
+                                },
+                            },
                         },
                     },
                     -- 关闭按钮
@@ -2969,6 +2982,7 @@ GameUI.onCharacterPanelToggle = nil
 GameUI.onSystemPanelToggle = nil
 GameUI.onCharacterPanelClosed = nil
 GameUI.onDebugLevelChange = nil  -- function(delta) : +1 升级, -1 降级
+GameUI.onDebugMaxLevel = nil     -- function() : 一键满级+技能栏填充
 
 -- ============================================================================
 -- 清理
