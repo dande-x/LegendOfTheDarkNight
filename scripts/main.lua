@@ -52,8 +52,8 @@ local previewSelectedSlot_ = 0   -- 当前选中的预览槽位
 local previewActive_ = false     -- 是否处于预览模式
 local previewAttackTimer_ = {}   -- [1],[2] 攻击动画循环计时器
 local PREVIEW_POSITIONS = {      -- 两个预览角色的位置（远离游戏区域）
-    Vector3(-0.4, 0, 200),       -- 槽位1角色（紧凑排列，匹配UI视口窗口）
-    Vector3(0.4, 0, 200),        -- 槽位2角色
+    Vector3(-0.75, 0, 200),      -- 槽位1角色（居中于左半屏视口）
+    Vector3(0.75, 0, 200),       -- 槽位2角色（居中于右半屏视口）
 }
 local PREVIEW_CAM_POS = Vector3(0, 1.0, 196.5)  -- 预览摄像机位置（稍远，留出头顶空间）
 local PREVIEW_CAM_LOOKAT = Vector3(0, 0.8, 200)  -- 看向角色腰部偏上
@@ -690,15 +690,26 @@ function CreatePreviewCharacter(slotIndex, classId)
             mat:SetTechnique(0, cache:GetResource("Technique", config.technique))
             mat:SetTexture(TU_DIFFUSE, cache:GetResource("Texture2D", "uuid://ARGvkYnzrbbOxkjh2N68upmG"))
             mat:SetShaderParameter("MatDiffColor", Variant(config.diffColor))
-            mat:SetShaderParameter("Roughness", Variant(config.roughness))
-            mat:SetShaderParameter("Metallic", Variant(config.metallic))
+            mat:SetShaderParameter("Roughness", Variant(0.6))
+            mat:SetShaderParameter("Metallic", Variant(0.2))
             mat:SetShaderParameter("MatEmissiveColor", Variant(config.emissive))
             local numGeom = animModel:GetNumGeometries()
             for i = 0, numGeom - 1 do
                 animModel:SetMaterial(i, mat)
             end
         end
-        -- useTexture=false 的职业（法师、道士）有独立 prefab，自带材质/贴图，无需覆盖
+        -- 对所有职业：清除法线贴图 + 提高粗糙度，让脸部/皮肤更光滑
+        local numGeom = animModel:GetNumGeometries()
+        for i = 0, numGeom - 1 do
+            local mat = animModel:GetMaterial(i)
+            if mat then
+                mat = mat:Clone()
+                mat:SetTexture(TU_NORMAL, nil)       -- 移除法线贴图（消除坑洼凹凸）
+                mat:SetShaderParameter("Roughness", Variant(0.65))  -- 提高粗糙度让表面柔和
+                mat:SetShaderParameter("Metallic", Variant(0.1))    -- 降低金属度减少反射瑕疵
+                animModel:SetMaterial(i, mat)
+            end
+        end
     end
 
     -- 获取动画控制器
