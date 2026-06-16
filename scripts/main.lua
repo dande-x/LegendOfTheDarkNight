@@ -664,6 +664,9 @@ function CreatePreviewCharacter(slotIndex, classId)
 
     modelNode.parent = node
     modelNode.name = "PreviewModel"
+    -- 重置 local transform（reparent 会保留 world transform，需要手动归零）
+    modelNode.rotation = Quaternion(180, Vector3.UP)  -- 面向摄像机（-Z方向）
+    modelNode.position = Vector3.ZERO
 
     local animModel = modelNode:GetComponent("AnimatedModel")
         or modelNode:GetComponent("AnimatedModel", true)
