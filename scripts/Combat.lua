@@ -613,8 +613,8 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
             -- 半月弯刀：前方弧形光斩
             Combat.SpawnCrescentVisual(scene, playerPos, playerDir, skill.range, player.classId)
         elseif skill.id == "w_fire" then
-            -- 烈火剑法：火焰爆发
-            Combat.SpawnAOEVisual(scene, playerPos, skill.range, player.classId, "w_fire")
+            -- 烈火剑法：焰刃纵斩 + 地面火浪
+            Combat.SpawnFireSlashVisual(scene, playerPos, playerDir, skill.range)
         elseif skill.id == "w_basic" then
             -- 基本剑术：快速剑弧闪光
             Combat.SpawnSlashVisual(scene, playerPos, playerDir, player.classId)
@@ -849,20 +849,66 @@ function Combat.SpawnProjectile(scene, origin, dir, damage, skill, player)
 
     local skillId = skill.id or ""
 
-    -- ========== 武士 - 刺杀剑术：长条剑气 ==========
+    -- ========== 武士 - 刺杀剑术：锋锐穿刺剑气（菱形剑尖+十字截面+能量尾流）==========
     if skillId == "w_thrust" then
-        -- 扁长形剑气（X 窄, Y 窄, Z 长）
-        projNode.scale = Vector3(0.08, 0.08, 0.6)
-        local model = projNode:CreateComponent("StaticModel")
-        model:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
-        local swordColor = Color(1.0, 0.85, 0.3, 1.0) -- 金色剑气
-        local mat = CreatePBR(swordColor, 0.0, 0.2)
-        mat:SetShaderParameter("MatEmissiveColor", Variant(Color(1.0, 0.7, 0.1)))
-        model:SetMaterial(mat)
-        model.castShadows = false
         -- 朝向飞行方向
         local angle = math.atan2(dir.x, dir.z)
         projNode.rotation = Quaternion(math.deg(angle), Vector3.UP)
+
+        -- 核心剑尖：窄长菱形（Z 极长，XY 扁平）模拟剑刃穿刺形态
+        local bladeNode = projNode:CreateChild("blade")
+        bladeNode.scale = Vector3(0.05, 0.12, 1.0)  -- 极扁极长
+        local bladeModel = bladeNode:CreateComponent("StaticModel")
+        bladeModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
+        local bladeMat = Material:new()
+        bladeMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+        bladeMat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 0.95, 0.8, 0.95)))
+        bladeMat:SetShaderParameter("MatEmissiveColor", Variant(Color(1.0, 0.85, 0.5)))
+        bladeMat:SetShaderParameter("Metallic", Variant(0.9))
+        bladeMat:SetShaderParameter("Roughness", Variant(0.0))
+        bladeModel:SetMaterial(bladeMat)
+        bladeModel.castShadows = false
+
+        -- 十字截面第二片：旋转90度再来一片
+        local crossNode = projNode:CreateChild("cross")
+        crossNode.rotation = Quaternion(90, Vector3.FORWARD)
+        crossNode.scale = Vector3(0.05, 0.12, 1.0)
+        local crossModel = crossNode:CreateComponent("StaticModel")
+        crossModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
+        crossModel:SetMaterial(bladeMat)
+        crossModel.castShadows = false
+
+        -- 外层能量护鞘：半透明金色菱形光芒，略大于剑身
+        local sheathNode = projNode:CreateChild("sheath")
+        sheathNode.scale = Vector3(0.15, 0.15, 1.2)
+        local sheathModel = sheathNode:CreateComponent("StaticModel")
+        sheathModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
+        local sheathMat = Material:new()
+        sheathMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+        sheathMat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 0.8, 0.3, 0.2)))
+        sheathMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.9, 0.7, 0.2)))
+        sheathMat:SetShaderParameter("Metallic", Variant(0.0))
+        sheathMat:SetShaderParameter("Roughness", Variant(0.3))
+        sheathModel:SetMaterial(sheathMat)
+        sheathModel.castShadows = false
+
+        -- 尾流拖痕：三个递次缩小的半透明方块（模拟残影）
+        for ti = 1, 3 do
+            local trailNode = projNode:CreateChild("trail" .. ti)
+            trailNode.position = Vector3(0, 0, -0.4 * ti)  -- 依次向后
+            local s = 0.08 / ti
+            trailNode.scale = Vector3(s, s * 1.5, 0.2)
+            local tModel = trailNode:CreateComponent("StaticModel")
+            tModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
+            local tMat = Material:new()
+            tMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+            tMat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 0.7, 0.2, 0.4 / ti)))
+            tMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.8, 0.5, 0.1)))
+            tMat:SetShaderParameter("Metallic", Variant(0.0))
+            tMat:SetShaderParameter("Roughness", Variant(0.5))
+            tModel:SetMaterial(tMat)
+            tModel.castShadows = false
+        end
 
     -- ========== 法师 - 火球术：橙红火焰球 ==========
     elseif skillId == "m_fireball" then
@@ -1186,118 +1232,19 @@ end
 -- ============================================================================
 function Combat.SpawnCrescentVisual(scene, center, dir, radius, classId)
     local node = scene:CreateChild("CrescentVisual")
-    node.position = Vector3(center.x, 0.15, center.z)
-
-    -- 计算角色朝向角度
+    -- 弧刃位于武器挥舞高度（腰部 0.9m），微前置
     local fwd = Vector3(dir.x, 0, dir.z):Normalized()
-    local baseAngle = math.atan2(fwd.x, fwd.z)  -- 朝向角(弧度)
+    node.position = Vector3(center.x + fwd.x * 0.3, 0.9, center.z + fwd.z * 0.3)
 
-    -- 使用 CustomGeometry 绘制月牙形（中间厚两端尖）
-    local geom = node:CreateComponent("CustomGeometry")
-    geom:BeginGeometry(0, TRIANGLE_LIST)
-
-    local segments = 24
-    local halfAngle = math.rad(80)  -- 月牙弧度：前方160度
-    local maxThickness = radius * 0.25  -- 月牙最厚处（中间）
-
-    -- 月牙形：外弧恒定半径，内弧用 cos² 收窄，两端汇聚为尖点
-    -- 对每个归一化位置 t ∈ [-1, 1]:
-    --   外半径 = radius（恒定弧）
-    --   厚度 = maxThickness * cos²(t * π/2)  → 中间最厚，两端为0
-    --   内半径 = radius - 厚度
-
-    for i = 0, segments - 1 do
-        local t0 = -1.0 + (i / segments) * 2.0       -- [-1, 1)
-        local t1 = -1.0 + ((i + 1) / segments) * 2.0
-
-        local a0 = baseAngle + t0 * halfAngle
-        local a1 = baseAngle + t1 * halfAngle
-
-        -- cos² 控制月牙厚度：中间(t=0)最厚，两端(t=±1)为0
-        local c0 = math.cos(t0 * math.pi / 2)
-        local c1 = math.cos(t1 * math.pi / 2)
-        local thick0 = maxThickness * c0 * c0
-        local thick1 = maxThickness * c1 * c1
-
-        local outerR = radius
-        local innerR0 = radius - thick0
-        local innerR1 = radius - thick1
-
-        -- 外弧点
-        local ox0 = math.sin(a0) * outerR
-        local oz0 = math.cos(a0) * outerR
-        local ox1 = math.sin(a1) * outerR
-        local oz1 = math.cos(a1) * outerR
-        -- 内弧点（随角度变化，两端与外弧重合形成尖角）
-        local ix0 = math.sin(a0) * innerR0
-        local iz0 = math.cos(a0) * innerR0
-        local ix1 = math.sin(a1) * innerR1
-        local iz1 = math.cos(a1) * innerR1
-
-        -- 三角形1: inner0, outer0, outer1
-        geom:DefineVertex(Vector3(ix0, 0, iz0))
-        geom:DefineNormal(Vector3.UP)
-        geom:DefineTexCoord(Vector2(0, 0))
-
-        geom:DefineVertex(Vector3(ox0, 0, oz0))
-        geom:DefineNormal(Vector3.UP)
-        geom:DefineTexCoord(Vector2(1, 0))
-
-        geom:DefineVertex(Vector3(ox1, 0, oz1))
-        geom:DefineNormal(Vector3.UP)
-        geom:DefineTexCoord(Vector2(1, 1))
-
-        -- 三角形2: inner0, outer1, inner1
-        geom:DefineVertex(Vector3(ix0, 0, iz0))
-        geom:DefineNormal(Vector3.UP)
-        geom:DefineTexCoord(Vector2(0, 0))
-
-        geom:DefineVertex(Vector3(ox1, 0, oz1))
-        geom:DefineNormal(Vector3.UP)
-        geom:DefineTexCoord(Vector2(1, 1))
-
-        geom:DefineVertex(Vector3(ix1, 0, iz1))
-        geom:DefineNormal(Vector3.UP)
-        geom:DefineTexCoord(Vector2(0, 1))
-    end
-
-    geom:Commit()
-
-    -- 半月弯刀：朱红色光斩
-    local crescentColor = Color(0.95, 0.35, 0.1, 0.7)
-
-    local mat = Material:new()
-    mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
-    mat:SetShaderParameter("MatDiffColor", Variant(crescentColor))
-    mat:SetShaderParameter("MatEmissiveColor", Variant(Color(1.0, 0.3, 0.05)))
-    mat:SetShaderParameter("Metallic", Variant(0.0))
-    mat:SetShaderParameter("Roughness", Variant(0.2))
-    geom:SetMaterial(mat)
-    geom.castShadows = false
-
-    -- 自动移除 (0.8秒后消失)
-    node:SetVar("removeTimer", Variant(0.8))
-    return node
-end
-
--- ============================================================================
--- 基本剑术视觉效果：快速剑弧闪光
--- ============================================================================
-function Combat.SpawnSlashVisual(scene, center, dir, classId)
-    local node = scene:CreateChild("AOEVisual")
-    node.position = Vector3(center.x, 0.8, center.z)
-
-    local fwd = Vector3(dir.x, 0, dir.z):Normalized()
     local baseAngle = math.atan2(fwd.x, fwd.z)
+    local segments = 24
+    local halfAngle = math.rad(75)  -- 前方 150 度弧
 
-    -- 短小的剑弧（比半月弯刀更窄更快）
+    -- === 第一层：刀刃主体（窄且锋利，朱红色）===
     local geom = node:CreateComponent("CustomGeometry")
     geom:BeginGeometry(0, TRIANGLE_LIST)
 
-    local segments = 12
-    local halfAngle = math.rad(35)  -- 窄弧（前方70度）
-    local arcRadius = 1.5
-    local maxThickness = arcRadius * 0.12
+    local maxThickness = radius * 0.18  -- 中间厚度
 
     for i = 0, segments - 1 do
         local t0 = -1.0 + (i / segments) * 2.0
@@ -1311,9 +1258,9 @@ function Combat.SpawnSlashVisual(scene, center, dir, classId)
         local thick0 = maxThickness * c0 * c0
         local thick1 = maxThickness * c1 * c1
 
-        local outerR = arcRadius
-        local innerR0 = arcRadius - thick0
-        local innerR1 = arcRadius - thick1
+        local outerR = radius
+        local innerR0 = radius - thick0
+        local innerR1 = radius - thick1
 
         local ox0 = math.sin(a0) * outerR
         local oz0 = math.cos(a0) * outerR
@@ -1346,18 +1293,428 @@ function Combat.SpawnSlashVisual(scene, center, dir, classId)
     end
     geom:Commit()
 
-    -- 银白色剑光
-    local slashColor = Color(0.95, 0.95, 1.0, 0.8)
+    -- 朱红色金属刀光，高金属感
     local mat = Material:new()
     mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
-    mat:SetShaderParameter("MatDiffColor", Variant(slashColor))
-    mat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.8, 0.8, 0.9)))
-    mat:SetShaderParameter("Metallic", Variant(0.0))
-    mat:SetShaderParameter("Roughness", Variant(0.2))
+    mat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 0.3, 0.08, 0.85)))
+    mat:SetShaderParameter("MatEmissiveColor", Variant(Color(1.0, 0.25, 0.0)))
+    mat:SetShaderParameter("Metallic", Variant(0.7))
+    mat:SetShaderParameter("Roughness", Variant(0.1))
     geom:SetMaterial(mat)
     geom.castShadows = false
 
-    node:SetVar("removeTimer", Variant(0.4))
+    -- === 第二层：外圈气浪（更宽、更淡、橙黄色散射）===
+    local outerChild = node:CreateChild("outerWave")
+    outerChild.position = Vector3(0, -0.02, 0)
+    local outerGeom = outerChild:CreateComponent("CustomGeometry")
+    outerGeom:BeginGeometry(0, TRIANGLE_LIST)
+
+    local outerRadius = radius * 1.15
+    local outerThick = radius * 0.35
+
+    for i = 0, segments - 1 do
+        local t0 = -1.0 + (i / segments) * 2.0
+        local t1 = -1.0 + ((i + 1) / segments) * 2.0
+
+        local a0 = baseAngle + t0 * halfAngle
+        local a1 = baseAngle + t1 * halfAngle
+
+        local c0 = math.cos(t0 * math.pi / 2)
+        local c1 = math.cos(t1 * math.pi / 2)
+        local thick0 = outerThick * c0 * c0
+        local thick1 = outerThick * c1 * c1
+
+        local oR = outerRadius
+        local iR0 = outerRadius - thick0
+        local iR1 = outerRadius - thick1
+
+        local ox0 = math.sin(a0) * oR
+        local oz0 = math.cos(a0) * oR
+        local ox1 = math.sin(a1) * oR
+        local oz1 = math.cos(a1) * oR
+        local ix0 = math.sin(a0) * iR0
+        local iz0 = math.cos(a0) * iR0
+        local ix1 = math.sin(a1) * iR1
+        local iz1 = math.cos(a1) * iR1
+
+        outerGeom:DefineVertex(Vector3(ix0, 0, iz0))
+        outerGeom:DefineNormal(Vector3.UP)
+        outerGeom:DefineTexCoord(Vector2(0, 0))
+        outerGeom:DefineVertex(Vector3(ox0, 0, oz0))
+        outerGeom:DefineNormal(Vector3.UP)
+        outerGeom:DefineTexCoord(Vector2(1, 0))
+        outerGeom:DefineVertex(Vector3(ox1, 0, oz1))
+        outerGeom:DefineNormal(Vector3.UP)
+        outerGeom:DefineTexCoord(Vector2(1, 1))
+
+        outerGeom:DefineVertex(Vector3(ix0, 0, iz0))
+        outerGeom:DefineNormal(Vector3.UP)
+        outerGeom:DefineTexCoord(Vector2(0, 0))
+        outerGeom:DefineVertex(Vector3(ox1, 0, oz1))
+        outerGeom:DefineNormal(Vector3.UP)
+        outerGeom:DefineTexCoord(Vector2(1, 1))
+        outerGeom:DefineVertex(Vector3(ix1, 0, iz1))
+        outerGeom:DefineNormal(Vector3.UP)
+        outerGeom:DefineTexCoord(Vector2(0, 1))
+    end
+    outerGeom:Commit()
+
+    -- 外层气浪：橙黄半透明
+    local outerMat = Material:new()
+    outerMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+    outerMat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 0.55, 0.1, 0.25)))
+    outerMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.8, 0.35, 0.0)))
+    outerMat:SetShaderParameter("Metallic", Variant(0.0))
+    outerMat:SetShaderParameter("Roughness", Variant(0.4))
+    outerGeom:SetMaterial(outerMat)
+    outerGeom.castShadows = false
+
+    -- === 第三层：刃尖火星（两端小球闪烁）===
+    for tip = 1, 2 do
+        local tipAngle = baseAngle + (tip == 1 and -1 or 1) * halfAngle
+        local tipNode = node:CreateChild("tip" .. tip)
+        tipNode.position = Vector3(math.sin(tipAngle) * radius, 0, math.cos(tipAngle) * radius)
+        tipNode.scale = Vector3(0.12, 0.06, 0.12)
+        local tModel = tipNode:CreateComponent("StaticModel")
+        tModel:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
+        local tipMat = Material:new()
+        tipMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+        tipMat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 0.9, 0.4, 0.9)))
+        tipMat:SetShaderParameter("MatEmissiveColor", Variant(Color(1.0, 0.8, 0.2)))
+        tipMat:SetShaderParameter("Metallic", Variant(0.0))
+        tipMat:SetShaderParameter("Roughness", Variant(0.1))
+        tModel:SetMaterial(tipMat)
+        tModel.castShadows = false
+    end
+
+    node:SetVar("removeTimer", Variant(0.7))
+    return node
+end
+
+-- ============================================================================
+-- 基本剑术视觉效果：竖斜劈弧（从右上到左下的对角斩击）
+-- 效果从武器位置发出，贴合挥刀动作的竖直平面
+-- ============================================================================
+function Combat.SpawnSlashVisual(scene, center, dir, classId)
+    local node = scene:CreateChild("AOEVisual")
+    -- 剑弧位于角色前方 0.6m，胸口高度 1.0m
+    local fwd = Vector3(dir.x, 0, dir.z):Normalized()
+    node.position = Vector3(center.x + fwd.x * 0.6, 1.0, center.z + fwd.z * 0.6)
+
+    -- 让节点朝向角色前方
+    local yaw = math.deg(math.atan2(fwd.x, fwd.z))
+    node.rotation = Quaternion(yaw, Vector3.UP)
+
+    -- === 内层：锋利刃光（窄、亮、白色金属质感）===
+    local bladeGeom = node:CreateComponent("CustomGeometry")
+    bladeGeom:BeginGeometry(0, TRIANGLE_LIST)
+
+    -- 在节点局部坐标中绘制：X=左右，Y=上下，Z=前方
+    -- 对角弧从右上(+X,+Y)扫到左下(-X,-Y)，弧心在(0,0,0.3)前方
+    local segments = 16
+    local arcRadius = 1.2          -- 斩击弧半径
+    local startAngle = math.rad(-50)  -- 从右上开始
+    local endAngle = math.rad(70)     -- 到左下结束（120度弧）
+    local maxThick = 0.06            -- 锋刃厚度（很薄=锋利感）
+    local offsetZ = 0.3              -- 向前偏移，贴近武器轨迹
+
+    for i = 0, segments - 1 do
+        local t0 = i / segments
+        local t1 = (i + 1) / segments
+        local a0 = startAngle + (endAngle - startAngle) * t0
+        local a1 = startAngle + (endAngle - startAngle) * t1
+
+        -- 中间最厚，两端收尖
+        local taper0 = math.sin(t0 * math.pi)
+        local taper1 = math.sin(t1 * math.pi)
+        local thick0 = maxThick * taper0
+        local thick1 = maxThick * taper1
+
+        -- 外弧
+        local ox0 = math.cos(a0) * arcRadius
+        local oy0 = math.sin(a0) * arcRadius
+        local ox1 = math.cos(a1) * arcRadius
+        local oy1 = math.sin(a1) * arcRadius
+        -- 内弧
+        local ix0 = math.cos(a0) * (arcRadius - thick0)
+        local iy0 = math.sin(a0) * (arcRadius - thick0)
+        local ix1 = math.cos(a1) * (arcRadius - thick1)
+        local iy1 = math.sin(a1) * (arcRadius - thick1)
+
+        local n = Vector3(0, 0, 1)
+        -- 三角形1
+        bladeGeom:DefineVertex(Vector3(ix0, iy0, offsetZ))
+        bladeGeom:DefineNormal(n)
+        bladeGeom:DefineTexCoord(Vector2(t0, 0))
+        bladeGeom:DefineVertex(Vector3(ox0, oy0, offsetZ))
+        bladeGeom:DefineNormal(n)
+        bladeGeom:DefineTexCoord(Vector2(t0, 1))
+        bladeGeom:DefineVertex(Vector3(ox1, oy1, offsetZ))
+        bladeGeom:DefineNormal(n)
+        bladeGeom:DefineTexCoord(Vector2(t1, 1))
+        -- 三角形2
+        bladeGeom:DefineVertex(Vector3(ix0, iy0, offsetZ))
+        bladeGeom:DefineNormal(n)
+        bladeGeom:DefineTexCoord(Vector2(t0, 0))
+        bladeGeom:DefineVertex(Vector3(ox1, oy1, offsetZ))
+        bladeGeom:DefineNormal(n)
+        bladeGeom:DefineTexCoord(Vector2(t1, 1))
+        bladeGeom:DefineVertex(Vector3(ix1, iy1, offsetZ))
+        bladeGeom:DefineNormal(n)
+        bladeGeom:DefineTexCoord(Vector2(t1, 0))
+    end
+    bladeGeom:Commit()
+
+    -- 锋刃材质：冷白色金属光泽
+    local bladeMat = Material:new()
+    bladeMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+    bladeMat:SetShaderParameter("MatDiffColor", Variant(Color(0.95, 0.97, 1.0, 0.9)))
+    bladeMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.85, 0.9, 1.0)))
+    bladeMat:SetShaderParameter("Metallic", Variant(0.9))
+    bladeMat:SetShaderParameter("Roughness", Variant(0.05))
+    bladeGeom:SetMaterial(bladeMat)
+    bladeGeom.castShadows = false
+
+    -- === 外层：拖尾气流（宽、淡、半透明淡蓝）===
+    local trailChild = node:CreateChild("trail")
+    local trailGeom = trailChild:CreateComponent("CustomGeometry")
+    trailGeom:BeginGeometry(0, TRIANGLE_LIST)
+
+    local trailRadius = 1.35
+    local trailThick = 0.25  -- 气流比刃宽很多
+
+    for i = 0, segments - 1 do
+        local t0 = i / segments
+        local t1 = (i + 1) / segments
+        local a0 = startAngle + (endAngle - startAngle) * t0
+        local a1 = startAngle + (endAngle - startAngle) * t1
+
+        local taper0 = math.sin(t0 * math.pi)
+        local taper1 = math.sin(t1 * math.pi)
+        local thick0 = trailThick * taper0
+        local thick1 = trailThick * taper1
+
+        local ox0 = math.cos(a0) * trailRadius
+        local oy0 = math.sin(a0) * trailRadius
+        local ox1 = math.cos(a1) * trailRadius
+        local oy1 = math.sin(a1) * trailRadius
+        local ix0 = math.cos(a0) * (trailRadius - thick0)
+        local iy0 = math.sin(a0) * (trailRadius - thick0)
+        local ix1 = math.cos(a1) * (trailRadius - thick1)
+        local iy1 = math.sin(a1) * (trailRadius - thick1)
+
+        local n = Vector3(0, 0, 1)
+        trailGeom:DefineVertex(Vector3(ix0, iy0, offsetZ - 0.05))
+        trailGeom:DefineNormal(n)
+        trailGeom:DefineTexCoord(Vector2(t0, 0))
+        trailGeom:DefineVertex(Vector3(ox0, oy0, offsetZ - 0.05))
+        trailGeom:DefineNormal(n)
+        trailGeom:DefineTexCoord(Vector2(t0, 1))
+        trailGeom:DefineVertex(Vector3(ox1, oy1, offsetZ - 0.05))
+        trailGeom:DefineNormal(n)
+        trailGeom:DefineTexCoord(Vector2(t1, 1))
+
+        trailGeom:DefineVertex(Vector3(ix0, iy0, offsetZ - 0.05))
+        trailGeom:DefineNormal(n)
+        trailGeom:DefineTexCoord(Vector2(t0, 0))
+        trailGeom:DefineVertex(Vector3(ox1, oy1, offsetZ - 0.05))
+        trailGeom:DefineNormal(n)
+        trailGeom:DefineTexCoord(Vector2(t1, 1))
+        trailGeom:DefineVertex(Vector3(ix1, iy1, offsetZ - 0.05))
+        trailGeom:DefineNormal(n)
+        trailGeom:DefineTexCoord(Vector2(t1, 0))
+    end
+    trailGeom:Commit()
+
+    -- 气流拖尾材质：淡蓝半透明
+    local trailMat = Material:new()
+    trailMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+    trailMat:SetShaderParameter("MatDiffColor", Variant(Color(0.7, 0.8, 1.0, 0.3)))
+    trailMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.4, 0.5, 0.7)))
+    trailMat:SetShaderParameter("Metallic", Variant(0.0))
+    trailMat:SetShaderParameter("Roughness", Variant(0.5))
+    trailGeom:SetMaterial(trailMat)
+    trailGeom.castShadows = false
+
+    node:SetVar("removeTimer", Variant(0.35))
+    return node
+end
+
+-- ============================================================================
+-- 烈火剑法视觉效果：巨型火焰纵斩弧 + 地面火浪扩散
+-- 效果是一道从天劈下的烈焰剑弧，附带地面向前扩散的火浪
+-- ============================================================================
+function Combat.SpawnFireSlashVisual(scene, center, dir, radius)
+    local node = scene:CreateChild("AOEVisual")
+    local fwd = Vector3(dir.x, 0, dir.z):Normalized()
+    -- 前置偏移，效果在角色前方
+    node.position = Vector3(center.x + fwd.x * 0.8, 0, center.z + fwd.z * 0.8)
+
+    local yaw = math.deg(math.atan2(fwd.x, fwd.z))
+    node.rotation = Quaternion(yaw, Vector3.UP)
+
+    -- === 主体：巨型火焰竖斩弧（从上方劈下）===
+    local arcNode = node:CreateChild("fireArc")
+    arcNode.position = Vector3(0, 1.2, 0.3)  -- 中心在胸前偏上
+    local arcGeom = arcNode:CreateComponent("CustomGeometry")
+    arcGeom:BeginGeometry(0, TRIANGLE_LIST)
+
+    local segments = 20
+    local arcRadius = radius * 0.9  -- 斩弧半径（与技能范围相关）
+    local startAngle = math.rad(-30)  -- 从右上起
+    local endAngle = math.rad(110)    -- 到左下止（140度大弧）
+    local maxThick = 0.15             -- 火焰弧比普通剑弧厚
+
+    for i = 0, segments - 1 do
+        local t0 = i / segments
+        local t1 = (i + 1) / segments
+        local a0 = startAngle + (endAngle - startAngle) * t0
+        local a1 = startAngle + (endAngle - startAngle) * t1
+
+        -- 中间最宽，两端收尖
+        local taper0 = math.sin(t0 * math.pi)
+        local taper1 = math.sin(t1 * math.pi)
+        local thick0 = maxThick * (0.3 + 0.7 * taper0)  -- 不完全收为零
+        local thick1 = maxThick * (0.3 + 0.7 * taper1)
+
+        local ox0 = math.cos(a0) * arcRadius
+        local oy0 = math.sin(a0) * arcRadius
+        local ox1 = math.cos(a1) * arcRadius
+        local oy1 = math.sin(a1) * arcRadius
+        local ix0 = math.cos(a0) * (arcRadius - thick0)
+        local iy0 = math.sin(a0) * (arcRadius - thick0)
+        local ix1 = math.cos(a1) * (arcRadius - thick1)
+        local iy1 = math.sin(a1) * (arcRadius - thick1)
+
+        local n = Vector3(0, 0, 1)
+        arcGeom:DefineVertex(Vector3(ix0, iy0, 0))
+        arcGeom:DefineNormal(n)
+        arcGeom:DefineTexCoord(Vector2(t0, 0))
+        arcGeom:DefineVertex(Vector3(ox0, oy0, 0))
+        arcGeom:DefineNormal(n)
+        arcGeom:DefineTexCoord(Vector2(t0, 1))
+        arcGeom:DefineVertex(Vector3(ox1, oy1, 0))
+        arcGeom:DefineNormal(n)
+        arcGeom:DefineTexCoord(Vector2(t1, 1))
+
+        arcGeom:DefineVertex(Vector3(ix0, iy0, 0))
+        arcGeom:DefineNormal(n)
+        arcGeom:DefineTexCoord(Vector2(t0, 0))
+        arcGeom:DefineVertex(Vector3(ox1, oy1, 0))
+        arcGeom:DefineNormal(n)
+        arcGeom:DefineTexCoord(Vector2(t1, 1))
+        arcGeom:DefineVertex(Vector3(ix1, iy1, 0))
+        arcGeom:DefineNormal(n)
+        arcGeom:DefineTexCoord(Vector2(t1, 0))
+    end
+    arcGeom:Commit()
+
+    -- 火焰弧材质：炽烈橙红，强发光
+    local fireMat = Material:new()
+    fireMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+    fireMat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 0.4, 0.05, 0.85)))
+    fireMat:SetShaderParameter("MatEmissiveColor", Variant(Color(1.0, 0.5, 0.0)))
+    fireMat:SetShaderParameter("Metallic", Variant(0.0))
+    fireMat:SetShaderParameter("Roughness", Variant(0.15))
+    arcGeom:SetMaterial(fireMat)
+    arcGeom.castShadows = false
+
+    -- === 火弧内层光芯：更亮更窄（白黄色高温核心）===
+    local coreNode = node:CreateChild("fireCore")
+    coreNode.position = Vector3(0, 1.2, 0.35)
+    local coreGeom = coreNode:CreateComponent("CustomGeometry")
+    coreGeom:BeginGeometry(0, TRIANGLE_LIST)
+
+    local coreRadius = arcRadius * 0.85
+    local coreThick = 0.04
+
+    for i = 0, segments - 1 do
+        local t0 = i / segments
+        local t1 = (i + 1) / segments
+        local a0 = startAngle + (endAngle - startAngle) * t0
+        local a1 = startAngle + (endAngle - startAngle) * t1
+        local taper0 = math.sin(t0 * math.pi)
+        local taper1 = math.sin(t1 * math.pi)
+        local thick0 = coreThick * taper0
+        local thick1 = coreThick * taper1
+
+        local ox0 = math.cos(a0) * coreRadius
+        local oy0 = math.sin(a0) * coreRadius
+        local ox1 = math.cos(a1) * coreRadius
+        local oy1 = math.sin(a1) * coreRadius
+        local ix0 = math.cos(a0) * (coreRadius - thick0)
+        local iy0 = math.sin(a0) * (coreRadius - thick0)
+        local ix1 = math.cos(a1) * (coreRadius - thick1)
+        local iy1 = math.sin(a1) * (coreRadius - thick1)
+
+        local n = Vector3(0, 0, 1)
+        coreGeom:DefineVertex(Vector3(ix0, iy0, 0))
+        coreGeom:DefineNormal(n)
+        coreGeom:DefineTexCoord(Vector2(t0, 0))
+        coreGeom:DefineVertex(Vector3(ox0, oy0, 0))
+        coreGeom:DefineNormal(n)
+        coreGeom:DefineTexCoord(Vector2(t0, 1))
+        coreGeom:DefineVertex(Vector3(ox1, oy1, 0))
+        coreGeom:DefineNormal(n)
+        coreGeom:DefineTexCoord(Vector2(t1, 1))
+
+        coreGeom:DefineVertex(Vector3(ix0, iy0, 0))
+        coreGeom:DefineNormal(n)
+        coreGeom:DefineTexCoord(Vector2(t0, 0))
+        coreGeom:DefineVertex(Vector3(ox1, oy1, 0))
+        coreGeom:DefineNormal(n)
+        coreGeom:DefineTexCoord(Vector2(t1, 1))
+        coreGeom:DefineVertex(Vector3(ix1, iy1, 0))
+        coreGeom:DefineNormal(n)
+        coreGeom:DefineTexCoord(Vector2(t1, 0))
+    end
+    coreGeom:Commit()
+
+    local coreMat = Material:new()
+    coreMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+    coreMat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 0.9, 0.5, 0.95)))
+    coreMat:SetShaderParameter("MatEmissiveColor", Variant(Color(1.0, 0.95, 0.7)))
+    coreMat:SetShaderParameter("Metallic", Variant(0.0))
+    coreMat:SetShaderParameter("Roughness", Variant(0.0))
+    coreGeom:SetMaterial(coreMat)
+    coreGeom.castShadows = false
+
+    -- === 地面火浪：向前方扇形扩散的焦灼地面 ===
+    local groundNode = node:CreateChild("groundFire")
+    groundNode.position = Vector3(0, 0.04, radius * 0.4)
+    groundNode.scale = Vector3(radius * 1.2, 0.04, radius * 0.8)
+    local gModel = groundNode:CreateComponent("StaticModel")
+    gModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+    local groundMat = Material:new()
+    groundMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+    groundMat:SetShaderParameter("MatDiffColor", Variant(Color(0.9, 0.25, 0.0, 0.4)))
+    groundMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.7, 0.15, 0.0)))
+    groundMat:SetShaderParameter("Metallic", Variant(0.0))
+    groundMat:SetShaderParameter("Roughness", Variant(0.7))
+    gModel:SetMaterial(groundMat)
+    gModel.castShadows = false
+
+    -- 地面火焰碎片（3个小火柱散落前方）
+    for fi = 1, 3 do
+        local flameNode = node:CreateChild("flame" .. fi)
+        local fx = (fi - 2) * 0.6  -- -0.6, 0, 0.6 横向分布
+        local fz = 0.5 + fi * 0.3  -- 纵向递增
+        flameNode.position = Vector3(fx, 0, fz)
+        local flameH = 0.5 + math.random() * 0.6
+        flameNode.scale = Vector3(0.12, flameH, 0.12)
+        local fModel = flameNode:CreateComponent("StaticModel")
+        fModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+        local flameMat = Material:new()
+        flameMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+        flameMat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 0.35, 0.0, 0.7)))
+        flameMat:SetShaderParameter("MatEmissiveColor", Variant(Color(1.0, 0.4, 0.0)))
+        flameMat:SetShaderParameter("Metallic", Variant(0.0))
+        flameMat:SetShaderParameter("Roughness", Variant(0.2))
+        fModel:SetMaterial(flameMat)
+        fModel.castShadows = false
+    end
+
+    node:SetVar("removeTimer", Variant(1.0))
     return node
 end
 
