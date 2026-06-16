@@ -710,9 +710,10 @@ function CreatePreviewCharacter(slotIndex, classId)
                 -- 清除法线和属性贴图
                 mat:SetTexture(TU_NORMAL, nil)
                 mat:SetTexture(TU_SPECULAR, nil)
-                -- 统一设置光滑参数
-                mat:SetShaderParameter("Roughness", Variant(0.75))
-                mat:SetShaderParameter("Metallic", Variant(0.05))
+                -- 统一设置光滑参数 + 微弱自发光填充暗部
+                mat:SetShaderParameter("Roughness", Variant(0.8))
+                mat:SetShaderParameter("Metallic", Variant(0.0))
+                mat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.08, 0.07, 0.06)))
                 animModel:SetMaterial(i, mat)
             end
         end
@@ -752,11 +753,15 @@ function CleanupPreview()
     for i = 1, 2 do
         DestroyPreviewCharacter(i)
     end
-    -- 移除背板和地面
+    -- 移除背板、地面和预览灯光
     local backdrop = scene_:GetChild("PreviewBackdrop")
     if backdrop then backdrop:Remove() end
     local floor = scene_:GetChild("PreviewFloor")
     if floor then floor:Remove() end
+    local keyLight = scene_:GetChild("PreviewKeyLight")
+    if keyLight then keyLight:Remove() end
+    local fillLight = scene_:GetChild("PreviewFillLight")
+    if fillLight then fillLight:Remove() end
     -- 恢复游戏 FOV
     if cameraNode_ then
         local cam = cameraNode_:GetComponent("Camera")
@@ -822,6 +827,32 @@ function ActivatePreview()
         cameraNode_:LookAt(PREVIEW_CAM_LOOKAT)
         local cam = cameraNode_:GetComponent("Camera")
         if cam then cam.fov = PREVIEW_FOV end
+    end
+    -- 创建预览专用正面补光（棚拍灯光，消除脸部阴影坑洼感）
+    if not scene_:GetChild("PreviewKeyLight") then
+        -- 主光：正面偏上，照亮面部
+        local keyNode = scene_:CreateChild("PreviewKeyLight")
+        keyNode.position = Vector3(0, 2.5, 197)  -- 在相机前方偏上
+        keyNode:LookAt(Vector3(0, 1.0, 200))     -- 朝向角色面部
+        local keyLight = keyNode:CreateComponent("Light")
+        keyLight.lightType = LIGHT_SPOT
+        keyLight.range = 12
+        keyLight.fov = 60
+        keyLight.color = Color(1.0, 0.95, 0.9)
+        keyLight.brightness = 1.8
+        keyLight.castShadows = false
+
+        -- 补光：从下方柔和填充下巴/嘴部暗区
+        local fillNode = scene_:CreateChild("PreviewFillLight")
+        fillNode.position = Vector3(0, 0.3, 197.5)
+        fillNode:LookAt(Vector3(0, 1.2, 200))
+        local fillLight = fillNode:CreateComponent("Light")
+        fillLight.lightType = LIGHT_SPOT
+        fillLight.range = 10
+        fillLight.fov = 50
+        fillLight.color = Color(0.85, 0.88, 1.0)
+        fillLight.brightness = 1.0
+        fillLight.castShadows = false
     end
     -- 创建深色背板（大黑色平面在角色后方，让预览背景纯黑）
     if not scene_:GetChild("PreviewBackdrop") then
