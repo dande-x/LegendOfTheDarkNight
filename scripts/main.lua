@@ -682,21 +682,22 @@ function CreatePreviewCharacter(slotIndex, classId)
             modelNode.position = Vector3(0, -minY * s, 0)
         end
 
-        -- 应用职业材质
+        -- 应用职业材质（仅在 useTexture=true 时覆盖；否则保留 prefab 自带材质）
         local config = classMod.material
-        local mat = Material:new()
-        mat:SetTechnique(0, cache:GetResource("Technique", config.technique))
         if config.useTexture then
+            local mat = Material:new()
+            mat:SetTechnique(0, cache:GetResource("Technique", config.technique))
             mat:SetTexture(TU_DIFFUSE, cache:GetResource("Texture2D", "uuid://ARGvkYnzrbbOxkjh2N68upmG"))
+            mat:SetShaderParameter("MatDiffColor", Variant(config.diffColor))
+            mat:SetShaderParameter("Roughness", Variant(config.roughness))
+            mat:SetShaderParameter("Metallic", Variant(config.metallic))
+            mat:SetShaderParameter("MatEmissiveColor", Variant(config.emissive))
+            local numGeom = animModel:GetNumGeometries()
+            for i = 0, numGeom - 1 do
+                animModel:SetMaterial(i, mat)
+            end
         end
-        mat:SetShaderParameter("MatDiffColor", Variant(config.diffColor))
-        mat:SetShaderParameter("Roughness", Variant(config.roughness))
-        mat:SetShaderParameter("Metallic", Variant(config.metallic))
-        mat:SetShaderParameter("MatEmissiveColor", Variant(config.emissive))
-        local numGeom = animModel:GetNumGeometries()
-        for i = 0, numGeom - 1 do
-            animModel:SetMaterial(i, mat)
-        end
+        -- useTexture=false 的职业（法师、道士）有独立 prefab，自带材质/贴图，无需覆盖
     end
 
     -- 获取动画控制器
