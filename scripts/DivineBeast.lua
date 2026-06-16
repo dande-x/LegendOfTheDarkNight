@@ -54,8 +54,8 @@ local BEAST_ANIMS = {
 
 -- 动画播放速度（神兽体型大，动作应更沉重缓慢）
 local BEAST_ANIM_SPEEDS = {
-    idle = 0.7,     -- 待机慢速，显得稳重沉着
-    move = 0.55,    -- 跑步大幅降速，体现巨兽沉重步伐
+    idle = 0.75,    -- 待机慢速，显得稳重沉着
+    move = 0.8,     -- 跑步适中降速，保证腿部动作可见
     attack = 0.85,  -- 攻击略慢，力量感
 }
 
@@ -195,6 +195,26 @@ local function CreateBeastModel(parentNode, scene)
     -- 获取头部骨骼节点（用于定位嘴巴喷火）
     local skeleton = beast.animModel:GetSkeleton()
     if skeleton then
+        -- ★ Tripo Rig 动画重定向关键修复：
+        -- 禁用 Root 和 Hip 骨骼的动画，防止位移数据覆盖肢体运动
+        -- 这样官方动画的腿部关键帧才能正确驱动 L_Thigh/R_Thigh 等骨骼
+        local rootBone = skeleton:GetBone("Root")
+        if rootBone then
+            rootBone.animated = false
+            print("[DivineBeast] Root bone animation disabled (retarget fix)")
+        end
+        local hipBone = skeleton:GetBone("Hip")
+        if hipBone then
+            hipBone.animated = false
+            print("[DivineBeast] Hip bone animation disabled (retarget fix)")
+        end
+        -- Pelvis 也是中间节点（Tripo变体独有），禁用防止干扰腿部
+        local pelvisBone = skeleton:GetBone("Pelvis")
+        if pelvisBone then
+            pelvisBone.animated = false
+            print("[DivineBeast] Pelvis bone animation disabled (retarget fix)")
+        end
+
         for _, boneName in ipairs(HEAD_BONE_CANDIDATES) do
             local headBone = skeleton:GetBone(boneName)
             if headBone and headBone.node then
