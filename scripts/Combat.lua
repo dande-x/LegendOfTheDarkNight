@@ -635,7 +635,29 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
             playerNode.rotation = Quaternion(math.deg(angle), Vector3.UP)
         end
 
-        Combat.SpawnProjectile(scene, playerPos + Vector3(0, 0.8, 0), dir, dmg, skill, player)
+        -- 雷电术：直接劈下闪电，不发射球体
+        if skill.id == "m_thunder" then
+            -- 确定落点：有目标则落在目标处，否则落在前方 range 处
+            local strikePos
+            if target then
+                strikePos = target.node.position
+                Combat.DealDamage(target, dmg, player)
+            else
+                strikePos = playerPos + dir * (skill.range or 6)
+                -- 对落点范围内的敌人造成伤害
+                for _, e in ipairs(enemies) do
+                    if e.state ~= "dead" and e.state ~= "dying" then
+                        local d = (e.node.position - strikePos):Length()
+                        if d <= 1.5 then
+                            Combat.DealDamage(e, dmg, player)
+                        end
+                    end
+                end
+            end
+            Combat.SpawnThunderStrikeVisual(scene, strikePos)
+        else
+            Combat.SpawnProjectile(scene, playerPos + Vector3(0, 0.8, 0), dir, dmg, skill, player)
+        end
         return true, "ranged"
 
     elseif skill.type == SKILL_TYPE.AOE then
@@ -931,29 +953,7 @@ function Combat.SpawnProjectile(scene, origin, dir, damage, skill, player)
         tModel:SetMaterial(trailMat)
         tModel.castShadows = false
 
-    -- ========== 法师 - 雷电术：黄白闪电球 ==========
-    elseif skillId == "m_thunder" then
-        projNode.scale = Vector3(0.3, 0.3, 0.3)
-        local model = projNode:CreateComponent("StaticModel")
-        model:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
-        local thunderColor = Color(0.9, 0.9, 1.0, 1.0) -- 电弧白
-        local mat = CreatePBR(thunderColor, 0.0, 0.1)
-        mat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.8, 0.8, 1.0)))
-        model:SetMaterial(mat)
-        model.castShadows = false
-        -- 电弧外层光晕
-        local glowNode = projNode:CreateChild("glow")
-        glowNode.scale = Vector3(1.6, 1.6, 1.6)
-        local gModel = glowNode:CreateComponent("StaticModel")
-        gModel:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
-        local glowMat = Material:new()
-        glowMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
-        glowMat:SetShaderParameter("MatDiffColor", Variant(Color(0.6, 0.5, 1.0, 0.25)))
-        glowMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.5, 0.4, 1.0)))
-        glowMat:SetShaderParameter("Metallic", Variant(0.0))
-        glowMat:SetShaderParameter("Roughness", Variant(0.3))
-        gModel:SetMaterial(glowMat)
-        gModel.castShadows = false
+    -- (m_thunder 已改为直接劈闪电，不再使用投射物)
 
     -- ========== 默认/通用投射物 ==========
     else
@@ -1006,10 +1006,6 @@ function Combat.UpdateProjectiles(scene, dt, player)
         end
 
         if hit or p.traveled >= p.range then
-            -- 命中时生成落点特效
-            if hit and p.skillId == "m_thunder" then
-                Combat.SpawnThunderStrikeVisual(scene, hitPos)
-            end
             p.node:Remove()
             table.remove(projectiles, i)
         end
@@ -1095,77 +1091,208 @@ function Combat.SpawnAOEVisual(scene, center, radius, classId, skillId)
         node:SetVar("removeTimer", Variant(1.8))
         return node
 
-    -- ========== 法师 - 冰咆哮：冰蓝暴风雪 ==========
+    -- ========== 法师 - 冰咆哮：暴风雪 + 冰雪粒子 ==========
     elseif skillId == "m_blizzard" then
         local node = scene:CreateChild("AOEVisual")
         node.position = Vector3(center.x, 0.0, center.z)
-        -- 冰霜地面
+
+        -- 1) 冰冻地面（大范围半透明冰面）
         local iceBase = node:CreateChild("iceBase")
-        iceBase.position = Vector3(0, 0.04, 0)
-        iceBase.scale = Vector3(radius * 2, 0.04, radius * 2)
+        iceBase.position = Vector3(0, 0.03, 0)
+        iceBase.scale = Vector3(radius * 2.2, 0.03, radius * 2.2)
         local iModel = iceBase:CreateComponent("StaticModel")
         iModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
         local iceMat = Material:new()
         iceMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
-        iceMat:SetShaderParameter("MatDiffColor", Variant(Color(0.7, 0.85, 1.0, 0.5)))
-        iceMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.4, 0.6, 1.0)))
-        iceMat:SetShaderParameter("Metallic", Variant(0.8))
-        iceMat:SetShaderParameter("Roughness", Variant(0.1))
+        iceMat:SetShaderParameter("MatDiffColor", Variant(Color(0.75, 0.9, 1.0, 0.45)))
+        iceMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.3, 0.5, 0.9)))
+        iceMat:SetShaderParameter("Metallic", Variant(0.95))
+        iceMat:SetShaderParameter("Roughness", Variant(0.02))
         iModel:SetMaterial(iceMat)
         iModel.castShadows = false
-        -- 冰柱碎片（随机散落）
-        for ci = 1, 6 do
-            local shard = node:CreateChild("shard" .. ci)
-            local sa = (ci / 6) * math.pi * 2 + math.random() * 0.5
-            local sd = radius * (0.3 + math.random() * 0.6)
-            shard.position = Vector3(math.cos(sa) * sd, 0.2 + math.random() * 0.5, math.sin(sa) * sd)
-            shard.scale = Vector3(0.1, 0.3 + math.random() * 0.4, 0.1)
-            shard.rotation = Quaternion(math.random() * 20 - 10, math.random() * 360, math.random() * 20 - 10)
+
+        -- 2) 旋涡风柱（中心半透明圆柱模拟寒风旋转）
+        local vortex = node:CreateChild("vortex")
+        vortex.position = Vector3(0, 1.5, 0)
+        vortex.scale = Vector3(radius * 1.4, 3.0, radius * 1.4)
+        local vModel = vortex:CreateComponent("StaticModel")
+        vModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+        local vortexMat = Material:new()
+        vortexMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+        vortexMat:SetShaderParameter("MatDiffColor", Variant(Color(0.8, 0.9, 1.0, 0.12)))
+        vortexMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.4, 0.6, 1.0)))
+        vortexMat:SetShaderParameter("Metallic", Variant(0.0))
+        vortexMat:SetShaderParameter("Roughness", Variant(0.1))
+        vModel:SetMaterial(vortexMat)
+        vModel.castShadows = false
+
+        -- 3) 大冰柱（从地面刺出，环形排列）
+        local pillarCount = 5
+        for pi = 1, pillarCount do
+            local angle = (pi / pillarCount) * math.pi * 2 + math.random() * 0.4
+            local dist = radius * (0.5 + math.random() * 0.4)
+            local pillar = node:CreateChild("icePillar" .. pi)
+            local h = 1.2 + math.random() * 1.0
+            pillar.position = Vector3(math.cos(angle) * dist, h * 0.5, math.sin(angle) * dist)
+            pillar.scale = Vector3(0.15 + math.random() * 0.1, h, 0.15 + math.random() * 0.1)
+            -- 冰柱略微倾斜
+            pillar.rotation = Quaternion(math.random() * 12 - 6, math.random() * 360, math.random() * 12 - 6)
+            local pModel = pillar:CreateComponent("StaticModel")
+            pModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
+            local pillarMat = Material:new()
+            pillarMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+            pillarMat:SetShaderParameter("MatDiffColor", Variant(Color(0.85, 0.95, 1.0, 0.75)))
+            pillarMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.4, 0.65, 1.0)))
+            pillarMat:SetShaderParameter("Metallic", Variant(0.9))
+            pillarMat:SetShaderParameter("Roughness", Variant(0.03))
+            pModel:SetMaterial(pillarMat)
+            pModel.castShadows = false
+        end
+
+        -- 4) 冰雪粒子群（大量微小方块模拟飞舞的冰晶雪花）
+        local particleCount = 25
+        for pi = 1, particleCount do
+            local particle = node:CreateChild("snowParticle" .. pi)
+            -- 随机分布在圆柱空间内
+            local pAngle = math.random() * math.pi * 2
+            local pDist = math.random() * radius * 1.0
+            local pHeight = 0.3 + math.random() * 3.5
+            particle.position = Vector3(
+                math.cos(pAngle) * pDist,
+                pHeight,
+                math.sin(pAngle) * pDist
+            )
+            -- 微小尺寸，随机形态
+            local pSize = 0.03 + math.random() * 0.06
+            particle.scale = Vector3(pSize, pSize * (0.5 + math.random()), pSize)
+            -- 随机旋转模拟翻滚
+            particle.rotation = Quaternion(math.random() * 360, math.random() * 360, math.random() * 360)
+            local ptModel = particle:CreateComponent("StaticModel")
+            ptModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
+            local ptMat = Material:new()
+            ptMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+            -- 白/淡蓝随机
+            local blue = 0.85 + math.random() * 0.15
+            ptMat:SetShaderParameter("MatDiffColor", Variant(Color(blue, blue, 1.0, 0.7 + math.random() * 0.3)))
+            ptMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.5, 0.7, 1.0)))
+            ptMat:SetShaderParameter("Metallic", Variant(0.6))
+            ptMat:SetShaderParameter("Roughness", Variant(0.1))
+            ptModel:SetMaterial(ptMat)
+            ptModel.castShadows = false
+        end
+
+        -- 5) 外圈冰碎环（地面边缘碎冰块）
+        for ci = 1, 8 do
+            local shard = node:CreateChild("iceShard" .. ci)
+            local sa = (ci / 8) * math.pi * 2 + math.random() * 0.3
+            local sd = radius * (0.8 + math.random() * 0.3)
+            shard.position = Vector3(math.cos(sa) * sd, 0.08 + math.random() * 0.15, math.sin(sa) * sd)
+            local ss = 0.08 + math.random() * 0.12
+            shard.scale = Vector3(ss, ss * 0.5, ss * 1.5)
+            shard.rotation = Quaternion(math.random() * 30 - 15, math.random() * 360, math.random() * 30 - 15)
             local sModel = shard:CreateComponent("StaticModel")
             sModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
-            local shardMat = CreatePBR(Color(0.8, 0.92, 1.0, 0.8), 0.9, 0.05)
-            shardMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.5, 0.7, 1.0)))
+            local shardMat = CreatePBR(Color(0.9, 0.95, 1.0, 0.85), 0.95, 0.02)
+            shardMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.3, 0.5, 0.9)))
             sModel:SetMaterial(shardMat)
             sModel.castShadows = false
         end
-        node:SetVar("removeTimer", Variant(2.5))
+
+        node:SetVar("removeTimer", Variant(3.0))
         return node
 
-    -- ========== 法师 - 火墙：暗红持续燃烧 ==========
+    -- ========== 法师 - 火墙：方形持续燃烧区域 ==========
     elseif skillId == "m_firewall" then
         local node = scene:CreateChild("AOEVisual")
         node.position = Vector3(center.x, 0.0, center.z)
-        -- 火焰墙柱群（低矮密集）
-        local wallCount = 8
-        for wi = 1, wallCount do
-            local wa = (wi / wallCount) * math.pi * 2
-            local wd = radius * 0.6 * (0.5 + math.random() * 0.5)
-            local flame = node:CreateChild("flame" .. wi)
-            flame.position = Vector3(math.cos(wa) * wd, 0, math.sin(wa) * wd)
-            local fh = 0.5 + math.random() * 0.8
-            flame.scale = Vector3(0.15, fh, 0.15)
-            local fModel = flame:CreateComponent("StaticModel")
-            fModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
-            local fireMat = Material:new()
-            fireMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
-            fireMat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 0.3, 0.0, 0.7)))
-            fireMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.9, 0.2, 0.0)))
-            fireMat:SetShaderParameter("Metallic", Variant(0.0))
-            fireMat:SetShaderParameter("Roughness", Variant(0.3))
-            fModel:SetMaterial(fireMat)
-            fModel.castShadows = false
-        end
-        -- 地面灼烧痕
+
+        -- 方形火墙尺寸：宽 = radius*2, 深 = radius*1.2
+        local wallW = radius * 2.0
+        local wallD = radius * 1.2
+
+        -- 1) 地面灼烧方块（暗红焦黑地面）
         local burnBase = node:CreateChild("burnBase")
-        burnBase.position = Vector3(0, 0.02, 0)
-        burnBase.scale = Vector3(radius * 2, 0.02, radius * 2)
+        burnBase.position = Vector3(0, 0.03, 0)
+        burnBase.scale = Vector3(wallW, 0.03, wallD)
         local bModel = burnBase:CreateComponent("StaticModel")
-        bModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
-        local burnMat = CreatePBR(Color(0.2, 0.02, 0.0, 0.5), 0.0, 0.9)
-        burnMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.4, 0.05, 0.0)))
+        bModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
+        local burnMat = Material:new()
+        burnMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+        burnMat:SetShaderParameter("MatDiffColor", Variant(Color(0.15, 0.02, 0.0, 0.7)))
+        burnMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.6, 0.08, 0.0)))
+        burnMat:SetShaderParameter("Metallic", Variant(0.0))
+        burnMat:SetShaderParameter("Roughness", Variant(0.95))
         bModel:SetMaterial(burnMat)
         bModel.castShadows = false
-        node:SetVar("removeTimer", Variant(2.5))
+
+        -- 2) 四面方形火墙（竖立的 Box 薄板）
+        local wallHeight = 1.8
+        local wallThick = 0.08
+        local sides = {
+            { pos = Vector3(0, wallHeight * 0.5, wallD * 0.5), sx = wallW, sz = wallThick },  -- 前
+            { pos = Vector3(0, wallHeight * 0.5, -wallD * 0.5), sx = wallW, sz = wallThick }, -- 后
+            { pos = Vector3(wallW * 0.5, wallHeight * 0.5, 0), sx = wallThick, sz = wallD },  -- 右
+            { pos = Vector3(-wallW * 0.5, wallHeight * 0.5, 0), sx = wallThick, sz = wallD }, -- 左
+        }
+        for si, s in ipairs(sides) do
+            local wallNode = node:CreateChild("wall" .. si)
+            wallNode.position = s.pos
+            wallNode.scale = Vector3(s.sx, wallHeight, s.sz)
+            local wModel = wallNode:CreateComponent("StaticModel")
+            wModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
+            local wallMat = Material:new()
+            wallMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+            wallMat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 0.35, 0.0, 0.55)))
+            wallMat:SetShaderParameter("MatEmissiveColor", Variant(Color(1.0, 0.25, 0.0)))
+            wallMat:SetShaderParameter("Metallic", Variant(0.0))
+            wallMat:SetShaderParameter("Roughness", Variant(0.2))
+            wModel:SetMaterial(wallMat)
+            wModel.castShadows = false
+        end
+
+        -- 3) 内部火焰柱群（方形排列，密集燃烧）
+        local cols = 3
+        local rows = 2
+        for row = 1, rows do
+            for col = 1, cols do
+                local fx = (col / (cols + 1) - 0.5) * wallW
+                local fz = (row / (rows + 1) - 0.5) * wallD
+                local flame = node:CreateChild("flame" .. ((row - 1) * cols + col))
+                local fh = 1.0 + math.random() * 1.0
+                flame.position = Vector3(fx + (math.random() - 0.5) * 0.3, 0, fz + (math.random() - 0.5) * 0.2)
+                flame.scale = Vector3(0.18 + math.random() * 0.1, fh, 0.18 + math.random() * 0.1)
+                local fModel = flame:CreateComponent("StaticModel")
+                fModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+                local flameMat = Material:new()
+                flameMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+                -- 内层用更亮的黄橙色
+                local intensity = 0.5 + math.random() * 0.5
+                flameMat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 0.4 * intensity, 0.0, 0.65)))
+                flameMat:SetShaderParameter("MatEmissiveColor", Variant(Color(1.0, 0.3 * intensity, 0.0)))
+                flameMat:SetShaderParameter("Metallic", Variant(0.0))
+                flameMat:SetShaderParameter("Roughness", Variant(0.25))
+                fModel:SetMaterial(flameMat)
+                fModel.castShadows = false
+            end
+        end
+
+        -- 4) 顶部热浪层（半透明橙黄薄片）
+        local heatNode = node:CreateChild("heatTop")
+        heatNode.position = Vector3(0, wallHeight * 0.85, 0)
+        heatNode.scale = Vector3(wallW * 0.9, 0.15, wallD * 0.9)
+        local hModel = heatNode:CreateComponent("StaticModel")
+        hModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
+        local heatMat = Material:new()
+        heatMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+        heatMat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 0.6, 0.1, 0.2)))
+        heatMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.8, 0.4, 0.0)))
+        heatMat:SetShaderParameter("Metallic", Variant(0.0))
+        heatMat:SetShaderParameter("Roughness", Variant(0.1))
+        hModel:SetMaterial(heatMat)
+        hModel.castShadows = false
+
+        -- removeTimer 与 DOT duration 一致（9秒），火墙视觉随伤害区域同步消失
+        node:SetVar("removeTimer", Variant(9.0))
         return node
 
     -- ========== 武士 - 烈火剑法：火焰爆发环 ==========
@@ -1802,37 +1929,168 @@ function Combat.SpawnThunderStrikeVisual(scene, pos)
     local node = scene:CreateChild("AOEVisual")
     node.position = Vector3(pos.x, 0, pos.z)
 
-    -- 闪电柱（垂直光柱从天而降）
-    local boltNode = node:CreateChild("bolt")
-    boltNode.position = Vector3(0, 3.0, 0)
-    boltNode.scale = Vector3(0.12, 6.0, 0.12)
-    local bModel = boltNode:CreateComponent("StaticModel")
-    bModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
-    local boltMat = Material:new()
-    boltMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
-    boltMat:SetShaderParameter("MatDiffColor", Variant(Color(0.9, 0.85, 1.0, 0.8)))
-    boltMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.8, 0.7, 1.0)))
-    boltMat:SetShaderParameter("Metallic", Variant(0.0))
-    boltMat:SetShaderParameter("Roughness", Variant(0.1))
-    bModel:SetMaterial(boltMat)
-    bModel.castShadows = false
+    -- 闪电参数
+    local boltHeight = 8.0       -- 闪电从多高劈下
+    local segments = 12          -- 主雷折线段数
+    local jitter = 0.4           -- 每段横向随机偏移
+    local thickness = 0.08       -- 主雷粗度
 
-    -- 落点光环
-    local glowNode = node:CreateChild("glow")
-    glowNode.position = Vector3(0, 0.05, 0)
-    glowNode.scale = Vector3(1.5, 0.05, 1.5)
-    local gModel = glowNode:CreateComponent("StaticModel")
-    gModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
-    local glowMat = Material:new()
-    glowMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
-    glowMat:SetShaderParameter("MatDiffColor", Variant(Color(0.7, 0.6, 1.0, 0.4)))
-    glowMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.6, 0.5, 1.0)))
-    glowMat:SetShaderParameter("Metallic", Variant(0.0))
-    glowMat:SetShaderParameter("Roughness", Variant(0.2))
-    gModel:SetMaterial(glowMat)
-    gModel.castShadows = false
+    -- 辅助：生成一条锯齿折线闪电的顶点列表
+    local function generateBoltPoints(startY, endY, segs, jitterAmt, offsetX, offsetZ)
+        local points = {}
+        for i = 0, segs do
+            local t = i / segs
+            local y = startY + (endY - startY) * t
+            local jx, jz = 0, 0
+            if i > 0 and i < segs then
+                jx = (math.random() - 0.5) * 2 * jitterAmt
+                jz = (math.random() - 0.5) * 2 * jitterAmt
+            end
+            points[#points + 1] = Vector3((offsetX or 0) + jx, y, (offsetZ or 0) + jz)
+        end
+        return points
+    end
 
-    node:SetVar("removeTimer", Variant(0.8))
+    -- 辅助：用 CustomGeometry 画一条折线闪电（三角带，双面厚度模拟）
+    local function drawBolt(parentNode, name, points, thick, color, emissiveColor, alpha)
+        local boltNode = parentNode:CreateChild(name)
+        local geom = boltNode:CreateComponent("CustomGeometry")
+        geom:BeginGeometry(0, TRIANGLE_LIST)
+
+        -- 沿每段构建矩形面片（XY平面 + XZ平面交叉，产生体积感）
+        for i = 1, #points - 1 do
+            local p0 = points[i]
+            local p1 = points[i + 1]
+            local halfT = thick * 0.5
+
+            -- XY 面片（左右展开）
+            geom:DefineVertex(Vector3(p0.x - halfT, p0.y, p0.z))
+            geom:DefineNormal(Vector3(0, 0, 1))
+            geom:DefineTexCoord(Vector2(0, 0))
+            geom:DefineVertex(Vector3(p0.x + halfT, p0.y, p0.z))
+            geom:DefineNormal(Vector3(0, 0, 1))
+            geom:DefineTexCoord(Vector2(1, 0))
+            geom:DefineVertex(Vector3(p1.x + halfT, p1.y, p1.z))
+            geom:DefineNormal(Vector3(0, 0, 1))
+            geom:DefineTexCoord(Vector2(1, 1))
+
+            geom:DefineVertex(Vector3(p0.x - halfT, p0.y, p0.z))
+            geom:DefineNormal(Vector3(0, 0, 1))
+            geom:DefineTexCoord(Vector2(0, 0))
+            geom:DefineVertex(Vector3(p1.x + halfT, p1.y, p1.z))
+            geom:DefineNormal(Vector3(0, 0, 1))
+            geom:DefineTexCoord(Vector2(1, 1))
+            geom:DefineVertex(Vector3(p1.x - halfT, p1.y, p1.z))
+            geom:DefineNormal(Vector3(0, 0, 1))
+            geom:DefineTexCoord(Vector2(0, 1))
+
+            -- XZ 面片（前后展开，让侧面也可见）
+            geom:DefineVertex(Vector3(p0.x, p0.y, p0.z - halfT))
+            geom:DefineNormal(Vector3(1, 0, 0))
+            geom:DefineTexCoord(Vector2(0, 0))
+            geom:DefineVertex(Vector3(p0.x, p0.y, p0.z + halfT))
+            geom:DefineNormal(Vector3(1, 0, 0))
+            geom:DefineTexCoord(Vector2(1, 0))
+            geom:DefineVertex(Vector3(p1.x, p1.y, p1.z + halfT))
+            geom:DefineNormal(Vector3(1, 0, 0))
+            geom:DefineTexCoord(Vector2(1, 1))
+
+            geom:DefineVertex(Vector3(p0.x, p0.y, p0.z - halfT))
+            geom:DefineNormal(Vector3(1, 0, 0))
+            geom:DefineTexCoord(Vector2(0, 0))
+            geom:DefineVertex(Vector3(p1.x, p1.y, p1.z + halfT))
+            geom:DefineNormal(Vector3(1, 0, 0))
+            geom:DefineTexCoord(Vector2(1, 1))
+            geom:DefineVertex(Vector3(p1.x, p1.y, p1.z - halfT))
+            geom:DefineNormal(Vector3(1, 0, 0))
+            geom:DefineTexCoord(Vector2(0, 1))
+        end
+
+        geom:Commit()
+        local mat = Material:new()
+        mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+        mat:SetShaderParameter("MatDiffColor", Variant(Color(color.r, color.g, color.b, alpha)))
+        mat:SetShaderParameter("MatEmissiveColor", Variant(emissiveColor))
+        mat:SetShaderParameter("Metallic", Variant(0.0))
+        mat:SetShaderParameter("Roughness", Variant(0.05))
+        geom:SetMaterial(mat)
+        geom.castShadows = false
+        return boltNode
+    end
+
+    -- 1) 主雷击（粗、亮白蓝）
+    local mainPoints = generateBoltPoints(boltHeight, 0, segments, jitter, 0, 0)
+    drawBolt(node, "mainBolt", mainPoints, thickness,
+        Color(0.95, 0.95, 1.0), Color(0.9, 0.85, 1.0), 0.95)
+
+    -- 2) 外层光晕（更粗更透明，包裹主雷）
+    local glowPoints = generateBoltPoints(boltHeight, 0, segments, jitter * 0.6, 0, 0)
+    drawBolt(node, "glowBolt", glowPoints, thickness * 3.5,
+        Color(0.6, 0.5, 1.0), Color(0.5, 0.4, 1.0), 0.25)
+
+    -- 3) 分叉支雷（2-3条，从主雷中段分出，较细较短）
+    local branchCount = 2 + math.floor(math.random() * 2) -- 2~3 条
+    for bi = 1, branchCount do
+        -- 从主雷的某个中间段分叉
+        local splitIdx = math.random(3, math.max(4, segments - 3))
+        local splitPoint = mainPoints[splitIdx]
+        -- 分支方向随机偏移
+        local bOffX = (math.random() - 0.5) * 2.5
+        local bOffZ = (math.random() - 0.5) * 2.5
+        local bSegs = 4 + math.floor(math.random() * 3)
+        local endY = splitPoint.y - (1.5 + math.random() * 2.0)
+        if endY < 0 then endY = 0 end
+        local branchPts = generateBoltPoints(splitPoint.y, endY, bSegs, jitter * 0.7,
+            splitPoint.x + bOffX * 0.3, splitPoint.z + bOffZ * 0.3)
+        -- 让分支从分叉点开始偏移
+        for pi = 1, #branchPts do
+            branchPts[pi] = Vector3(
+                branchPts[pi].x + bOffX * (pi / #branchPts),
+                branchPts[pi].y,
+                branchPts[pi].z + bOffZ * (pi / #branchPts)
+            )
+        end
+        drawBolt(node, "branch" .. bi, branchPts, thickness * 0.5,
+            Color(0.8, 0.75, 1.0), Color(0.7, 0.6, 1.0), 0.7)
+    end
+
+    -- 4) 落点爆裂光环（地面冲击波）
+    local impactNode = node:CreateChild("impact")
+    impactNode.position = Vector3(0, 0.06, 0)
+    impactNode.scale = Vector3(2.0, 0.06, 2.0)
+    local impModel = impactNode:CreateComponent("StaticModel")
+    impModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+    local impMat = Material:new()
+    impMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+    impMat:SetShaderParameter("MatDiffColor", Variant(Color(0.7, 0.6, 1.0, 0.5)))
+    impMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.8, 0.7, 1.0)))
+    impMat:SetShaderParameter("Metallic", Variant(0.0))
+    impMat:SetShaderParameter("Roughness", Variant(0.1))
+    impModel:SetMaterial(impMat)
+    impModel.castShadows = false
+
+    -- 5) 落点电弧碎片（地面散布的小闪光碎块）
+    for si = 1, 6 do
+        local spark = node:CreateChild("spark" .. si)
+        local sa = (si / 6) * math.pi * 2 + math.random() * 0.5
+        local sd = 0.4 + math.random() * 0.8
+        spark.position = Vector3(math.cos(sa) * sd, 0.1 + math.random() * 0.2, math.sin(sa) * sd)
+        local ss = 0.04 + math.random() * 0.06
+        spark.scale = Vector3(ss, ss * 2, ss)
+        spark.rotation = Quaternion(math.random() * 360, math.random() * 30, math.random() * 360)
+        local sModel = spark:CreateComponent("StaticModel")
+        sModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
+        local sparkMat = Material:new()
+        sparkMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+        sparkMat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 1.0, 1.0, 0.9)))
+        sparkMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.9, 0.85, 1.0)))
+        sparkMat:SetShaderParameter("Metallic", Variant(0.0))
+        sparkMat:SetShaderParameter("Roughness", Variant(0.05))
+        sModel:SetMaterial(sparkMat)
+        sModel.castShadows = false
+    end
+
+    node:SetVar("removeTimer", Variant(0.6))
 end
 
 -- ============================================================================
