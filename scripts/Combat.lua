@@ -1057,6 +1057,8 @@ function Combat.SpawnAOEVisual(scene, center, radius, classId, skillId)
     elseif skillId == "m_blizzard" then
         local node = scene:CreateChild("AOEVisual")
         node.position = Vector3(center.x, 0.0, center.z)
+        node:SetVar("noShrink", Variant(true))
+        node:SetVar("spinSpeed", Variant(120.0))  -- 每秒旋转120度
 
         -- 1) 冰冻地面（大范围半透明冰面）
         local iceBase = node:CreateChild("iceBase")
@@ -2269,6 +2271,13 @@ function Combat.UpdateVisuals(scene, dt, playerNode)
                 if shouldShrink then
                     local s = child.scale
                     child.scale = s * (1.0 - dt * 0.8)
+                end
+                -- 旋转效果（冰咆哮等）
+                local spinVar = child:GetVar("spinSpeed")
+                if spinVar and not spinVar:IsEmpty() then
+                    local speed = spinVar:GetFloat()
+                    local rot = child.rotation
+                    child.rotation = rot * Quaternion(speed * dt, Vector3.UP)
                 end
             end
         end
