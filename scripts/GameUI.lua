@@ -1061,10 +1061,19 @@ function GameUI.StartDoorOpen(onComplete)
 end
 
 -- ============================================================================
--- 存档槽位选择界面（传奇风格：双槽位 + 中间操作按钮）
+-- 存档槽位选择界面（传奇风格：双槽位 + 3D角色预览）
 -- ============================================================================
+
+-- 存储预览状态供 main.lua 查询
+local previewClassIds_ = {}
+
+--- 获取当前预览界面各槽位的 classId（供 main.lua 更新动画用）
+function GameUI.GetPreviewClassIds()
+    return previewClassIds_
+end
+
 ---@param slots table[] 存档槽位数组 (最多2个，nil表示空槽)
----@param callbacks table { onContinue(idx), onCreate(idx), onDelete(idx, onDone) }
+---@param callbacks table { onSelect(idx), onContinue(idx), onCreate(idx), onDelete(idx, onDone) }
 function GameUI.ShowSaveSlots(slots, callbacks)
     uiState.phase = "select"
     uiState.charPanelOpen = false
@@ -1078,6 +1087,14 @@ function GameUI.ShowSaveSlots(slots, callbacks)
         if slots[i] then selectedSlot = i; break end
     end
 
+    -- 存储 classIds 供预览系统使用
+    previewClassIds_ = {}
+    for i = 1, 2 do
+        if slots[i] then
+            previewClassIds_[i] = slots[i].classId
+        end
+    end
+
     -- 职业名中文映射
     local classNames = {
         warrior = "战 士",
@@ -1085,138 +1102,121 @@ function GameUI.ShowSaveSlots(slots, callbacks)
         taoist  = "道 士",
     }
 
-    -- 构建单个槽位面板
-    local function BuildSlotPanel(index)
+    -- 构建单个槽位按钮（使用 Button 确保可点击）
+    local function BuildSlotButton(index)
         local data = slots[index]
         local isEmpty = (data == nil)
+        local isSelected = (index == selectedSlot)
 
         -- 槽位标题
         local slotTitle = "NO." .. index
 
-        -- 角色信息区域
-        local infoChildren = {}
-
-        if isEmpty then
-            -- 空槽位 - 显示空字样
-            table.insert(infoChildren, UI.Panel {
-                width = "100%", height = "100%",
-                justifyContent = "center", alignItems = "center",
-                children = {
-                    UI.Label {
-                        text = "—— 空 ——",
-                        fontSize = 16,
-                        fontColor = {100, 90, 70, 150},
-                    },
-                },
-            })
-        else
-            -- 有数据 - 显示角色信息
+        -- 底部信息内容
+        local bottomChildren = {}
+        if not isEmpty then
             ---@type string
             local cName = classNames[data.classId] or data.className or "???"
-            local lvText = "等级: " .. (data.level or 1)
-
-            -- 顶部角色简介（中间区域）
-            table.insert(infoChildren, UI.Panel {
-                width = "100%", height = "100%",
-                justifyContent = "center", alignItems = "center",
-                paddingHorizontal = 12,
-                children = {
-                    UI.Label {
-                        text = cName,
-                        fontSize = 22,
-                        fontColor = {230, 210, 140, 255},
-                        marginBottom = 6,
-                    },
-                    UI.Label {
-                        text = lvText,
-                        fontSize = 14,
-                        fontColor = {180, 170, 150, 220},
-                        marginBottom = 4,
-                    },
-                    UI.Label {
-                        text = "击杀: " .. (data.killCount or 0),
-                        fontSize = 12,
-                        fontColor = {150, 140, 120, 180},
-                    },
-                },
+            table.insert(bottomChildren, UI.Label {
+                text = cName,
+                fontSize = 18,
+                fontColor = {230, 210, 140, 255},
+                marginBottom = 2,
+            })
+            table.insert(bottomChildren, UI.Label {
+                text = "Lv." .. (data.level or 1) .. "  击杀:" .. (data.killCount or 0),
+                fontSize = 11,
+                fontColor = {170, 160, 135, 200},
+                marginBottom = 2,
+            })
+            table.insert(bottomChildren, UI.Label {
+                text = data.updatedAt and os.date("%m/%d %H:%M", data.updatedAt) or "",
+                fontSize = 9,
+                fontColor = {110, 100, 85, 150},
+            })
+        else
+            table.insert(bottomChildren, UI.Label {
+                text = "—— 空 ——",
+                fontSize = 14,
+                fontColor = {90, 80, 65, 140},
             })
         end
 
-        -- 选中状态边框颜色
-        local isSelected = (index == selectedSlot)
-        local borderCol = isSelected and {180, 150, 60, 255} or {70, 60, 45, 200}
+        -- 选中状态样式
+        local borderCol = isSelected and {200, 165, 50, 255} or {60, 50, 38, 180}
+        local bgAlpha = isSelected and 90 or 60
 
-        return UI.Panel {
-            id = "slot_panel_" .. index,
-            width = 200,
-            height = 260,
-            backgroundColor = {22, 18, 14, 240},
-            borderRadius = 3,
+        return UI.Button {
+            id = "slot_btn_" .. index,
+            width = 180,
+            height = 280,
+            backgroundColor = {15, 12, 10, bgAlpha},
+            borderRadius = 4,
             borderWidth = isSelected and 3 or 2,
             borderColor = borderCol,
             paddingTop = 0,
-            overflow = "hidden",
+            paddingBottom = 0,
+            paddingHorizontal = 0,
+            justifyContent = "space-between",
+            alignItems = "center",
+            onClick = function()
+                if selectedSlot ~= index then
+                    selectedSlot = index
+                    -- 通知 main.lua 切换预览动画
+                    if callbacks.onSelect then
+                        callbacks.onSelect(index)
+                    end
+                    -- 重建 UI 刷新选中状态
+                    GameUI.ShowSaveSlots(slots, callbacks)
+                end
+            end,
             children = {
                 -- 顶部标题条
                 UI.Panel {
                     width = "100%",
-                    height = 36,
-                    backgroundColor = {45, 38, 28, 255},
+                    height = 32,
+                    backgroundColor = {40, 34, 25, 200},
                     justifyContent = "center",
                     alignItems = "center",
-                    borderColor = {80, 65, 45, 200},
                     children = {
                         UI.Label {
                             text = slotTitle,
-                            fontSize = 15,
+                            fontSize = 14,
                             fontColor = {210, 190, 130, 255},
                         },
                     },
                 },
-                -- 角色信息/空白区域
+                -- 中间透明区域（让3D角色可见）
                 UI.Panel {
                     width = "100%",
                     flexGrow = 1,
-                    children = infoChildren,
                 },
-                -- 底部信息条（时间）
+                -- 底部信息条
                 UI.Panel {
                     width = "100%",
-                    height = 28,
-                    backgroundColor = {35, 30, 22, 220},
-                    justifyContent = "center",
+                    paddingVertical = 8,
+                    paddingHorizontal = 10,
+                    backgroundColor = {20, 16, 12, 180},
                     alignItems = "center",
-                    children = {
-                        UI.Label {
-                            text = (not isEmpty) and ("保存: " .. (data.updatedAt and os.date("%m/%d %H:%M", data.updatedAt) or "未知")) or "",
-                            fontSize = 10,
-                            fontColor = {120, 110, 95, 160},
-                        },
-                    },
+                    children = bottomChildren,
                 },
             },
-            onClick = function()
-                selectedSlot = index
-                -- 刷新界面以反映选中状态
-                GameUI.ShowSaveSlots(slots, callbacks)
-            end,
         }
     end
 
     -- 中间操作按钮
-    local function MakeButton(text, enabled, onPress)
-        local bgColor = enabled and {55, 45, 32, 240} or {35, 30, 25, 200}
-        local fontCol = enabled and {215, 195, 140, 255} or {90, 80, 65, 120}
-        local borderCol = enabled and {110, 90, 55, 200} or {50, 42, 32, 150}
+    local function MakeActionButton(text, enabled, onPress)
+        local bgColor = enabled and {55, 45, 32, 230} or {30, 26, 20, 180}
+        local fontCol = enabled and {220, 200, 140, 255} or {80, 70, 55, 120}
+        local borderCol = enabled and {120, 95, 50, 220} or {45, 38, 28, 140}
         return UI.Button {
             text = text,
-            width = 130,
-            height = 38,
+            width = 120,
+            height = 36,
             backgroundColor = bgColor,
             borderRadius = 3,
             borderWidth = 1,
             borderColor = borderCol,
-            fontSize = 14,
+            fontSize = 13,
             fontColor = fontCol,
             disabled = not enabled,
             onClick = enabled and onPress or nil,
@@ -1226,75 +1226,75 @@ function GameUI.ShowSaveSlots(slots, callbacks)
     local slotData = slots[selectedSlot]
     local hasData = (slotData ~= nil)
 
-    -- 按钮逻辑：
-    -- 开始游戏：选中槽位有数据时可用
-    -- 创建人物：选中槽位为空时可用
-    -- 删除人物：选中槽位有数据时可用
-    local btnStart = MakeButton("开始游戏", hasData, function()
+    local btnStart = MakeActionButton("开始游戏", hasData, function()
         if callbacks.onContinue then
             callbacks.onContinue(selectedSlot)
         end
     end)
 
-    local btnCreate = MakeButton("创建人物", not hasData, function()
+    local btnCreate = MakeActionButton("创建人物", not hasData, function()
         if callbacks.onCreate then
             callbacks.onCreate(selectedSlot)
         end
     end)
 
-    local btnDelete = MakeButton("删除人物", hasData, function()
+    local btnDelete = MakeActionButton("删除人物", hasData, function()
         if callbacks.onDelete then
-            callbacks.onDelete(selectedSlot, function()
-                -- 删除完成后由 main.lua 刷新
-            end)
+            callbacks.onDelete(selectedSlot, function() end)
         end
     end)
 
-    -- 构建完整界面
+    -- 构建完整界面（半透明背景，露出 3D 角色）
     local saveSlotRoot = UI.Panel {
         id = "saveSlotScreen",
         width = "100%",
         height = "100%",
-        backgroundColor = {12, 10, 8, 252},
-        justifyContent = "center",
+        backgroundColor = {8, 6, 5, 120},  -- 半透明暗底，让3D角色透出
+        justifyContent = "space-between",
         alignItems = "center",
+        paddingTop = 30,
+        paddingBottom = 20,
         children = {
-            -- 标题
-            UI.Label {
-                text = "传奇·山海",
-                fontSize = 32,
-                fontColor = {220, 190, 80, 255},
-                marginBottom = 6,
+            -- 顶部标题
+            UI.Panel {
+                alignItems = "center",
+                children = {
+                    UI.Label {
+                        text = "传奇·山海",
+                        fontSize = 30,
+                        fontColor = {220, 190, 80, 255},
+                        marginBottom = 4,
+                    },
+                    UI.Label {
+                        text = "选择角色",
+                        fontSize = 12,
+                        fontColor = {130, 120, 100, 180},
+                    },
+                },
             },
-            UI.Label {
-                text = "选择角色",
-                fontSize = 13,
-                fontColor = {130, 120, 100, 180},
-                marginBottom = 24,
-            },
-            -- 主体区域（两侧槽位 + 中间按钮）
+            -- 中部：两侧槽位 + 中间按钮
             UI.Panel {
                 flexDirection = "row",
                 alignItems = "center",
-                gap = 20,
+                gap = 16,
                 children = {
-                    -- 左侧槽位 NO.1
-                    BuildSlotPanel(1),
+                    BuildSlotButton(1),
                     -- 中间操作按钮列
                     UI.Panel {
-                        width = 150,
+                        width = 130,
                         alignItems = "center",
-                        gap = 10,
+                        gap = 8,
                         children = {
                             btnStart,
                             btnCreate,
                             btnDelete,
                         },
                     },
-                    -- 右侧槽位 NO.2
-                    BuildSlotPanel(2),
+                    BuildSlotButton(2),
                 },
             },
+            -- 底部留空（保持布局平衡）
+            UI.Panel { height = 10 },
         },
     }
 

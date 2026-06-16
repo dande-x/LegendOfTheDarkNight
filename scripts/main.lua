@@ -45,6 +45,19 @@ local currentSlotIndex = nil  -- 当前使用的存档槽位 (1 或 2)
 local autoSaveTimer = 0
 local AUTO_SAVE_INTERVAL = 30  -- 每30秒自动保存一次
 
+-- 角色预览系统（存档选择界面用）
+local previewNodes_ = {}         -- [1],[2] 预览角色节点
+local previewAnimCtrls_ = {}     -- [1],[2] 预览 AnimationController
+local previewSelectedSlot_ = 0   -- 当前选中的预览槽位
+local previewActive_ = false     -- 是否处于预览模式
+local previewAttackTimer_ = {}   -- [1],[2] 攻击动画循环计时器
+local PREVIEW_POSITIONS = {      -- 两个预览角色的位置（远离游戏区域）
+    Vector3(-1.6, 0, 200),       -- 槽位1角色
+    Vector3(1.6, 0, 200),        -- 槽位2角色
+}
+local PREVIEW_CAM_POS = Vector3(0, 1.5, 196)  -- 预览摄像机位置（正面看角色）
+local PREVIEW_CAM_LOOKAT = Vector3(0, 0.9, 200)  -- 看向角色腰部
+
 -- ============================================================================
 -- 施法状态机
 -- ============================================================================
@@ -591,14 +604,232 @@ function UpdateCamera(dt)
 end
 
 -- ============================================================================
+-- 角色预览系统（存档选择界面展示3D角色）
+-- ============================================================================
+
+-- 预览用动画路径（与 PlayerAnim 相同）
+local PREVIEW_ANIM_PATHS = {
+    idle       = "uuid://GikiEX04hbY9D5ALGNz051Zh",
+    melee_fast = "uuid://Ai-SCaONHGJAnRCLZmoO2QJ8",
+    cast_quick = "uuid://E3rZmUDaM9pq2-V2gj3pCyW4",
+    sweep_l    = "uuid://BzVkoQzPfkBeIJ_SyLQNwXpI",
+}
+local PREVIEW_ANIM_DURATIONS = {
+    melee_fast = 1.07,
+    cast_quick = 1.5,
+    sweep_l    = 1.33,
+}
+-- 各职业预览攻击动画
+local PREVIEW_CLASS_ATTACK = {
+    warrior = "melee_fast",
+    mage    = "cast_quick",
+    taoist  = "sweep_l",
+}
+
+--- 创建预览角色（在远处，供存档界面展示）
+---@param slotIndex number 1 或 2
+---@param classId string "warrior"|"mage"|"taoist"
+function CreatePreviewCharacter(slotIndex, classId)
+    -- 清除该槽位已有的预览
+    DestroyPreviewCharacter(slotIndex)
+
+    local node = scene_:CreateChild("Preview_" .. slotIndex)
+    node.position = PREVIEW_POSITIONS[slotIndex]
+    -- 角色面朝摄像机（朝 -Z 方向）
+    node.rotation = Quaternion(180, Vector3.UP)
+
+    -- 实例化 prefab
+    local ClassModules = {
+        warrior = require("classes.Warrior"),
+        mage    = require("classes.Mage"),
+        taoist  = require("classes.Taoist"),
+    }
+    local classMod = ClassModules[classId] or ClassModules.warrior
+    local prefabPath = classMod.prefab or "Prefabs/LegendWarrior.prefab"
+
+    local prefabFile = cache:GetFile(prefabPath)
+    if not prefabFile then
+        print("[Preview] ERROR: Cannot find prefab: " .. prefabPath)
+        return
+    end
+
+    local parentScene = node:GetScene()
+    local modelNode = parentScene:InstantiateXML(prefabFile, Vector3.ZERO, Quaternion.IDENTITY, LOCAL)
+    prefabFile:Close()
+
+    if not modelNode then
+        print("[Preview] ERROR: Failed to instantiate prefab")
+        return
+    end
+
+    modelNode.parent = node
+    modelNode.name = "PreviewModel"
+
+    local animModel = modelNode:GetComponent("AnimatedModel")
+        or modelNode:GetComponent("AnimatedModel", true)
+
+    if animModel then
+        -- 缩放到标准高度
+        local bb = animModel.boundingBox
+        local h = bb.size.y
+        local minY = bb.min.y
+        if h > 0 then
+            local s = 1.6 / h
+            modelNode.scale = Vector3(s, s, s)
+            modelNode.position = Vector3(0, -minY * s, 0)
+        end
+
+        -- 应用职业材质
+        local config = classMod.material
+        local mat = Material:new()
+        mat:SetTechnique(0, cache:GetResource("Technique", config.technique))
+        if config.useTexture then
+            mat:SetTexture(TU_DIFFUSE, cache:GetResource("Texture2D", "uuid://ARGvkYnzrbbOxkjh2N68upmG"))
+        end
+        mat:SetShaderParameter("MatDiffColor", Variant(config.diffColor))
+        mat:SetShaderParameter("Roughness", Variant(config.roughness))
+        mat:SetShaderParameter("Metallic", Variant(config.metallic))
+        mat:SetShaderParameter("MatEmissiveColor", Variant(config.emissive))
+        local numGeom = animModel:GetNumGeometries()
+        for i = 0, numGeom - 1 do
+            animModel:SetMaterial(i, mat)
+        end
+    end
+
+    -- 获取动画控制器
+    local animCtrl = modelNode:GetComponent("AnimationController")
+        or modelNode:GetComponent("AnimationController", true)
+    if not animCtrl then
+        animCtrl = modelNode:CreateComponent("AnimationController")
+    end
+
+    previewNodes_[slotIndex] = node
+    previewAnimCtrls_[slotIndex] = animCtrl
+    previewAttackTimer_[slotIndex] = 0
+
+    -- 默认播放 idle
+    if animCtrl and PREVIEW_ANIM_PATHS.idle then
+        animCtrl:PlayExclusive(PREVIEW_ANIM_PATHS.idle, 0, true, 0.0)
+    end
+
+    print("[Preview] Created character slot " .. slotIndex .. ": " .. classId)
+end
+
+--- 销毁预览角色
+function DestroyPreviewCharacter(slotIndex)
+    if previewNodes_[slotIndex] then
+        previewNodes_[slotIndex]:Remove()
+        previewNodes_[slotIndex] = nil
+        previewAnimCtrls_[slotIndex] = nil
+        previewAttackTimer_[slotIndex] = nil
+    end
+end
+
+--- 销毁所有预览角色，恢复正常摄像机
+function CleanupPreview()
+    for i = 1, 2 do
+        DestroyPreviewCharacter(i)
+    end
+    previewActive_ = false
+    previewSelectedSlot_ = 0
+    print("[Preview] Cleanup done")
+end
+
+--- 设置预览选中状态（切换动画）
+---@param slotIndex number 选中的槽位（0 表示无选中）
+---@param classIds table {[1]=classId,[2]=classId} 各槽位的职业
+function SetPreviewSelected(slotIndex, classIds)
+    previewSelectedSlot_ = slotIndex
+    for i = 1, 2 do
+        local ctrl = previewAnimCtrls_[i]
+        if ctrl then
+            if i == slotIndex and classIds[i] then
+                -- 选中：播放攻击动画（通过 timer 循环）
+                local attackAnim = PREVIEW_CLASS_ATTACK[classIds[i]] or "melee_fast"
+                local animPath = PREVIEW_ANIM_PATHS[attackAnim]
+                if animPath then
+                    ctrl:PlayExclusive(animPath, 0, false, 0.2)
+                    previewAttackTimer_[i] = PREVIEW_ANIM_DURATIONS[attackAnim] or 1.0
+                end
+            else
+                -- 未选中：播放 idle
+                ctrl:PlayExclusive(PREVIEW_ANIM_PATHS.idle, 0, true, 0.2)
+                previewAttackTimer_[i] = 0
+            end
+        end
+    end
+end
+
+--- 每帧更新预览动画（循环攻击动画）
+function UpdatePreviewAnimations(dt, classIds)
+    if not previewActive_ then return end
+    for i = 1, 2 do
+        if i == previewSelectedSlot_ and previewAttackTimer_[i] and previewAttackTimer_[i] > 0 then
+            previewAttackTimer_[i] = previewAttackTimer_[i] - dt
+            if previewAttackTimer_[i] <= 0 then
+                -- 重播攻击动画（循环）
+                local classId = classIds[i]
+                local attackAnim = PREVIEW_CLASS_ATTACK[classId] or "melee_fast"
+                local animPath = PREVIEW_ANIM_PATHS[attackAnim]
+                local ctrl = previewAnimCtrls_[i]
+                if ctrl and animPath then
+                    ctrl:PlayExclusive(animPath, 0, false, 0.1)
+                    previewAttackTimer_[i] = PREVIEW_ANIM_DURATIONS[attackAnim] or 1.0
+                end
+            end
+        end
+    end
+end
+
+--- 激活预览模式（移动摄像机到预览位置）
+function ActivatePreview()
+    previewActive_ = true
+    if cameraNode_ then
+        cameraNode_.worldPosition = PREVIEW_CAM_POS
+        cameraNode_:LookAt(PREVIEW_CAM_LOOKAT)
+    end
+end
+
+-- ============================================================================
 -- 存档系统：槽位选择界面 & 自动保存
 -- ============================================================================
 
---- 显示存档槽位选择界面（传奇风格双槽位）
+--- 显示存档槽位选择界面（传奇风格双槽位 + 3D 角色预览）
 function ShowSaveSlotScreen()
-    GameUI.ShowSaveSlots(SaveSystem.GetAllSlots(), {
+    local slots = SaveSystem.GetAllSlots()
+
+    -- 清除旧预览
+    CleanupPreview()
+
+    -- 为有数据的槽位创建预览角色
+    local classIds = {}
+    for i = 1, 2 do
+        if slots[i] and slots[i].classId then
+            classIds[i] = slots[i].classId
+            CreatePreviewCharacter(i, slots[i].classId)
+        end
+    end
+
+    -- 激活预览摄像机
+    ActivatePreview()
+
+    -- 默认选中第一个有数据的槽位
+    local defaultSelected = 0
+    for i = 1, 2 do
+        if slots[i] then defaultSelected = i; break end
+    end
+    if defaultSelected > 0 then
+        SetPreviewSelected(defaultSelected, classIds)
+    end
+
+    GameUI.ShowSaveSlots(slots, {
+        onSelect = function(slotIndex)
+            -- 槽位选中回调：切换预览动画
+            SetPreviewSelected(slotIndex, classIds)
+        end,
         onContinue = function(slotIndex)
-            -- 继续游戏：加载存档
+            -- 继续游戏：清除预览，加载存档
+            CleanupPreview()
             currentSlotIndex = slotIndex
             local saveData = SaveSystem.GetSlot(slotIndex)
             if saveData then
@@ -606,7 +837,8 @@ function ShowSaveSlotScreen()
             end
         end,
         onCreate = function(slotIndex)
-            -- 创建新角色：进入职业选择
+            -- 创建新角色：清除预览，进入职业选择
+            CleanupPreview()
             currentSlotIndex = slotIndex
             GameUI.ShowClassSelect(function(classId)
                 OnClassSelected(classId)
@@ -617,7 +849,7 @@ function ShowSaveSlotScreen()
             SaveSystem.DeleteSlot(slotIndex)
             print("[main] Slot " .. slotIndex .. " deleted")
             if onDone then onDone() end
-            -- 刷新界面
+            -- 刷新界面（会重建预览）
             ShowSaveSlotScreen()
         end,
     })
@@ -1126,6 +1358,12 @@ end
 -- ============================================================================
 function HandleUpdate(eventType, eventData)
     local dt = eventData["TimeStep"]:GetFloat()
+
+    -- 预览模式：只更新预览动画，不运行游戏逻辑
+    if previewActive_ then
+        UpdatePreviewAnimations(dt, GameUI.GetPreviewClassIds())
+        return
+    end
 
     if not player_ then return end
 
