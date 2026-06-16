@@ -1122,8 +1122,8 @@ function GameUI.ShowSaveSlots(slots, callbacks)
     -- 颜色配置（暗灰石纹风格）
     local C_BORDER_ACTIVE = {180, 155, 80, 255}     -- 选中金色边框
     local C_BORDER_NORMAL = {70, 65, 55, 200}       -- 未选中石灰色边框
-    local C_STONE_BG      = {28, 24, 20, 220}       -- 石头底色
-    local C_INFO_BG       = {22, 19, 16, 230}       -- 信息卡底色
+    local C_STONE_BG      = {28, 24, 20, 255}       -- 石头底色（完全不透明）
+    local C_INFO_BG       = {22, 19, 16, 255}       -- 信息卡底色（完全不透明）
     local C_LABEL          = {170, 155, 120, 220}   -- 正文信息色
     local C_LABEL_DIM      = {90, 80, 65, 160}      -- 暗淡标签色
     local C_GOLD           = {220, 195, 100, 255}   -- 金色高亮
@@ -1131,7 +1131,7 @@ function GameUI.ShowSaveSlots(slots, callbacks)
     local C_BTN_BORDER     = {110, 90, 50, 220}     -- 按钮边框
     local C_BTN_DISABLED   = {32, 28, 22, 200}      -- 按钮禁用底色
 
-    --- 构建角色展示窗口（上半部分，大面积透明让3D角色透出）
+    --- 构建角色展示窗口（上半部分，完全透明让3D角色透出）
     local function BuildViewport(index)
         local isSelected = (index == selectedSlot)
         local borderCol = isSelected and C_BORDER_ACTIVE or C_BORDER_NORMAL
@@ -1140,8 +1140,9 @@ function GameUI.ShowSaveSlots(slots, callbacks)
             text = "",
             flexGrow = 1,
             height = "100%",
-            backgroundColor = {5, 4, 3, isSelected and 40 or 60},
-            borderWidth = isSelected and 3 or 2,
+            -- 无背景填充！让3D场景（深色背板+角色）直接可见
+            backgroundColor = {0, 0, 0, 0},
+            borderWidth = isSelected and 3 or 1,
             borderColor = borderCol,
             borderRadius = 2,
             onClick = function()
@@ -1279,32 +1280,35 @@ function GameUI.ShowSaveSlots(slots, callbacks)
     end)
 
     -- 构建完整界面
+    -- 关键设计：上半部分（视口）无不透明背景，让3D角色透出
+    -- 下半部分（信息卡）完全不透明
     local saveSlotRoot = UI.Panel {
         id = "saveSlotScreen",
         width = "100%",
         height = "100%",
-        backgroundColor = {10, 8, 6, 100},  -- 半透明暗底
+        -- 无背景！让3D场景（深色背板+角色）直接显示
         justifyContent = "center",
         alignItems = "center",
         children = {
-            -- 主容器（固定比例，模拟传奇原版窗口）
+            -- 主容器（无填充背景，仅边框）
             UI.Panel {
                 width = "92%",
                 height = "90%",
                 maxWidth = 560,
                 maxHeight = 380,
-                backgroundColor = C_STONE_BG,
-                borderWidth = 3,
+                -- 无 backgroundColor！上半部分要透出3D
+                borderWidth = 2,
                 borderColor = {55, 48, 38, 255},
                 borderRadius = 3,
                 children = {
-                    -- === 上半部分：两个角色展示窗并排 ===
+                    -- === 上半部分：角色展示区（透明，3D透出）===
                     UI.Panel {
                         width = "100%",
                         flexGrow = 3,
                         flexDirection = "row",
                         padding = 6,
-                        gap = 6,
+                        gap = 4,
+                        -- 无 backgroundColor！让3D角色可见
                         children = {
                             BuildViewport(1),
                             BuildViewport(2),
@@ -1314,9 +1318,9 @@ function GameUI.ShowSaveSlots(slots, callbacks)
                     UI.Panel {
                         width = "100%",
                         height = 2,
-                        backgroundColor = {55, 48, 38, 200},
+                        backgroundColor = {80, 68, 45, 255},
                     },
-                    -- === 下半部分：信息卡 + 操作按钮 ===
+                    -- === 下半部分：信息卡 + 操作按钮（不透明石头底色）===
                     UI.Panel {
                         width = "100%",
                         flexGrow = 2,
@@ -1324,6 +1328,7 @@ function GameUI.ShowSaveSlots(slots, callbacks)
                         padding = 6,
                         gap = 6,
                         alignItems = "stretch",
+                        backgroundColor = C_STONE_BG,
                         children = {
                             -- 左侧信息卡
                             BuildInfoCard(1),

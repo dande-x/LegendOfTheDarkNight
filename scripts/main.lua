@@ -52,11 +52,12 @@ local previewSelectedSlot_ = 0   -- 当前选中的预览槽位
 local previewActive_ = false     -- 是否处于预览模式
 local previewAttackTimer_ = {}   -- [1],[2] 攻击动画循环计时器
 local PREVIEW_POSITIONS = {      -- 两个预览角色的位置（远离游戏区域）
-    Vector3(-1.6, 0, 200),       -- 槽位1角色
-    Vector3(1.6, 0, 200),        -- 槽位2角色
+    Vector3(-0.4, 0, 200),       -- 槽位1角色（紧凑排列，匹配UI视口窗口）
+    Vector3(0.4, 0, 200),        -- 槽位2角色
 }
-local PREVIEW_CAM_POS = Vector3(0, 1.5, 196)  -- 预览摄像机位置（正面看角色）
-local PREVIEW_CAM_LOOKAT = Vector3(0, 0.9, 200)  -- 看向角色腰部
+local PREVIEW_CAM_POS = Vector3(0, 1.0, 196.8)  -- 预览摄像机位置（正面看角色，近距离）
+local PREVIEW_CAM_LOOKAT = Vector3(0, 0.85, 200) -- 看向角色胸部
+local PREVIEW_FOV = 24                           -- 预览模式 FOV（窄视角聚焦角色）
 
 -- ============================================================================
 -- 施法状态机
@@ -734,6 +735,14 @@ function CleanupPreview()
     for i = 1, 2 do
         DestroyPreviewCharacter(i)
     end
+    -- 移除背板
+    local backdrop = scene_:GetChild("PreviewBackdrop")
+    if backdrop then backdrop:Remove() end
+    -- 恢复游戏 FOV
+    if cameraNode_ then
+        local cam = cameraNode_:GetComponent("Camera")
+        if cam then cam.fov = CAM_FOV end
+    end
     previewActive_ = false
     previewSelectedSlot_ = 0
     GameUI.ClearSelectedSlot()
@@ -786,12 +795,29 @@ function UpdatePreviewAnimations(dt, classIds)
     end
 end
 
---- 激活预览模式（移动摄像机到预览位置）
+--- 激活预览模式（移动摄像机到预览位置，设置窄FOV + 深色背板）
 function ActivatePreview()
     previewActive_ = true
     if cameraNode_ then
         cameraNode_.worldPosition = PREVIEW_CAM_POS
         cameraNode_:LookAt(PREVIEW_CAM_LOOKAT)
+        local cam = cameraNode_:GetComponent("Camera")
+        if cam then cam.fov = PREVIEW_FOV end
+    end
+    -- 创建深色背板（大黑色平面在角色后方，让预览背景纯黑）
+    if not scene_:GetChild("PreviewBackdrop") then
+        local backdrop = scene_:CreateChild("PreviewBackdrop")
+        backdrop.position = Vector3(0, 1.0, 201.5)  -- 在角色身后1.5m
+        backdrop.scale = Vector3(6, 4, 0.05)
+        local mdl = backdrop:CreateComponent("StaticModel")
+        mdl:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
+        local mat = Material:new()
+        mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
+        mat:SetShaderParameter("MatDiffColor", Variant(Color(0.02, 0.02, 0.02, 1.0)))
+        mat:SetShaderParameter("Roughness", Variant(1.0))
+        mat:SetShaderParameter("Metallic", Variant(0.0))
+        mdl:SetMaterial(mat)
+        mdl.castShadows = false
     end
 end
 
