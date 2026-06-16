@@ -10,6 +10,7 @@ local GameUI = require("scripts.GameUI")
 local Combat = require("scripts.Combat")
 local Inventory = require("scripts.Inventory")
 local PlayerAnim = require("scripts.PlayerAnim")
+local SaveSystem = require("scripts.SaveSystem")
 require "urhox-libs.UI.GameHUD"
 
 -- ============================================================================
@@ -38,6 +39,11 @@ local MP_POTION_CD = 1.0
 -- 玩家死亡
 local deathTimer = 0
 local isDead = false
+
+-- 存档系统
+local currentSlotIndex = nil  -- 当前使用的存档槽位 (1 或 2)
+local autoSaveTimer = 0
+local AUTO_SAVE_INTERVAL = 30  -- 每30秒自动保存一次
 
 -- ============================================================================
 -- 施法状态机
@@ -78,9 +84,11 @@ function Start()
     CreateScene()
     SetupCamera()
 
-    GameUI.ShowClassSelect(function(classId)
-        OnClassSelected(classId)
-    end)
+    -- 初始化存档系统
+    SaveSystem.Init()
+
+    -- 显示存档槽位选择界面
+    ShowSaveSlotScreen()
 
     SubscribeToEvent("Update", "HandleUpdate")
     SubscribeToEvent("PostUpdate", "HandlePostUpdate")
