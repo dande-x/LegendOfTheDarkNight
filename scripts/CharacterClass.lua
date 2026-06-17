@@ -110,7 +110,7 @@ CharacterClass.Classes = {
                 slot = 5, cooldown = 8, manaCost = 40,
                 unlockLevel = 14,
                 damage = 350,  -- ATK倍率350% (大招)
-                range = 2.8, isUltimate = true, castTime = 0.35,
+                range = 2.8, castTime = 0.35,
             },
             {
                 id = "w_shield", name = "真气护盾", type = SKILL_TYPE.BUFF,
@@ -182,7 +182,7 @@ CharacterClass.Classes = {
                 slot = 6, cooldown = 8, manaCost = 50,
                 unlockLevel = 14,
                 damage = 320,  -- ATK倍率320% (大招AOE)
-                range = 6.0, aoeRadius = 3.5, isUltimate = true, castTime = 1.0,
+                range = 6.0, aoeRadius = 3.5, castTime = 1.0,
             },
             {
                 id = "m_shield", name = "魔法盾", type = SKILL_TYPE.BUFF,
@@ -265,14 +265,14 @@ CharacterClass.Classes = {
                 healPercent = 35,
                 range = 0,
             },
-            -- 6. 困魔咒 (终极技 — 群控困敌)
+            -- 6. 困魔咒 (群控困敌)
             {
                 id = "t_trapDemon", name = "困魔咒", type = SKILL_TYPE.AOE,
                 desc = "布下法阵困锁妖魔，圈内之敌无法逃脱",
                 slot = 6, cooldown = 12, manaCost = 50,
                 unlockLevel = 12,
                 damage = 0,  -- 不造成伤害，纯控制
-                range = 8.0, aoeRadius = 3.5, isUltimate = true, castTime = 0.80,
+                range = 8.0, aoeRadius = 3.5, castTime = 0.80,
                 isTrap = true,  -- 标记为困魔类技能
                 trapDuration = 6.0,  -- 困住6秒
             },

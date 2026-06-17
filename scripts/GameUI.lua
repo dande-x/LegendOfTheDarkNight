@@ -1790,24 +1790,24 @@ local _skillBarIcons = {
     m_blizzard = "image/icon_m_blizzard_20260617041138.png",
     m_shield = "image/icon_m_shield_20260617040936.png",
     t_talisman = "image/icon_t_talisman_20260617040933.png",
-    t_divineBeast = "image/icon_t_divineBeast_20260617040946.png",
+    t_divineBeast = "image/icon_t_divineBeast_20260617061319.png",
     t_beastRage = "image/icon_t_beastRage_20260617040936.png",
-    t_poison = "image/icon_t_poison_20260617040935.png",
+    t_poison = "image/icon_t_poison_20260617061314.png",
     t_heal = "image/icon_t_heal_20260617040935.png",
-    t_trapDemon = "image/icon_t_trapDemon_20260617040933.png",
+    t_trapDemon = "image/icon_t_trapDemon_20260617061330.png",
 }
 
 function GameUI._CreateSkillBar(player)
     local classDef = CharacterClass.Classes[player.classId]
 
-    local btnSize = {72, 56, 56, 56, 56, 64}
+    local btnSize = {80, 54, 54, 54, 54, 54}
     local positions = {
         {x = -50,  y = -50},
-        {x = -120, y = -65},
-        {x = -175, y = -105},
-        {x = -215, y = -160},
-        {x = -235, y = -225},
-        {x = -90,  y = -130},
+        {x = -125, y = -55},
+        {x = -180, y = -95},
+        {x = -215, y = -150},
+        {x = -225, y = -215},
+        {x = -80,  y = -135},
     }
 
     local skillClassColors = {
@@ -1824,16 +1824,10 @@ function GameUI._CreateSkillBar(player)
         local skill = player.equippedSkills[i]
         local size = btnSize[i]
         local pos = positions[i]
-        local isUltimate = (i == 6)
         local skillName = skill and string.sub(skill.name, 1, 6) or ""
         local unlocked = skill and CharacterClass.IsSkillUnlocked(skill, player.level) or false
 
-        local borderClr
-        if isUltimate then
-            borderClr = C.ExpGold
-        else
-            borderClr = {baseClr[1], baseClr[2], baseClr[3], 180}
-        end
+        local borderClr = {baseClr[1], baseClr[2], baseClr[3], 180}
 
         local btnId = "skill_" .. i
         local btn = UI.Panel {
@@ -1845,7 +1839,7 @@ function GameUI._CreateSkillBar(player)
             height = size,
             borderRadius = size / 2,
             backgroundColor = {25, 22, 18, 210},
-            borderWidth = isUltimate and 3 or 2,
+            borderWidth = 2,
             borderColor = borderClr,
             justifyContent = "center",
             alignItems = "center",
@@ -2255,11 +2249,11 @@ local function _BuildSkillTabContent(player)
         m_shield    = "image/icon_m_shield_20260617040936.png",
         -- 道士
         t_talisman     = "image/icon_t_talisman_20260617040933.png",
-        t_divineBeast  = "image/icon_t_divineBeast_20260617040946.png",
+        t_divineBeast  = "image/icon_t_divineBeast_20260617061319.png",
         t_beastRage    = "image/icon_t_beastRage_20260617040936.png",
-        t_poison       = "image/icon_t_poison_20260617040935.png",
+        t_poison       = "image/icon_t_poison_20260617061314.png",
         t_heal         = "image/icon_t_heal_20260617040935.png",
-        t_trapDemon    = "image/icon_t_trapDemon_20260617040933.png",
+        t_trapDemon    = "image/icon_t_trapDemon_20260617061330.png",
     }
     -- 备用 emoji（当图标文件不存在时降级）
     local skillIcons = {
@@ -2328,7 +2322,7 @@ local function _BuildSkillTabContent(player)
                     flex = 1, flexShrink = 1, justifyContent = "center",
                     children = {
                         UI.Label {
-                            text = skill.name .. (skill.isUltimate and " [终极]" or ""),
+                            text = skill.name,
                             fontSize = 16, fontWeight = "bold",
                             fontColor = nameColor,
                         },
