@@ -155,23 +155,25 @@ CharacterClass.Classes = {
                 id = "m_thunder", name = "雷电术", type = SKILL_TYPE.RANGED,
                 desc = "引下天雷，威力巨大但施法较慢",
                 slot = 3, cooldown = 5, manaCost = 28,
-                unlockLevel = 5,
+                unlockLevel = 11,
                 damage = 250,  -- ATK倍率250% (单体高伤)
                 range = 7.0, castTime = 0.8,
             },
             {
-                id = "m_explosion", name = "爆裂火焰", type = SKILL_TYPE.AOE,
-                desc = "瞬间高温爆发，大范围炸裂",
+                id = "m_explosion", name = "抗拒火环", type = SKILL_TYPE.AOE,
+                desc = "周身迸发烈焰火环，将逼近之敌尽数震退（无直接伤害）",
                 slot = 4, cooldown = 6, manaCost = 32,
                 unlockLevel = 8,
-                damage = 200,  -- ATK倍率200% (大范围AOE)
-                range = 6.0, aoeRadius = 3.0, castTime = 0.50,
+                isKnockback = true,        -- 纯击退技能，无直接伤害
+                knockbackSpeed = 14,       -- 推开速度(米/秒)
+                knockbackDuration = 0.4,   -- 击退持续时间(秒)，推开距离≈speed×duration
+                range = 3.5, aoeRadius = 3.5, castTime = 0.40,
             },
             {
                 id = "m_firewall", name = "火墙", type = SKILL_TYPE.DOT,
                 desc = "点燃不灭之火，烈焰如怨念般不息",
                 slot = 5, cooldown = 7, manaCost = 30,
-                unlockLevel = 11,
+                unlockLevel = 5,
                 damage = 45, -- ATK倍率45%/秒 (DOT持续)
                 duration = 5,
                 range = 6.0, aoeRadius = 2.0, castTime = 0.55,

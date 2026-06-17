@@ -490,6 +490,21 @@ function Combat.UpdateEnemies(dt, playerNode, player)
         local eBody = e.node:GetComponent("RigidBody")
         local isMoving = false
 
+        -- 抗拒火环击退：被推开期间强制水平位移，跳过正常 AI（避免速度被状态机覆盖）
+        if (e.knockbackTimer or 0) > 0 then
+            e.knockbackTimer = e.knockbackTimer - dt
+            if eBody and e.knockbackDir then
+                local v = e.knockbackDir * (e.knockbackSpeed or 14)
+                -- 保留竖直速度（重力/起跳），仅覆盖水平推开
+                local cur = eBody:GetLinearVelocity()
+                eBody:SetLinearVelocity(Vector3(v.x, cur.y, v.z))
+            end
+            if e.animData then
+                MonsterSkeleton.UpdateAnimation(e.animData, dt, true)
+            end
+            goto continue
+        end
+
         -- 受击硬直：暂停移动，只播放动画
         if e.hitStunTimer > 0 then
             e.hitStunTimer = e.hitStunTimer - dt
@@ -748,6 +763,36 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
         return true, "ranged"
 
     elseif skill.type == SKILL_TYPE.AOE then
+        -- 抗拒火环：以玩家自身为中心，无直接伤害，纯击退（在伤害计算前拦截）
+        if skill.isKnockback then
+            local kbRadius = skill.aoeRadius or skill.range or 3.0
+            local kbSpeed = skill.knockbackSpeed or 14
+            local kbDur = skill.knockbackDuration or 0.4
+            for _, e in ipairs(enemies) do
+                if e.state ~= "dead" and e.state ~= "dying" then
+                    local toE = e.node.position - playerPos
+                    toE.y = 0
+                    local d = toE:Length()
+                    if d <= kbRadius then
+                        -- 推开方向：从玩家指向敌人(水平)；若与玩家重叠则随机方向避免归一化 NaN
+                        local kbDir
+                        if d > 0.01 then
+                            kbDir = toE:Normalized()
+                        else
+                            kbDir = Vector3(math.random() - 0.5, 0, math.random() - 0.5):Normalized()
+                        end
+                        e.knockbackDir = kbDir
+                        e.knockbackSpeed = kbSpeed
+                        e.knockbackTimer = kbDur
+                        e.hitStunTimer = 0  -- 打断硬直，立即被推开
+                    end
+                end
+            end
+            -- 火环视觉（以玩家为中心绽放）
+            Combat.SpawnAOEVisual(scene, playerPos, kbRadius, player.classId, skill.id)
+            return true, "aoe"
+        end
+
         -- 范围：ATK × 倍率百分比
         local dmg = player.atk * (skill.damage / 100)
         local radius = skill.aoeRadius or skill.range
