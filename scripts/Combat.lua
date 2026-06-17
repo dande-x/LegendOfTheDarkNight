@@ -162,6 +162,7 @@ local function ApplyPoisonTint(enemy)
     if enemy.poisonTinted then return end
     enemy.poisonTinted = true
     enemy.poisonOrigMats = {}
+    enemy.poisonFlashAccum = 0
     -- 遍历 SkelRoot 下所有 _mesh 子节点
     local skelRoot = enemy.node:GetChild("SkelRoot", false)
     if not skelRoot then return end
@@ -173,12 +174,18 @@ local function ApplyPoisonTint(enemy)
             if model then
                 -- 保存原始材质
                 table.insert(enemy.poisonOrigMats, { model = model, mat = model:GetMaterial(0) })
-                -- 应用红色中毒材质
-                local poisonMat = CreatePBR(Color(0.9, 0.15, 0.1, 1.0), 0.0, 0.5)
-                poisonMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.6, 0.0, 0.0)))
+                -- 深红+绿毒混合，高自发光，非常显眼
+                local poisonMat = CreatePBR(Color(0.8, 0.05, 0.15, 1.0), 0.0, 0.6)
+                poisonMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.9, 0.1, 0.2, 1.0)))
                 model:SetMaterial(poisonMat)
             end
         end
+    end
+    -- 缩放脉动：中毒时怪物微微膨胀以强化视觉反馈
+    local skelRoot2 = enemy.node:GetChild("SkelRoot", false)
+    if skelRoot2 then
+        enemy.poisonOrigScale = skelRoot2.scale
+        skelRoot2.scale = skelRoot2.scale * 1.08
     end
 end
 
@@ -193,6 +200,15 @@ local function RemovePoisonTint(enemy)
         end
         enemy.poisonOrigMats = nil
     end
+    -- 恢复缩放
+    if enemy.poisonOrigScale then
+        local skelRoot = enemy.node:GetChild("SkelRoot", false)
+        if skelRoot then
+            skelRoot.scale = enemy.poisonOrigScale
+        end
+        enemy.poisonOrigScale = nil
+    end
+    enemy.poisonFlashAccum = nil
 end
 
 -- ============================================================================
@@ -1072,17 +1088,17 @@ function Combat.SpawnProjectile(scene, origin, dir, damage, skill, player)
 
     -- ========== 灵魂火符：长方形符咒 ==========
     elseif skillId == "t_talisman" then
-        -- 扁平长方形符咒：宽0.3 × 高0.5 × 厚0.03
-        projNode.scale = Vector3(0.3, 0.5, 0.03)
+        -- 横飞的纸质符咒：宽0.4 × 厚0.01 × 长0.55（XZ平面展开，Y极薄）
+        projNode.scale = Vector3(0.4, 0.01, 0.55)
         local model = projNode:CreateComponent("StaticModel")
         model:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
-        -- 符咒面朝飞行方向（绕Y轴旋转对齐dir）
+        -- 符咒水平横飞，面朝飞行方向
         local angle = math.atan2(dir.x, dir.z)
         projNode.rotation = Quaternion(math.deg(angle), Vector3.UP)
-        -- 金黄色发光材质
-        local talismanColor = Color(1.0, 0.85, 0.2, 1.0)
-        local mat = CreatePBR(talismanColor, 0.0, 0.2)
-        mat:SetShaderParameter("MatEmissiveColor", Variant(Color(1.0, 0.7, 0.1, 1.0)))
+        -- 纸质符咒：淡黄底色 + 微弱暖光（模拟宣纸质感）
+        local paperColor = Color(0.95, 0.90, 0.72, 1.0)
+        local mat = CreatePBR(paperColor, 0.9, 0.1)
+        mat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.3, 0.18, 0.05, 1.0)))
         model:SetMaterial(mat)
         model.castShadows = false
 

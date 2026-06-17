@@ -272,7 +272,7 @@ CharacterClass.Classes = {
                 slot = 6, cooldown = 12, manaCost = 50,
                 unlockLevel = 12,
                 damage = 0,  -- 不造成伤害，纯控制
-                range = 8.0, aoeRadius = 5.0, isUltimate = true, castTime = 0.80,
+                range = 8.0, aoeRadius = 3.5, isUltimate = true, castTime = 0.80,
                 isTrap = true,  -- 标记为困魔类技能
                 trapDuration = 6.0,  -- 困住6秒
             },
