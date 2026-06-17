@@ -166,10 +166,10 @@ local function ApplyPoisonTint(enemy)
     -- 遍历 SkelRoot 下所有 _mesh 子节点
     local skelRoot = enemy.node:GetChild("SkelRoot", false)
     if not skelRoot then return end
-    local children = skelRoot:GetChildren(true)
-    for i = 0, children:Size() - 1 do
-        local child = children:At(i)
-        if child.name:find("_mesh") then
+    local numChildren = skelRoot:GetNumChildren(true)
+    for i = 0, numChildren - 1 do
+        local child = skelRoot:GetChild(i)
+        if child and child.name and child.name:find("_mesh") then
             local model = child:GetComponent("StaticModel")
             if model then
                 -- 保存原始材质
