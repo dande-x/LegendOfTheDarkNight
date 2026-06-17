@@ -83,7 +83,7 @@ CharacterClass.Classes = {
             {
                 id = "w_thrust", name = "刺杀剑术", type = SKILL_TYPE.RANGED,
                 desc = "驭刀意为剑光，斩伤数丈外敌人",
-                slot = 2, cooldown = 6, manaCost = 12,
+                slot = 2, cooldown = 4, manaCost = 18,
                 unlockLevel = 3,
                 damage = 200,  -- ATK倍率200%
                 range = 4.0,
@@ -91,7 +91,7 @@ CharacterClass.Classes = {
             {
                 id = "w_crescent", name = "半月弯刀", type = SKILL_TYPE.MELEE,
                 desc = "斩出新月弧光，横扫面前半月范围群敌",
-                slot = 3, cooldown = 10, manaCost = 18,
+                slot = 3, cooldown = 6, manaCost = 25,
                 unlockLevel = 7,
                 damage = 180,  -- ATK倍率180% (AOE所以略低)
                 range = 3.0, aoeAngle = 180,
@@ -99,7 +99,7 @@ CharacterClass.Classes = {
             {
                 id = "w_charge", name = "野蛮冲撞", type = SKILL_TYPE.DASH,
                 desc = "剑术步法合一，力如奔牛冲向敌人",
-                slot = 4, cooldown = 12, manaCost = 15,
+                slot = 4, cooldown = 6, manaCost = 22,
                 unlockLevel = 10,
                 damage = 160,  -- ATK倍率160%
                 range = 5.0,
@@ -107,7 +107,7 @@ CharacterClass.Classes = {
             {
                 id = "w_fire", name = "烈火剑法", type = SKILL_TYPE.MELEE,
                 desc = "内功吸纳天地之火，灌注刀刃，焰如怒龙",
-                slot = 5, cooldown = 25, manaCost = 25,
+                slot = 5, cooldown = 8, manaCost = 40,
                 unlockLevel = 14,
                 damage = 350,  -- ATK倍率350% (大招)
                 range = 2.8, isUltimate = true, castTime = 0.35,
@@ -115,7 +115,7 @@ CharacterClass.Classes = {
             {
                 id = "w_shield", name = "真气护盾", type = SKILL_TYPE.BUFF,
                 desc = "运真气凝结护壁，吞噬外来攻击之力",
-                slot = 6, cooldown = 18, manaCost = 20,
+                slot = 6, cooldown = 7, manaCost = 30,
                 unlockLevel = 12,
                 shieldPercent = 50,
                 duration = 6,
@@ -154,7 +154,7 @@ CharacterClass.Classes = {
             {
                 id = "m_thunder", name = "雷电术", type = SKILL_TYPE.RANGED,
                 desc = "引下天雷，威力巨大但施法较慢",
-                slot = 3, cooldown = 9, manaCost = 18,
+                slot = 3, cooldown = 5, manaCost = 28,
                 unlockLevel = 5,
                 damage = 250,  -- ATK倍率250% (单体高伤)
                 range = 7.0, castTime = 0.8,
@@ -162,7 +162,7 @@ CharacterClass.Classes = {
             {
                 id = "m_explosion", name = "爆裂火焰", type = SKILL_TYPE.AOE,
                 desc = "瞬间高温爆发，大范围炸裂",
-                slot = 4, cooldown = 10, manaCost = 22,
+                slot = 4, cooldown = 6, manaCost = 32,
                 unlockLevel = 8,
                 damage = 200,  -- ATK倍率200% (大范围AOE)
                 range = 6.0, aoeRadius = 3.0, castTime = 0.50,
@@ -170,7 +170,7 @@ CharacterClass.Classes = {
             {
                 id = "m_firewall", name = "火墙", type = SKILL_TYPE.DOT,
                 desc = "点燃不灭之火，烈焰如怨念般不息",
-                slot = 5, cooldown = 14, manaCost = 20,
+                slot = 5, cooldown = 7, manaCost = 30,
                 unlockLevel = 11,
                 damage = 45, -- ATK倍率45%/秒 (DOT持续)
                 duration = 5,
@@ -179,7 +179,7 @@ CharacterClass.Classes = {
             {
                 id = "m_blizzard", name = "冰咆哮", type = SKILL_TYPE.AOE,
                 desc = "召唤冰雪暴风，刺骨寒意冻裂金铁",
-                slot = 6, cooldown = 28, manaCost = 35,
+                slot = 6, cooldown = 8, manaCost = 50,
                 unlockLevel = 14,
                 damage = 320,  -- ATK倍率320% (大招AOE)
                 range = 6.0, aoeRadius = 3.5, isUltimate = true, castTime = 1.0,
@@ -187,7 +187,7 @@ CharacterClass.Classes = {
             {
                 id = "m_shield", name = "魔法盾", type = SKILL_TYPE.BUFF,
                 desc = "纯粹魔力凝成护盾，保命之本",
-                slot = 0, cooldown = 30, manaCost = 30,
+                slot = 0, cooldown = 8, manaCost = 45,
                 unlockLevel = 12,
                 shieldPercent = 40,
                 duration = 25,
@@ -227,7 +227,7 @@ CharacterClass.Classes = {
             {
                 id = "t_divineBeast", name = "召唤神兽", type = SKILL_TYPE.SUMMON,
                 desc = "召唤远古神兽为随从，喷火焚敌，永不消散",
-                slot = 2, cooldown = 60, manaCost = 30,
+                slot = 2, cooldown = 8, manaCost = 45,
                 unlockLevel = 1,
                 damage = 150,  -- 神兽基础ATK倍率150%
                 duration = -1, -- -1 表示永久
@@ -239,7 +239,7 @@ CharacterClass.Classes = {
             {
                 id = "t_beastRage", name = "神兽狂暴", type = SKILL_TYPE.BUFF,
                 desc = "激发神兽潜能，攻击力与攻速大幅提升",
-                slot = 3, cooldown = 20, manaCost = 20,
+                slot = 3, cooldown = 7, manaCost = 30,
                 unlockLevel = 4,
                 buffMultiplier = 2.0,
                 duration = 10,
@@ -249,7 +249,7 @@ CharacterClass.Classes = {
             {
                 id = "t_poison", name = "施毒术", type = SKILL_TYPE.DOT,
                 desc = "以灵力化毒，侵蚀敌人防御与生命",
-                slot = 4, cooldown = 8, manaCost = 15,
+                slot = 4, cooldown = 5, manaCost = 22,
                 unlockLevel = 6,
                 damage = 50, -- ATK倍率50%/秒
                 duration = 5,
@@ -260,7 +260,7 @@ CharacterClass.Classes = {
             {
                 id = "t_heal", name = "治愈术", type = SKILL_TYPE.HEAL,
                 desc = "引天地灵气修补伤损，自保之术",
-                slot = 5, cooldown = 10, manaCost = 15,
+                slot = 5, cooldown = 6, manaCost = 25,
                 unlockLevel = 8,
                 healPercent = 35,
                 range = 0,
@@ -269,7 +269,7 @@ CharacterClass.Classes = {
             {
                 id = "t_beastRoar", name = "神兽咆哮", type = SKILL_TYPE.AOE,
                 desc = "神兽怒吼震天，烈焰焚烧四方一切敌人",
-                slot = 6, cooldown = 30, manaCost = 35,
+                slot = 6, cooldown = 8, manaCost = 50,
                 unlockLevel = 12,
                 damage = 300,  -- ATK倍率300% (大招AOE)
                 range = 8.0, aoeRadius = 5.0, isUltimate = true, castTime = 0.80,
