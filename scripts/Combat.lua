@@ -1100,13 +1100,14 @@ function Combat.SpawnProjectile(scene, origin, dir, damage, skill, player)
         paperMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.25, 0.15, 0.04, 1.0)))
         paperModel:SetMaterial(paperMat)
         paperModel.castShadows = false
-        -- 中央竖条纹（朱砂主符文）
+        -- 中央竖条纹（金黄符文）
         local centerLine = projNode:CreateChild("line_c")
         centerLine.scale = Vector3(0.03, 0.012, 0.42)
         local clModel = centerLine:CreateComponent("StaticModel")
         clModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
-        local redMat = CreatePBR(Color(0.75, 0.08, 0.05, 1.0), 0.0, 0.5)
-        redMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.6, 0.05, 0.02, 1.0)))
+        local runeMatColor = Color(0.85, 0.65, 0.05, 1.0)
+        local redMat = CreatePBR(runeMatColor, 0.0, 0.4)
+        redMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.9, 0.7, 0.1, 1.0)))
         clModel:SetMaterial(redMat)
         clModel.castShadows = false
         -- 左侧短横（道教符纹）
@@ -1193,10 +1194,49 @@ function Combat.UpdateProjectiles(scene, dt, player)
         end
 
         if hit or p.traveled >= p.range then
+            -- 灵魂火符命中时产生小爆炸
+            if hit and p.skillId == "t_talisman" then
+                Combat.SpawnTalismanBurst(scene, hitPos)
+            end
             p.node:Remove()
             table.remove(projectiles, i)
         end
     end
+end
+
+-- 灵魂火符命中爆炸效果：金黄色小型爆散
+function Combat.SpawnTalismanBurst(scene, pos)
+    local node = scene:CreateChild("TalismanBurst")
+    node.position = Vector3(pos.x, pos.y + 0.8, pos.z)
+    -- 中心闪光球
+    local core = node:CreateChild("core")
+    core.scale = Vector3(0.5, 0.5, 0.5)
+    local cModel = core:CreateComponent("StaticModel")
+    cModel:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
+    local coreMat = Material:new()
+    coreMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+    coreMat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 0.9, 0.3, 0.8)))
+    coreMat:SetShaderParameter("MatEmissiveColor", Variant(Color(1.0, 0.8, 0.2)))
+    coreMat:SetShaderParameter("Metallic", Variant(0.0))
+    coreMat:SetShaderParameter("Roughness", Variant(0.2))
+    cModel:SetMaterial(coreMat)
+    cModel.castShadows = false
+    -- 外扩环
+    local ring = node:CreateChild("ring")
+    ring.scale = Vector3(0.8, 0.05, 0.8)
+    local rModel = ring:CreateComponent("StaticModel")
+    rModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+    local ringMat = Material:new()
+    ringMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+    ringMat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 0.75, 0.1, 0.5)))
+    ringMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.8, 0.6, 0.0)))
+    ringMat:SetShaderParameter("Metallic", Variant(0.0))
+    ringMat:SetShaderParameter("Roughness", Variant(0.3))
+    rModel:SetMaterial(ringMat)
+    rModel.castShadows = false
+    -- 快速消失
+    node:SetVar("removeTimer", Variant(0.3))
+    node:SetVar("noShrink", Variant(true))
 end
 
 -- ============================================================================
