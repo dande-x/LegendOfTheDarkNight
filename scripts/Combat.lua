@@ -1204,39 +1204,38 @@ function Combat.UpdateProjectiles(scene, dt, player)
     end
 end
 
--- 灵魂火符命中爆炸效果：金黄色小型爆散
+-- 灵魂火符命中爆炸效果：火焰色小型爆散
 function Combat.SpawnTalismanBurst(scene, pos)
     local node = scene:CreateChild("TalismanBurst")
     node.position = Vector3(pos.x, pos.y + 0.8, pos.z)
-    -- 中心闪光球
+    -- 中心火焰闪光球
     local core = node:CreateChild("core")
     core.scale = Vector3(0.5, 0.5, 0.5)
     local cModel = core:CreateComponent("StaticModel")
     cModel:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
     local coreMat = Material:new()
     coreMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
-    coreMat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 0.9, 0.3, 0.8)))
-    coreMat:SetShaderParameter("MatEmissiveColor", Variant(Color(1.0, 0.8, 0.2)))
+    coreMat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 0.45, 0.05, 0.85)))
+    coreMat:SetShaderParameter("MatEmissiveColor", Variant(Color(1.0, 0.35, 0.0)))
     coreMat:SetShaderParameter("Metallic", Variant(0.0))
     coreMat:SetShaderParameter("Roughness", Variant(0.2))
     cModel:SetMaterial(coreMat)
     cModel.castShadows = false
-    -- 外扩环
+    -- 外扩火环
     local ring = node:CreateChild("ring")
     ring.scale = Vector3(0.8, 0.05, 0.8)
     local rModel = ring:CreateComponent("StaticModel")
     rModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
     local ringMat = Material:new()
     ringMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
-    ringMat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 0.75, 0.1, 0.5)))
-    ringMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.8, 0.6, 0.0)))
+    ringMat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 0.3, 0.0, 0.5)))
+    ringMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.9, 0.2, 0.0)))
     ringMat:SetShaderParameter("Metallic", Variant(0.0))
     ringMat:SetShaderParameter("Roughness", Variant(0.3))
     rModel:SetMaterial(ringMat)
     rModel.castShadows = false
     -- 快速消失
     node:SetVar("removeTimer", Variant(0.3))
-    node:SetVar("noShrink", Variant(true))
 end
 
 -- ============================================================================
@@ -2568,7 +2567,7 @@ function Combat.UpdateVisuals(scene, dt, playerNode)
     local children = {}
     for i = 0, scene:GetNumChildren(false) - 1 do
         local child = scene:GetChild(i)
-        if child.name == "AOEVisual" or child.name == "CrescentVisual" then
+        if child.name == "AOEVisual" or child.name == "CrescentVisual" or child.name == "TalismanBurst" then
             table.insert(children, child)
         end
     end
