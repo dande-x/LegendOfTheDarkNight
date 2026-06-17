@@ -221,7 +221,7 @@ CharacterClass.Classes = {
                 slot = 1, cooldown = 0, manaCost = 0,
                 unlockLevel = 1,
                 damage = 100,  -- ATK倍率100%
-                range = 6.0, projectileSpeed = 10, castTime = 0.38,
+                range = 10.0, projectileSpeed = 12, castTime = 0.38,
             },
             -- 2. 召唤神兽 (核心技 — 永久召唤一只喷火神兽)
             {
@@ -265,14 +265,16 @@ CharacterClass.Classes = {
                 healPercent = 35,
                 range = 0,
             },
-            -- 6. 神兽咆哮 (终极技 — 神兽全屏AOE)
+            -- 6. 困魔咒 (终极技 — 群控困敌)
             {
-                id = "t_beastRoar", name = "神兽咆哮", type = SKILL_TYPE.AOE,
-                desc = "神兽怒吼震天，烈焰焚烧四方一切敌人",
-                slot = 6, cooldown = 8, manaCost = 50,
+                id = "t_trapDemon", name = "困魔咒", type = SKILL_TYPE.AOE,
+                desc = "布下法阵困锁妖魔，圈内之敌无法逃脱",
+                slot = 6, cooldown = 12, manaCost = 50,
                 unlockLevel = 12,
-                damage = 300,  -- ATK倍率300% (大招AOE)
+                damage = 0,  -- 不造成伤害，纯控制
                 range = 8.0, aoeRadius = 5.0, isUltimate = true, castTime = 0.80,
+                isTrap = true,  -- 标记为困魔类技能
+                trapDuration = 6.0,  -- 困住6秒
             },
         },
     },

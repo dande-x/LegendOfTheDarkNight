@@ -416,6 +416,7 @@ end
 function DivineBeast.ApplyBuff(multiplier, duration)
     beast.buffMult = multiplier
     beast.buffTimer = duration
+    beast.buffFlashAccum = 0  -- 初始化狂暴闪光计时器
     beast.atk = math.floor(beast.baseAtk * multiplier)
     beast.attackCD = beast.attackCD / multiplier
     print("[DivineBeast] 获得增益! ATKx" .. multiplier .. " 持续" .. duration .. "s")
@@ -624,6 +625,47 @@ local function UpdateHitFlash(dt)
 end
 
 -- ============================================================================
+-- 狂暴闪光效果（Buff 激活时金色闪烁）
+-- ============================================================================
+local function UpdateBuffFlash(dt)
+    if not beast.animModel then return end
+
+    if beast.buffTimer > 0 and beast.hitFlashTimer <= 0 then
+        -- 狂暴状态：金色闪烁（频率较快，每0.15秒切换）
+        beast.buffFlashAccum = (beast.buffFlashAccum or 0) + dt
+        local flash = math.floor(beast.buffFlashAccum / 0.15) % 2 == 0
+        local numGeom = beast.animModel:GetNumGeometries()
+
+        if flash then
+            local buffMat = CreatePBRMat(
+                Color(1.0, 0.85, 0.2, 1.0), 0.3, 0.2,
+                Color(1.0, 0.7, 0.0)
+            )
+            for i = 0, numGeom - 1 do
+                beast.animModel:SetMaterial(i, buffMat)
+            end
+        else
+            for i = 0, numGeom - 1 do
+                if beast.originalMats[i] then
+                    beast.animModel:SetMaterial(i, beast.originalMats[i])
+                end
+            end
+        end
+    elseif beast.buffTimer <= 0 and beast.hitFlashTimer <= 0 then
+        -- Buff 结束且无受击闪烁时恢复原材质
+        if beast.buffFlashAccum and beast.buffFlashAccum > 0 then
+            beast.buffFlashAccum = 0
+            local numGeom = beast.animModel:GetNumGeometries()
+            for i = 0, numGeom - 1 do
+                if beast.originalMats[i] then
+                    beast.animModel:SetMaterial(i, beast.originalMats[i])
+                end
+            end
+        end
+    end
+end
+
+-- ============================================================================
 -- 主更新
 -- ============================================================================
 function DivineBeast.Update(dt, scene, playerNode, player, enemies, dealDamageFn)
@@ -644,6 +686,9 @@ function DivineBeast.Update(dt, scene, playerNode, player, enemies, dealDamageFn
 
     -- 受击闪烁
     UpdateHitFlash(dt)
+
+    -- 狂暴闪光
+    UpdateBuffFlash(dt)
 
     -- 攻击计时
     beast.attackTimer = math.max(0, beast.attackTimer - dt)

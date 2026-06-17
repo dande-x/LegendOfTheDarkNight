@@ -156,6 +156,46 @@ local function CreatePBR(color, metallic, roughness)
 end
 
 -- ============================================================================
+-- 中毒红色效果辅助函数
+-- ============================================================================
+local function ApplyPoisonTint(enemy)
+    if enemy.poisonTinted then return end
+    enemy.poisonTinted = true
+    enemy.poisonOrigMats = {}
+    -- 遍历 SkelRoot 下所有 _mesh 子节点
+    local skelRoot = enemy.node:GetChild("SkelRoot", false)
+    if not skelRoot then return end
+    local children = skelRoot:GetChildren(true)
+    for i = 0, children:Size() - 1 do
+        local child = children:At(i)
+        if child.name:find("_mesh") then
+            local model = child:GetComponent("StaticModel")
+            if model then
+                -- 保存原始材质
+                table.insert(enemy.poisonOrigMats, { model = model, mat = model:GetMaterial(0) })
+                -- 应用红色中毒材质
+                local poisonMat = CreatePBR(Color(0.9, 0.15, 0.1, 1.0), 0.0, 0.5)
+                poisonMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.6, 0.0, 0.0)))
+                model:SetMaterial(poisonMat)
+            end
+        end
+    end
+end
+
+local function RemovePoisonTint(enemy)
+    if not enemy.poisonTinted then return end
+    enemy.poisonTinted = false
+    if enemy.poisonOrigMats then
+        for _, entry in ipairs(enemy.poisonOrigMats) do
+            if entry.model then
+                entry.model:SetMaterial(entry.mat)
+            end
+        end
+        enemy.poisonOrigMats = nil
+    end
+end
+
+-- ============================================================================
 -- 等级缩放系数：怪物属性随等级线性增长
 -- 设计目标：玩家用普攻需要 4~6 下杀同级普通怪, 技能 2~3 下
 -- ============================================================================
@@ -393,6 +433,8 @@ function Combat.UpdateEnemies(dt, playerNode, player)
             e.hp = e.hp - e.dotDamage * dt
             if e.dotTimer <= 0 then
                 e.dotDamage = 0
+                -- 中毒结束，移除红色效果
+                RemovePoisonTint(e)
             end
         end
 
@@ -407,6 +449,16 @@ function Combat.UpdateEnemies(dt, playerNode, player)
         -- 受击闪烁
         if e.hitFlashTimer > 0 then
             e.hitFlashTimer = e.hitFlashTimer - dt
+        end
+
+        -- 困魔咒：计时器衰减
+        if e.trapTimer and e.trapTimer > 0 then
+            e.trapTimer = e.trapTimer - dt
+            if e.trapTimer <= 0 then
+                e.trapTimer = nil
+                e.trapCenter = nil
+                e.trapRadius = nil
+            end
         end
 
         -- 死亡检测（调用统一死亡函数）
@@ -549,6 +601,24 @@ function Combat.UpdateEnemies(dt, playerNode, player)
             end
         end
 
+        -- 困魔咒：位置约束（被困住的怪物无法离开圆形区域）
+        if e.trapCenter and e.trapRadius then
+            local ePos = e.node.position
+            local toCenter = ePos - e.trapCenter
+            toCenter.y = 0
+            local distFromCenter = toCenter:Length()
+            if distFromCenter > e.trapRadius * 0.9 then
+                -- 拉回到边界内
+                local clampDir = toCenter:Normalized()
+                local clampedPos = e.trapCenter + clampDir * (e.trapRadius * 0.85)
+                clampedPos.y = ePos.y
+                e.node.position = clampedPos
+                -- 清除速度防止继续外移
+                local eBody = e.node:GetComponent("RigidBody")
+                if eBody then eBody:SetLinearVelocity(Vector3.ZERO) end
+            end
+        end
+
         -- 更新骨架动画
         if e.animData then
             MonsterSkeleton.UpdateAnimation(e.animData, dt, isMoving)
@@ -673,6 +743,35 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
             center = playerPos + playerDir * (radius * 0.5)
         end
 
+        -- 困魔咒：群控困敌，不造成伤害
+        if skill.isTrap then
+            local trapDur = skill.trapDuration or 6.0
+            -- 创建困魔区域（持续存在，区域内敌人无法离开）
+            table.insert(aoeZones, {
+                center = center,
+                radius = radius,
+                isTrapZone = true,
+                timer = trapDur,
+                tickInterval = 0.1,
+                tickAccum = 0,
+                dps = 0,
+                ownerId = "player",
+                visualNode = Combat.SpawnAOEVisual(scene, center, radius, player.classId, skill.id),
+            })
+            -- 立即困住区域内的怪物
+            for _, e in ipairs(enemies) do
+                if e.state ~= "dead" and e.state ~= "dying" then
+                    local d = (e.node.position - center):Length()
+                    if d <= radius then
+                        e.trapCenter = center
+                        e.trapRadius = radius
+                        e.trapTimer = trapDur
+                    end
+                end
+            end
+            return true, "aoe"
+        end
+
         for _, e in ipairs(enemies) do
             if e.state ~= "dead" and e.state ~= "dying" then
                 local d = (e.node.position - center):Length()
@@ -697,6 +796,8 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
             target.dotTimer = dur
             target.defReduction = skill.defReduce or 0
             target.defReductionTimer = dur
+            -- 应用中毒红色效果
+            ApplyPoisonTint(target)
             -- 转向目标
             local dir = target.node.position - playerPos
             dir.y = 0
@@ -968,6 +1069,22 @@ function Combat.SpawnProjectile(scene, origin, dir, damage, skill, player)
         tModel.castShadows = false
 
     -- (m_thunder 已改为直接劈闪电，不再使用投射物)
+
+    -- ========== 灵魂火符：长方形符咒 ==========
+    elseif skillId == "t_talisman" then
+        -- 扁平长方形符咒：宽0.3 × 高0.5 × 厚0.03
+        projNode.scale = Vector3(0.3, 0.5, 0.03)
+        local model = projNode:CreateComponent("StaticModel")
+        model:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
+        -- 符咒面朝飞行方向（绕Y轴旋转对齐dir）
+        local angle = math.atan2(dir.x, dir.z)
+        projNode.rotation = Quaternion(math.deg(angle), Vector3.UP)
+        -- 金黄色发光材质
+        local talismanColor = Color(1.0, 0.85, 0.2, 1.0)
+        local mat = CreatePBR(talismanColor, 0.0, 0.2)
+        mat:SetShaderParameter("MatEmissiveColor", Variant(Color(1.0, 0.7, 0.1, 1.0)))
+        model:SetMaterial(mat)
+        model.castShadows = false
 
     -- ========== 默认/通用投射物 ==========
     else
@@ -1323,6 +1440,45 @@ function Combat.SpawnAOEVisual(scene, center, radius, classId, skillId, wallAngl
         frModel:SetMaterial(frMat)
         frModel.castShadows = false
         node:SetVar("removeTimer", Variant(1.5))
+        return node
+
+    -- ========== 道士 - 困魔咒：翠绿法阵光环 ==========
+    elseif skillId == "t_trapDemon" then
+        local node = scene:CreateChild("AOEVisual")
+        node.position = Vector3(center.x, 0.05, center.z)
+        node:SetVar("noShrink", Variant(true))
+        node:SetVar("spinSpeed", Variant(60.0))  -- 缓慢旋转法阵
+
+        -- 地面法阵底盘（半透明翠绿）
+        local baseNode = node:CreateChild("base")
+        baseNode.scale = Vector3(radius * 2, 0.04, radius * 2)
+        local bModel = baseNode:CreateComponent("StaticModel")
+        bModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+        local baseMat = Material:new()
+        baseMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+        baseMat:SetShaderParameter("MatDiffColor", Variant(Color(0.1, 0.7, 0.3, 0.35)))
+        baseMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.0, 0.5, 0.2)))
+        baseMat:SetShaderParameter("Metallic", Variant(0.0))
+        baseMat:SetShaderParameter("Roughness", Variant(0.3))
+        bModel:SetMaterial(baseMat)
+        bModel.castShadows = false
+
+        -- 外圈光环（竖直薄圆环标识边界）
+        local ringNode = node:CreateChild("ring")
+        ringNode.position = Vector3(0, 1.0, 0)
+        ringNode.scale = Vector3(radius * 2.1, 2.0, radius * 2.1)
+        local rModel = ringNode:CreateComponent("StaticModel")
+        rModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+        local ringMat = Material:new()
+        ringMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+        ringMat:SetShaderParameter("MatDiffColor", Variant(Color(0.2, 0.9, 0.4, 0.2)))
+        ringMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.1, 0.8, 0.3)))
+        ringMat:SetShaderParameter("Metallic", Variant(0.0))
+        ringMat:SetShaderParameter("Roughness", Variant(0.2))
+        rModel:SetMaterial(ringMat)
+        rModel.castShadows = false
+
+        node:SetVar("removeTimer", Variant(6.0))
         return node
 
     -- ========== 默认通用 AOE ==========
@@ -2115,8 +2271,8 @@ function Combat.UpdateAOEZones(dt, player)
                 end
             end
 
-            if shouldDamage then
-                -- 对区域内敌人造成伤害
+            if shouldDamage and not zone.isTrapZone then
+                -- 对区域内敌人造成伤害（困魔区域不造成伤害）
                 for _, e in ipairs(enemies) do
                     if e.state ~= "dead" and e.state ~= "dying" then
                         local inZone = false
@@ -2144,6 +2300,20 @@ function Combat.UpdateAOEZones(dt, player)
                             if e.hp <= 0 then
                                 Combat.TriggerDeath(e, player)
                             end
+                        end
+                    end
+                end
+            end
+
+            -- 困魔区域：持续捕捉新进入的敌人
+            if zone.isTrapZone then
+                for _, e in ipairs(enemies) do
+                    if e.state ~= "dead" and e.state ~= "dying" and not e.trapCenter then
+                        local d = (e.node.position - zone.center):Length()
+                        if d <= zone.radius then
+                            e.trapCenter = zone.center
+                            e.trapRadius = zone.radius
+                            e.trapTimer = zone.timer
                         end
                     end
                 end
