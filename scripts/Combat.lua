@@ -2223,8 +2223,9 @@ function Combat.SpawnShieldVisual(scene, playerNode, skillId, duration)
     model:SetMaterial(shieldMat)
     model.castShadows = false
 
-    -- 设置移除时间为护盾持续时间
-    shieldNode:SetVar("removeTimer", Variant(math.min(duration, 4.0)))
+    -- 视觉持续时间必须与护盾 BUFF 实际持续时间一致，
+    -- 否则护盾球提前消失、玩家却仍免伤，会被误认为"结束后还在免伤"
+    shieldNode:SetVar("removeTimer", Variant(duration))
 end
 
 -- ============================================================================
