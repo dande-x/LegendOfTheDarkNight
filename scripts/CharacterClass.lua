@@ -192,7 +192,7 @@ CharacterClass.Classes = {
                 slot = 0, cooldown = 8, manaCost = 45,
                 unlockLevel = 12,
                 shieldPercent = 40,
-                duration = 25,
+                duration = 5,    -- 短于 CD(8s)，护盾结束后有空窗期
                 range = 0,
             },
         },
