@@ -474,6 +474,7 @@ function Combat.UpdateEnemies(dt, playerNode, player)
                 e.trapTimer = nil
                 e.trapCenter = nil
                 e.trapRadius = nil
+                e.trapDefReduced = nil
             end
         end
 
@@ -759,14 +760,16 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
             center = playerPos + playerDir * (radius * 0.5)
         end
 
-        -- 困魔咒：群控困敌，不造成伤害
+        -- 困魔咒：群控困敌 + 减防
         if skill.isTrap then
             local trapDur = skill.trapDuration or 6.0
+            local defReducePct = skill.trapDefReducePercent or 0
             -- 创建困魔区域（持续存在，区域内敌人无法离开）
             table.insert(aoeZones, {
                 center = center,
                 radius = radius,
                 isTrapZone = true,
+                trapDefReducePercent = defReducePct,
                 timer = trapDur,
                 tickInterval = 0.1,
                 tickAccum = 0,
@@ -774,7 +777,7 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
                 ownerId = "player",
                 visualNode = Combat.SpawnAOEVisual(scene, center, radius, player.classId, skill.id),
             })
-            -- 立即困住区域内的怪物
+            -- 立即困住区域内的怪物并施加减防
             for _, e in ipairs(enemies) do
                 if e.state ~= "dead" and e.state ~= "dying" then
                     local d = (e.node.position - center):Length()
@@ -782,6 +785,13 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
                         e.trapCenter = center
                         e.trapRadius = radius
                         e.trapTimer = trapDur
+                        -- 百分比减防
+                        if defReducePct > 0 then
+                            local reduceAmt = math.floor(e.def * defReducePct / 100)
+                            e.defReduction = math.max(e.defReduction or 0, reduceAmt)
+                            e.defReductionTimer = trapDur
+                            e.trapDefReduced = true
+                        end
                     end
                 end
             end
@@ -2409,6 +2419,14 @@ function Combat.UpdateAOEZones(dt, player)
                             e.trapCenter = zone.center
                             e.trapRadius = zone.radius
                             e.trapTimer = zone.timer
+                            -- 后续进入的敌人也施加减防
+                            local pct = zone.trapDefReducePercent or 0
+                            if pct > 0 and not e.trapDefReduced then
+                                local reduceAmt = math.floor(e.def * pct / 100)
+                                e.defReduction = math.max(e.defReduction or 0, reduceAmt)
+                                e.defReductionTimer = zone.timer
+                                e.trapDefReduced = true
+                            end
                         end
                     end
                 end

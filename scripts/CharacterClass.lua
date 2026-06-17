@@ -265,16 +265,17 @@ CharacterClass.Classes = {
                 healPercent = 35,
                 range = 0,
             },
-            -- 6. 困魔咒 (群控困敌)
+            -- 6. 困魔咒 (群控困敌 + 减防)
             {
                 id = "t_trapDemon", name = "困魔咒", type = SKILL_TYPE.AOE,
-                desc = "布下法阵困锁妖魔，圈内之敌无法逃脱",
+                desc = "布下法阵困锁妖魔，圈内之敌无法逃脱且防御降低30%",
                 slot = 6, cooldown = 12, manaCost = 50,
                 unlockLevel = 12,
                 damage = 0,  -- 不造成伤害，纯控制
                 range = 8.0, aoeRadius = 3.5, castTime = 0.80,
                 isTrap = true,  -- 标记为困魔类技能
                 trapDuration = 6.0,  -- 困住6秒
+                trapDefReducePercent = 30,  -- 降低30%防御
             },
         },
     },

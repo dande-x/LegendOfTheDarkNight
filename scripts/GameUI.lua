@@ -1790,7 +1790,7 @@ local _skillBarIcons = {
     m_blizzard = "image/icon_m_blizzard_20260617041138.png",
     m_shield = "image/icon_m_shield_20260617040936.png",
     t_talisman = "image/icon_t_talisman_20260617040933.png",
-    t_divineBeast = "image/icon_t_divineBeast_20260617061319.png",
+    t_divineBeast = "image/icon_t_divineBeast_20260617062123.png",
     t_beastRage = "image/icon_t_beastRage_20260617040936.png",
     t_poison = "image/icon_t_poison_20260617061314.png",
     t_heal = "image/icon_t_heal_20260617040935.png",
@@ -2249,7 +2249,7 @@ local function _BuildSkillTabContent(player)
         m_shield    = "image/icon_m_shield_20260617040936.png",
         -- 道士
         t_talisman     = "image/icon_t_talisman_20260617040933.png",
-        t_divineBeast  = "image/icon_t_divineBeast_20260617061319.png",
+        t_divineBeast  = "image/icon_t_divineBeast_20260617062123.png",
         t_beastRage    = "image/icon_t_beastRage_20260617040936.png",
         t_poison       = "image/icon_t_poison_20260617061314.png",
         t_heal         = "image/icon_t_heal_20260617040935.png",
