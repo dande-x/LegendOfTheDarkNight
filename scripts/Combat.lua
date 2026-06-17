@@ -704,17 +704,28 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
             local angle = math.atan2(dir.x, dir.z)
             playerNode.rotation = Quaternion(math.deg(angle), Vector3.UP)
         else
-            -- 火墙：范围 DOT
+            -- 火墙：长方形范围 DOT，每0.5s出伤一次
             local center = playerPos + playerDir * 4
             if target then center = target.node.position end
             local radius = skill.aoeRadius or 2.0
+            -- 火墙使用长方形区域：宽度=radius*2, 长度=radius*3
+            local halfW = radius       -- 半宽
+            local halfL = radius * 1.5 -- 半长
+            -- 计算火墙朝向（朝向施法方向）
+            local wallAngle = math.atan2(playerDir.x, playerDir.z)
             table.insert(aoeZones, {
                 center = center,
                 radius = radius,
+                halfW = halfW,
+                halfL = halfL,
+                wallAngle = wallAngle,
+                isRect = true,
                 dps = dps,
                 timer = dur,
+                tickInterval = 0.5,
+                tickAccum = 0,
                 ownerId = "player",
-                visualNode = Combat.SpawnAOEVisual(scene, center, radius, player.classId, skill.id),
+                visualNode = Combat.SpawnAOEVisual(scene, center, radius, player.classId, skill.id, wallAngle),
             })
         end
         return true, "dot"
@@ -1015,7 +1026,7 @@ end
 -- ============================================================================
 -- AOE 视觉效果（根据技能 ID 分化）
 -- ============================================================================
-function Combat.SpawnAOEVisual(scene, center, radius, classId, skillId)
+function Combat.SpawnAOEVisual(scene, center, radius, classId, skillId, wallAngle)
     skillId = skillId or ""
 
     -- ========== 法师 - 爆裂火焰：橙红扩散火环 ==========
@@ -1165,20 +1176,22 @@ function Combat.SpawnAOEVisual(scene, center, radius, classId, skillId)
         node:SetVar("removeTimer", Variant(3.0))
         return node
 
-    -- ========== 法师 - 火墙：圆形燃烧区域（自然火焰形态，固定尺寸） ==========
+    -- ========== 法师 - 火墙：长方形燃烧区域（火墙形态） ==========
     elseif skillId == "m_firewall" then
         local node = scene:CreateChild("AOEVisual")
         node.position = Vector3(center.x, 0.0, center.z)
+        node.rotation = Quaternion(math.deg(wallAngle or 0), Vector3.UP)
         node:SetVar("noShrink", Variant(true))
 
-        local r = radius  -- 圆形半径
+        local halfW = radius       -- 半宽
+        local halfL = radius * 1.5 -- 半长
 
-        -- 1) 地面焦灼圆盘（Cylinder 圆形，不是 Box）
+        -- 1) 地面焦灼长方形底盘（Box）
         local burnBase = node:CreateChild("burnBase")
         burnBase.position = Vector3(0, 0.02, 0)
-        burnBase.scale = Vector3(r * 2, 0.02, r * 2)
+        burnBase.scale = Vector3(halfW * 2, 0.02, halfL * 2)
         local bModel = burnBase:CreateComponent("StaticModel")
-        bModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+        bModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
         local burnMat = Material:new()
         burnMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
         burnMat:SetShaderParameter("MatDiffColor", Variant(Color(0.08, 0.01, 0.0, 0.8)))
@@ -1188,21 +1201,38 @@ function Combat.SpawnAOEVisual(scene, center, radius, classId, skillId)
         bModel:SetMaterial(burnMat)
         bModel.castShadows = false
 
-        -- 2) 外圈火焰（环形分布，高度不均匀 — 像篝火围栏）
-        local outerCount = 10
-        for fi = 1, outerCount do
-            local angle = (fi / outerCount) * math.pi * 2 + (math.random() - 0.5) * 0.3
-            local dist = r * (0.75 + math.random() * 0.2)
-            local fx = math.cos(angle) * dist
-            local fz = math.sin(angle) * dist
-            local flame = node:CreateChild("outerFlame" .. fi)
+        -- 2) 边缘火焰（沿长方形边缘分布）
+        local edgeFlames = 14
+        for fi = 1, edgeFlames do
+            -- 沿矩形边缘均匀分布
+            local t = (fi - 1) / edgeFlames
+            local fx, fz
+            local perimeter = (halfW + halfL) * 4
+            local p = t * perimeter
+            if p < halfW * 2 then
+                fx = -halfW + p
+                fz = halfL
+            elseif p < halfW * 2 + halfL * 2 then
+                fx = halfW
+                fz = halfL - (p - halfW * 2)
+            elseif p < halfW * 4 + halfL * 2 then
+                fx = halfW - (p - halfW * 2 - halfL * 2)
+                fz = -halfL
+            else
+                fx = -halfW
+                fz = -halfL + (p - halfW * 4 - halfL * 2)
+            end
+            -- 加点随机偏移让边缘不那么死板
+            fx = fx + (math.random() - 0.5) * 0.2
+            fz = fz + (math.random() - 0.5) * 0.2
+
+            local flame = node:CreateChild("edgeFlame" .. fi)
             local fh = 1.0 + math.random() * 1.4
             flame.position = Vector3(fx, 0, fz)
             flame.scale = Vector3(0.22 + math.random() * 0.15, fh, 0.22 + math.random() * 0.15)
-            -- 火焰微微向外倾斜（更自然）
-            local tiltAngle = 5 + math.random() * 10
-            local tiltDir = math.deg(angle) + 180
-            flame.rotation = Quaternion(tiltAngle, Vector3(math.cos(angle), 0, math.sin(angle)))
+            -- 微微向外倾斜
+            local outDir = Vector3(fx, 0, fz):Normalized()
+            flame.rotation = Quaternion(5 + math.random() * 10, Vector3(outDir.z, 0, -outDir.x))
             local fModel = flame:CreateComponent("StaticModel")
             fModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
             local flameMat = Material:new()
@@ -1216,12 +1246,10 @@ function Combat.SpawnAOEVisual(scene, center, radius, classId, skillId)
             fModel.castShadows = false
         end
 
-        -- 3) 内部火焰（较矮、黄白色火芯，随机分散）
-        for fi = 1, 8 do
-            local angle = math.random() * math.pi * 2
-            local dist = math.random() * r * 0.6
-            local fx = math.cos(angle) * dist
-            local fz = math.sin(angle) * dist
+        -- 3) 内部火焰（在长方形区域内随机分散）
+        for fi = 1, 10 do
+            local fx = (math.random() - 0.5) * halfW * 1.6
+            local fz = (math.random() - 0.5) * halfL * 1.6
             local flame = node:CreateChild("innerFlame" .. fi)
             local fh = 0.5 + math.random() * 0.7
             flame.position = Vector3(fx, 0, fz)
@@ -1239,13 +1267,13 @@ function Combat.SpawnAOEVisual(scene, center, radius, classId, skillId)
             fModel.castShadows = false
         end
 
-        -- 4) 飘浮火星（小球体，高处随机散布）
+        -- 4) 飘浮火星（在长方形范围内随机）
         for fi = 1, 8 do
             local ember = node:CreateChild("ember" .. fi)
-            local angle = math.random() * math.pi * 2
-            local dist = math.random() * r * 0.85
+            local fx = (math.random() - 0.5) * halfW * 1.8
+            local fz = (math.random() - 0.5) * halfL * 1.8
             local ey = 0.6 + math.random() * 1.5
-            ember.position = Vector3(math.cos(angle) * dist, ey, math.sin(angle) * dist)
+            ember.position = Vector3(fx, ey, fz)
             ember.scale = Vector3(0.05, 0.05, 0.05)
             local eModel = ember:CreateComponent("StaticModel")
             eModel:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
@@ -2072,17 +2100,47 @@ function Combat.UpdateAOEZones(dt, player)
             if zone.visualNode then zone.visualNode:Remove() end
             table.remove(aoeZones, i)
         else
-            -- 对区域内敌人造成持续伤害
-            for _, e in ipairs(enemies) do
-                if e.state ~= "dead" and e.state ~= "dying" then
-                    local d2 = (e.node.position - zone.center):Length()
-                    if d2 <= zone.radius then
-                        e.hp = e.hp - zone.dps * dt
-                        e.hitFlashTimer = 0.1
-                        if e.state == "patrol" then e.state = "chase" end
-                        -- AOE 也触发死亡
-                        if e.hp <= 0 then
-                            Combat.TriggerDeath(e, player)
+            -- 判断是否需要tick间隔出伤
+            local shouldDamage = true
+            if zone.tickInterval then
+                zone.tickAccum = (zone.tickAccum or 0) + dt
+                if zone.tickAccum >= zone.tickInterval then
+                    zone.tickAccum = zone.tickAccum - zone.tickInterval
+                    shouldDamage = true
+                else
+                    shouldDamage = false
+                end
+            end
+
+            if shouldDamage then
+                -- 对区域内敌人造成伤害
+                for _, e in ipairs(enemies) do
+                    if e.state ~= "dead" and e.state ~= "dying" then
+                        local inZone = false
+                        if zone.isRect then
+                            -- 长方形判定：将敌人坐标转换到火墙本地坐标系
+                            local dx = e.node.position.x - zone.center.x
+                            local dz = e.node.position.z - zone.center.z
+                            local cosA = math.cos(-zone.wallAngle)
+                            local sinA = math.sin(-zone.wallAngle)
+                            local localX = dx * cosA - dz * sinA
+                            local localZ = dx * sinA + dz * cosA
+                            inZone = math.abs(localX) <= zone.halfW and math.abs(localZ) <= zone.halfL
+                        else
+                            -- 圆形判定
+                            local d2 = (e.node.position - zone.center):Length()
+                            inZone = d2 <= zone.radius
+                        end
+
+                        if inZone then
+                            -- tick式伤害：每次tick造成 dps * tickInterval 的伤害
+                            local dmg = zone.tickInterval and (zone.dps * zone.tickInterval) or (zone.dps * dt)
+                            e.hp = e.hp - dmg
+                            e.hitFlashTimer = 0.1
+                            if e.state == "patrol" then e.state = "chase" end
+                            if e.hp <= 0 then
+                                Combat.TriggerDeath(e, player)
+                            end
                         end
                     end
                 end
