@@ -259,8 +259,8 @@ CharacterClass.Classes = {
             -- 5. 治愈术 (回复生命)
             {
                 id = "t_heal", name = "治愈术", type = SKILL_TYPE.HEAL,
-                desc = "引天地灵气修补伤损，自保之术",
-                slot = 5, cooldown = 6, manaCost = 25,
+                desc = "引天地灵气修补自身与神兽，道士自保之术",
+                slot = 5, cooldown = 10, manaCost = 25,
                 unlockLevel = 8,
                 healPercent = 35,
                 range = 0,

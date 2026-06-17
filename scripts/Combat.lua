@@ -753,14 +753,17 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
         return true, "buff"
 
     elseif skill.type == SKILL_TYPE.HEAL then
-        -- 治疗
+        -- 治疗（同时治疗自己和神兽）
         local healPct = skill.healPercent
         local healAmount = player.maxHP * healPct / 100
-        if skill.aoeRadius then
-            -- 群体治疗 (目前单人游戏只治自己)
-            player.hp = math.min(player.maxHP, player.hp + healAmount)
-        else
-            player.hp = math.min(player.maxHP, player.hp + healAmount)
+        player.hp = math.min(player.maxHP, player.hp + healAmount)
+        -- 同时治疗神兽
+        if DivineBeast.IsAlive() then
+            local info = DivineBeast.GetDisplayInfo()
+            if info then
+                local beastHeal = info.maxHP * healPct / 100
+                DivineBeast.Heal(beastHeal)
+            end
         end
         if Combat.onPlayerHeal then
             Combat.onPlayerHeal(healAmount, playerPos)

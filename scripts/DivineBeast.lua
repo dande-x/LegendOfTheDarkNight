@@ -422,6 +422,14 @@ function DivineBeast.ApplyBuff(multiplier, duration)
 end
 
 -- ============================================================================
+-- 治疗神兽
+-- ============================================================================
+function DivineBeast.Heal(amount)
+    if not beast.alive then return end
+    beast.hp = math.min(beast.maxHP, beast.hp + amount)
+end
+
+-- ============================================================================
 -- 获取等级颜色
 -- ============================================================================
 function DivineBeast.GetNameColor()
