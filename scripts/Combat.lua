@@ -1088,19 +1088,59 @@ function Combat.SpawnProjectile(scene, origin, dir, damage, skill, player)
 
     -- ========== 灵魂火符：长方形符咒 ==========
     elseif skillId == "t_talisman" then
-        -- 横飞的纸质符咒：宽0.4 × 厚0.01 × 长0.55（XZ平面展开，Y极薄）
-        projNode.scale = Vector3(0.4, 0.01, 0.55)
-        local model = projNode:CreateComponent("StaticModel")
-        model:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
-        -- 符咒水平横飞，面朝飞行方向
+        -- 横飞纸符：窄长型（宽0.25 × 厚0.008 × 长0.55）
         local angle = math.atan2(dir.x, dir.z)
         projNode.rotation = Quaternion(math.deg(angle), Vector3.UP)
-        -- 纸质符咒：淡黄底色 + 微弱暖光（模拟宣纸质感）
-        local paperColor = Color(0.95, 0.90, 0.72, 1.0)
-        local mat = CreatePBR(paperColor, 0.9, 0.1)
-        mat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.3, 0.18, 0.05, 1.0)))
-        model:SetMaterial(mat)
-        model.castShadows = false
+        -- 底纸层
+        local paperNode = projNode:CreateChild("paper")
+        paperNode.scale = Vector3(0.25, 0.008, 0.55)
+        local paperModel = paperNode:CreateComponent("StaticModel")
+        paperModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
+        local paperMat = CreatePBR(Color(0.96, 0.91, 0.74, 1.0), 0.9, 0.1)
+        paperMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.25, 0.15, 0.04, 1.0)))
+        paperModel:SetMaterial(paperMat)
+        paperModel.castShadows = false
+        -- 中央竖条纹（朱砂主符文）
+        local centerLine = projNode:CreateChild("line_c")
+        centerLine.scale = Vector3(0.03, 0.012, 0.42)
+        local clModel = centerLine:CreateComponent("StaticModel")
+        clModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
+        local redMat = CreatePBR(Color(0.75, 0.08, 0.05, 1.0), 0.0, 0.5)
+        redMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.6, 0.05, 0.02, 1.0)))
+        clModel:SetMaterial(redMat)
+        clModel.castShadows = false
+        -- 左侧短横（道教符纹）
+        local leftBar = projNode:CreateChild("line_l")
+        leftBar.position = Vector3(-0.06, 0.003, 0.12)
+        leftBar.scale = Vector3(0.08, 0.012, 0.015)
+        local lModel = leftBar:CreateComponent("StaticModel")
+        lModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
+        lModel:SetMaterial(redMat)
+        lModel.castShadows = false
+        -- 右侧短横
+        local rightBar = projNode:CreateChild("line_r")
+        rightBar.position = Vector3(0.06, 0.003, -0.10)
+        rightBar.scale = Vector3(0.08, 0.012, 0.015)
+        local rModel = rightBar:CreateComponent("StaticModel")
+        rModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
+        rModel:SetMaterial(redMat)
+        rModel.castShadows = false
+        -- 顶端横封（封印线）
+        local topSeal = projNode:CreateChild("seal_top")
+        topSeal.position = Vector3(0, 0.003, 0.24)
+        topSeal.scale = Vector3(0.18, 0.012, 0.018)
+        local tModel = topSeal:CreateComponent("StaticModel")
+        tModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
+        tModel:SetMaterial(redMat)
+        tModel.castShadows = false
+        -- 底端横封
+        local botSeal = projNode:CreateChild("seal_bot")
+        botSeal.position = Vector3(0, 0.003, -0.24)
+        botSeal.scale = Vector3(0.18, 0.012, 0.018)
+        local bModel = botSeal:CreateComponent("StaticModel")
+        bModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
+        bModel:SetMaterial(redMat)
+        bModel.castShadows = false
 
     -- ========== 默认/通用投射物 ==========
     else
