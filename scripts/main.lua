@@ -1478,6 +1478,12 @@ function HandleUpdate(eventType, eventData)
         GameUI.ToggleFullMap()
     end
 
+    -- F3 键：切换"显示距离"调试开关（敌人头顶显示与玩家的距离/身位区间）
+    if input:GetKeyPress(KEY_F3) then
+        GameUI.debugShowDistance = not GameUI.debugShowDistance
+        GameUI.ShowToast(GameUI.debugShowDistance and "距离显示：开" or "距离显示：关", 1.5)
+    end
+
     -- 游戏暂停：打开背包/地图/系统面板时暂停游戏逻辑
     if GameUI.IsGamePaused() then
         UpdateCamera(dt)

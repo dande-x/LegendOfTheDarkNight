@@ -1109,69 +1109,8 @@ function Combat.SpawnProjectile(scene, origin, dir, damage, skill, player)
 
     local skillId = skill.id or ""
 
-    -- ========== 武士 - 刺杀剑术：锋锐穿刺剑气（菱形剑尖+十字截面+能量尾流）==========
-    if skillId == "w_thrust" then
-        -- 朝向飞行方向
-        local angle = math.atan2(dir.x, dir.z)
-        projNode.rotation = Quaternion(math.deg(angle), Vector3.UP)
-
-        -- 核心剑尖：窄长菱形（Z 极长，XY 扁平）模拟剑刃穿刺形态
-        local bladeNode = projNode:CreateChild("blade")
-        bladeNode.scale = Vector3(0.05, 0.12, 1.0)  -- 极扁极长
-        local bladeModel = bladeNode:CreateComponent("StaticModel")
-        bladeModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
-        local bladeMat = Material:new()
-        bladeMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
-        bladeMat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 0.95, 0.8, 0.95)))
-        bladeMat:SetShaderParameter("MatEmissiveColor", Variant(Color(1.0, 0.85, 0.5)))
-        bladeMat:SetShaderParameter("Metallic", Variant(0.9))
-        bladeMat:SetShaderParameter("Roughness", Variant(0.0))
-        bladeModel:SetMaterial(bladeMat)
-        bladeModel.castShadows = false
-
-        -- 十字截面第二片：旋转90度再来一片
-        local crossNode = projNode:CreateChild("cross")
-        crossNode.rotation = Quaternion(90, Vector3.FORWARD)
-        crossNode.scale = Vector3(0.05, 0.12, 1.0)
-        local crossModel = crossNode:CreateComponent("StaticModel")
-        crossModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
-        crossModel:SetMaterial(bladeMat)
-        crossModel.castShadows = false
-
-        -- 外层能量护鞘：半透明金色菱形光芒，略大于剑身
-        local sheathNode = projNode:CreateChild("sheath")
-        sheathNode.scale = Vector3(0.15, 0.15, 1.2)
-        local sheathModel = sheathNode:CreateComponent("StaticModel")
-        sheathModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
-        local sheathMat = Material:new()
-        sheathMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
-        sheathMat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 0.8, 0.3, 0.2)))
-        sheathMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.9, 0.7, 0.2)))
-        sheathMat:SetShaderParameter("Metallic", Variant(0.0))
-        sheathMat:SetShaderParameter("Roughness", Variant(0.3))
-        sheathModel:SetMaterial(sheathMat)
-        sheathModel.castShadows = false
-
-        -- 尾流拖痕：三个递次缩小的半透明方块（模拟残影）
-        for ti = 1, 3 do
-            local trailNode = projNode:CreateChild("trail" .. ti)
-            trailNode.position = Vector3(0, 0, -0.4 * ti)  -- 依次向后
-            local s = 0.08 / ti
-            trailNode.scale = Vector3(s, s * 1.5, 0.2)
-            local tModel = trailNode:CreateComponent("StaticModel")
-            tModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
-            local tMat = Material:new()
-            tMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
-            tMat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 0.7, 0.2, 0.4 / ti)))
-            tMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.8, 0.5, 0.1)))
-            tMat:SetShaderParameter("Metallic", Variant(0.0))
-            tMat:SetShaderParameter("Roughness", Variant(0.5))
-            tModel:SetMaterial(tMat)
-            tModel.castShadows = false
-        end
-
     -- ========== 法师 - 火球术：橙红火焰球 ==========
-    elseif skillId == "m_fireball" then
+    if skillId == "m_fireball" then
         projNode.scale = Vector3(0.25, 0.25, 0.25)
         local model = projNode:CreateComponent("StaticModel")
         model:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
@@ -1876,151 +1815,108 @@ function Combat.SpawnCrescentVisual(scene, center, dir, radius, classId)
 end
 
 -- ============================================================================
--- 基本剑术视觉效果：竖斜劈弧（从右上到左下的对角斩击）
--- 效果从武器位置发出，贴合挥刀动作的竖直平面
+-- 刺杀剑术(被动)视觉效果：凌空斩出的"白色剑气"
+-- 沿挥砍方向向前延伸，剑气尖端可达隔一身位之敌（reach 约 2 身位）
 -- ============================================================================
-function Combat.SpawnSlashVisual(scene, center, dir, classId)
+function Combat.SpawnAssassinSlashVisual(scene, center, dir, reach)
+    reach = reach or 3.0
     local node = scene:CreateChild("AOEVisual")
-    -- 剑弧位于角色前方 0.6m，胸口高度 1.0m
-    local fwd = Vector3(dir.x, 0, dir.z):Normalized()
-    node.position = Vector3(center.x + fwd.x * 0.6, 1.0, center.z + fwd.z * 0.6)
+    local fwd = Vector3(dir.x, 0, dir.z)
+    if fwd:Length() > 0.001 then fwd = fwd:Normalized() else fwd = Vector3(0, 0, 1) end
+    -- 剑气位于挥刀高度(胸口 1.0m)，略微前置
+    node.position = Vector3(center.x + fwd.x * 0.2, 1.0, center.z + fwd.z * 0.2)
 
-    -- 让节点朝向角色前方
-    local yaw = math.deg(math.atan2(fwd.x, fwd.z))
-    node.rotation = Quaternion(yaw, Vector3.UP)
+    local baseAngle = math.atan2(fwd.x, fwd.z)
+    local segments = 22
+    local halfAngle = math.rad(42)   -- 聚焦的前向扇面(±42°)
 
-    -- === 内层：锋利刃光（窄、亮、白色金属质感）===
-    local bladeGeom = node:CreateComponent("CustomGeometry")
-    bladeGeom:BeginGeometry(0, TRIANGLE_LIST)
-
-    -- 在节点局部坐标中绘制：X=左右，Y=上下，Z=前方
-    -- 对角弧从右上(+X,+Y)扫到左下(-X,-Y)，弧心在(0,0,0.3)前方
-    local segments = 16
-    local arcRadius = 1.2          -- 斩击弧半径
-    local startAngle = math.rad(-50)  -- 从右上开始
-    local endAngle = math.rad(70)     -- 到左下结束（120度弧）
-    local maxThick = 0.06            -- 锋刃厚度（很薄=锋利感）
-    local offsetZ = 0.3              -- 向前偏移，贴近武器轨迹
-
+    -- === 内层：锋锐白色剑气主体 ===
+    local geom = node:CreateComponent("CustomGeometry")
+    geom:BeginGeometry(0, TRIANGLE_LIST)
+    local radius = reach              -- 剑气尖端延伸到隔身位距离
+    local maxThick = reach * 0.16     -- 中间最厚
     for i = 0, segments - 1 do
-        local t0 = i / segments
-        local t1 = (i + 1) / segments
-        local a0 = startAngle + (endAngle - startAngle) * t0
-        local a1 = startAngle + (endAngle - startAngle) * t1
-
-        -- 中间最厚，两端收尖
-        local taper0 = math.sin(t0 * math.pi)
-        local taper1 = math.sin(t1 * math.pi)
-        local thick0 = maxThick * taper0
-        local thick1 = maxThick * taper1
-
-        -- 外弧
-        local ox0 = math.cos(a0) * arcRadius
-        local oy0 = math.sin(a0) * arcRadius
-        local ox1 = math.cos(a1) * arcRadius
-        local oy1 = math.sin(a1) * arcRadius
-        -- 内弧
-        local ix0 = math.cos(a0) * (arcRadius - thick0)
-        local iy0 = math.sin(a0) * (arcRadius - thick0)
-        local ix1 = math.cos(a1) * (arcRadius - thick1)
-        local iy1 = math.sin(a1) * (arcRadius - thick1)
-
-        local n = Vector3(0, 0, 1)
-        -- 三角形1
-        bladeGeom:DefineVertex(Vector3(ix0, iy0, offsetZ))
-        bladeGeom:DefineNormal(n)
-        bladeGeom:DefineTexCoord(Vector2(t0, 0))
-        bladeGeom:DefineVertex(Vector3(ox0, oy0, offsetZ))
-        bladeGeom:DefineNormal(n)
-        bladeGeom:DefineTexCoord(Vector2(t0, 1))
-        bladeGeom:DefineVertex(Vector3(ox1, oy1, offsetZ))
-        bladeGeom:DefineNormal(n)
-        bladeGeom:DefineTexCoord(Vector2(t1, 1))
-        -- 三角形2
-        bladeGeom:DefineVertex(Vector3(ix0, iy0, offsetZ))
-        bladeGeom:DefineNormal(n)
-        bladeGeom:DefineTexCoord(Vector2(t0, 0))
-        bladeGeom:DefineVertex(Vector3(ox1, oy1, offsetZ))
-        bladeGeom:DefineNormal(n)
-        bladeGeom:DefineTexCoord(Vector2(t1, 1))
-        bladeGeom:DefineVertex(Vector3(ix1, iy1, offsetZ))
-        bladeGeom:DefineNormal(n)
-        bladeGeom:DefineTexCoord(Vector2(t1, 0))
+        local t0 = -1.0 + (i / segments) * 2.0
+        local t1 = -1.0 + ((i + 1) / segments) * 2.0
+        local a0 = baseAngle + t0 * halfAngle
+        local a1 = baseAngle + t1 * halfAngle
+        local c0 = math.cos(t0 * math.pi / 2)
+        local c1 = math.cos(t1 * math.pi / 2)
+        local thick0 = maxThick * c0 * c0
+        local thick1 = maxThick * c1 * c1
+        local oR = radius
+        local iR0 = radius - thick0
+        local iR1 = radius - thick1
+        local ox0 = math.sin(a0) * oR
+        local oz0 = math.cos(a0) * oR
+        local ox1 = math.sin(a1) * oR
+        local oz1 = math.cos(a1) * oR
+        local ix0 = math.sin(a0) * iR0
+        local iz0 = math.cos(a0) * iR0
+        local ix1 = math.sin(a1) * iR1
+        local iz1 = math.cos(a1) * iR1
+        geom:DefineVertex(Vector3(ix0, 0, iz0)); geom:DefineNormal(Vector3.UP); geom:DefineTexCoord(Vector2(0, 0))
+        geom:DefineVertex(Vector3(ox0, 0, oz0)); geom:DefineNormal(Vector3.UP); geom:DefineTexCoord(Vector2(1, 0))
+        geom:DefineVertex(Vector3(ox1, 0, oz1)); geom:DefineNormal(Vector3.UP); geom:DefineTexCoord(Vector2(1, 1))
+        geom:DefineVertex(Vector3(ix0, 0, iz0)); geom:DefineNormal(Vector3.UP); geom:DefineTexCoord(Vector2(0, 0))
+        geom:DefineVertex(Vector3(ox1, 0, oz1)); geom:DefineNormal(Vector3.UP); geom:DefineTexCoord(Vector2(1, 1))
+        geom:DefineVertex(Vector3(ix1, 0, iz1)); geom:DefineNormal(Vector3.UP); geom:DefineTexCoord(Vector2(0, 1))
     end
-    bladeGeom:Commit()
+    geom:Commit()
+    local mat = Material:new()
+    mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+    mat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 1.0, 1.0, 0.95)))
+    mat:SetShaderParameter("MatEmissiveColor", Variant(Color(1.0, 1.0, 1.0)))
+    mat:SetShaderParameter("Metallic", Variant(0.6))
+    mat:SetShaderParameter("Roughness", Variant(0.08))
+    geom:SetMaterial(mat)
+    geom.castShadows = false
 
-    -- 锋刃材质：冷白色金属光泽
-    local bladeMat = Material:new()
-    bladeMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
-    bladeMat:SetShaderParameter("MatDiffColor", Variant(Color(0.95, 0.97, 1.0, 0.9)))
-    bladeMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.85, 0.9, 1.0)))
-    bladeMat:SetShaderParameter("Metallic", Variant(0.9))
-    bladeMat:SetShaderParameter("Roughness", Variant(0.05))
-    bladeGeom:SetMaterial(bladeMat)
-    bladeGeom.castShadows = false
-
-    -- === 外层：拖尾气流（宽、淡、半透明淡蓝）===
-    local trailChild = node:CreateChild("trail")
-    local trailGeom = trailChild:CreateComponent("CustomGeometry")
-    trailGeom:BeginGeometry(0, TRIANGLE_LIST)
-
-    local trailRadius = 1.35
-    local trailThick = 0.25  -- 气流比刃宽很多
-
+    -- === 外层：淡白色光晕(更宽更淡) ===
+    local outerChild = node:CreateChild("glow")
+    outerChild.position = Vector3(0, -0.02, 0)
+    local outerGeom = outerChild:CreateComponent("CustomGeometry")
+    outerGeom:BeginGeometry(0, TRIANGLE_LIST)
+    local oRadius = reach * 1.05
+    local oThick = reach * 0.34
     for i = 0, segments - 1 do
-        local t0 = i / segments
-        local t1 = (i + 1) / segments
-        local a0 = startAngle + (endAngle - startAngle) * t0
-        local a1 = startAngle + (endAngle - startAngle) * t1
-
-        local taper0 = math.sin(t0 * math.pi)
-        local taper1 = math.sin(t1 * math.pi)
-        local thick0 = trailThick * taper0
-        local thick1 = trailThick * taper1
-
-        local ox0 = math.cos(a0) * trailRadius
-        local oy0 = math.sin(a0) * trailRadius
-        local ox1 = math.cos(a1) * trailRadius
-        local oy1 = math.sin(a1) * trailRadius
-        local ix0 = math.cos(a0) * (trailRadius - thick0)
-        local iy0 = math.sin(a0) * (trailRadius - thick0)
-        local ix1 = math.cos(a1) * (trailRadius - thick1)
-        local iy1 = math.sin(a1) * (trailRadius - thick1)
-
-        local n = Vector3(0, 0, 1)
-        trailGeom:DefineVertex(Vector3(ix0, iy0, offsetZ - 0.05))
-        trailGeom:DefineNormal(n)
-        trailGeom:DefineTexCoord(Vector2(t0, 0))
-        trailGeom:DefineVertex(Vector3(ox0, oy0, offsetZ - 0.05))
-        trailGeom:DefineNormal(n)
-        trailGeom:DefineTexCoord(Vector2(t0, 1))
-        trailGeom:DefineVertex(Vector3(ox1, oy1, offsetZ - 0.05))
-        trailGeom:DefineNormal(n)
-        trailGeom:DefineTexCoord(Vector2(t1, 1))
-
-        trailGeom:DefineVertex(Vector3(ix0, iy0, offsetZ - 0.05))
-        trailGeom:DefineNormal(n)
-        trailGeom:DefineTexCoord(Vector2(t0, 0))
-        trailGeom:DefineVertex(Vector3(ox1, oy1, offsetZ - 0.05))
-        trailGeom:DefineNormal(n)
-        trailGeom:DefineTexCoord(Vector2(t1, 1))
-        trailGeom:DefineVertex(Vector3(ix1, iy1, offsetZ - 0.05))
-        trailGeom:DefineNormal(n)
-        trailGeom:DefineTexCoord(Vector2(t1, 0))
+        local t0 = -1.0 + (i / segments) * 2.0
+        local t1 = -1.0 + ((i + 1) / segments) * 2.0
+        local a0 = baseAngle + t0 * halfAngle
+        local a1 = baseAngle + t1 * halfAngle
+        local c0 = math.cos(t0 * math.pi / 2)
+        local c1 = math.cos(t1 * math.pi / 2)
+        local thick0 = oThick * c0 * c0
+        local thick1 = oThick * c1 * c1
+        local oR = oRadius
+        local iR0 = oRadius - thick0
+        local iR1 = oRadius - thick1
+        local ox0 = math.sin(a0) * oR
+        local oz0 = math.cos(a0) * oR
+        local ox1 = math.sin(a1) * oR
+        local oz1 = math.cos(a1) * oR
+        local ix0 = math.sin(a0) * iR0
+        local iz0 = math.cos(a0) * iR0
+        local ix1 = math.sin(a1) * iR1
+        local iz1 = math.cos(a1) * iR1
+        outerGeom:DefineVertex(Vector3(ix0, 0, iz0)); outerGeom:DefineNormal(Vector3.UP); outerGeom:DefineTexCoord(Vector2(0, 0))
+        outerGeom:DefineVertex(Vector3(ox0, 0, oz0)); outerGeom:DefineNormal(Vector3.UP); outerGeom:DefineTexCoord(Vector2(1, 0))
+        outerGeom:DefineVertex(Vector3(ox1, 0, oz1)); outerGeom:DefineNormal(Vector3.UP); outerGeom:DefineTexCoord(Vector2(1, 1))
+        outerGeom:DefineVertex(Vector3(ix0, 0, iz0)); outerGeom:DefineNormal(Vector3.UP); outerGeom:DefineTexCoord(Vector2(0, 0))
+        outerGeom:DefineVertex(Vector3(ox1, 0, oz1)); outerGeom:DefineNormal(Vector3.UP); outerGeom:DefineTexCoord(Vector2(1, 1))
+        outerGeom:DefineVertex(Vector3(ix1, 0, iz1)); outerGeom:DefineNormal(Vector3.UP); outerGeom:DefineTexCoord(Vector2(0, 1))
     end
-    trailGeom:Commit()
+    outerGeom:Commit()
+    local outerMat = Material:new()
+    outerMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+    outerMat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 1.0, 1.0, 0.28)))
+    outerMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.8, 0.85, 0.95)))
+    outerMat:SetShaderParameter("Metallic", Variant(0.0))
+    outerMat:SetShaderParameter("Roughness", Variant(0.4))
+    outerGeom:SetMaterial(outerMat)
+    outerGeom.castShadows = false
 
-    -- 气流拖尾材质：淡蓝半透明
-    local trailMat = Material:new()
-    trailMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
-    trailMat:SetShaderParameter("MatDiffColor", Variant(Color(0.7, 0.8, 1.0, 0.3)))
-    trailMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.4, 0.5, 0.7)))
-    trailMat:SetShaderParameter("Metallic", Variant(0.0))
-    trailMat:SetShaderParameter("Roughness", Variant(0.5))
-    trailGeom:SetMaterial(trailMat)
-    trailGeom.castShadows = false
-
-    node:SetVar("removeTimer", Variant(0.35))
+    node:SetVar("removeTimer", Variant(0.3))
     return node
 end
 

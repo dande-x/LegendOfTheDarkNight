@@ -16,6 +16,9 @@ local GameUI = {}
 -- UI 颜色
 local C = CharacterClass.Colors
 
+-- [调试] 显示玩家与敌人的距离开关（由 main.lua 按键切换）
+GameUI.debugShowDistance = false
+
 -- ============================================================================
 -- NanoVG 常量
 -- ============================================================================
@@ -701,6 +704,28 @@ function GameUI._DrawEnemyHealthBars(ctx, sw, sh)
                 -- 正文（金色）
                 nvgFillColor(ctx, nvgRGBA(255, 225, 120, 255))
                 nvgText(ctx, sx, nameSy, nameText, nil)
+
+                -- [调试] 显示与玩家的距离 + 身位区间（开关开启时）
+                if GameUI.debugShowDistance and playerNodeRef then
+                    local d = (e.node.position - playerNodeRef.position):Length()
+                    local mr = Combat.MELEE_REACH or 1.5
+                    local ar = Combat.ASSASSIN_REACH or 3.0
+                    local zone, zr, zg, zb
+                    if d <= mr then
+                        zone, zr, zg, zb = "挨着", 80, 230, 120
+                    elseif d <= ar then
+                        zone, zr, zg, zb = "隔身位", 245, 220, 60
+                    else
+                        zone, zr, zg, zb = "远", 180, 180, 180
+                    end
+                    local dText = string.format("%.2fm %s", d, zone)
+                    local dSy = sy + barH / 2 + math.floor(13 * scale)
+                    nvgFontSize(ctx, hpFontSize)
+                    nvgFillColor(ctx, nvgRGBA(0, 0, 0, 200))
+                    nvgText(ctx, sx + 1, dSy + 1, dText, nil)
+                    nvgFillColor(ctx, nvgRGBA(zr, zg, zb, 255))
+                    nvgText(ctx, sx, dSy, dText, nil)
+                end
             end
         end
         ::continue_enemy::
