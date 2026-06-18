@@ -1815,54 +1815,58 @@ function Combat.SpawnCrescentVisual(scene, center, dir, radius, classId)
 end
 
 -- ============================================================================
--- 刺杀剑术(被动)视觉效果：凌空斩出的"白色剑气"
--- 沿挥砍方向向前延伸，剑气尖端可达隔一身位之敌（reach 约 2 身位）
+-- 刺杀剑术(被动)视觉效果：从刀上发出、朝目标飞出的"白色剑气"月牙
+-- 起点贴着武器(角色前方)，随后整体朝挥砍方向飞行，到达隔身位距离后消失
 -- ============================================================================
 function Combat.SpawnAssassinSlashVisual(scene, center, dir, reach)
     reach = reach or 3.0
     local node = scene:CreateChild("AOEVisual")
     local fwd = Vector3(dir.x, 0, dir.z)
     if fwd:Length() > 0.001 then fwd = fwd:Normalized() else fwd = Vector3(0, 0, 1) end
-    -- 剑气位于挥刀高度(胸口 1.0m)，略微前置
-    node.position = Vector3(center.x + fwd.x * 0.2, 1.0, center.z + fwd.z * 0.2)
 
-    local baseAngle = math.atan2(fwd.x, fwd.z)
-    local segments = 22
-    local halfAngle = math.rad(42)   -- 聚焦的前向扇面(±42°)
+    -- 起点：贴着武器(角色前方 0.6m，挥刀高度 1.0m)
+    local startOffset = 0.6
+    node.position = Vector3(center.x + fwd.x * startOffset, 1.0, center.z + fwd.z * startOffset)
+    -- 朝向飞行方向：局部 +Z = 前方（飞行沿节点 forward）
+    node.rotation = Quaternion(math.deg(math.atan2(fwd.x, fwd.z)), Vector3.UP)
 
-    -- === 内层：锋锐白色剑气主体 ===
-    local geom = node:CreateComponent("CustomGeometry")
-    geom:BeginGeometry(0, TRIANGLE_LIST)
-    local radius = reach              -- 剑气尖端延伸到隔身位距离
-    local maxThick = reach * 0.16     -- 中间最厚
-    for i = 0, segments - 1 do
-        local t0 = -1.0 + (i / segments) * 2.0
-        local t1 = -1.0 + ((i + 1) / segments) * 2.0
-        local a0 = baseAngle + t0 * halfAngle
-        local a1 = baseAngle + t1 * halfAngle
-        local c0 = math.cos(t0 * math.pi / 2)
-        local c1 = math.cos(t1 * math.pi / 2)
-        local thick0 = maxThick * c0 * c0
-        local thick1 = maxThick * c1 * c1
-        local oR = radius
-        local iR0 = radius - thick0
-        local iR1 = radius - thick1
-        local ox0 = math.sin(a0) * oR
-        local oz0 = math.cos(a0) * oR
-        local ox1 = math.sin(a1) * oR
-        local oz1 = math.cos(a1) * oR
-        local ix0 = math.sin(a0) * iR0
-        local iz0 = math.cos(a0) * iR0
-        local ix1 = math.sin(a1) * iR1
-        local iz1 = math.cos(a1) * iR1
-        geom:DefineVertex(Vector3(ix0, 0, iz0)); geom:DefineNormal(Vector3.UP); geom:DefineTexCoord(Vector2(0, 0))
-        geom:DefineVertex(Vector3(ox0, 0, oz0)); geom:DefineNormal(Vector3.UP); geom:DefineTexCoord(Vector2(1, 0))
-        geom:DefineVertex(Vector3(ox1, 0, oz1)); geom:DefineNormal(Vector3.UP); geom:DefineTexCoord(Vector2(1, 1))
-        geom:DefineVertex(Vector3(ix0, 0, iz0)); geom:DefineNormal(Vector3.UP); geom:DefineTexCoord(Vector2(0, 0))
-        geom:DefineVertex(Vector3(ox1, 0, oz1)); geom:DefineNormal(Vector3.UP); geom:DefineTexCoord(Vector2(1, 1))
-        geom:DefineVertex(Vector3(ix1, 0, iz1)); geom:DefineNormal(Vector3.UP); geom:DefineTexCoord(Vector2(0, 1))
+    local segments = 20
+    local halfAngle = math.rad(50)
+
+    -- 在局部 XZ 平面绘制一弯"月牙剑气"(向 +Z 凸出)；两翼对齐到节点原点附近
+    local function buildCrescent(comp, R, thick)
+        comp:BeginGeometry(0, TRIANGLE_LIST)
+        local zc = math.cos(halfAngle) * R
+        for i = 0, segments - 1 do
+            local t0 = -1.0 + (i / segments) * 2.0
+            local t1 = -1.0 + ((i + 1) / segments) * 2.0
+            local a0 = t0 * halfAngle
+            local a1 = t1 * halfAngle
+            local c0 = math.cos(t0 * math.pi / 2)
+            local c1 = math.cos(t1 * math.pi / 2)
+            local th0 = thick * c0 * c0
+            local th1 = thick * c1 * c1
+            local ox0 = math.sin(a0) * R
+            local oz0 = math.cos(a0) * R - zc
+            local ox1 = math.sin(a1) * R
+            local oz1 = math.cos(a1) * R - zc
+            local ix0 = math.sin(a0) * (R - th0)
+            local iz0 = math.cos(a0) * (R - th0) - zc
+            local ix1 = math.sin(a1) * (R - th1)
+            local iz1 = math.cos(a1) * (R - th1) - zc
+            comp:DefineVertex(Vector3(ix0, 0, iz0)); comp:DefineNormal(Vector3.UP); comp:DefineTexCoord(Vector2(0, 0))
+            comp:DefineVertex(Vector3(ox0, 0, oz0)); comp:DefineNormal(Vector3.UP); comp:DefineTexCoord(Vector2(1, 0))
+            comp:DefineVertex(Vector3(ox1, 0, oz1)); comp:DefineNormal(Vector3.UP); comp:DefineTexCoord(Vector2(1, 1))
+            comp:DefineVertex(Vector3(ix0, 0, iz0)); comp:DefineNormal(Vector3.UP); comp:DefineTexCoord(Vector2(0, 0))
+            comp:DefineVertex(Vector3(ox1, 0, oz1)); comp:DefineNormal(Vector3.UP); comp:DefineTexCoord(Vector2(1, 1))
+            comp:DefineVertex(Vector3(ix1, 0, iz1)); comp:DefineNormal(Vector3.UP); comp:DefineTexCoord(Vector2(0, 1))
+        end
+        comp:Commit()
     end
-    geom:Commit()
+
+    -- 内层：锋锐白色剑刃月牙
+    local geom = node:CreateComponent("CustomGeometry")
+    buildCrescent(geom, 0.95, 0.26)
     local mat = Material:new()
     mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
     mat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 1.0, 1.0, 0.95)))
@@ -1872,51 +1876,27 @@ function Combat.SpawnAssassinSlashVisual(scene, center, dir, reach)
     geom:SetMaterial(mat)
     geom.castShadows = false
 
-    -- === 外层：淡白色光晕(更宽更淡) ===
+    -- 外层：淡白光晕(更宽更淡)
     local outerChild = node:CreateChild("glow")
     outerChild.position = Vector3(0, -0.02, 0)
     local outerGeom = outerChild:CreateComponent("CustomGeometry")
-    outerGeom:BeginGeometry(0, TRIANGLE_LIST)
-    local oRadius = reach * 1.05
-    local oThick = reach * 0.34
-    for i = 0, segments - 1 do
-        local t0 = -1.0 + (i / segments) * 2.0
-        local t1 = -1.0 + ((i + 1) / segments) * 2.0
-        local a0 = baseAngle + t0 * halfAngle
-        local a1 = baseAngle + t1 * halfAngle
-        local c0 = math.cos(t0 * math.pi / 2)
-        local c1 = math.cos(t1 * math.pi / 2)
-        local thick0 = oThick * c0 * c0
-        local thick1 = oThick * c1 * c1
-        local oR = oRadius
-        local iR0 = oRadius - thick0
-        local iR1 = oRadius - thick1
-        local ox0 = math.sin(a0) * oR
-        local oz0 = math.cos(a0) * oR
-        local ox1 = math.sin(a1) * oR
-        local oz1 = math.cos(a1) * oR
-        local ix0 = math.sin(a0) * iR0
-        local iz0 = math.cos(a0) * iR0
-        local ix1 = math.sin(a1) * iR1
-        local iz1 = math.cos(a1) * iR1
-        outerGeom:DefineVertex(Vector3(ix0, 0, iz0)); outerGeom:DefineNormal(Vector3.UP); outerGeom:DefineTexCoord(Vector2(0, 0))
-        outerGeom:DefineVertex(Vector3(ox0, 0, oz0)); outerGeom:DefineNormal(Vector3.UP); outerGeom:DefineTexCoord(Vector2(1, 0))
-        outerGeom:DefineVertex(Vector3(ox1, 0, oz1)); outerGeom:DefineNormal(Vector3.UP); outerGeom:DefineTexCoord(Vector2(1, 1))
-        outerGeom:DefineVertex(Vector3(ix0, 0, iz0)); outerGeom:DefineNormal(Vector3.UP); outerGeom:DefineTexCoord(Vector2(0, 0))
-        outerGeom:DefineVertex(Vector3(ox1, 0, oz1)); outerGeom:DefineNormal(Vector3.UP); outerGeom:DefineTexCoord(Vector2(1, 1))
-        outerGeom:DefineVertex(Vector3(ix1, 0, iz1)); outerGeom:DefineNormal(Vector3.UP); outerGeom:DefineTexCoord(Vector2(0, 1))
-    end
-    outerGeom:Commit()
+    buildCrescent(outerGeom, 1.12, 0.5)
     local outerMat = Material:new()
     outerMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
-    outerMat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 1.0, 1.0, 0.28)))
+    outerMat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 1.0, 1.0, 0.25)))
     outerMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.8, 0.85, 0.95)))
     outerMat:SetShaderParameter("Metallic", Variant(0.0))
     outerMat:SetShaderParameter("Roughness", Variant(0.4))
     outerGeom:SetMaterial(outerMat)
     outerGeom.castShadows = false
 
-    node:SetVar("removeTimer", Variant(0.3))
+    -- 飞行：从武器位置朝节点前方飞到隔身位距离（由 UpdateVisuals 逐帧推进）
+    local travelSpeed = 16.0
+    local travelRemain = math.max(0.0, reach - startOffset)
+    node:SetVar("noShrink", Variant(true))             -- 飞行途中不缩小
+    node:SetVar("travelSpeed", Variant(travelSpeed))
+    node:SetVar("travelRemain", Variant(travelRemain))
+    node:SetVar("removeTimer", Variant(travelRemain / travelSpeed + 0.1))
     return node
 end
 
@@ -2616,6 +2596,18 @@ function Combat.UpdateVisuals(scene, dt, playerNode)
                     local speed = spinVar:GetFloat()
                     local rot = child.rotation
                     child.rotation = rot * Quaternion(speed * dt, Vector3.UP)
+                end
+                -- 飞行效果（刺杀白色剑气：从武器朝目标飞出）
+                local travelVar = child:GetVar("travelSpeed")
+                if travelVar and not travelVar:IsEmpty() then
+                    local spd = travelVar:GetFloat()
+                    local remVar = child:GetVar("travelRemain")
+                    local rem = (remVar and not remVar:IsEmpty()) and remVar:GetFloat() or 0
+                    if spd > 0 and rem > 0 then
+                        local step = math.min(rem, spd * dt)
+                        child.position = child.position + child:GetDirection() * step
+                        child:SetVar("travelRemain", Variant(rem - step))
+                    end
                 end
             end
         end
