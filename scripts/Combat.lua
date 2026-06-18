@@ -1864,9 +1864,9 @@ function Combat.SpawnAssassinSlashVisual(scene, center, dir, reach)
         comp:Commit()
     end
 
-    -- 内层：锋锐白色剑刃月牙
+    -- 内层：锋锐白色剑刃月牙（更大）
     local geom = node:CreateComponent("CustomGeometry")
-    buildCrescent(geom, 0.95, 0.26)
+    buildCrescent(geom, 1.5, 0.42)
     local mat = Material:new()
     mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
     mat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 1.0, 1.0, 0.95)))
@@ -1880,7 +1880,7 @@ function Combat.SpawnAssassinSlashVisual(scene, center, dir, reach)
     local outerChild = node:CreateChild("glow")
     outerChild.position = Vector3(0, -0.02, 0)
     local outerGeom = outerChild:CreateComponent("CustomGeometry")
-    buildCrescent(outerGeom, 1.12, 0.5)
+    buildCrescent(outerGeom, 1.78, 0.78)
     local outerMat = Material:new()
     outerMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
     outerMat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 1.0, 1.0, 0.25)))
@@ -1890,13 +1890,13 @@ function Combat.SpawnAssassinSlashVisual(scene, center, dir, reach)
     outerGeom:SetMaterial(outerMat)
     outerGeom.castShadows = false
 
-    -- 飞行：从武器位置朝节点前方飞到隔身位距离（由 UpdateVisuals 逐帧推进）
-    local travelSpeed = 16.0
-    local travelRemain = math.max(0.0, reach - startOffset)
+    -- 飞行：从武器位置朝节点前方短距甩出（由 UpdateVisuals 逐帧推进）
+    local travelSpeed = 7.0      -- 慢一点
+    local travelRemain = 1.2     -- 不必飞太远，短距甩出即可
     node:SetVar("noShrink", Variant(true))             -- 飞行途中不缩小
     node:SetVar("travelSpeed", Variant(travelSpeed))
     node:SetVar("travelRemain", Variant(travelRemain))
-    node:SetVar("removeTimer", Variant(travelRemain / travelSpeed + 0.1))
+    node:SetVar("removeTimer", Variant(travelRemain / travelSpeed + 0.18))
     return node
 end
 
