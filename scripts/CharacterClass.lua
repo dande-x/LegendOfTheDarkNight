@@ -78,20 +78,20 @@ CharacterClass.Classes = {
                 slot = 1, cooldown = 0, manaCost = 0,
                 unlockLevel = 1,
                 damage = 120,  -- ATK倍率120%
-                range = 2.2, castTime = 0.35,
+                range = 1.5, castTime = 0.35,  -- 基本剑术触及(挨着, 约1身位)
             },
             {
-                id = "w_thrust", name = "刺杀剑术", type = SKILL_TYPE.RANGED,
-                desc = "驭刀意为剑光，斩伤数丈外敌人",
-                slot = 2, cooldown = 4, manaCost = 18,
+                id = "w_thrust", name = "刺杀剑术", type = SKILL_TYPE.PASSIVE,
+                desc = "被动：基本剑术可凌空斩出白色剑气，补击隔一身位之敌，并大幅穿透其防御",
+                slot = 0, cooldown = 0, manaCost = 0,  -- 被动:随基本剑术触发,不占技能栏/不耗蓝
                 unlockLevel = 3,
-                damage = 200,  -- ATK倍率200%
-                range = 4.0,
+                damage = 200,  -- 补刀ATK倍率200% (增强/穿透系数见 Combat.lua 身位常量)
+                range = 3.0,   -- 触及距离(隔一身位), 与 Combat.ASSASSIN_REACH 对应
             },
             {
                 id = "w_crescent", name = "半月弯刀", type = SKILL_TYPE.MELEE,
                 desc = "斩出新月弧光，横扫面前半月范围群敌",
-                slot = 3, cooldown = 6, manaCost = 25,
+                slot = 2, cooldown = 6, manaCost = 25,
                 unlockLevel = 7,
                 damage = 180,  -- ATK倍率180% (AOE所以略低)
                 range = 3.0, aoeAngle = 180,
@@ -99,7 +99,7 @@ CharacterClass.Classes = {
             {
                 id = "w_charge", name = "野蛮冲撞", type = SKILL_TYPE.DASH,
                 desc = "剑术步法合一，力如奔牛冲向敌人",
-                slot = 4, cooldown = 6, manaCost = 22,
+                slot = 3, cooldown = 6, manaCost = 22,
                 unlockLevel = 10,
                 damage = 160,  -- ATK倍率160%
                 range = 5.0,
@@ -107,7 +107,7 @@ CharacterClass.Classes = {
             {
                 id = "w_fire", name = "烈火剑法", type = SKILL_TYPE.MELEE,
                 desc = "内功吸纳天地之火，灌注刀刃，焰如怒龙",
-                slot = 5, cooldown = 8, manaCost = 40,
+                slot = 4, cooldown = 8, manaCost = 40,
                 unlockLevel = 14,
                 damage = 350,  -- ATK倍率350% (大招)
                 range = 2.8, castTime = 0.35,
@@ -115,7 +115,7 @@ CharacterClass.Classes = {
             {
                 id = "w_shield", name = "真气护盾", type = SKILL_TYPE.BUFF,
                 desc = "运真气凝结护壁，吞噬外来攻击之力",
-                slot = 6, cooldown = 7, manaCost = 30,
+                slot = 5, cooldown = 7, manaCost = 30,
                 unlockLevel = 12,
                 shieldPercent = 50,
                 duration = 6,
@@ -353,6 +353,27 @@ end
 function CharacterClass.IsSkillUnlocked(skill, playerLevel)
     if not skill or not skill.unlockLevel then return false end
     return playerLevel >= skill.unlockLevel
+end
+
+--- 按 id 查找技能定义
+--- @return table|nil
+function CharacterClass.GetSkillById(classId, skillId)
+    local classDef = CharacterClass.Classes[classId]
+    if not classDef then return nil end
+    for _, skill in ipairs(classDef.skills) do
+        if skill.id == skillId then return skill end
+    end
+    return nil
+end
+
+--- 检查某被动/技能是否已为该角色解锁 (按 id)
+--- @return table|nil skill 已解锁则返回技能定义, 否则 nil
+function CharacterClass.GetUnlockedSkill(player, skillId)
+    local skill = CharacterClass.GetSkillById(player.classId, skillId)
+    if skill and CharacterClass.IsSkillUnlocked(skill, player.level) then
+        return skill
+    end
+    return nil
 end
 
 --- 检查技能是否可释放

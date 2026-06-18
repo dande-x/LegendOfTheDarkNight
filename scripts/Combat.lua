@@ -14,6 +14,20 @@ local C = CharacterClass.Colors
 local SKILL_TYPE = CharacterClass.SKILL_TYPE
 
 -- ============================================================================
+-- 身位 / 近战触及 常量（可调参数 — 用于体验调试）
+-- ============================================================================
+-- 一个"身位"约等于一个角色占地。相邻=1身位、中间空一格=2身位。
+local UNIT              = 1.2   -- 一个身位(米)
+local MELEE_REACH       = 1.5   -- 基本剑术触及(挨着, 约1身位): 中心距≤此值才算近身命中
+local ASSASSIN_REACH    = 3.0   -- 刺杀剑术(被动)延伸触及(跨一个身位, 约2身位)
+local ASSASSIN_FACE_DOT = 0.3   -- 刺杀触发的正前方判定(cos阈值, 约±72°)
+local ASSASSIN_ATK_BONUS = 1.15 -- 刺杀触发: 攻击力略微增强(+15%)
+local ASSASSIN_ARMOR_PEN = 0.7  -- 刺杀触发: 大幅穿透防御(忽略70%防御)
+Combat.UNIT = UNIT
+Combat.MELEE_REACH = MELEE_REACH
+Combat.ASSASSIN_REACH = ASSASSIN_REACH
+
+-- ============================================================================
 -- 敌人配置（普通怪+精英怪+Boss 覆盖 1~50级）
 -- hp/atk/def 为基础值，实际生成时按等级缩放
 -- tier: "normal"=普通, "elite"=精英(黄名), "boss"=Boss(红名)
@@ -29,7 +43,7 @@ local ENEMY_DEFS = {
     {
         name = "稻草人", monsterType = "scarecrow",
         level = 2,  hp = 110,  atk = 10, def = 4,
-        speed = 2.2, chaseRange = 7, attackRange = 1.8, attackCD = 1.8,
+        speed = 2.2, chaseRange = 7, attackRange = 1.5, attackCD = 1.8,
         exp = 40, scale = 1.0, tier = "normal",
     },
     {
@@ -41,76 +55,76 @@ local ENEMY_DEFS = {
     {
         name = "蜘蛛",   monsterType = "spider",
         level = 6,  hp = 120,  atk = 16, def = 4,
-        speed = 3.5, chaseRange = 12, attackRange = 1.3, attackCD = 1.2,
+        speed = 3.5, chaseRange = 12, attackRange = 1.5, attackCD = 1.2,
         exp = 65, scale = 0.85, tier = "normal",
     },
     {
         name = "半兽人", monsterType = "orc",
         level = 8,  hp = 210,  atk = 20, def = 8,
-        speed = 2.0, chaseRange = 8, attackRange = 1.8, attackCD = 2.2,
+        speed = 2.0, chaseRange = 8, attackRange = 1.5, attackCD = 2.2,
         exp = 90, scale = 1.1, tier = "normal",
     },
     -- === 中级区 10~25 ===
     {
         name = "狼人",   monsterType = "orc",
         level = 10, hp = 260,  atk = 24, def = 10,
-        speed = 3.2, chaseRange = 12, attackRange = 1.6, attackCD = 1.5,
+        speed = 3.2, chaseRange = 12, attackRange = 1.5, attackCD = 1.5,
         exp = 120, scale = 1.0, tier = "normal",
     },
     {
         name = "石魔",   monsterType = "golem",
         level = 14, hp = 400,  atk = 28, def = 16,
-        speed = 1.6, chaseRange = 8, attackRange = 2.2, attackCD = 2.5,
+        speed = 1.6, chaseRange = 8, attackRange = 1.5, attackCD = 2.5,
         exp = 180, scale = 1.6, tier = "normal",
     },
     {
         name = "暗影蛛后", monsterType = "spider",
         level = 18, hp = 320,  atk = 32, def = 10,
-        speed = 3.8, chaseRange = 14, attackRange = 1.8, attackCD = 1.0,
+        speed = 3.8, chaseRange = 14, attackRange = 1.5, attackCD = 1.0,
         exp = 220, scale = 1.3, tier = "elite",
     },
     {
         name = "骷髅将军", monsterType = "skeleton",
         level = 22, hp = 500,  atk = 38, def = 14,
-        speed = 2.4, chaseRange = 12, attackRange = 2.0, attackCD = 1.8,
+        speed = 2.4, chaseRange = 12, attackRange = 1.5, attackCD = 1.8,
         exp = 300, scale = 1.3, tier = "elite",
     },
     -- === 高级区 25~40 ===
     {
         name = "赤焰魔", monsterType = "golem",
         level = 28, hp = 750,  atk = 45, def = 20,
-        speed = 2.0, chaseRange = 10, attackRange = 2.5, attackCD = 2.0,
+        speed = 2.0, chaseRange = 10, attackRange = 1.5, attackCD = 2.0,
         exp = 450, scale = 1.8, tier = "elite",
     },
     {
         name = "巨蟒",   monsterType = "serpent",
         level = 32, hp = 950,  atk = 50, def = 18,
-        speed = 2.8, chaseRange = 14, attackRange = 2.8, attackCD = 1.8,
+        speed = 2.8, chaseRange = 14, attackRange = 1.5, attackCD = 1.8,
         exp = 550, scale = 2.0, tier = "elite",
     },
     {
         name = "噬魂兽", monsterType = "orc",
         level = 36, hp = 1100, atk = 55, def = 22,
-        speed = 2.5, chaseRange = 12, attackRange = 2.0, attackCD = 1.5,
+        speed = 2.5, chaseRange = 12, attackRange = 1.5, attackCD = 1.5,
         exp = 700, scale = 1.5, tier = "elite",
     },
     -- === Boss 区 (大型压迫感怪物) ===
     {
         name = "山岳巨人", monsterType = "golem",
         level = 15, hp = 1600, atk = 35, def = 22,
-        speed = 1.2, chaseRange = 10, attackRange = 3.0, attackCD = 3.0,
+        speed = 1.2, chaseRange = 10, attackRange = 1.5, attackCD = 3.0,
         exp = 600, scale = 2.5, tier = "boss",
     },
     {
         name = "九幽骨龙", monsterType = "serpent",
         level = 30, hp = 3200, atk = 60, def = 26,
-        speed = 2.2, chaseRange = 16, attackRange = 3.5, attackCD = 2.0,
+        speed = 2.2, chaseRange = 16, attackRange = 1.5, attackCD = 2.0,
         exp = 1500, scale = 2.8, tier = "boss",
     },
     {
         name = "炎魔领主", monsterType = "golem",
         level = 45, hp = 5000, atk = 80, def = 32,
-        speed = 1.8, chaseRange = 14, attackRange = 3.5, attackCD = 2.5,
+        speed = 1.8, chaseRange = 14, attackRange = 1.5, attackCD = 2.5,
         exp = 3000, scale = 3.0, tier = "boss",
     },
 }
@@ -710,16 +724,51 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
                 end
             end
         end
-        -- 技能专属视觉效果
+
+        -- 【刺杀剑术·被动】基本剑术近身落空时，凌空斩出白色剑气，补击"隔一身位"之敌
+        -- 触发条件: skill 为基本剑术 + 已解锁 w_thrust + 近身没打到人 + 敌人位于(MELEE_REACH, ASSASSIN_REACH]且身前
+        if skill.id == "w_basic" and hitCount == 0 then
+            local thrust = CharacterClass.GetUnlockedSkill(player, "w_thrust")
+            if thrust then
+                local fwd = Vector3(playerDir.x, 0, playerDir.z)
+                if fwd:Length() > 0.001 then fwd = fwd:Normalized() end
+                -- 在隔身位区间内、身前锥形内，挑最近的一个目标
+                local bestE, bestD = nil, ASSASSIN_REACH + 0.001
+                for _, e in ipairs(enemies) do
+                    if e.state ~= "dead" and e.state ~= "dying" then
+                        local toE = e.node.position - playerPos
+                        toE.y = 0
+                        local d = toE:Length()
+                        if d > MELEE_REACH and d <= ASSASSIN_REACH and d < bestD then
+                            local edir = toE:Normalized()
+                            if fwd:DotProduct(edir) >= ASSASSIN_FACE_DOT then
+                                bestE, bestD = e, d
+                            end
+                        end
+                    end
+                end
+                if bestE then
+                    -- 转向目标，沿武器挥砍方向斩出
+                    local toE = bestE.node.position - playerPos
+                    toE.y = 0
+                    local sdir = toE:Normalized()
+                    playerNode.rotation = Quaternion(math.deg(math.atan2(sdir.x, sdir.z)), Vector3.UP)
+                    -- 攻击力略微增强 + 大幅穿透防御
+                    local procDmg = player.atk * (thrust.damage / 100) * ASSASSIN_ATK_BONUS
+                    Combat.DealDamage(bestE, procDmg, player, { armorPen = ASSASSIN_ARMOR_PEN })
+                    -- 白色剑气特效（沿挥砍方向延伸到隔身位距离）
+                    Combat.SpawnAssassinSlashVisual(scene, playerPos, sdir, ASSASSIN_REACH)
+                end
+            end
+        end
+
+        -- 技能专属视觉效果（基本剑术近身命中不再有剑弧特效）
         if skill.aoeAngle then
             -- 半月弯刀：前方弧形光斩
             Combat.SpawnCrescentVisual(scene, playerPos, playerDir, skill.range, player.classId)
         elseif skill.id == "w_fire" then
             -- 烈火剑法：焰刃纵斩 + 地面火浪
             Combat.SpawnFireSlashVisual(scene, playerPos, playerDir, skill.range)
-        elseif skill.id == "w_basic" then
-            -- 基本剑术：快速剑弧闪光
-            Combat.SpawnSlashVisual(scene, playerPos, playerDir, player.classId)
         end
         return true, "melee"
 
@@ -1009,10 +1058,13 @@ end
 -- ============================================================================
 -- 伤害计算
 -- ============================================================================
-function Combat.DealDamage(enemy, baseDmg, player)
+--- @param opts table|nil 可选: { armorPen = 0~1 穿透比例 }
+function Combat.DealDamage(enemy, baseDmg, player, opts)
     if enemy.state == "dying" or enemy.state == "dead" then return end
 
-    local effectiveDef = math.max(0, enemy.def - enemy.defReduction)
+    local armorPen = (opts and opts.armorPen) or 0  -- 防御穿透比例 0~1
+    local rawDef = math.max(0, enemy.def - enemy.defReduction)
+    local effectiveDef = rawDef * (1 - armorPen)  -- 穿透后剩余防御
     -- 防御减伤公式: 伤害 = 基础伤害 × (100 / (100 + 防御))
     -- 这样防御永远不会让伤害降到0，且收益递减
     local dmg = baseDmg * (100 / (100 + effectiveDef))
