@@ -1660,10 +1660,10 @@ function Combat.SpawnCrescentVisual(scene, center, dir, radius, classId)
     node.position = Vector3(center.x + fwd.x * 0.3, 0.9, center.z + fwd.z * 0.3)
 
     local baseAngle = math.atan2(fwd.x, fwd.z)
-    local segments = 24
-    local halfAngle = math.rad(75)  -- 前方 150 度弧
+    local segments = 36
+    local halfAngle = math.rad(135)  -- 前方 270 度弧
 
-    -- === 第一层：刀刃主体（窄且锋利，朱红色）===
+    -- === 第一层：刀刃主体（窄且锋利，锋白亮刃）===
     local geom = node:CreateComponent("CustomGeometry")
     geom:BeginGeometry(0, TRIANGLE_LIST)
 
@@ -1716,13 +1716,13 @@ function Combat.SpawnCrescentVisual(scene, center, dir, radius, classId)
     end
     geom:Commit()
 
-    -- 朱红色金属刀光，高金属感
+    -- 锋锐白色亮刃（蓝白剑气主体的亮边）
     local mat = Material:new()
     mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
-    mat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 0.3, 0.08, 0.85)))
-    mat:SetShaderParameter("MatEmissiveColor", Variant(Color(1.0, 0.25, 0.0)))
-    mat:SetShaderParameter("Metallic", Variant(0.7))
-    mat:SetShaderParameter("Roughness", Variant(0.1))
+    mat:SetShaderParameter("MatDiffColor", Variant(Color(0.95, 0.99, 1.0, 0.95)))
+    mat:SetShaderParameter("MatEmissiveColor", Variant(Color(1.0, 1.0, 1.0)))
+    mat:SetShaderParameter("Metallic", Variant(0.5))
+    mat:SetShaderParameter("Roughness", Variant(0.06))
     geom:SetMaterial(mat)
     geom.castShadows = false
 
@@ -1782,11 +1782,11 @@ function Combat.SpawnCrescentVisual(scene, center, dir, radius, classId)
     end
     outerGeom:Commit()
 
-    -- 外层气浪：橙黄半透明
+    -- 外层气浪：青蓝半透明发光
     local outerMat = Material:new()
     outerMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
-    outerMat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 0.55, 0.1, 0.25)))
-    outerMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.8, 0.35, 0.0)))
+    outerMat:SetShaderParameter("MatDiffColor", Variant(Color(0.3, 0.65, 1.0, 0.3)))
+    outerMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.25, 0.55, 1.0)))
     outerMat:SetShaderParameter("Metallic", Variant(0.0))
     outerMat:SetShaderParameter("Roughness", Variant(0.4))
     outerGeom:SetMaterial(outerMat)
@@ -1802,8 +1802,8 @@ function Combat.SpawnCrescentVisual(scene, center, dir, radius, classId)
         tModel:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
         local tipMat = Material:new()
         tipMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
-        tipMat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 0.9, 0.4, 0.9)))
-        tipMat:SetShaderParameter("MatEmissiveColor", Variant(Color(1.0, 0.8, 0.2)))
+        tipMat:SetShaderParameter("MatDiffColor", Variant(Color(0.85, 0.95, 1.0, 0.9)))
+        tipMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.6, 0.85, 1.0)))
         tipMat:SetShaderParameter("Metallic", Variant(0.0))
         tipMat:SetShaderParameter("Roughness", Variant(0.1))
         tModel:SetMaterial(tipMat)

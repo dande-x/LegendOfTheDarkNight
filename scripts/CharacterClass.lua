@@ -94,7 +94,7 @@ CharacterClass.Classes = {
                 slot = 2, cooldown = 6, manaCost = 25,
                 unlockLevel = 7,
                 damage = 180,  -- ATK倍率180% (AOE所以略低)
-                range = 3.0, aoeAngle = 180,
+                range = 3.0, aoeAngle = 270,
             },
             {
                 id = "w_charge", name = "野蛮冲撞", type = SKILL_TYPE.DASH,
