@@ -1830,8 +1830,8 @@ function Combat.SpawnAssassinSlashVisual(scene, center, dir, reach)
     -- 朝向飞行方向：局部 +Z = 前方（飞行沿节点 forward）
     node.rotation = Quaternion(math.deg(math.atan2(fwd.x, fwd.z)), Vector3.UP)
 
-    local segments = 20
-    local halfAngle = math.rad(50)
+    local segments = 24
+    local halfAngle = math.rad(70)   -- 大弧度斩波(约140°)
 
     -- 在局部 XZ 平面绘制一弯"月牙剑气"(向 +Z 凸出)；两翼对齐到节点原点附近
     local function buildCrescent(comp, R, thick)
@@ -1864,31 +1864,30 @@ function Combat.SpawnAssassinSlashVisual(scene, center, dir, reach)
         comp:Commit()
     end
 
-    -- 内层：锋锐白色剑刃月牙（更大）
-    local geom = node:CreateComponent("CustomGeometry")
-    buildCrescent(geom, 1.5, 0.42)
-    local mat = Material:new()
-    mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
-    mat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 1.0, 1.0, 0.95)))
-    mat:SetShaderParameter("MatEmissiveColor", Variant(Color(1.0, 1.0, 1.0)))
-    mat:SetShaderParameter("Metallic", Variant(0.6))
-    mat:SetShaderParameter("Roughness", Variant(0.08))
-    geom:SetMaterial(mat)
-    geom.castShadows = false
+    -- 按参考图分三层叠加：青蓝发光主体(铺开) + 青色中层 + 锋锐白色凸刃(最亮在上)
+    -- 三层共享同一外凸刃(相同 R)，越往内越偏深蓝、越淡，形成渐变拖尾
+    local function makeLayer(name, yOff, R, thick, diff, emis, rough)
+        local n = node:CreateChild(name)
+        n.position = Vector3(0, yOff, 0)
+        local g = n:CreateComponent("CustomGeometry")
+        buildCrescent(g, R, thick)
+        local m = Material:new()
+        m:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+        m:SetShaderParameter("MatDiffColor", Variant(diff))
+        m:SetShaderParameter("MatEmissiveColor", Variant(emis))
+        m:SetShaderParameter("Metallic", Variant(0.0))
+        m:SetShaderParameter("Roughness", Variant(rough))
+        g:SetMaterial(m)
+        g.castShadows = false
+        return n
+    end
 
-    -- 外层：淡白光晕(更宽更淡)
-    local outerChild = node:CreateChild("glow")
-    outerChild.position = Vector3(0, -0.02, 0)
-    local outerGeom = outerChild:CreateComponent("CustomGeometry")
-    buildCrescent(outerGeom, 1.78, 0.78)
-    local outerMat = Material:new()
-    outerMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
-    outerMat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 1.0, 1.0, 0.25)))
-    outerMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.8, 0.85, 0.95)))
-    outerMat:SetShaderParameter("Metallic", Variant(0.0))
-    outerMat:SetShaderParameter("Roughness", Variant(0.4))
-    outerGeom:SetMaterial(outerMat)
-    outerGeom.castShadows = false
+    -- 主体：深青蓝、最宽、最透明（从凸刃向内大面积铺开）
+    makeLayer("bodyDeep", -0.06, 1.78, 1.30, Color(0.15, 0.42, 1.0, 0.32), Color(0.12, 0.32, 0.9), 0.5)
+    -- 中层：亮青蓝发光带
+    makeLayer("bodyCyan", -0.03, 1.78, 0.70, Color(0.45, 0.82, 1.0, 0.58), Color(0.4, 0.78, 1.0), 0.3)
+    -- 凸刃：锋锐白色亮边（最薄最亮，叠在最上层）
+    makeLayer("edge", 0.0, 1.80, 0.20, Color(0.95, 0.99, 1.0, 0.98), Color(1.0, 1.0, 1.0), 0.05)
 
     -- 飞行：从武器位置朝节点前方短距甩出（由 UpdateVisuals 逐帧推进）
     local travelSpeed = 7.0      -- 慢一点
