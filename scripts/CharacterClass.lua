@@ -98,11 +98,10 @@ CharacterClass.Classes = {
             },
             {
                 id = "w_charge", name = "野蛮冲撞", type = SKILL_TYPE.DASH,
-                desc = "剑术步法合一，力如奔牛冲向敌人",
+                desc = "剑术步法合一，力如奔牛全力冲刺。沿途顶推前方之敌一同推进，于终点将其撞出至刺杀剑术触及之距，敌僵直约一秒难动",
                 slot = 3, cooldown = 6, manaCost = 22,
                 unlockLevel = 10,
-                damage = 160,  -- ATK倍率160%
-                range = 5.0,
+                range = 5.0,    -- 冲刺距离(米)；本技能无直接伤害，靠顶推+硬直创造刺杀机会
             },
             {
                 id = "w_fire", name = "烈火剑法", type = SKILL_TYPE.MELEE,

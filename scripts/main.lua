@@ -1513,6 +1513,7 @@ function HandleUpdate(eventType, eventData)
         -- 打断施法
         castState.active = false
         castState.phase = "none"
+        Combat.CancelDash()   -- 中断冲刺，避免死亡后仍被推进
         GameUI.HideCastBar()
         ShowChargeGlow(false)
         GameUI.AddFloatingText("阵亡!", playerNode_.position, {255, 50, 50, 255})
@@ -1522,8 +1523,8 @@ function HandleUpdate(eventType, eventData)
     -- 施法状态机更新
     UpdateCastState(dt)
 
-    -- 玩家移动（施法前摇期间不能移动）
-    if not castState.active or castState.phase == "recovery" then
+    -- 玩家移动（施法前摇期间不能移动；冲刺期间由 Combat 接管位移）
+    if (not castState.active or castState.phase == "recovery") and not Combat.IsDashing() then
         UpdatePlayerMovement(dt)
     end
 

@@ -28,6 +28,30 @@ Combat.MELEE_REACH = MELEE_REACH
 Combat.ASSASSIN_REACH = ASSASSIN_REACH
 
 -- ============================================================================
+-- 野蛮冲撞 · 冲刺参数（非瞬移，逐帧推进 + 顶推怪物）
+-- ============================================================================
+-- 顶推检测示意（dir = 冲刺方向）：
+--                    ┌─ 侧向容差 ±DASH_PUSH_WIDTH
+--   玩家P ●━━━━━━━━━━▶  沿 dir 方向 [−0.3, DASH_PUSH_REACH] 内的怪 → 卷入顶推
+--                    └─
+--   卷入后每帧定位：E.pos = P.pos + dir*DASH_CONTACT + 侧向偏移（焊在玩家身前）
+--   冲刺终点顶出：  E.pos = P.终点 + dir*DASH_EJECT_DIST + 侧向偏移，并施加 DASH_STUN 硬直
+local DASH_SPEED       = 18.0           -- 冲刺速度(米/秒)，约 0.28s 冲完 5 米
+local DASH_CONTACT     = 1.0            -- 顶推过程中怪物保持在玩家前方的距离(米)
+local DASH_PUSH_REACH  = 1.4            -- 玩家正前方多远内的怪会被卷入顶推(米)
+local DASH_PUSH_WIDTH  = 0.9            -- 顶推侧向容差(米)，超出则不卷入
+local DASH_EJECT_DIST  = ASSASSIN_REACH -- 终点把怪顶出到刺杀剑术最远触及距离(3.0米)
+local DASH_STUN        = 1.0            -- 被顶出后的硬直时间(秒)
+
+-- 冲刺运行时状态（单玩家，全局唯一）
+local dashState = {
+    active = false,
+    dir = nil,        ---@type Vector3|nil 冲刺方向(水平,归一化)
+    remaining = 0,    -- 剩余冲刺距离(米)
+    pushed = {},      -- [enemy] = lateralVec(Vector3 侧向偏移)，被顶着的怪
+}
+
+-- ============================================================================
 -- 敌人配置（普通怪+精英怪+Boss 覆盖 1~50级）
 -- hp/atk/def 为基础值，实际生成时按等级缩放
 -- tier: "normal"=普通, "elite"=精英(黄名), "boss"=Boss(红名)
@@ -992,37 +1016,29 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
         return true, "heal"
 
     elseif skill.type == SKILL_TYPE.DASH then
-        -- 冲撞：ATK × 倍率百分比
-        local dmg = player.atk * (skill.damage / 100)
-
-        local dir = playerDir
-        if target then
-            dir = target.node.position - playerPos
-            dir.y = 0
+        -- 野蛮冲撞：冲刺(非瞬移)。逐帧推进，途中顶着前方怪物前进，
+        -- 终点将怪物顶出到刺杀剑术最远触及距离并施加硬直。本技能不造成直接伤害。
+        local dir = Vector3(playerDir.x, 0, playerDir.z)
+        if dir:Length() > 0.001 then
             dir = dir:Normalized()
-            local angle = math.atan2(dir.x, dir.z)
-            playerNode.rotation = Quaternion(math.deg(angle), Vector3.UP)
+        else
+            dir = Vector3.FORWARD
         end
-
-        -- 瞬移到前方
-        local dashDist = math.min(skill.range, 5.0)
-        local startPos = playerPos
-        playerNode.position = playerPos + dir * dashDist
-
-        -- 对冲撞路径上的敌人造成伤害
-        for _, e in ipairs(enemies) do
-            if e.state ~= "dead" and e.state ~= "dying" then
-                local ePos = e.node.position
-                -- 简化：在终点范围内都算命中
-                local d = (ePos - playerNode.position):Length()
-                if d <= 2.0 then
-                    Combat.DealDamage(e, dmg, player)
-                end
+        -- 有最近敌人则朝敌人冲
+        if target then
+            local td = target.node.position - playerPos
+            td.y = 0
+            if td:Length() > 0.001 then
+                dir = td:Normalized()
             end
         end
+        playerNode.rotation = Quaternion(math.deg(math.atan2(dir.x, dir.z)), Vector3.UP)
 
-        -- 野蛮冲撞视觉效果：冲撞轨迹 + 落点震波
-        Combat.SpawnDashTrailVisual(scene, startPos, playerNode.position, dir)
+        -- 初始化冲刺状态，实际推进由 Combat.UpdateDash 逐帧完成
+        dashState.active = true
+        dashState.dir = dir
+        dashState.remaining = math.min(skill.range, 5.0)
+        dashState.pushed = {}
         return true, "dash"
 
     elseif skill.type == SKILL_TYPE.SUMMON then
@@ -2078,51 +2094,6 @@ function Combat.SpawnFireSlashVisual(scene, center, dir, radius)
 end
 
 -- ============================================================================
--- 野蛮冲撞视觉效果：冲撞轨迹残影 + 落点震波
--- ============================================================================
-function Combat.SpawnDashTrailVisual(scene, startPos, endPos, dir)
-    -- 冲撞轨迹：沿路线放置若干残影
-    local dist = (endPos - startPos):Length()
-    local trailCount = math.max(3, math.floor(dist / 1.0))
-    for ti = 1, trailCount do
-        local t = ti / (trailCount + 1)
-        local pos = startPos + (endPos - startPos) * t
-        local trailNode = scene:CreateChild("AOEVisual")
-        trailNode.position = Vector3(pos.x, 0.5, pos.z)
-        trailNode.scale = Vector3(0.3, 0.8, 0.3)
-        local model = trailNode:CreateComponent("StaticModel")
-        model:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
-        -- 朱红色残影，越远越淡
-        local alpha = 0.6 * (1.0 - t * 0.5)
-        local trailMat = Material:new()
-        trailMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
-        trailMat:SetShaderParameter("MatDiffColor", Variant(Color(0.85, 0.2, 0.1, alpha)))
-        trailMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.7, 0.15, 0.05)))
-        trailMat:SetShaderParameter("Metallic", Variant(0.0))
-        trailMat:SetShaderParameter("Roughness", Variant(0.4))
-        model:SetMaterial(trailMat)
-        model.castShadows = false
-        trailNode:SetVar("removeTimer", Variant(0.6 + t * 0.3))
-    end
-
-    -- 落点震波环
-    local impactNode = scene:CreateChild("AOEVisual")
-    impactNode.position = Vector3(endPos.x, 0.05, endPos.z)
-    impactNode.scale = Vector3(2.5, 0.06, 2.5)
-    local impModel = impactNode:CreateComponent("StaticModel")
-    impModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
-    local impMat = Material:new()
-    impMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
-    impMat:SetShaderParameter("MatDiffColor", Variant(Color(0.9, 0.3, 0.05, 0.5)))
-    impMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.8, 0.2, 0.0)))
-    impMat:SetShaderParameter("Metallic", Variant(0.0))
-    impMat:SetShaderParameter("Roughness", Variant(0.3))
-    impModel:SetMaterial(impMat)
-    impModel.castShadows = false
-    impactNode:SetVar("removeTimer", Variant(1.0))
-end
-
--- ============================================================================
 -- 护盾视觉效果：真气护盾(金色) / 魔法盾(蓝色)
 -- ============================================================================
 function Combat.SpawnShieldVisual(scene, playerNode, skillId, duration)
@@ -2873,9 +2844,117 @@ function Combat.FindNearestEnemy(pos, maxRange)
     return nearest, nearDist
 end
 
---- 总更新入口
+-- ============================================================================
+-- 野蛮冲撞 · 冲刺逐帧推进
+-- ============================================================================
+--- 是否正在冲刺（main.lua 据此暂停玩家摇杆移动，避免覆盖冲刺位移）
+function Combat.IsDashing()
+    return dashState.active
+end
+
+--- 重置冲刺状态（玩家死亡/场景清理时调用，不结算顶出）
+function Combat.CancelDash()
+    dashState.active = false
+    dashState.dir = nil
+    dashState.remaining = 0
+    dashState.pushed = {}
+end
+
+--- 冲刺结束：把被顶着的怪物顶出到刺杀剑术最远距离，并施加硬直
+---@param playerNode Node
+function Combat.EndDash(playerNode)
+    local dir = dashState.dir
+    if dir and playerNode then
+        local pPos = playerNode.position
+        for e, lateral in pairs(dashState.pushed) do
+            if e.state ~= "dead" and e.state ~= "dying" then
+                local ey = e.node.position.y
+                e.node.position = Vector3(
+                    pPos.x + dir.x * DASH_EJECT_DIST + lateral.x,
+                    ey,
+                    pPos.z + dir.z * DASH_EJECT_DIST + lateral.z)
+                local eBody = e.node:GetComponent("RigidBody")
+                if eBody then eBody:SetLinearVelocity(Vector3.ZERO) end
+                e.knockbackTimer = 0          -- 清除残留击退，确保硬直立即生效
+                e.hitStunTimer = DASH_STUN    -- 顶出后进入硬直
+                -- 被顶出后回头面向玩家
+                e.node.rotation = Quaternion(math.deg(math.atan2(-dir.x, -dir.z)), Vector3.UP)
+                if e.state == "patrol" then e.state = "chase" end
+                if e.animData then
+                    MonsterSkeleton.PlayAnim(e.animData, "hit", nil)
+                end
+            end
+        end
+    end
+    Combat.CancelDash()
+end
+
+--- 冲刺逐帧推进：移动玩家、卷入并顶推前方怪物
+---@param dt number
+---@param playerNode Node
+function Combat.UpdateDash(dt, playerNode)
+    if not dashState.active or not playerNode then return end
+    local dir = dashState.dir
+    if not dir then dashState.active = false return end
+
+    -- 本帧推进步长（不超过剩余距离）
+    local step = DASH_SPEED * dt
+    local ending = false
+    if step >= dashState.remaining then
+        step = dashState.remaining
+        ending = true
+    end
+    dashState.remaining = dashState.remaining - step
+
+    local pPos = playerNode.position
+    local newPos = Vector3(pPos.x + dir.x * step, 0, pPos.z + dir.z * step)
+
+    -- 卷入"将要到达位置"前方的怪物（每帧检测，途中遇到的新怪也会被顶）
+    for _, e in ipairs(enemies) do
+        if e.state ~= "dead" and e.state ~= "dying" and not dashState.pushed[e] then
+            local toE = e.node.position - newPos
+            toE.y = 0
+            local along = toE:DotProduct(dir)             -- 沿冲刺方向的投影
+            if along >= -0.3 and along <= DASH_PUSH_REACH then
+                local lateral = Vector3(toE.x - dir.x * along, 0, toE.z - dir.z * along)
+                if lateral:Length() <= DASH_PUSH_WIDTH then
+                    dashState.pushed[e] = lateral         -- 记录侧向偏移，全程保持
+                end
+            end
+        end
+    end
+
+    -- 推进玩家
+    playerNode.position = newPos
+    local pBody = playerNode:GetComponent("RigidBody")
+    if pBody then pBody:SetLinearVelocity(Vector3.ZERO) end
+
+    -- 顶着被卷入的怪物前进（焊在玩家前方 DASH_CONTACT 处）
+    for e, lateral in pairs(dashState.pushed) do
+        if e.state ~= "dead" and e.state ~= "dying" then
+            local ey = e.node.position.y
+            e.node.position = Vector3(
+                newPos.x + dir.x * DASH_CONTACT + lateral.x,
+                ey,
+                newPos.z + dir.z * DASH_CONTACT + lateral.z)
+            local eBody = e.node:GetComponent("RigidBody")
+            if eBody then eBody:SetLinearVelocity(Vector3.ZERO) end
+            -- 顶推期间保持轻硬直，压制怪物自身 AI 移动（次帧 UpdateEnemies 生效）
+            if e.hitStunTimer < 0.15 then e.hitStunTimer = 0.15 end
+            e.node.rotation = Quaternion(math.deg(math.atan2(-dir.x, -dir.z)), Vector3.UP)
+        else
+            dashState.pushed[e] = nil
+        end
+    end
+
+    if ending then
+        Combat.EndDash(playerNode)
+    end
+end
+
 function Combat.Update(scene, dt, playerNode, player)
     Combat.UpdateEnemies(dt, playerNode, player)
+    Combat.UpdateDash(dt, playerNode)   -- 在敌人 AI 之后，覆盖被顶怪物的位置
     Combat.UpdateProjectiles(scene, dt, player)
     Combat.UpdateAOEZones(dt, player)
     Combat.UpdateSummons(dt, playerNode, player)
@@ -2912,6 +2991,7 @@ function Combat.Clear()
     killCount = 0
     Combat.killCount = 0
     spawnTimer = 0
+    Combat.CancelDash()
     DivineBeast.Clear()
 end
 
