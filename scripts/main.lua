@@ -1578,6 +1578,10 @@ end
 -- ============================================================================
 -- 玩家移动 (摇杆)
 -- ============================================================================
+-- 调试：面板关闭后移动诊断
+local _moveDbgTimer = 0
+local _moveDbgEnabled = false
+
 function UpdatePlayerMovement(dt)
     if not playerNode_ or isDead then return end
     -- 暂停时不移动
@@ -1587,6 +1591,23 @@ function UpdatePlayerMovement(dt)
     if not joystick then return end
 
     local x, z = joystick:getMovement()
+
+    -- 调试日志：面板关闭后前3秒输出摇杆和物理状态
+    if _moveDbgEnabled then
+        _moveDbgTimer = _moveDbgTimer + dt
+        if _moveDbgTimer < 3.0 then
+            if diagFrameCount_ % 10 == 0 then
+                local body = playerNode_:GetComponent("RigidBody")
+                local vel = body and body:GetLinearVelocity() or Vector3.ZERO
+                local ts = scene_ and scene_.timeScale or -1
+                print(string.format("[MOVE_DBG] jx=%.3f jz=%.3f vel=(%.2f,%.2f,%.2f) ts=%.1f isActive=%s touchId=%s",
+                    x, z, vel.x, vel.y, vel.z, ts,
+                    tostring(joystick.isActive), tostring(joystick.touchId)))
+            end
+        else
+            _moveDbgEnabled = false
+        end
+    end
 
     local body = playerNode_:GetComponent("RigidBody")
 
