@@ -582,6 +582,8 @@ function GameUI._CloseFullMap()
     if skillBar then skillBar:SetVisible(true) end
     if potions then potions:SetVisible(true) end
     if topRight then topRight:SetVisible(true) end
+    -- 强制重置摇杆状态
+    GameUI._ResetJoystickState()
 end
 
 function GameUI.ToggleFullMap()
@@ -2898,6 +2900,8 @@ function GameUI.HideCharacterPanel()
     if uiState.hudRoot then
         UI.SetRoot(uiState.hudRoot)
     end
+    -- 强制重置摇杆状态，防止面板操作期间触摸被误捕获导致摇杆卡住
+    GameUI._ResetJoystickState()
     print("[GameUI] Character panel closed")
 end
 
@@ -3053,6 +3057,8 @@ function GameUI.HideSystemPanel()
     if uiState.hudRoot then
         UI.SetRoot(uiState.hudRoot)
     end
+    -- 强制重置摇杆状态，防止面板操作期间触摸被误捕获导致摇杆卡住
+    GameUI._ResetJoystickState()
     print("[GameUI] System panel closed")
 end
 
@@ -3357,6 +3363,23 @@ end
 -- ============================================================================
 function GameUI.GetJoystick()
     return uiState.joystick
+end
+
+-- ============================================================================
+-- 强制重置摇杆状态（面板关闭后调用，清除可能的触摸残留）
+-- ============================================================================
+function GameUI._ResetJoystickState()
+    local joystick = uiState.joystick
+    if not joystick then return end
+    -- 如果摇杆当前处于激活状态（有触摸绑定），强制释放
+    if joystick.isActive and joystick.touchId then
+        joystick:handleTouchEnd(joystick.touchId)
+    end
+    -- 确保方向值归零
+    joystick.x = 0
+    joystick.y = 0
+    joystick.magnitude = 0
+    joystick.isActive = false
 end
 
 -- ============================================================================
