@@ -1622,6 +1622,8 @@ function GameUI.ShowGameHUD(player)
     uiState.systemPanelOpen = false
 
     GameHUD.Initialize()
+    -- 清除旧的 VirtualControls 组件（防止多次调用 Create 导致摇杆重复注册）
+    VirtualControls.Clear()
     local hud = GameHUD.Create({})
     uiState.joystick = hud.joystick
     -- 隐藏 WASD 按键提示（保留键盘响应）
@@ -2902,8 +2904,6 @@ function GameUI.HideCharacterPanel()
     end
     -- 强制重置摇杆状态，防止面板操作期间触摸被误捕获导致摇杆卡住
     GameUI._ResetJoystickState()
-    -- 启用面板关闭后的移动诊断
-    GameUI._enableMoveDebug()
     print("[GameUI] Character panel closed")
 end
 
@@ -3061,8 +3061,6 @@ function GameUI.HideSystemPanel()
     end
     -- 强制重置摇杆状态，防止面板操作期间触摸被误捕获导致摇杆卡住
     GameUI._ResetJoystickState()
-    -- 启用面板关闭后的移动诊断
-    GameUI._enableMoveDebug()
     print("[GameUI] System panel closed")
 end
 
@@ -3386,12 +3384,7 @@ function GameUI._ResetJoystickState()
     joystick.isActive = false
 end
 
---- 启用移动调试（由面板关闭函数调用，供 main.lua 读取）
-function GameUI._enableMoveDebug()
-    -- 全局变量，main.lua 中读取
-    _moveDbgEnabled = true
-    _moveDbgTimer = 0
-end
+
 
 -- ============================================================================
 -- 回调 (由 main.lua 设置)
