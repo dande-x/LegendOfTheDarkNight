@@ -40,7 +40,7 @@ local DASH_SPEED       = 18.0           -- 冲刺速度(米/秒)，约 0.28s 冲
 local DASH_CONTACT     = 1.0            -- 顶推过程中怪物保持在玩家前方的距离(米)
 local DASH_PUSH_REACH  = 1.4            -- 玩家正前方多远内的怪会被卷入顶推(米)
 local DASH_PUSH_WIDTH  = 0.9            -- 顶推侧向容差(米)，超出则不卷入
-local DASH_EJECT_DIST  = ASSASSIN_REACH -- 终点把怪顶出到刺杀剑术最远触及距离(3.0米)
+local DASH_EJECT_DIST  = ASSASSIN_REACH - 0.3 -- 终点前向顶出距离(2.7m)；含侧向偏移后总距≤ASSASSIN_REACH，确保刺杀被动可触发
 local DASH_STUN        = 1.0            -- 被顶出后的硬直时间(秒)
 
 -- 冲刺运行时状态（单玩家，全局唯一）
