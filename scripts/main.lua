@@ -1023,9 +1023,9 @@ function SetupGameCallbacks()
         local windup = skill.castTime or defaults.windup
         local recovery = defaults.recovery
 
-        -- 法师职业额外增加蓄力时间
-        if player_.classId == "mage" and windup < 0.3 and skill.manaCost > 0 then
-            windup = 0.3
+        -- 法师职业允许更短前摇，避免技能手感拖沓
+        if player_.classId == "mage" and windup < 0.18 and skill.manaCost > 0 then
+            windup = 0.18
         end
 
         -- 自动瞄准：施法开始时转向最近敌人

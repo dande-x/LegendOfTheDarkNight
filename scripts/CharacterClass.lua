@@ -147,51 +147,51 @@ CharacterClass.Classes = {
                 slot = 1, cooldown = 0, manaCost = 0,
                 unlockLevel = 1,
                 damage = 110,  -- ATK倍率110%
-                range = 6.0, projectileSpeed = 12, castTime = 0.45,
+                range = 6.0, projectileSpeed = 12, castTime = 0.25,
             },
 
             {
                 id = "m_thunder", name = "雷电术", type = SKILL_TYPE.RANGED,
                 desc = "引下天雷，威力巨大但施法较慢",
-                slot = 3, cooldown = 5, manaCost = 28,
+                slot = 3, cooldown = 3.5, manaCost = 40,
                 unlockLevel = 11,
                 damage = 250,  -- ATK倍率250% (单体高伤)
-                range = 7.0, castTime = 0.8,
+                range = 7.0, castTime = 0.45,
             },
             {
                 id = "m_explosion", name = "抗拒火环", type = SKILL_TYPE.AOE,
                 desc = "周身迸发烈焰火环，将逼近之敌尽数震退（无直接伤害）",
-                slot = 4, cooldown = 6, manaCost = 32,
+                slot = 4, cooldown = 4.0, manaCost = 45,
                 unlockLevel = 8,
                 isKnockback = true,        -- 纯击退技能，无直接伤害
                 knockbackSpeed = 14,       -- 推开速度(米/秒)
                 knockbackDuration = 0.4,   -- 击退持续时间(秒)，推开距离≈speed×duration
-                range = 3.5, aoeRadius = 3.5, castTime = 0.40,
+                range = 3.5, aoeRadius = 3.5, castTime = 0.25,
             },
             {
                 id = "m_firewall", name = "火墙", type = SKILL_TYPE.DOT,
                 desc = "点燃不灭之火，烈焰如怨念般不息",
-                slot = 5, cooldown = 7, manaCost = 30,
+                slot = 5, cooldown = 5.0, manaCost = 42,
                 unlockLevel = 5,
                 damage = 45, -- ATK倍率45%/秒 (DOT持续)
                 duration = 5,
-                range = 6.0, aoeRadius = 2.0, castTime = 0.55,
+                range = 6.0, aoeRadius = 2.0, castTime = 0.30,
             },
             {
                 id = "m_blizzard", name = "冰咆哮", type = SKILL_TYPE.AOE,
                 desc = "召唤冰雪暴风，刺骨寒意冻裂金铁",
-                slot = 6, cooldown = 8, manaCost = 50,
+                slot = 6, cooldown = 5.5, manaCost = 70,
                 unlockLevel = 14,
                 damage = 320,  -- ATK倍率320% (大招AOE)
-                range = 6.0, aoeRadius = 3.5, castTime = 1.0,
+                range = 6.0, aoeRadius = 3.5, castTime = 0.55,
             },
             {
                 id = "m_shield", name = "魔法盾", type = SKILL_TYPE.BUFF,
                 desc = "纯粹魔力凝成护盾，保命之本",
-                slot = 0, cooldown = 8, manaCost = 45,
+                slot = 0, cooldown = 5.5, manaCost = 60,
                 unlockLevel = 12,
                 shieldPercent = 40,
-                duration = 5,    -- 短于 CD(8s)，护盾结束后有空窗期
+                duration = 5,    -- 接近 CD，护盾节奏更紧凑
                 range = 0,
             },
         },
