@@ -164,8 +164,8 @@ local summons = {}        -- 召唤兽列表
 local groundItems = {}   -- 地面掉落物 {node, type="gold"/"item", amount, item, timer, magnetPhase, vel}
 local killCount = 0
 local spawnTimer = 0
-local SPAWN_INTERVAL = 1.8
-local MAX_ENEMIES = 25
+local SPAWN_INTERVAL = 1.2
+local MAX_ENEMIES = 45
 
 Combat.enemies = enemies
 Combat.projectiles = projectiles
@@ -2596,9 +2596,9 @@ function Combat.UpdateSpawner(scene, dt, playerNode, player)
     -- 普通怪刷新（频率随场上怪物数量动态调节）
     spawnTimer = spawnTimer + dt
     local dynamicInterval = SPAWN_INTERVAL
-    if #enemies > 15 then
+    if #enemies > 35 then
         dynamicInterval = SPAWN_INTERVAL * 2  -- 场上怪多时放慢
-    elseif #enemies < 5 then
+    elseif #enemies < 18 then
         dynamicInterval = SPAWN_INTERVAL * 0.5  -- 场上怪少时加快
     end
 
