@@ -45,9 +45,18 @@ local MONSTER_TEXTURES = {
     orc       = "image/tex_ink_orc_20260611072339.png",
 }
 
--- 精细整模怪物映射：仅用于不依赖四肢分段步态的怪物。
--- 四足/多足怪物必须保留程序化分肢骨架，否则静态整模会整只僵硬摆动，无法表现四肢行走。
+-- 精细整模怪物映射：用于替换几何占位外观。
+-- deer 使用带四足骨骼的 DeerRigged.mdl，并由 Lua 直接驱动骨骼节点播放步态。
 local MODEL_MONSTERS = {
+    deer = {
+        modelPath = "Meshes/DeerRigged.mdl",
+        materialPath = "Materials/Deer_00_tripo_material_a5521383-f99e-4428-ad84-9a42af4c67f7.xml",
+        parentBone = nil,
+        position = Vector3(0, 0.90, 0),
+        scale = Vector3(0.75, 0.75, 0.75),
+        animated = true,
+        hideProceduralBones = true,
+    },
     scarecrow = {
         modelPath = "Meshes/Scarecrow.mdl",
         materialPath = "Materials/Scarecrow_00_tripo_material_e400aa55-aa4f-4418-b012-55dcbca19119.xml",
@@ -55,34 +64,51 @@ local MODEL_MONSTERS = {
         position = Vector3(0, 0.40, 0),
         scale = Vector3(0.80, 0.80, 0.80),
     },
+    qilin = {
+        modelPath = "Meshes/Qilin.mdl",
+        materialPath = "Materials/Qilin_00_tripo_material_5c1ff8c2-9635-4910-924c-b2eca2720248.xml",
+        parentBone = nil,
+        position = Vector3(0, 0.75, 0),
+        scale = Vector3(1.00, 1.00, 1.00),
+    },
 }
 
 local function CreateModelVisual(parentNode, bones, monsterType)
     local modelDef = MODEL_MONSTERS[monsterType]
-    if not modelDef then return false end
+    if not modelDef then return nil end
 
-    local attachNode = bones[modelDef.parentBone] or parentNode
+    local attachNode = modelDef.parentBone and bones[modelDef.parentBone] or parentNode
     local visualNode = attachNode:CreateChild(monsterType .. "_model")
     visualNode.position = modelDef.position
     visualNode.scale = modelDef.scale
 
-    local staticModel = visualNode:CreateComponent("StaticModel")
     local model = cache:GetResource("Model", modelDef.modelPath)
     if not model then
         print("[MonsterSkeleton] Missing monster model: " .. modelDef.modelPath)
-        return false
+        return nil
     end
-    staticModel:SetModel(model)
+
+    local modelComponent = nil
+    if modelDef.animated then
+        modelComponent = visualNode:CreateComponent("AnimatedModel")
+    else
+        modelComponent = visualNode:CreateComponent("StaticModel")
+    end
+    modelComponent:SetModel(model)
 
     local material = cache:GetResource("Material", modelDef.materialPath)
     if material then
-        staticModel:SetMaterial(material)
+        modelComponent:SetMaterial(material)
     else
         print("[MonsterSkeleton] Missing monster material: " .. modelDef.materialPath)
     end
-    staticModel.castShadows = true
+    modelComponent.castShadows = true
     print("[MonsterSkeleton] Loaded model monster: " .. monsterType .. " -> " .. modelDef.modelPath)
-    return true
+    return {
+        node = visualNode,
+        component = modelComponent,
+        animated = modelDef.animated == true,
+    }
 end
 
 -- ============================================================================
@@ -704,6 +730,7 @@ function MonsterSkeleton.CreateSkeleton(parentNode, monsterType)
     local buildOrder = getBuildOrder(boneDefs)
     local bones = {}
     local useModelVisual = MODEL_MONSTERS[monsterType] ~= nil
+    local hideProceduralBones = useModelVisual and MODEL_MONSTERS[monsterType].hideProceduralBones == true
 
     -- 如果有对应贴图，预创建纹理材质（避免每个骨骼重复创建）
     local texPath = MONSTER_TEXTURES[monsterType]
@@ -719,7 +746,7 @@ function MonsterSkeleton.CreateSkeleton(parentNode, monsterType)
         local boneNode = pNode:CreateChild(name)
         boneNode.position = Vector3(def.pos[1], def.pos[2], def.pos[3])
 
-        if not useModelVisual then
+        if not hideProceduralBones then
             -- mesh 子节点
             local meshNode = boneNode:CreateChild(name .. "_mesh")
             if def.meshOffset then
@@ -744,11 +771,12 @@ function MonsterSkeleton.CreateSkeleton(parentNode, monsterType)
         bones[name] = boneNode
     end
 
+    local visual = nil
     if useModelVisual then
-        CreateModelVisual(parentNode, bones, monsterType)
+        visual = CreateModelVisual(parentNode, bones, monsterType)
     end
 
-    return bones, buildOrder
+    return bones, buildOrder, visual
 end
 
 -- ============================================================================
@@ -795,11 +823,100 @@ local function getRotationAtTime(keyframes, boneName, t, duration, looping)
     return rx, ry, rz
 end
 
+local REAL_DEER_BONES = {
+    "Body", "Neck", "Head", "Tail",
+    "L_Front_Upper", "L_Front_Lower", "R_Front_Upper", "R_Front_Lower",
+    "L_Back_Upper", "L_Back_Lower", "R_Back_Upper", "R_Back_Lower",
+}
+
+local function SetRealBoneRotation(animData, boneName, rx, ry, rz)
+    local node = animData.realBones and animData.realBones[boneName]
+    if node then
+        node.rotation = Quaternion(rx, ry, rz)
+    end
+end
+
+local function CacheRealDeerBones(animData)
+    if animData.realBonesCached then return end
+    animData.realBonesCached = true
+    animData.realBones = {}
+
+    local component = animData.visual and animData.visual.component
+    if not component then return end
+    local skeleton = component:GetSkeleton()
+    if not skeleton then return end
+
+    for _, boneName in ipairs(REAL_DEER_BONES) do
+        local bone = skeleton:GetBone(boneName)
+        if bone and bone.node then
+            animData.realBones[boneName] = bone.node
+        end
+    end
+end
+
+local function UpdateRealDeerAnimation(animData, dt, isMoving)
+    CacheRealDeerBones(animData)
+    if not animData.realBones then return end
+
+    animData.realElapsed = (animData.realElapsed or 0) + dt
+    local t = animData.realElapsed
+
+    if animData.state == "death" then
+        SetRealBoneRotation(animData, "Body", 0, 0, 85)
+        SetRealBoneRotation(animData, "Neck", 0, 0, 20)
+        return
+    end
+
+    if animData.state == "hit" then
+        local s = math.sin(t * 35.0) * 10.0
+        SetRealBoneRotation(animData, "Body", 0, 0, s)
+        SetRealBoneRotation(animData, "Neck", 0, s * 0.4, 0)
+        return
+    end
+
+    if animData.state == "attack" then
+        local s = math.sin(math.min(t * 10.0, math.pi))
+        SetRealBoneRotation(animData, "Neck", 0, -18 * s, 0)
+        SetRealBoneRotation(animData, "Head", 0, -12 * s, 0)
+        return
+    end
+
+    if isMoving then
+        local phase = math.sin(t * 10.0)
+        local opposite = -phase
+        SetRealBoneRotation(animData, "L_Front_Upper", 0, 24 * phase, 0)
+        SetRealBoneRotation(animData, "R_Back_Upper", 0, 22 * phase, 0)
+        SetRealBoneRotation(animData, "R_Front_Upper", 0, 24 * opposite, 0)
+        SetRealBoneRotation(animData, "L_Back_Upper", 0, 22 * opposite, 0)
+        SetRealBoneRotation(animData, "L_Front_Lower", 0, -14 * phase, 0)
+        SetRealBoneRotation(animData, "R_Back_Lower", 0, -12 * phase, 0)
+        SetRealBoneRotation(animData, "R_Front_Lower", 0, -14 * opposite, 0)
+        SetRealBoneRotation(animData, "L_Back_Lower", 0, -12 * opposite, 0)
+        SetRealBoneRotation(animData, "Body", 0, 0, 2 * phase)
+        SetRealBoneRotation(animData, "Neck", 0, 4 * opposite, 0)
+        SetRealBoneRotation(animData, "Head", 0, 2 * opposite, 0)
+    else
+        local breathe = math.sin(t * 2.2)
+        SetRealBoneRotation(animData, "Body", 0, 0, 1.2 * breathe)
+        SetRealBoneRotation(animData, "Neck", 0, 2 * breathe, 0)
+        SetRealBoneRotation(animData, "Head", 0, 1.5 * breathe, 0)
+        SetRealBoneRotation(animData, "Tail", 0, 0, 4 * breathe)
+        SetRealBoneRotation(animData, "L_Front_Upper", 0, 0, 0)
+        SetRealBoneRotation(animData, "R_Front_Upper", 0, 0, 0)
+        SetRealBoneRotation(animData, "L_Back_Upper", 0, 0, 0)
+        SetRealBoneRotation(animData, "R_Back_Upper", 0, 0, 0)
+    end
+end
+
 --- 更新怪物动画
 ---@param animData table {type, state, elapsed, bones, buildOrder}
 ---@param dt number
 ---@param isMoving boolean
 function MonsterSkeleton.UpdateAnimation(animData, dt, isMoving)
+    if animData.visual and animData.visual.animated and animData.type == "deer" then
+        UpdateRealDeerAnimation(animData, dt, isMoving)
+    end
+
     local typeAnims = ANIMS[animData.type]
     if not typeAnims then return end
 

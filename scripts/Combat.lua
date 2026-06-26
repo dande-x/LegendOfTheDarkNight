@@ -360,7 +360,7 @@ function Combat.SpawnEnemy(scene, playerPos, playerLevel, forceDef)
     skelRoot.scale = Vector3(def.scale, def.scale, def.scale)
 
     -- 使用 MonsterSkeleton 创建程序化骨架
-    local bones, buildOrder = MonsterSkeleton.CreateSkeleton(skelRoot, def.monsterType)
+    local bones, buildOrder, visual = MonsterSkeleton.CreateSkeleton(skelRoot, def.monsterType)
 
     -- 敌人动态碰撞体
     local rbody = enemyNode:CreateComponent("RigidBody")
@@ -385,6 +385,7 @@ function Combat.SpawnEnemy(scene, playerPos, playerLevel, forceDef)
         elapsed = 0,
         bones = bones,
         buildOrder = buildOrder,
+        visual = visual,
         onComplete = nil,
     }
 
