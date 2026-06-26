@@ -1826,6 +1826,16 @@ local _skillBarIcons = {
     t_trapDemon = "image/icon_t_trapDemon_20260617061330.png",
 }
 
+local function _IsSkillUsable(player, skill)
+    if not skill or not CharacterClass.IsSkillUnlocked(skill, player.level) then return false end
+    if skill.id == "t_summon" then
+        return not DivineBeast.IsAlive()
+    elseif skill.id == "t_beastRage" then
+        return DivineBeast.IsAlive()
+    end
+    return true
+end
+
 function GameUI._CreateSkillBar(player)
     local classDef = CharacterClass.Classes[player.classId]
 
@@ -1855,6 +1865,7 @@ function GameUI._CreateSkillBar(player)
         local pos = positions[i]
         local skillName = skill and string.sub(skill.name, 1, 6) or ""
         local unlocked = skill and CharacterClass.IsSkillUnlocked(skill, player.level) or false
+        local usable = _IsSkillUsable(player, skill)
 
         local borderClr = {baseClr[1], baseClr[2], baseClr[3], 180}
 
@@ -1867,7 +1878,7 @@ function GameUI._CreateSkillBar(player)
             width = size,
             height = size,
             borderRadius = size / 2,
-            backgroundColor = {25, 22, 18, 210},
+            backgroundColor = usable and {25, 22, 18, 210} or {18, 18, 18, 210},
             borderWidth = 2,
             borderColor = borderClr,
             justifyContent = "center",
@@ -1875,11 +1886,12 @@ function GameUI._CreateSkillBar(player)
             overflow = "hidden",
             children = {
                 (skill and _skillBarIcons[skill.id]) and UI.Panel {
+                    id = "skill_icon_" .. i,
                     backgroundImage = _skillBarIcons[skill.id],
                     width = math.floor(size * 0.78),
                     height = math.floor(size * 0.78),
                     borderRadius = math.floor(size * 0.39),
-                    opacity = unlocked and 1.0 or 0.4,
+                    opacity = usable and 1.0 or 0.35,
                 } or UI.Label {
                     text = skillName,
                     fontSize = size <= 56 and 10 or 12,
@@ -1915,6 +1927,7 @@ function GameUI._CreateSkillBar(player)
                 } or nil,
             },
             onPointerUp = function()
+                if not _IsSkillUsable(player, skill) then return end
                 if GameUI.onSkillPressed then
                     GameUI.onSkillPressed(i, skill)
                 end
@@ -1926,6 +1939,7 @@ function GameUI._CreateSkillBar(player)
             panel = btn,
             skill = skill,
             size = size,
+            icon = (btn and skill) and btn:FindById("skill_icon_" .. i) or nil,
         }
     end
 
@@ -3096,6 +3110,7 @@ function GameUI.UpdateHUD(player, dt)
         local sb = uiState.skillButtons[i]
         if sb and sb.skill then
             local cd = player.cooldowns[sb.skill.id] or 0
+            local usable = _IsSkillUsable(player, sb.skill)
             local cdPanel = uiState.refs["skill_" .. i .. "_cd"]
             local cdText  = uiState.refs["skill_" .. i .. "_cdText"]
             if cd > 0 then
@@ -3105,10 +3120,19 @@ function GameUI.UpdateHUD(player, dt)
                 if cdPanel then cdPanel:SetStyle({ backgroundColor = {0, 0, 0, 0} }) end
                 if cdText then cdText:SetText("") end
             end
+            if sb.panel then
+                sb.panel:SetStyle({ backgroundColor = usable and {25, 22, 18, 210} or {18, 18, 18, 210} })
+            end
+            if sb.icon then
+                sb.icon:SetStyle({ opacity = usable and 1.0 or 0.35 })
+            end
+            if not usable and cd <= 0 then
+                if cdPanel then cdPanel:SetStyle({ backgroundColor = {0, 0, 0, 135} }) end
+                if cdText then cdText:SetText("") end
+            end
         end
     end
 
-    -- 开门过渡动画更新
     if doorState.active then
         doorState.progress = doorState.progress + dt / doorState.duration
         if doorState.progress >= 1 then

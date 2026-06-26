@@ -433,6 +433,10 @@ end
 -- ============================================================================
 -- 获取等级颜色
 -- ============================================================================
+function DivineBeast.IsAlive()
+    return beast.alive and beast.node ~= nil
+end
+
 function DivineBeast.GetNameColor()
     return LEVEL_COLORS[beast.level] or LEVEL_COLORS[1]
 end

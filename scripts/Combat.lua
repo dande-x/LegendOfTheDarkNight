@@ -1639,8 +1639,45 @@ function Combat.SpawnAOEVisual(scene, center, radius, classId, skillId, wallAngl
         rModel:SetMaterial(ringMat)
         rModel.castShadows = false
 
+        -- 内部十字毒纹，强调范围爆发感
+        for ci = 1, 2 do
+            local cross = node:CreateChild("poisonCross" .. ci)
+            cross.position = Vector3(0, 0.075 + ci * 0.01, 0)
+            cross.rotation = Quaternion((ci - 1) * 90 + 45, Vector3.UP)
+            cross.scale = Vector3(radius * 1.8, 0.025, 0.12)
+            local cModel = cross:CreateComponent("StaticModel")
+            cModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
+            local crossMat = Material:new()
+            crossMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+            crossMat:SetShaderParameter("MatDiffColor", Variant(Color(0.18, 1.0, 0.28, 0.38)))
+            crossMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.06, 1.4, 0.25)))
+            crossMat:SetShaderParameter("Metallic", Variant(0.0))
+            crossMat:SetShaderParameter("Roughness", Variant(0.18))
+            cModel:SetMaterial(crossMat)
+            cModel.castShadows = false
+        end
+
+        -- 边界毒雾喷柱
+        for vi = 1, 10 do
+            local vent = node:CreateChild("poisonVent" .. vi)
+            local a = (vi / 10) * math.pi * 2
+            local d = radius * (0.72 + math.random() * 0.22)
+            vent.position = Vector3(math.cos(a) * d, 0.25, math.sin(a) * d)
+            vent.scale = Vector3(0.12, 0.65 + math.random() * 0.45, 0.12)
+            local vModel = vent:CreateComponent("StaticModel")
+            vModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+            local ventMat = Material:new()
+            ventMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+            ventMat:SetShaderParameter("MatDiffColor", Variant(Color(0.08, 0.95, 0.20, 0.42)))
+            ventMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.0, 1.1, 0.25)))
+            ventMat:SetShaderParameter("Metallic", Variant(0.0))
+            ventMat:SetShaderParameter("Roughness", Variant(0.28))
+            vModel:SetMaterial(ventMat)
+            vModel.castShadows = false
+        end
+
         -- 漂浮毒雾颗粒
-        for pi = 1, 14 do
+        for pi = 1, 20 do
             local mist = node:CreateChild("poisonMist" .. pi)
             local a = math.random() * math.pi * 2
             local d = math.sqrt(math.random()) * radius * 0.9
@@ -1728,6 +1765,57 @@ function Combat.SpawnAOEVisual(scene, center, radius, classId, skillId, wallAngl
         ringMat:SetShaderParameter("Roughness", Variant(0.2))
         rModel:SetMaterial(ringMat)
         rModel.castShadows = false
+
+        -- 八方镇魔符柱
+        for pi = 1, 8 do
+            local pillar = node:CreateChild("trapPillar" .. pi)
+            local a = (pi / 8) * math.pi * 2
+            local d = radius * 0.95
+            pillar.position = Vector3(math.cos(a) * d, 0.75, math.sin(a) * d)
+            pillar.scale = Vector3(0.10, 1.35, 0.10)
+            local pModel = pillar:CreateComponent("StaticModel")
+            pModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+            local pMat = Material:new()
+            pMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+            pMat:SetShaderParameter("MatDiffColor", Variant(Color(0.18, 1.0, 0.45, 0.55)))
+            pMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.0, 1.4, 0.45)))
+            pMat:SetShaderParameter("Metallic", Variant(0.0))
+            pMat:SetShaderParameter("Roughness", Variant(0.15))
+            pModel:SetMaterial(pMat)
+            pModel.castShadows = false
+
+            local orb = node:CreateChild("trapOrb" .. pi)
+            orb.position = Vector3(math.cos(a) * d, 1.55, math.sin(a) * d)
+            orb.scale = Vector3(0.18, 0.18, 0.18)
+            local oModel = orb:CreateComponent("StaticModel")
+            oModel:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
+            local oMat = Material:new()
+            oMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+            oMat:SetShaderParameter("MatDiffColor", Variant(Color(0.35, 1.0, 0.55, 0.75)))
+            oMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.05, 1.8, 0.55)))
+            oMat:SetShaderParameter("Metallic", Variant(0.0))
+            oMat:SetShaderParameter("Roughness", Variant(0.08))
+            oModel:SetMaterial(oMat)
+            oModel.castShadows = false
+        end
+
+        -- 内层旋转束缚符纹
+        for li = 1, 4 do
+            local line = node:CreateChild("trapRuneLine" .. li)
+            line.position = Vector3(0, 0.11 + li * 0.01, 0)
+            line.rotation = Quaternion(li * 45, Vector3.UP)
+            line.scale = Vector3(radius * 1.45, 0.018, 0.055)
+            local lModel = line:CreateComponent("StaticModel")
+            lModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
+            local lMat = Material:new()
+            lMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+            lMat:SetShaderParameter("MatDiffColor", Variant(Color(0.35, 1.0, 0.55, 0.32)))
+            lMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.08, 1.1, 0.35)))
+            lMat:SetShaderParameter("Metallic", Variant(0.0))
+            lMat:SetShaderParameter("Roughness", Variant(0.18))
+            lModel:SetMaterial(lMat)
+            lModel.castShadows = false
+        end
 
         node:SetVar("removeTimer", Variant(6.0))
         return node
