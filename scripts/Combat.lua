@@ -407,6 +407,8 @@ function Combat.SpawnEnemy(scene, playerPos, playerLevel, forceDef)
         defReductionTimer = 0,
         dotDamage = 0,
         dotTimer = 0,
+        dotTickInterval = 0.5,
+        dotTickAccum = 0,
         animData = animData,
         dyingTimer = 0,
     }
@@ -485,12 +487,19 @@ function Combat.UpdateEnemies(dt, playerNode, player)
         toPlayer.y = 0
         local dist = toPlayer:Length()
 
-        -- DOT 伤害 (施毒术)
+        -- DOT 伤害 (施毒术)：每 0.5 秒结算一次
         if e.dotTimer > 0 then
             e.dotTimer = e.dotTimer - dt
-            e.hp = e.hp - e.dotDamage * dt
+            e.dotTickAccum = (e.dotTickAccum or 0) + dt
+            local tickInterval = e.dotTickInterval or 0.5
+            while e.dotTickAccum >= tickInterval and e.dotTimer > 0 do
+                e.dotTickAccum = e.dotTickAccum - tickInterval
+                e.hp = e.hp - e.dotDamage * tickInterval
+                e.hitFlashTimer = 0.1
+            end
             if e.dotTimer <= 0 then
                 e.dotDamage = 0
+                e.dotTickAccum = 0
                 -- 中毒结束，移除绿色效果
                 RemovePoisonTint(e)
             end
@@ -954,6 +963,8 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
                     if d <= radius then
                         e.dotDamage = dps
                         e.dotTimer = dur
+                        e.dotTickInterval = 0.5
+                        e.dotTickAccum = 0
                         e.defReduction = math.max(e.defReduction or 0, skill.defReduce or 0)
                         e.defReductionTimer = dur
                         e.hitFlashTimer = 0.1
