@@ -195,36 +195,39 @@ local function CreatePBR(color, metallic, roughness)
 end
 
 -- ============================================================================
--- 中毒红色效果辅助函数
+-- 中毒绿色效果辅助函数
 -- ============================================================================
 local function ApplyPoisonTint(enemy)
     if enemy.poisonTinted then return end
     enemy.poisonTinted = true
     enemy.poisonOrigMats = {}
-    enemy.poisonFlashAccum = 0
-    -- 遍历 SkelRoot 下所有 _mesh 子节点
-    local skelRoot = enemy.node:GetChild("SkelRoot", false)
-    if not skelRoot then return end
-    local numChildren = skelRoot:GetNumChildren(true)
-    for i = 0, numChildren - 1 do
-        local child = skelRoot:GetChild(i)
-        if child and child.name and child.name:find("_mesh") then
-            local model = child:GetComponent("StaticModel")
-            if model then
-                -- 保存原始材质
-                table.insert(enemy.poisonOrigMats, { model = model, mat = model:GetMaterial(0) })
-                -- 绿色毒雾效果，高自发光，表示中毒
-                local poisonMat = CreatePBR(Color(0.08, 0.85, 0.18, 1.0), 0.0, 0.55)
-                poisonMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.1, 1.2, 0.25, 1.0)))
-                model:SetMaterial(poisonMat)
-            end
+
+    local poisonMat = CreatePBR(Color(0.08, 0.85, 0.18, 1.0), 0.0, 0.45)
+    poisonMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.1, 1.2, 0.25, 1.0)))
+
+    local function TintModels(node)
+        local model = node:GetComponent("StaticModel")
+        if model then
+            table.insert(enemy.poisonOrigMats, { model = model, mat = model:GetMaterial(0) })
+            model:SetMaterial(poisonMat)
+        end
+        local count = node:GetNumChildren(false)
+        for i = 0, count - 1 do
+            TintModels(node:GetChild(i))
         end
     end
-    -- 缩放脉动：中毒时怪物微微膨胀以强化视觉反馈
-    local skelRoot2 = enemy.node:GetChild("SkelRoot", false)
-    if skelRoot2 then
-        enemy.poisonOrigScale = skelRoot2.scale
-        skelRoot2.scale = skelRoot2.scale * 1.08
+
+    local skelRoot = enemy.node:GetChild("SkelRoot", false)
+    if skelRoot then
+        TintModels(skelRoot)
+        enemy.poisonOrigScale = skelRoot.scale
+        skelRoot.scale = skelRoot.scale * 1.08
+    else
+        TintModels(enemy.node)
+    end
+
+    if #enemy.poisonOrigMats == 0 then
+        print("[Combat] Poison tint warning: no StaticModel found on " .. tostring(enemy.name))
     end
 end
 
