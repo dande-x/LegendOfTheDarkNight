@@ -1828,7 +1828,7 @@ local _skillBarIcons = {
 
 local function _IsSkillUsable(player, skill)
     if not skill or not CharacterClass.IsSkillUnlocked(skill, player.level) then return false end
-    if skill.id == "t_summon" then
+    if skill.id == "t_divineBeast" or skill.summonType == "divineBeast" then
         return not DivineBeast.IsAlive()
     elseif skill.id == "t_beastRage" then
         return DivineBeast.IsAlive()
