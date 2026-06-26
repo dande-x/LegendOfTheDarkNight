@@ -1028,6 +1028,18 @@ function SetupGameCallbacks()
             windup = 0.18
         end
 
+        -- 瞬发技能：不进入施法状态机，立即结算效果
+        if skill.instant or windup <= 0 then
+            local ok, result = Combat.CastSkill(scene_, player_, playerNode_, slot)
+            if ok then
+                PlayerAnim.PlaySkill(skill.type)
+                PlayerAnim.TriggerHitFeedback(0.8)
+            else
+                print("[main] Instant cast failed: " .. result)
+            end
+            return
+        end
+
         -- 自动瞄准：施法开始时转向最近敌人
         local target = Combat.FindNearestEnemy(playerNode_.position, skill.range or 5)
         if target then

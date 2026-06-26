@@ -1594,8 +1594,7 @@ function Combat.SpawnAOEVisual(scene, center, radius, classId, skillId, wallAngl
     elseif skillId == "t_poison" then
         local node = scene:CreateChild("AOEVisual")
         node.position = Vector3(center.x, 0.03, center.z)
-        node:SetVar("noShrink", Variant(true))
-        node:SetVar("spinSpeed", Variant(90.0))
+        node:SetVar("spinSpeed", Variant(180.0))
 
         -- 地面毒圈底盘
         local baseNode = node:CreateChild("poisonBase")
@@ -1646,7 +1645,7 @@ function Combat.SpawnAOEVisual(scene, center, radius, classId, skillId, wallAngl
             mModel.castShadows = false
         end
 
-        node:SetVar("removeTimer", Variant(5.0))
+        node:SetVar("removeTimer", Variant(0.45))
         return node
 
     -- ========== 武士 - 烈火剑法：火焰爆发环 ==========

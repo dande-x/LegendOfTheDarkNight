@@ -245,16 +245,16 @@ CharacterClass.Classes = {
                 healPercent = 35,
                 range = 0,
             },
-            -- 4. 施毒术 (群体 DOT — 圆形毒云范围)
+            -- 4. 施毒术 (瞬发群体中毒 — 圆形范围)
             {
                 id = "t_poison", name = "施毒术", type = SKILL_TYPE.DOT,
-                desc = "以灵力化毒，在目标区域形成毒云，侵蚀范围内妖魔",
+                desc = "瞬间释放毒雾，使命中范围内妖魔中毒5秒",
                 slot = 4, cooldown = 5, manaCost = 28,
                 unlockLevel = 6,
                 damage = 50, -- ATK倍率50%/秒
                 duration = 5,
                 defReduce = 5,
-                range = 6.0, aoeRadius = 3.0, castTime = 0.35,
+                range = 6.0, aoeRadius = 3.0, castTime = 0.0, instant = true,
             },
             -- 5. 神兽狂暴 (BUFF — 强化神兽攻击力)
             {
