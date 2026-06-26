@@ -45,28 +45,15 @@ local MONSTER_TEXTURES = {
     orc       = "image/tex_ink_orc_20260611072339.png",
 }
 
--- 精细整模怪物映射：存在配置时，用 MDL 替代几何占位外观，骨架节点仍保留用于现有动画/战斗逻辑
+-- 精细整模怪物映射：仅用于不依赖四肢分段步态的怪物。
+-- 四足/多足怪物必须保留程序化分肢骨架，否则静态整模会整只僵硬摆动，无法表现四肢行走。
 local MODEL_MONSTERS = {
-    deer = {
-        modelPath = "Meshes/Deer.mdl",
-        materialPath = "Materials/Deer_00_tripo_material_a5521383-f99e-4428-ad84-9a42af4c67f7.xml",
-        parentBone = "body",
-        position = Vector3(0, 0.35, 0),
-        scale = Vector3(0.75, 0.75, 0.75),
-    },
     scarecrow = {
         modelPath = "Meshes/Scarecrow.mdl",
         materialPath = "Materials/Scarecrow_00_tripo_material_e400aa55-aa4f-4418-b012-55dcbca19119.xml",
         parentBone = "pole",
         position = Vector3(0, 0.40, 0),
         scale = Vector3(0.80, 0.80, 0.80),
-    },
-    qilin = {
-        modelPath = "Meshes/Qilin.mdl",
-        materialPath = "Materials/Qilin_00_tripo_material_5c1ff8c2-9635-4910-924c-b2eca2720248.xml",
-        parentBone = "body",
-        position = Vector3(0, 0.20, 0),
-        scale = Vector3(1.00, 1.00, 1.00),
     },
 }
 
@@ -372,20 +359,22 @@ ANIMS.deer = {
         { 0.0, "neck", 10, 0, 0 }, { 1.0, "neck", 15, 3, 0 }, { 2.0, "neck", 10, 0, 0 },
         { 0.0, "tail", -10, 0, 0 }, { 0.5, "tail", -10, 8, 0 }, { 1.0, "tail", -10, -8, 0 }, { 2.0, "tail", -10, 0, 0 },
     }},
-    move = { duration = 0.5, looping = true, keyframes = {
-        -- 前腿交替
-        { 0.0, "lFrontUp", 30, 0, 0 }, { 0.25, "lFrontUp", -25, 0, 0 }, { 0.5, "lFrontUp", 30, 0, 0 },
-        { 0.0, "rFrontUp", -25, 0, 0 }, { 0.25, "rFrontUp", 30, 0, 0 }, { 0.5, "rFrontUp", -25, 0, 0 },
-        { 0.0, "lFrontLo", -20, 0, 0 }, { 0.125, "lFrontLo", -40, 0, 0 }, { 0.25, "lFrontLo", -10, 0, 0 }, { 0.5, "lFrontLo", -20, 0, 0 },
-        { 0.0, "rFrontLo", -10, 0, 0 }, { 0.25, "rFrontLo", -20, 0, 0 }, { 0.375, "rFrontLo", -40, 0, 0 }, { 0.5, "rFrontLo", -10, 0, 0 },
-        -- 后腿交替
-        { 0.0, "lBackUp", -20, 0, 0 }, { 0.25, "lBackUp", 25, 0, 0 }, { 0.5, "lBackUp", -20, 0, 0 },
-        { 0.0, "rBackUp", 25, 0, 0 }, { 0.25, "rBackUp", -20, 0, 0 }, { 0.5, "rBackUp", 25, 0, 0 },
-        { 0.0, "lBackLo", -15, 0, 0 }, { 0.25, "lBackLo", -35, 0, 0 }, { 0.5, "lBackLo", -15, 0, 0 },
-        { 0.0, "rBackLo", -35, 0, 0 }, { 0.25, "rBackLo", -15, 0, 0 }, { 0.5, "rBackLo", -35, 0, 0 },
-        -- 颈部前倾
-        { 0.0, "neck", 5, 0, 0 }, { 0.25, "neck", 0, 0, 0 }, { 0.5, "neck", 5, 0, 0 },
-        { 0.0, "body", -3, 0, -2 }, { 0.25, "body", -3, 0, 2 }, { 0.5, "body", -3, 0, -2 },
+    move = { duration = 0.6, looping = true, keyframes = {
+        -- 四足对角步态：左前+右后一组，右前+左后一组，避免整只怪物僵硬滑行
+        { 0.0, "lFrontUp", 35, 0, 0 }, { 0.30, "lFrontUp", -30, 0, 0 }, { 0.60, "lFrontUp", 35, 0, 0 },
+        { 0.0, "lFrontLo", -35, 0, 0 }, { 0.15, "lFrontLo", -55, 0, 0 }, { 0.30, "lFrontLo", -12, 0, 0 }, { 0.60, "lFrontLo", -35, 0, 0 },
+        { 0.0, "rBackUp", 30, 0, 0 }, { 0.30, "rBackUp", -28, 0, 0 }, { 0.60, "rBackUp", 30, 0, 0 },
+        { 0.0, "rBackLo", -32, 0, 0 }, { 0.15, "rBackLo", -50, 0, 0 }, { 0.30, "rBackLo", -12, 0, 0 }, { 0.60, "rBackLo", -32, 0, 0 },
+
+        { 0.0, "rFrontUp", -30, 0, 0 }, { 0.30, "rFrontUp", 35, 0, 0 }, { 0.60, "rFrontUp", -30, 0, 0 },
+        { 0.0, "rFrontLo", -12, 0, 0 }, { 0.30, "rFrontLo", -35, 0, 0 }, { 0.45, "rFrontLo", -55, 0, 0 }, { 0.60, "rFrontLo", -12, 0, 0 },
+        { 0.0, "lBackUp", -28, 0, 0 }, { 0.30, "lBackUp", 30, 0, 0 }, { 0.60, "lBackUp", -28, 0, 0 },
+        { 0.0, "lBackLo", -12, 0, 0 }, { 0.30, "lBackLo", -32, 0, 0 }, { 0.45, "lBackLo", -50, 0, 0 }, { 0.60, "lBackLo", -12, 0, 0 },
+
+        -- 身体低幅上下/左右摆动，保持四足着地感
+        { 0.0, "body", -2, 0, -2 }, { 0.30, "body", -4, 0, 2 }, { 0.60, "body", -2, 0, -2 },
+        { 0.0, "neck", 6, 0, 0 }, { 0.30, "neck", 2, 0, 0 }, { 0.60, "neck", 6, 0, 0 },
+        { 0.0, "head", 0, 0, 0 }, { 0.30, "head", -3, 0, 0 }, { 0.60, "head", 0, 0, 0 },
     }},
     attack = { duration = 0.6, looping = false, keyframes = {
         -- 低头冲撞
@@ -405,6 +394,9 @@ ANIMS.deer = {
         { 0.0, "rFrontUp", 0, 0, 0 }, { 0.5, "rFrontUp", 15, 0, -20 }, { 1.0, "rFrontUp", 20, 0, -40 },
     }},
 }
+
+-- 麒麟：四足神兽，复用鹿的对角步态，保持四肢着地移动
+ANIMS.qilin = ANIMS.deer
 
 -- ==================== 稻草人 ====================
 ANIMS.scarecrow = {
