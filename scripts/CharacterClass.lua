@@ -236,34 +236,34 @@ CharacterClass.Classes = {
                 summonType = "divineBeast",
                 range = 2.0, castTime = 0.60,
             },
-            -- 3. 神兽狂暴 (BUFF — 强化神兽攻击力)
+            -- 3. 治愈术 (回复生命)
             {
-                id = "t_beastRage", name = "神兽狂暴", type = SKILL_TYPE.BUFF,
-                desc = "激发神兽潜能，攻击力与攻速大幅提升",
-                slot = 3, cooldown = 7, manaCost = 30,
+                id = "t_heal", name = "治愈术", type = SKILL_TYPE.HEAL,
+                desc = "引天地灵气修补自身与神兽，道士自保之术",
+                slot = 3, cooldown = 10, manaCost = 25,
                 unlockLevel = 4,
-                buffMultiplier = 2.0,
-                duration = 10,
+                healPercent = 35,
                 range = 0,
             },
-            -- 4. 施毒术 (DOT — 减防+持续伤害)
+            -- 4. 施毒术 (群体 DOT — 圆形毒云范围)
             {
                 id = "t_poison", name = "施毒术", type = SKILL_TYPE.DOT,
-                desc = "以灵力化毒，侵蚀敌人防御与生命",
-                slot = 4, cooldown = 5, manaCost = 22,
+                desc = "以灵力化毒，在目标区域形成毒云，侵蚀范围内妖魔",
+                slot = 4, cooldown = 5, manaCost = 28,
                 unlockLevel = 6,
                 damage = 50, -- ATK倍率50%/秒
                 duration = 5,
                 defReduce = 5,
-                range = 6.0, castTime = 0.35,
+                range = 6.0, aoeRadius = 3.0, castTime = 0.35,
             },
-            -- 5. 治愈术 (回复生命)
+            -- 5. 神兽狂暴 (BUFF — 强化神兽攻击力)
             {
-                id = "t_heal", name = "治愈术", type = SKILL_TYPE.HEAL,
-                desc = "引天地灵气修补自身与神兽，道士自保之术",
-                slot = 5, cooldown = 10, manaCost = 25,
+                id = "t_beastRage", name = "神兽狂暴", type = SKILL_TYPE.BUFF,
+                desc = "激发神兽潜能，攻击力与攻速大幅提升",
+                slot = 5, cooldown = 7, manaCost = 30,
                 unlockLevel = 8,
-                healPercent = 35,
+                buffMultiplier = 2.0,
+                duration = 10,
                 range = 0,
             },
             -- 6. 困魔咒 (群控困敌 + 减防)

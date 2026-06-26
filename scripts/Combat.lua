@@ -213,9 +213,9 @@ local function ApplyPoisonTint(enemy)
             if model then
                 -- 保存原始材质
                 table.insert(enemy.poisonOrigMats, { model = model, mat = model:GetMaterial(0) })
-                -- 深红+绿毒混合，高自发光，非常显眼
-                local poisonMat = CreatePBR(Color(0.8, 0.05, 0.15, 1.0), 0.0, 0.6)
-                poisonMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.9, 0.1, 0.2, 1.0)))
+                -- 绿色毒雾效果，高自发光，表示中毒
+                local poisonMat = CreatePBR(Color(0.08, 0.85, 0.18, 1.0), 0.0, 0.55)
+                poisonMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.1, 1.2, 0.25, 1.0)))
                 model:SetMaterial(poisonMat)
             end
         end
@@ -488,7 +488,7 @@ function Combat.UpdateEnemies(dt, playerNode, player)
             e.hp = e.hp - e.dotDamage * dt
             if e.dotTimer <= 0 then
                 e.dotDamage = 0
-                -- 中毒结束，移除红色效果
+                -- 中毒结束，移除绿色效果
                 RemovePoisonTint(e)
             end
         end
@@ -899,7 +899,9 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
             -- 立即困住区域内的怪物并施加减防
             for _, e in ipairs(enemies) do
                 if e.state ~= "dead" and e.state ~= "dying" then
-                    local d = (e.node.position - center):Length()
+                    local toE = e.node.position - center
+                    toE.y = 0
+                    local d = toE:Length()
                     if d <= radius then
                         e.trapCenter = center
                         e.trapRadius = radius
@@ -935,20 +937,39 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
         local dps = player.atk * (skill.damage / 100)
         local dur = skill.duration
 
-        if skill.id == "t_poison" and target then
-            -- 施毒术：单体 DOT + 减防
-            target.dotDamage = dps
-            target.dotTimer = dur
-            target.defReduction = skill.defReduce or 0
-            target.defReductionTimer = dur
-            -- 应用中毒红色效果
-            ApplyPoisonTint(target)
-            -- 转向目标
-            local dir = target.node.position - playerPos
+        if skill.id == "t_poison" then
+            -- 施毒术：目标点圆形群体 DOT + 减防
+            local radius = skill.aoeRadius or 3.0
+            local center = playerPos + playerDir * math.min(skill.range or 6.0, 4.0)
+            if target then center = target.node.position end
+
+            for _, e in ipairs(enemies) do
+                if e.state ~= "dead" and e.state ~= "dying" then
+                    local toE = e.node.position - center
+                    toE.y = 0
+                    local d = toE:Length()
+                    if d <= radius then
+                        e.dotDamage = dps
+                        e.dotTimer = dur
+                        e.defReduction = math.max(e.defReduction or 0, skill.defReduce or 0)
+                        e.defReductionTimer = dur
+                        e.hitFlashTimer = 0.1
+                        if e.state == "patrol" then e.state = "chase" end
+                        ApplyPoisonTint(e)
+                    end
+                end
+            end
+
+            Combat.SpawnAOEVisual(scene, center, radius, player.classId, skill.id)
+
+            -- 转向施毒中心
+            local dir = center - playerPos
             dir.y = 0
-            dir = dir:Normalized()
-            local angle = math.atan2(dir.x, dir.z)
-            playerNode.rotation = Quaternion(math.deg(angle), Vector3.UP)
+            if dir:Length() > 0.1 then
+                dir = dir:Normalized()
+                local angle = math.atan2(dir.x, dir.z)
+                playerNode.rotation = Quaternion(math.deg(angle), Vector3.UP)
+            end
         else
             -- 火墙：长方形范围 DOT，每0.5s出伤一次
             local center = playerPos + playerDir * 4
@@ -1566,6 +1587,65 @@ function Combat.SpawnAOEVisual(scene, center, radius, classId, skillId, wallAngl
         end
 
         -- removeTimer 与 DOT duration 一致
+        node:SetVar("removeTimer", Variant(5.0))
+        return node
+
+    -- ========== 道士 - 施毒术：圆形毒云 ==========
+    elseif skillId == "t_poison" then
+        local node = scene:CreateChild("AOEVisual")
+        node.position = Vector3(center.x, 0.03, center.z)
+        node:SetVar("noShrink", Variant(true))
+        node:SetVar("spinSpeed", Variant(90.0))
+
+        -- 地面毒圈底盘
+        local baseNode = node:CreateChild("poisonBase")
+        baseNode.scale = Vector3(radius * 2, 0.035, radius * 2)
+        local bModel = baseNode:CreateComponent("StaticModel")
+        bModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+        local baseMat = Material:new()
+        baseMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+        baseMat:SetShaderParameter("MatDiffColor", Variant(Color(0.05, 0.85, 0.12, 0.32)))
+        baseMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.0, 0.9, 0.18)))
+        baseMat:SetShaderParameter("Metallic", Variant(0.0))
+        baseMat:SetShaderParameter("Roughness", Variant(0.25))
+        bModel:SetMaterial(baseMat)
+        bModel.castShadows = false
+
+        -- 外圈毒雾边界
+        local ringNode = node:CreateChild("poisonRing")
+        ringNode.position = Vector3(0, 0.08, 0)
+        ringNode.scale = Vector3(radius * 2.1, 0.08, radius * 2.1)
+        local rModel = ringNode:CreateComponent("StaticModel")
+        rModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+        local ringMat = Material:new()
+        ringMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+        ringMat:SetShaderParameter("MatDiffColor", Variant(Color(0.12, 1.0, 0.22, 0.45)))
+        ringMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.05, 1.2, 0.25)))
+        ringMat:SetShaderParameter("Metallic", Variant(0.0))
+        ringMat:SetShaderParameter("Roughness", Variant(0.18))
+        rModel:SetMaterial(ringMat)
+        rModel.castShadows = false
+
+        -- 漂浮毒雾颗粒
+        for pi = 1, 14 do
+            local mist = node:CreateChild("poisonMist" .. pi)
+            local a = math.random() * math.pi * 2
+            local d = math.sqrt(math.random()) * radius * 0.9
+            mist.position = Vector3(math.cos(a) * d, 0.35 + math.random() * 1.0, math.sin(a) * d)
+            local s = 0.12 + math.random() * 0.22
+            mist.scale = Vector3(s, s, s)
+            local mModel = mist:CreateComponent("StaticModel")
+            mModel:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
+            local mistMat = Material:new()
+            mistMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+            mistMat:SetShaderParameter("MatDiffColor", Variant(Color(0.10, 0.9, 0.18, 0.55)))
+            mistMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.0, 0.75, 0.18)))
+            mistMat:SetShaderParameter("Metallic", Variant(0.0))
+            mistMat:SetShaderParameter("Roughness", Variant(0.35))
+            mModel:SetMaterial(mistMat)
+            mModel.castShadows = false
+        end
+
         node:SetVar("removeTimer", Variant(5.0))
         return node
 
