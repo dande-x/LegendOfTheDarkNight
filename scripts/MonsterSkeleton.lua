@@ -45,6 +45,59 @@ local MONSTER_TEXTURES = {
     orc       = "image/tex_ink_orc_20260611072339.png",
 }
 
+-- 精细整模怪物映射：存在配置时，用 MDL 替代几何占位外观，骨架节点仍保留用于现有动画/战斗逻辑
+local MODEL_MONSTERS = {
+    deer = {
+        modelPath = "Meshes/Deer.mdl",
+        materialPath = "Materials/Deer_00_tripo_material_a5521383-f99e-4428-ad84-9a42af4c67f7.xml",
+        parentBone = "body",
+        position = Vector3(0, 0.35, 0),
+        scale = Vector3(0.75, 0.75, 0.75),
+    },
+    scarecrow = {
+        modelPath = "Meshes/Scarecrow.mdl",
+        materialPath = "Materials/Scarecrow_00_tripo_material_e400aa55-aa4f-4418-b012-55dcbca19119.xml",
+        parentBone = "pole",
+        position = Vector3(0, 0.40, 0),
+        scale = Vector3(0.80, 0.80, 0.80),
+    },
+    qilin = {
+        modelPath = "Meshes/Qilin.mdl",
+        materialPath = "Materials/Qilin_00_tripo_material_5c1ff8c2-9635-4910-924c-b2eca2720248.xml",
+        parentBone = "body",
+        position = Vector3(0, 0.20, 0),
+        scale = Vector3(1.00, 1.00, 1.00),
+    },
+}
+
+local function CreateModelVisual(parentNode, bones, monsterType)
+    local modelDef = MODEL_MONSTERS[monsterType]
+    if not modelDef then return false end
+
+    local attachNode = bones[modelDef.parentBone] or parentNode
+    local visualNode = attachNode:CreateChild(monsterType .. "_model")
+    visualNode.position = modelDef.position
+    visualNode.scale = modelDef.scale
+
+    local staticModel = visualNode:CreateComponent("StaticModel")
+    local model = cache:GetResource("Model", modelDef.modelPath)
+    if not model then
+        print("[MonsterSkeleton] Missing monster model: " .. modelDef.modelPath)
+        return false
+    end
+    staticModel:SetModel(model)
+
+    local material = cache:GetResource("Material", modelDef.materialPath)
+    if material then
+        staticModel:SetMaterial(material)
+    else
+        print("[MonsterSkeleton] Missing monster material: " .. modelDef.materialPath)
+    end
+    staticModel.castShadows = true
+    print("[MonsterSkeleton] Loaded model monster: " .. monsterType .. " -> " .. modelDef.modelPath)
+    return true
+end
+
 -- ============================================================================
 -- 骨架定义：5种怪物
 -- 格式: { parent, pos={x,y,z}, meshScale={x,y,z}, model, meshOffset={x,y,z} }
@@ -299,6 +352,11 @@ MonsterSkeleton.TYPES = {
         name = "巨蟒", bones = BONES_SERPENT,
         color = Color(0.25, 0.35, 0.20, 1.0),  -- 暗绿蛇皮
         scale = 1.0, heightOffset = 0,
+    },
+    qilin = {
+        name = "麒麟", bones = BONES_DEER,
+        color = Color(0.70, 0.55, 0.25, 1.0),  -- 金色神兽
+        scale = 1.25, heightOffset = 0,
     },
 }
 
@@ -653,6 +711,7 @@ function MonsterSkeleton.CreateSkeleton(parentNode, monsterType)
     local color = typeDef.color
     local buildOrder = getBuildOrder(boneDefs)
     local bones = {}
+    local useModelVisual = MODEL_MONSTERS[monsterType] ~= nil
 
     -- 如果有对应贴图，预创建纹理材质（避免每个骨骼重复创建）
     local texPath = MONSTER_TEXTURES[monsterType]
@@ -668,27 +727,33 @@ function MonsterSkeleton.CreateSkeleton(parentNode, monsterType)
         local boneNode = pNode:CreateChild(name)
         boneNode.position = Vector3(def.pos[1], def.pos[2], def.pos[3])
 
-        -- mesh 子节点
-        local meshNode = boneNode:CreateChild(name .. "_mesh")
-        if def.meshOffset then
-            meshNode.position = Vector3(def.meshOffset[1], def.meshOffset[2], def.meshOffset[3])
-        end
-        meshNode.scale = Vector3(def.meshScale[1], def.meshScale[2], def.meshScale[3])
+        if not useModelVisual then
+            -- mesh 子节点
+            local meshNode = boneNode:CreateChild(name .. "_mesh")
+            if def.meshOffset then
+                meshNode.position = Vector3(def.meshOffset[1], def.meshOffset[2], def.meshOffset[3])
+            end
+            meshNode.scale = Vector3(def.meshScale[1], def.meshScale[2], def.meshScale[3])
 
-        local model = meshNode:CreateComponent("StaticModel")
-        model:SetModel(cache:GetResource("Model", "Models/" .. def.model .. ".mdl"))
+            local model = meshNode:CreateComponent("StaticModel")
+            model:SetModel(cache:GetResource("Model", "Models/" .. def.model .. ".mdl"))
 
-        -- 材质选择：有 colorOverride 的部位用纯色，否则用纹理贴图
-        if def.colorOverride then
-            model:SetMaterial(CreatePBRMat(def.colorOverride, 0.6, 0.1))
-        elseif texMat then
-            model:SetMaterial(texMat)
-        else
-            model:SetMaterial(CreatePBRMat(color, 0.6, 0.1))
+            -- 材质选择：有 colorOverride 的部位用纯色，否则用纹理贴图
+            if def.colorOverride then
+                model:SetMaterial(CreatePBRMat(def.colorOverride, 0.6, 0.1))
+            elseif texMat then
+                model:SetMaterial(texMat)
+            else
+                model:SetMaterial(CreatePBRMat(color, 0.6, 0.1))
+            end
+            model.castShadows = true
         end
-        model.castShadows = true
 
         bones[name] = boneNode
+    end
+
+    if useModelVisual then
+        CreateModelVisual(parentNode, bones, monsterType)
     end
 
     return bones, buildOrder

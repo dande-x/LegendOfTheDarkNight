@@ -132,6 +132,12 @@ local ENEMY_DEFS = {
         speed = 2.5, chaseRange = 12, attackRange = 1.5, attackCD = 1.5,
         exp = 700, scale = 1.5, tier = "elite",
     },
+    {
+        name = "麒麟", monsterType = "qilin",
+        level = 38, hp = 1350, atk = 62, def = 24,
+        speed = 2.6, chaseRange = 14, attackRange = 1.8, attackCD = 1.8,
+        exp = 850, scale = 1.4, tier = "elite",
+    },
     -- === Boss 区 (大型压迫感怪物) ===
     {
         name = "山岳巨人", monsterType = "golem",
