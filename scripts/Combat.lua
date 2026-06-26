@@ -166,6 +166,7 @@ local killCount = 0
 local spawnTimer = 0
 local SPAWN_INTERVAL = 1.2
 local MAX_ENEMIES = 45
+local ENEMY_MOVE_SPEED = 2.8
 
 Combat.enemies = enemies
 Combat.projectiles = projectiles
@@ -388,7 +389,7 @@ function Combat.SpawnEnemy(scene, playerPos, playerLevel, forceDef)
         hp = scaledHP,
         atk = scaledATK,
         def = scaledDEF,
-        speed = def.speed,
+        speed = ENEMY_MOVE_SPEED,
         chaseRange = def.chaseRange,
         attackRange = def.attackRange,
         attackCD = def.attackCD,
