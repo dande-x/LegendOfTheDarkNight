@@ -1368,6 +1368,12 @@ function ShowChargeGlow(show)
     end
 end
 
+local function CanMoveDuringCast()
+    if not castState.active then return true end
+    if not player_ then return false end
+    return player_.classId == "warrior" and castState.phase == "recovery"
+end
+
 -- ============================================================================
 -- 施法状态机更新
 -- ============================================================================
@@ -1523,9 +1529,14 @@ function HandleUpdate(eventType, eventData)
     -- 施法状态机更新
     UpdateCastState(dt)
 
-    -- 玩家移动（施法前摇期间不能移动；冲刺期间由 Combat 接管位移）
-    if (not castState.active or castState.phase == "recovery") and not Combat.IsDashing() then
+    -- 玩家移动：武士后摇可移动；法师/道士施法全程锁定移动；冲刺期间由 Combat 接管位移
+    if CanMoveDuringCast() and not Combat.IsDashing() then
         UpdatePlayerMovement(dt)
+    elseif playerNode_ then
+        local body = playerNode_:GetComponent("RigidBody")
+        if body then
+            body:SetLinearVelocity(Vector3.ZERO)
+        end
     end
 
     -- 更新冷却 & 药瓶CD
@@ -1553,7 +1564,7 @@ function HandleUpdate(eventType, eventData)
     -- 骨骼动画更新
     local joystick = GameUI.GetJoystick()
     local isMoving = false
-    if joystick then
+    if joystick and CanMoveDuringCast() and not Combat.IsDashing() then
         local jx, jz = joystick:getMovement()
         isMoving = math.abs(jx) > 0.01 or math.abs(jz) > 0.01
     end
