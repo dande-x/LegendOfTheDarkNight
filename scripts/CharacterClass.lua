@@ -64,7 +64,7 @@ CharacterClass.Classes = {
         resource = "气力",
         baseHP = 200, baseMP = 60, baseATK = 18, baseDEF = 15,
         growth = BASE_GROWTH.warrior,
-        moveSpeed = 3.5,
+        moveSpeed = 4.55,
 
         passive = {
             name = "铁骨",
@@ -133,7 +133,7 @@ CharacterClass.Classes = {
         resource = "灵力",
         baseHP = 120, baseMP = 150, baseATK = 22, baseDEF = 8,
         growth = BASE_GROWTH.mage,
-        moveSpeed = 3.2,
+        moveSpeed = 4.16,
 
         passive = {
             name = "灵慧",
@@ -207,7 +207,7 @@ CharacterClass.Classes = {
         resource = "道行",
         baseHP = 160, baseMP = 130, baseATK = 12, baseDEF = 12,
         growth = BASE_GROWTH.taoist,
-        moveSpeed = 3.3,
+        moveSpeed = 4.29,
 
         passive = {
             name = "灵兽契约",
