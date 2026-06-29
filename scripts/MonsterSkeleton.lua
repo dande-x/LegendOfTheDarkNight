@@ -46,15 +46,14 @@ local MONSTER_TEXTURES = {
 }
 
 -- 精细整模怪物映射：用于替换几何占位外观。
--- deer 使用规则权重绑定后的四足骨骼模型，并由 Lua 驱动真实骨骼播放步态。
+-- deer 先使用稳定可见的静态精细模型；失败的实验性四足 rig 不再接入游戏。
 local MODEL_MONSTERS = {
     deer = {
-        modelPath = "Meshes/DeerStableRig.mdl",
-        materialPath = "Materials/DeerStableRig_00_tripo_material_a5521383-f99e-4428-ad84-9a42af4c67f7.xml",
+        modelPath = "Meshes/Deer.mdl",
+        materialPath = "Materials/Deer_00_tripo_material_a5521383-f99e-4428-ad84-9a42af4c67f7.xml",
         parentBone = nil,
         position = Vector3(0, 0.90, 0),
         scale = Vector3(0.75, 0.75, 0.75),
-        animated = true,
         hideProceduralBones = true,
     },
     scarecrow = {
