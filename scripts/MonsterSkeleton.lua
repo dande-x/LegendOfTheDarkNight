@@ -846,12 +846,15 @@ local function CacheRealDeerBones(animData)
     local skeleton = component:GetSkeleton()
     if not skeleton then return end
 
+    local foundCount = 0
     for _, boneName in ipairs(REAL_DEER_BONES) do
         local bone = skeleton:GetBone(boneName)
         if bone and bone.node then
             animData.realBones[boneName] = bone.node
+            foundCount = foundCount + 1
         end
     end
+    print("[MonsterSkeleton] Deer real bones cached: " .. tostring(foundCount) .. "/" .. tostring(#REAL_DEER_BONES))
 end
 
 local function UpdateRealDeerAnimation(animData, dt, isMoving)
@@ -868,14 +871,14 @@ local function UpdateRealDeerAnimation(animData, dt, isMoving)
     if isMoving then
         local phase = math.sin(t * 10.0)
         local opposite = -phase
-        SetRealBoneRotation(animData, "L_Front_Upper", 0, 10 * phase, 0)
-        SetRealBoneRotation(animData, "R_Back_Upper", 0, 10 * phase, 0)
-        SetRealBoneRotation(animData, "R_Front_Upper", 0, 10 * opposite, 0)
-        SetRealBoneRotation(animData, "L_Back_Upper", 0, 10 * opposite, 0)
-        SetRealBoneRotation(animData, "L_Front_Lower", 0, -5 * phase, 0)
-        SetRealBoneRotation(animData, "R_Back_Lower", 0, -5 * phase, 0)
-        SetRealBoneRotation(animData, "R_Front_Lower", 0, -5 * opposite, 0)
-        SetRealBoneRotation(animData, "L_Back_Lower", 0, -5 * opposite, 0)
+        SetRealBoneRotation(animData, "L_Front_Upper", 18 * phase, 0, 8 * phase)
+        SetRealBoneRotation(animData, "R_Back_Upper", 18 * phase, 0, 8 * phase)
+        SetRealBoneRotation(animData, "R_Front_Upper", 18 * opposite, 0, 8 * opposite)
+        SetRealBoneRotation(animData, "L_Back_Upper", 18 * opposite, 0, 8 * opposite)
+        SetRealBoneRotation(animData, "L_Front_Lower", -9 * phase, 0, 0)
+        SetRealBoneRotation(animData, "R_Back_Lower", -9 * phase, 0, 0)
+        SetRealBoneRotation(animData, "R_Front_Lower", -9 * opposite, 0, 0)
+        SetRealBoneRotation(animData, "L_Back_Lower", -9 * opposite, 0, 0)
     else
         SetRealBoneRotation(animData, "L_Front_Upper", 0, 0, 0)
         SetRealBoneRotation(animData, "R_Front_Upper", 0, 0, 0)
