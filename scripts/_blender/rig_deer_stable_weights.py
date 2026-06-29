@@ -202,18 +202,17 @@ for v in mesh.data.vertices:
             nearest_dist = d
             nearest_name = name
 
-    # Bind a conservative band around upper legs. Lower-leg bones stay unused for now because
-    # the generated mesh has broad connected side surfaces; binding lower vertices pulls them into wing-like planes.
+    # Foot / lower-leg vertices: bind a very narrow low band to lower bones so motion happens near feet.
     leg_radius = max(size_y * 0.24, size_x * 0.080)
-    if nearest_name and nearest_name.endswith("_Upper") and nz < 0.56 and nearest_dist < leg_radius:
-        add_weight(v.index, nearest_name, 0.65)
-        add_weight(v.index, "Body", 0.35)
+    if nearest_name and nearest_name.endswith("_Lower") and nz < 0.36 and nearest_dist < leg_radius * 1.20:
+        add_weight(v.index, nearest_name, 0.85)
+        add_weight(v.index, "Body", 0.15)
         leg_counts[nearest_name] += 1
         continue
 
-    if nearest_name and nearest_name.endswith("_Lower") and nz < 0.34 and nearest_dist < leg_radius * 0.55:
-        upper_name = nearest_name.replace("_Lower", "_Upper")
-        add_weight(v.index, upper_name, 0.45)
+    # Upper-leg vertices: bind only a moderate band near shoulder/hip, with softer weight.
+    if nearest_name and nearest_name.endswith("_Upper") and 0.26 <= nz and nz < 0.58 and nearest_dist < leg_radius:
+        add_weight(v.index, nearest_name, 0.45)
         add_weight(v.index, "Body", 0.55)
         leg_counts[nearest_name] += 1
         continue
