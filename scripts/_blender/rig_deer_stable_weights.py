@@ -202,18 +202,19 @@ for v in mesh.data.vertices:
             nearest_dist = d
             nearest_name = name
 
-    # The imported deer has thin legs; bind lower half near leg bones aggressively.
-    leg_radius = max(size_y * 0.34, size_x * 0.12)
-    if nearest_name and nz < 0.58 and nearest_dist < leg_radius:
-        add_weight(v.index, nearest_name, 1.0)
+    # Bind a conservative band around upper legs. Lower-leg bones stay unused for now because
+    # the generated mesh has broad connected side surfaces; binding lower vertices pulls them into wing-like planes.
+    leg_radius = max(size_y * 0.24, size_x * 0.080)
+    if nearest_name and nearest_name.endswith("_Upper") and nz < 0.56 and nearest_dist < leg_radius:
+        add_weight(v.index, nearest_name, 0.65)
+        add_weight(v.index, "Body", 0.35)
         leg_counts[nearest_name] += 1
         continue
 
-    # Blend shoulder/hip underside into nearest upper leg to make movement visible but keep torso stable.
-    if nearest_name and nz < 0.70 and nearest_dist < leg_radius * 1.25 and nearest_name.endswith("_Upper"):
-        leg_w = 0.45 * (1.0 - min(1.0, nearest_dist / (leg_radius * 1.25)))
-        add_weight(v.index, nearest_name, leg_w)
-        add_weight(v.index, "Body", 1.0 - leg_w)
+    if nearest_name and nearest_name.endswith("_Lower") and nz < 0.34 and nearest_dist < leg_radius * 0.55:
+        upper_name = nearest_name.replace("_Lower", "_Upper")
+        add_weight(v.index, upper_name, 0.45)
+        add_weight(v.index, "Body", 0.55)
         leg_counts[nearest_name] += 1
         continue
 
