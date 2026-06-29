@@ -825,7 +825,6 @@ local function getRotationAtTime(keyframes, boneName, t, duration, looping)
 end
 
 local REAL_DEER_BONES = {
-    "Body", "Neck", "Head", "Tail",
     "L_Front_Upper", "L_Front_Lower", "R_Front_Upper", "R_Front_Lower",
     "L_Back_Upper", "L_Back_Lower", "R_Back_Upper", "R_Back_Lower",
 }
@@ -862,50 +861,30 @@ local function UpdateRealDeerAnimation(animData, dt, isMoving)
     animData.realElapsed = (animData.realElapsed or 0) + dt
     local t = animData.realElapsed
 
-    if animData.state == "death" then
-        SetRealBoneRotation(animData, "Body", 0, 0, 85)
-        SetRealBoneRotation(animData, "Neck", 0, 0, 20)
-        return
-    end
-
-    if animData.state == "hit" then
-        local s = math.sin(t * 35.0) * 10.0
-        SetRealBoneRotation(animData, "Body", 0, 0, s)
-        SetRealBoneRotation(animData, "Neck", 0, s * 0.4, 0)
-        return
-    end
-
-    if animData.state == "attack" then
-        local s = math.sin(math.min(t * 10.0, math.pi))
-        SetRealBoneRotation(animData, "Neck", 0, -18 * s, 0)
-        SetRealBoneRotation(animData, "Head", 0, -12 * s, 0)
+    if animData.state == "death" or animData.state == "hit" or animData.state == "attack" then
         return
     end
 
     if isMoving then
         local phase = math.sin(t * 10.0)
         local opposite = -phase
-        SetRealBoneRotation(animData, "L_Front_Upper", 0, 24 * phase, 0)
-        SetRealBoneRotation(animData, "R_Back_Upper", 0, 22 * phase, 0)
-        SetRealBoneRotation(animData, "R_Front_Upper", 0, 24 * opposite, 0)
-        SetRealBoneRotation(animData, "L_Back_Upper", 0, 22 * opposite, 0)
-        SetRealBoneRotation(animData, "L_Front_Lower", 0, -14 * phase, 0)
-        SetRealBoneRotation(animData, "R_Back_Lower", 0, -12 * phase, 0)
-        SetRealBoneRotation(animData, "R_Front_Lower", 0, -14 * opposite, 0)
-        SetRealBoneRotation(animData, "L_Back_Lower", 0, -12 * opposite, 0)
-        SetRealBoneRotation(animData, "Body", 0, 0, 2 * phase)
-        SetRealBoneRotation(animData, "Neck", 0, 4 * opposite, 0)
-        SetRealBoneRotation(animData, "Head", 0, 2 * opposite, 0)
+        SetRealBoneRotation(animData, "L_Front_Upper", 0, 10 * phase, 0)
+        SetRealBoneRotation(animData, "R_Back_Upper", 0, 10 * phase, 0)
+        SetRealBoneRotation(animData, "R_Front_Upper", 0, 10 * opposite, 0)
+        SetRealBoneRotation(animData, "L_Back_Upper", 0, 10 * opposite, 0)
+        SetRealBoneRotation(animData, "L_Front_Lower", 0, -5 * phase, 0)
+        SetRealBoneRotation(animData, "R_Back_Lower", 0, -5 * phase, 0)
+        SetRealBoneRotation(animData, "R_Front_Lower", 0, -5 * opposite, 0)
+        SetRealBoneRotation(animData, "L_Back_Lower", 0, -5 * opposite, 0)
     else
-        local breathe = math.sin(t * 2.2)
-        SetRealBoneRotation(animData, "Body", 0, 0, 1.2 * breathe)
-        SetRealBoneRotation(animData, "Neck", 0, 2 * breathe, 0)
-        SetRealBoneRotation(animData, "Head", 0, 1.5 * breathe, 0)
-        SetRealBoneRotation(animData, "Tail", 0, 0, 4 * breathe)
         SetRealBoneRotation(animData, "L_Front_Upper", 0, 0, 0)
         SetRealBoneRotation(animData, "R_Front_Upper", 0, 0, 0)
         SetRealBoneRotation(animData, "L_Back_Upper", 0, 0, 0)
         SetRealBoneRotation(animData, "R_Back_Upper", 0, 0, 0)
+        SetRealBoneRotation(animData, "L_Front_Lower", 0, 0, 0)
+        SetRealBoneRotation(animData, "R_Front_Lower", 0, 0, 0)
+        SetRealBoneRotation(animData, "L_Back_Lower", 0, 0, 0)
+        SetRealBoneRotation(animData, "R_Back_Lower", 0, 0, 0)
     end
 end
 
