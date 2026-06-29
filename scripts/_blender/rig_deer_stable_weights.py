@@ -152,14 +152,34 @@ def smoothstep(edge0, edge1, x):
     t = max(0.0, min(1.0, (x - edge0) / (edge1 - edge0)))
     return t * t * (3.0 - 2.0 * t)
 
-# Rule weights by local-space regions. Use normalized x/y/z in mesh local coordinates.
+def dist_point_segment(point, a, b):
+    ab = b - a
+    denom = ab.dot(ab)
+    if denom <= 1e-8:
+        return (point - a).length
+    t = max(0.0, min(1.0, (point - a).dot(ab) / denom))
+    closest = a + ab * t
+    return (point - closest).length
+
+leg_segments = {
+    "L_Front_Upper": (p(front_x, leg_y, z_shoulder), p(front_x, leg_y, z_knee)),
+    "L_Front_Lower": (p(front_x, leg_y, z_knee), p(front_x, leg_y, z_hoof)),
+    "R_Front_Upper": (p(front_x, -leg_y, z_shoulder), p(front_x, -leg_y, z_knee)),
+    "R_Front_Lower": (p(front_x, -leg_y, z_knee), p(front_x, -leg_y, z_hoof)),
+    "L_Back_Upper": (p(back_x, leg_y, z_shoulder), p(back_x, leg_y, z_knee)),
+    "L_Back_Lower": (p(back_x, leg_y, z_knee), p(back_x, leg_y, z_hoof)),
+    "R_Back_Upper": (p(back_x, -leg_y, z_shoulder), p(back_x, -leg_y, z_knee)),
+    "R_Back_Lower": (p(back_x, -leg_y, z_knee), p(back_x, -leg_y, z_hoof)),
+}
+leg_counts = {name: 0 for name in leg_segments}
+
+# Rule weights by nearest bone segment. Low vertices near any leg segment are forced to leg bones.
 for v in mesh.data.vertices:
     co = v.co
     nx = (co.x - min_x) / size_x if size_x > 0 else 0.5
-    ny = (co.y - min_y) / size_y if size_y > 0 else 0.5
     nz = (co.z - min_z) / size_z if size_z > 0 else 0.5
 
-    # Head / neck / tail priority.
+    # Head / neck / tail priority for upper body only.
     if nx > 0.78 and nz > 0.42:
         add_weight(v.index, "Head", 1.0)
         continue
@@ -174,32 +194,33 @@ for v in mesh.data.vertices:
         add_weight(v.index, "Body", 1.0 - tail_blend)
         continue
 
-    # Leg regions: lower half, four corners. Upper/lower split by height.
-    is_left = co.y >= 0
-    front_score = smoothstep(0.52, 0.75, nx)
-    back_score = 1.0 - smoothstep(0.25, 0.48, nx)
-    side_score = smoothstep(0.54, 0.78, abs((co.y) / (size_y * 0.5 if size_y > 0 else 1)))
-    leg_score = max(front_score, back_score) * side_score * (1.0 - smoothstep(0.46, 0.62, nz))
+    nearest_name = None
+    nearest_dist = 999999.0
+    for name, (a, b) in leg_segments.items():
+        d = dist_point_segment(co, a, b)
+        if d < nearest_dist:
+            nearest_dist = d
+            nearest_name = name
 
-    if leg_score > 0.25:
-        if front_score >= back_score:
-            prefix = "L_Front" if is_left else "R_Front"
-        else:
-            prefix = "L_Back" if is_left else "R_Back"
-        lower_blend = 1.0 - smoothstep(0.16, 0.34, nz)
-        add_weight(v.index, prefix + "_Lower", lower_blend)
-        add_weight(v.index, prefix + "_Upper", 1.0 - lower_blend)
+    # The imported deer has thin legs; bind lower half near leg bones aggressively.
+    leg_radius = max(size_y * 0.34, size_x * 0.12)
+    if nearest_name and nz < 0.58 and nearest_dist < leg_radius:
+        add_weight(v.index, nearest_name, 1.0)
+        leg_counts[nearest_name] += 1
+        continue
+
+    # Blend shoulder/hip underside into nearest upper leg to make movement visible but keep torso stable.
+    if nearest_name and nz < 0.70 and nearest_dist < leg_radius * 1.25 and nearest_name.endswith("_Upper"):
+        leg_w = 0.45 * (1.0 - min(1.0, nearest_dist / (leg_radius * 1.25)))
+        add_weight(v.index, nearest_name, leg_w)
+        add_weight(v.index, "Body", 1.0 - leg_w)
+        leg_counts[nearest_name] += 1
         continue
 
     # Main torso.
-    neck_blend = smoothstep(0.58, 0.72, nx) * smoothstep(0.35, 0.55, nz)
-    tail_blend = (1.0 - smoothstep(0.12, 0.25, nx)) * smoothstep(0.35, 0.55, nz)
-    body_w = max(0.0, 1.0 - neck_blend - tail_blend)
-    add_weight(v.index, "Body", body_w)
-    if neck_blend > 0:
-        add_weight(v.index, "Neck", neck_blend)
-    if tail_blend > 0:
-        add_weight(v.index, "Tail", tail_blend)
+    add_weight(v.index, "Body", 1.0)
+
+print("[deer-stable-rig] leg vertex counts:", leg_counts)
 
 # Parent mesh to armature object without changing weights.
 mesh.parent = arm
