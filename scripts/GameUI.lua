@@ -2269,6 +2269,14 @@ end
 -- 角色面板（技能 + 背包 Tab 合并）
 -- ============================================================================
 
+local function _FormatCooldown(value)
+    local cd = tonumber(value) or 0
+    if math.abs(cd - math.floor(cd + 0.5)) < 0.001 then
+        return tostring(math.floor(cd + 0.5))
+    end
+    return string.format("%.1f", cd)
+end
+
 --- 构建技能 Tab 内容
 local function _BuildSkillTabContent(player)
     local classDef = CharacterClass.Classes[player.classId]
@@ -2375,10 +2383,10 @@ local function _BuildSkillTabContent(player)
                             marginTop = 2,
                         },
                         UI.Label {
-                            text = string.format("Lv.%d 解锁  |  %s  CD:%ds",
-                                skill.unlockLevel,
+                            text = string.format("Lv.%d 解锁  |  %s  CD:%ss",
+                                math.floor((skill.unlockLevel or 1) + 0.5),
                                 locked and "未解锁" or "已解锁",
-                                skill.cooldown),
+                                _FormatCooldown(skill.cooldown)),
                             fontSize = 10,
                             fontColor = locked and {100, 80, 60, 150} or {160, 140, 90, 200},
                             marginTop = 2,
