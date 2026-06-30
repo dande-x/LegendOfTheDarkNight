@@ -1,0 +1,47 @@
+{
+    "name": "MonsterHumanoidFSM",
+    "defaultBlendTime": 0.18,
+    "parameters": {
+        "moveSpeed": { "type": "float", "default": 0.0, "min": 0.0, "max": 10.0 },
+        "attack": { "type": "trigger" },
+        "hit": { "type": "trigger" },
+        "die": { "type": "trigger" }
+    },
+    "layers": [
+        {
+            "name": "Base",
+            "defaultState": "Locomotion",
+            "states": {
+                "Locomotion": {
+                    "blendSpace": "FSM/MonsterHumanoidMovement.blendspace",
+                    "loop": true
+                },
+                "Attack": {
+                    "animation": "uuid://B5CeOfTwRtwDavJOk69BjU3L",
+                    "loop": false,
+                    "speed": 1.0,
+                    "blendTime": 0.08
+                },
+                "Hit": {
+                    "animation": "uuid://G6J2ITmKfh0oy5_nnbweG8xK",
+                    "loop": false,
+                    "speed": 2.0,
+                    "blendTime": 0.05
+                },
+                "Death": {
+                    "animation": "uuid://Bp84GR3zHR88xE4zRCAL1uMc",
+                    "loop": false,
+                    "speed": 1.0,
+                    "blendTime": 0.12
+                }
+            },
+            "transitions": [
+                { "from": "*", "to": "Death", "condition": "die", "priority": 30, "blendTime": 0.08 },
+                { "from": "*", "to": "Hit", "condition": "hit", "priority": 20, "blendTime": 0.05 },
+                { "from": "*", "to": "Attack", "condition": "attack", "priority": 10, "blendTime": 0.06 },
+                { "from": "Attack", "to": "Locomotion", "condition": "animationFinished", "blendTime": 0.12 },
+                { "from": "Hit", "to": "Locomotion", "condition": "animationFinished", "blendTime": 0.10 }
+            ]
+        }
+    ]
+}

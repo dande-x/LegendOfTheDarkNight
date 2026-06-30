@@ -150,11 +150,27 @@ local function CreateModelVisual(parentNode, bones, monsterType)
     modelComponent.castShadows = true
 
     local animCtrl = nil
+    local fsm = nil
     if isAnimatedModel then
         animCtrl = visualNode:GetComponent("AnimationController")
             or visualNode:GetComponent("AnimationController", true)
         if not animCtrl then
             animCtrl = visualNode:CreateComponent("AnimationController")
+        end
+
+        fsm = visualNode:GetComponent("AnimationStateMachine")
+            or visualNode:GetComponent("AnimationStateMachine", true)
+        if not fsm then
+            fsm = visualNode:CreateComponent("AnimationStateMachine")
+        end
+        local fsmFile = cache:GetResource("JSONFile", "FSM/MonsterHumanoid.fsm")
+        if fsmFile then
+            fsm:LoadFromJSONFile(fsmFile)
+            fsm:Start()
+            print("[MonsterSkeleton] Started humanoid monster FSM: " .. monsterType)
+        else
+            print("[MonsterSkeleton] Missing FSM/MonsterHumanoid.fsm")
+            fsm = nil
         end
     end
 
@@ -163,6 +179,7 @@ local function CreateModelVisual(parentNode, bones, monsterType)
         node = visualNode,
         component = modelComponent,
         animCtrl = animCtrl,
+        fsm = fsm,
         animated = isAnimatedModel,
         modelAnim = modelDef.modelAnim,
         currentAnim = nil,
@@ -1000,72 +1017,48 @@ local function PlayModelAnim(visual, name)
     return true
 end
 
+local function SetModelFSMParameter(visual, animState, isMoving, moveAnimName)
+    if not visual or not visual.fsm then return false end
+
+    local speed = 0.0
+    if isMoving then
+        speed = (moveAnimName == "walk") and 2.0 or 5.0
+    end
+    visual.fsm:SetFloat("moveSpeed", speed)
+
+    if visual.lastFSMState ~= animState then
+        if animState == "attack" then
+            visual.fsm:SetTrigger("attack")
+        elseif animState == "hit" then
+            visual.fsm:SetTrigger("hit")
+        elseif animState == "death" then
+            visual.fsm:SetTrigger("die")
+        end
+        visual.lastFSMState = animState
+    end
+
+    return true
+end
+
 local function UpdateModelOverlay(visual, dt, animState, isMoving, monsterType, moveAnimName)
     if not visual then return end
     visual.elapsed = (visual.elapsed or 0) + dt
 
-    local motionKey = animState .. ":" .. tostring(moveAnimName or "")
-    if visual.motionKey ~= motionKey then
-        visual.motionKey = motionKey
-        visual.motionElapsed = 0
-    end
-    visual.motionElapsed = (visual.motionElapsed or 0) + dt
-
-    if visual.baseScale then
-        local t = visual.motionElapsed
-        local sx = visual.baseScale.x
-        local sy = visual.baseScale.y
-        local sz = visual.baseScale.z
-        local basePos = visual.basePosition or Vector3.ZERO
-        local pos = basePos
-        local rot = Quaternion.IDENTITY
-        local scale = Vector3(sx, sy, sz)
-
-        if animState == "death" then
-            local cfg = MODEL_ANIMS[visual.modelAnim] and MODEL_ANIMS[visual.modelAnim].death
-            local p = math.min(1.0, t / ((cfg and cfg.duration) or 1.0))
-            pos = basePos + Vector3(0, -0.32 * p, -0.35 * p)
-            if monsterType == "mech_humanoid" then
-                rot = Quaternion(12 * p, 0, 112 * p)
+    if SetModelFSMParameter(visual, animState, isMoving, moveAnimName) then
+        if visual.baseScale then
+            visual.node.position = visual.basePosition or Vector3.ZERO
+            visual.node.rotation = Quaternion.IDENTITY
+            if monsterType == "mech_humanoid" and animState ~= "death" then
+                local sx = visual.baseScale.x
+                local sy = visual.baseScale.y
+                local sz = visual.baseScale.z
+                local pulse = 1.0 + math.sin(visual.elapsed * 7.0) * 0.01
+                visual.node.scale = Vector3(sx * pulse, sy, sz * pulse)
             else
-                rot = Quaternion(30 * p, 0, 108 * p)
+                visual.node.scale = visual.baseScale
             end
-        elseif animState == "attack" then
-            local cfg = MODEL_ANIMS[visual.modelAnim] and MODEL_ANIMS[visual.modelAnim].attack
-            local duration = (cfg and cfg.duration) or 1.0
-            local p = math.min(1.0, t / duration)
-            local thrust = math.sin(math.min(1.0, p) * math.pi)
-            if monsterType == "mech_humanoid" then
-                pos = basePos + Vector3(0, 0.08 * thrust, 0.42 * thrust)
-                rot = Quaternion(-24 * thrust, 0, 6 * math.sin(p * math.pi * 2.0))
-                scale = Vector3(sx * (1.0 + 0.11 * thrust), sy * (1.0 - 0.07 * thrust), sz * (1.0 + 0.16 * thrust))
-            else
-                pos = basePos + Vector3(0, 0.09 * thrust, 0.45 * thrust)
-                rot = Quaternion(-28 * thrust, 0, 18 * math.sin(p * math.pi * 2.0))
-                scale = Vector3(sx * (1.0 + 0.06 * thrust), sy * (1.0 - 0.04 * thrust), sz * (1.0 + 0.10 * thrust))
-            end
-        elseif animState == "hit" then
-            local shake = math.sin(t * 48.0) * math.max(0, 1.0 - t * 2.0)
-            pos = basePos + Vector3(0.12 * shake, 0.03 * math.abs(shake), -0.05 * math.abs(shake))
-            rot = Quaternion(-8 * math.abs(shake), 0, 20 * shake)
-        elseif isMoving then
-            if moveAnimName == "walk" then
-                local step = math.sin(t * 8.0)
-                pos = basePos + Vector3(0, math.abs(step) * 0.065, 0.035 * step)
-                rot = Quaternion(7.0 * step, 0, 8.5 * step)
-            else
-                local step = math.sin(t * 13.5)
-                pos = basePos + Vector3(0, math.abs(step) * 0.105, 0.065 * step)
-                rot = Quaternion(12.0 * step, 0, 13.0 * step)
-            end
-        elseif monsterType == "mech_humanoid" then
-            local pulse = 1.0 + math.sin(visual.elapsed * 7.0) * 0.025
-            scale = Vector3(sx * pulse, sy, sz * pulse)
         end
-
-        visual.node.position = pos
-        visual.node.rotation = rot
-        visual.node.scale = scale
+        return
     end
 
     if animState == "death" then
