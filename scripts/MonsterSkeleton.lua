@@ -1004,20 +1004,67 @@ local function UpdateModelOverlay(visual, dt, animState, isMoving, monsterType, 
     if not visual then return end
     visual.elapsed = (visual.elapsed or 0) + dt
 
+    local motionKey = animState .. ":" .. tostring(moveAnimName or "")
+    if visual.motionKey ~= motionKey then
+        visual.motionKey = motionKey
+        visual.motionElapsed = 0
+    end
+    visual.motionElapsed = (visual.motionElapsed or 0) + dt
+
     if visual.baseScale then
-        local t = visual.elapsed
+        local t = visual.motionElapsed
         local sx = visual.baseScale.x
         local sy = visual.baseScale.y
         local sz = visual.baseScale.z
-        if monsterType == "mech_humanoid" then
-            local pulse = 1.0 + math.sin(t * 7.0) * 0.015
-            visual.node.scale = Vector3(sx * pulse, sy, sz * pulse)
-        elseif monsterType == "qicheng_child" and isMoving then
-            local lean = math.sin(t * 12.0) * 2.0
-            visual.node.rotation = Quaternion(lean, 0, 0)
-        elseif animState ~= "death" then
-            visual.node.rotation = Quaternion.IDENTITY
+        local basePos = visual.basePosition or Vector3.ZERO
+        local pos = basePos
+        local rot = Quaternion.IDENTITY
+        local scale = Vector3(sx, sy, sz)
+
+        if animState == "death" then
+            local cfg = MODEL_ANIMS[visual.modelAnim] and MODEL_ANIMS[visual.modelAnim].death
+            local p = math.min(1.0, t / ((cfg and cfg.duration) or 1.0))
+            pos = basePos + Vector3(0, -0.18 * p, -0.18 * p)
+            if monsterType == "mech_humanoid" then
+                rot = Quaternion(0, 0, 92 * p)
+            else
+                rot = Quaternion(18 * p, 0, 88 * p)
+            end
+        elseif animState == "attack" then
+            local cfg = MODEL_ANIMS[visual.modelAnim] and MODEL_ANIMS[visual.modelAnim].attack
+            local duration = (cfg and cfg.duration) or 1.0
+            local p = math.min(1.0, t / duration)
+            local thrust = math.sin(math.min(1.0, p) * math.pi)
+            if monsterType == "mech_humanoid" then
+                pos = basePos + Vector3(0, 0.03 * thrust, 0.20 * thrust)
+                rot = Quaternion(-10 * thrust, 0, 0)
+                scale = Vector3(sx * (1.0 + 0.05 * thrust), sy * (1.0 - 0.03 * thrust), sz * (1.0 + 0.08 * thrust))
+            else
+                pos = basePos + Vector3(0, 0.04 * thrust, 0.22 * thrust)
+                rot = Quaternion(-14 * thrust, 0, 8 * math.sin(p * math.pi * 2.0))
+            end
+        elseif animState == "hit" then
+            local shake = math.sin(t * 42.0) * math.max(0, 1.0 - t * 2.0)
+            pos = basePos + Vector3(0.04 * shake, 0, 0)
+            rot = Quaternion(0, 0, 8 * shake)
+        elseif isMoving then
+            if moveAnimName == "walk" then
+                local step = math.sin(t * 7.0)
+                pos = basePos + Vector3(0, math.abs(step) * 0.025, 0)
+                rot = Quaternion(2.5 * step, 0, 3.0 * step)
+            else
+                local step = math.sin(t * 12.0)
+                pos = basePos + Vector3(0, math.abs(step) * 0.045, 0)
+                rot = Quaternion(5.0 * step, 0, 5.0 * step)
+            end
+        elseif monsterType == "mech_humanoid" then
+            local pulse = 1.0 + math.sin(visual.elapsed * 7.0) * 0.015
+            scale = Vector3(sx * pulse, sy, sz * pulse)
         end
+
+        visual.node.position = pos
+        visual.node.rotation = rot
+        visual.node.scale = scale
     end
 
     if animState == "death" then
