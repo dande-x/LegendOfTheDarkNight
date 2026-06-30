@@ -1,5 +1,4 @@
 local models = {
-    { name = "奇城之子", uuid = "uuid://CVcMGYMLqs_9uIbIf5pIVsaw" },
     { name = "机械人形", uuid = "uuid://ARoaobEzRVktIvNfBEsDPWeQ" },
 }
 

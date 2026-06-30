@@ -65,12 +65,6 @@ local ENEMY_DEFS = {
         exp = 30, scale = 0.9, tier = "normal",
     },
     {
-        name = "奇城之子", monsterType = "qicheng_child",
-        level = 1, hp = 100, atk = 11, def = 4,
-        speed = 3.4, chaseRange = 13, attackRange = 1.55, attackCD = 1.35,
-        exp = 38, scale = 1.0, tier = "normal",
-    },
-    {
         name = "机械人形", monsterType = "mech_humanoid",
         level = 3, hp = 180, atk = 16, def = 8,
         speed = 2.4, chaseRange = 10, attackRange = 1.65, attackCD = 1.9,

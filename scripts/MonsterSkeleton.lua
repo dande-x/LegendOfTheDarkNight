@@ -71,14 +71,6 @@ local MODEL_MONSTERS = {
         position = Vector3(0, 0.75, 0),
         scale = Vector3(1.00, 1.00, 1.00),
     },
-    qicheng_child = {
-        modelPath = "uuid://CVcMGYMLqs_9uIbIf5pIVsaw",
-        materialPath = "uuid://D5sC-fSeVJxxXl3QNDcZJMtF",
-        position = Vector3.ZERO,
-        targetHeight = 1.65,
-        hideProceduralBones = true,
-        modelAnim = "humanoid_fast",
-    },
     mech_humanoid = {
         modelPath = "uuid://ARoaobEzRVktIvNfBEsDPWeQ",
         materialPaths = {
@@ -448,11 +440,6 @@ MonsterSkeleton.TYPES = {
         name = "麒麟", bones = BONES_DEER,
         color = Color(0.70, 0.55, 0.25, 1.0),  -- 金色神兽
         scale = 1.25, heightOffset = 0,
-    },
-    qicheng_child = {
-        name = "奇城之子", bones = BONES_ORC,
-        color = Color(0.35, 0.42, 0.50, 1.0),
-        scale = 1.0, heightOffset = 0,
     },
     mech_humanoid = {
         name = "机械人形", bones = BONES_GOLEM,
