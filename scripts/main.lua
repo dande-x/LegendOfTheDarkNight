@@ -125,7 +125,7 @@ function CreateScene()
     local physicsWorld = scene_:CreateComponent("PhysicsWorld")
     physicsWorld.gravity = Vector3(0, 0, 0)
 
-    local lightGroupFile = cache:GetResource("XMLFile", "LightGroup/DarkNight.xml")
+    local lightGroupFile = cache:GetResource("XMLFile", "LightGroup/Night.xml")
     local lightGroup = scene_:CreateChild("LightGroup")
     lightGroup:LoadXML(lightGroupFile:GetRoot())
 
@@ -133,18 +133,18 @@ function CreateScene()
     -- 使用 LightGroup 自带 Zone，只覆盖雾色和距离，避免创建新 Zone 抢占预设。
     local zone = lightGroup:GetComponent("Zone", true)
     if zone then
-        zone.fogColor = Color(0.10, 0.11, 0.14, 1.0)
-        zone.fogStart = 70.0
-        zone.fogEnd = 180.0
-        zone.fogDensity = 0.38
+        zone.fogColor = Color(0.18, 0.20, 0.24, 1.0)
+        zone.fogStart = 85.0
+        zone.fogEnd = 220.0
+        zone.fogDensity = 0.24
         zone.heightFog = false
     end
 
-    -- 冷色主光压暗整体，火把负责局部暖光。
+    -- 冷色主光保证无火把区域可读，火把负责局部暖色对比。
     local dirLight = lightGroup:GetComponent("Light", true)
     if dirLight then
-        dirLight.color = Color(0.52, 0.58, 0.72, 1.0)
-        dirLight.brightness = 0.58
+        dirLight.color = Color(0.76, 0.80, 0.92, 1.0)
+        dirLight.brightness = 1.25
         dirLight.castShadows = true
     end
 
