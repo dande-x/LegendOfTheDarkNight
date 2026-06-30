@@ -133,13 +133,11 @@ function CreateScene()
     -- 使用 LightGroup 自带 Zone，只覆盖雾色和距离，避免创建新 Zone 抢占预设。
     local zone = lightGroup:GetComponent("Zone", true)
     if zone then
-        zone.fogColor = Color(0.08, 0.09, 0.12, 1.0)
-        zone.fogStart = 28.0
-        zone.fogEnd = 95.0
-        zone.fogDensity = 1.18
-        zone.heightFog = true
-        zone.fogHeight = 1.8
-        zone.fogHeightScale = 0.28
+        zone.fogColor = Color(0.10, 0.11, 0.14, 1.0)
+        zone.fogStart = 70.0
+        zone.fogEnd = 180.0
+        zone.fogDensity = 0.38
+        zone.heightFog = false
     end
 
     -- 冷色主光压暗整体，火把负责局部暖光。
