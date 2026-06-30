@@ -2280,7 +2280,7 @@ end
 --- 构建技能 Tab 内容
 local function _BuildSkillTabContent(player)
     local classDef = CharacterClass.Classes[player.classId]
-    local allSkills = classDef.skills
+    local allSkills = CharacterClass.GetSkillsSortedByLevel(player.classId)
 
     -- 技能图标贴图映射（按 skill.id 对应生成的图标文件）
     local skillIconImages = {

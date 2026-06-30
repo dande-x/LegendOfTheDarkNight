@@ -329,13 +329,8 @@ function SaveSystem.RestorePlayer(saveData, player)
     player.hp = math.min(saveData.hp or player.maxHP, player.maxHP)
     player.mp = math.min(saveData.mp or player.maxMP, player.maxMP)
 
-    -- 恢复已解锁技能到装备栏
-    player.equippedSkills = {}
-    for _, skill in ipairs(classDef.skills) do
-        if skill.slot >= 1 and skill.slot <= 6 and CharacterClass.IsSkillUnlocked(skill, player.level) then
-            player.equippedSkills[skill.slot] = skill
-        end
-    end
+    -- 恢复已解锁技能到装备栏：按解锁等级从低到高放入低位槽
+    CharacterClass.RebuildEquippedSkills(player, false)
 
     print("[SaveSystem] Player restored: " .. player.className .. " Lv." .. player.level)
 end

@@ -286,6 +286,51 @@ CharacterClass.Classes = {
 -- 工具函数
 -- ============================================================================
 
+local function SkillSortLess(a, b)
+    local la = a.unlockLevel or 999
+    local lb = b.unlockLevel or 999
+    if la ~= lb then return la < lb end
+    local sa = a.slot or 999
+    local sb = b.slot or 999
+    if sa ~= sb then return sa < sb end
+    return (a.id or "") < (b.id or "")
+end
+
+function CharacterClass.GetSkillsSortedByLevel(classId)
+    local classDef = CharacterClass.Classes[classId]
+    if not classDef then return {} end
+    local skills = {}
+    for _, skill in ipairs(classDef.skills) do
+        table.insert(skills, skill)
+    end
+    table.sort(skills, SkillSortLess)
+    return skills
+end
+
+function CharacterClass.GetActiveSkillsSortedByLevel(classId)
+    local sorted = CharacterClass.GetSkillsSortedByLevel(classId)
+    local active = {}
+    for _, skill in ipairs(sorted) do
+        if skill.type ~= SKILL_TYPE.PASSIVE then
+            table.insert(active, skill)
+        end
+    end
+    return active
+end
+
+function CharacterClass.RebuildEquippedSkills(player, includeLocked)
+    player.equippedSkills = {}
+    local activeSkills = CharacterClass.GetActiveSkillsSortedByLevel(player.classId)
+    local slot = 1
+    for _, skill in ipairs(activeSkills) do
+        if slot > 6 then break end
+        if includeLocked or CharacterClass.IsSkillUnlocked(skill, player.level) then
+            player.equippedSkills[slot] = skill
+            slot = slot + 1
+        end
+    end
+end
+
 --- 创建角色实例
 function CharacterClass.CreatePlayer(classId, level)
     local classDef = CharacterClass.Classes[classId]
@@ -331,12 +376,8 @@ function CharacterClass.CreatePlayer(classId, level)
     player.hp = player.maxHP
     player.mp = player.maxMP
 
-    -- 默认装配已解锁的 slot>0 技能
-    for _, skill in ipairs(classDef.skills) do
-        if skill.slot >= 1 and skill.slot <= 6 and CharacterClass.IsSkillUnlocked(skill, player.level) then
-            player.equippedSkills[skill.slot] = skill
-        end
-    end
+    -- 默认按解锁等级从低到高装配已解锁主动技能到低位槽
+    CharacterClass.RebuildEquippedSkills(player, false)
 
     -- 初始化冷却
     for _, skill in ipairs(classDef.skills) do
@@ -402,18 +443,14 @@ function CharacterClass.LevelUp(player)
     player.expToNext = 50 + player.level * 60
     print("[CharacterClass] " .. classDef.name .. " upgraded to Lv." .. player.level)
 
-    -- 自动装备本次升级新解锁的技能
+    -- 自动装备本次升级新解锁的技能，并按解锁等级重排技能栏
     local newlyUnlocked = {}
-    for _, skill in ipairs(classDef.skills) do
+    for _, skill in ipairs(CharacterClass.GetSkillsSortedByLevel(player.classId)) do
         if skill.unlockLevel == player.level then
-            -- 刚好在本级解锁
             table.insert(newlyUnlocked, skill.name)
-            -- 自动装备到对应 slot（如果 slot 为空）
-            if skill.slot >= 1 and skill.slot <= 6 and player.equippedSkills[skill.slot] == nil then
-                player.equippedSkills[skill.slot] = skill
-            end
         end
     end
+    CharacterClass.RebuildEquippedSkills(player, false)
 
     if #newlyUnlocked > 0 then
         print("[CharacterClass] 新解锁技能: " .. table.concat(newlyUnlocked, ", "))

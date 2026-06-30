@@ -1185,13 +1185,8 @@ function SetupGameCallbacks()
         player_.mp = player_.maxMP
         player_.expToNext = 50 + maxLv * 60
         player_.exp = 0
-        -- 装备全部技能到对应 slot
-        player_.equippedSkills = {}
-        for _, skill in ipairs(classDef.skills) do
-            if skill.slot >= 1 and skill.slot <= 6 then
-                player_.equippedSkills[skill.slot] = skill
-            end
-        end
+        -- 按解锁等级从低到高装备全部主动技能到低位槽
+        CharacterClass.RebuildEquippedSkills(player_, true)
         print("[Debug] MAX LEVEL! Lv." .. maxLv .. " all skills equipped")
         GameUI.ShowGameHUD(player_)
     end
