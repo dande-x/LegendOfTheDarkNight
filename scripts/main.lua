@@ -976,7 +976,7 @@ function LoadFromSave(saveData)
     SetupGameCallbacks()
 
     -- 初始刷怪
-    for i = 1, 16 do
+    for i = 1, 28 do
         Combat.SpawnEnemy(scene_, playerNode_.position, player_.level)
     end
 
@@ -1291,7 +1291,7 @@ function OnClassSelected(classId)
     SetupGameCallbacks()
 
     -- 初始刷怪
-    for i = 1, 16 do
+    for i = 1, 28 do
         Combat.SpawnEnemy(scene_, playerNode_.position, player_.level)
     end
 

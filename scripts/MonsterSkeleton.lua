@@ -71,6 +71,30 @@ local MODEL_MONSTERS = {
         position = Vector3(0, 0.75, 0),
         scale = Vector3(1.00, 1.00, 1.00),
     },
+    qicheng_child = {
+        modelPath = "uuid://CVcMGYMLqs_9uIbIf5pIVsaw",
+        materialPath = "uuid://D5sC-fSeVJxxXl3QNDcZJMtF",
+        position = Vector3.ZERO,
+        targetHeight = 1.65,
+        hideProceduralBones = true,
+        modelAnim = "humanoid_fast",
+    },
+    mech_humanoid = {
+        modelPath = "uuid://ARoaobEzRVktIvNfBEsDPWeQ",
+        materialPaths = {
+            "uuid://HGmRkQOrSpS8cu-K8FI-8msZ",
+            "uuid://Gj7zUe5UOfnJv9QnKgg509CS",
+            "uuid://FLvnwcKkp4zkPbadPyW1HjJN",
+            "uuid://GFL9qXVIK62TKlaqTgBC_WpH",
+            "uuid://GEo6ERJkWuWtd6uEwoFnwuZP",
+            "uuid://GEHXGaxNHNk_ULpAcdUb_asm",
+            "uuid://CzXTIebN83FSkQOWhRE31sVH",
+        },
+        position = Vector3.ZERO,
+        targetHeight = 1.85,
+        hideProceduralBones = true,
+        modelAnim = "heavy_mech",
+    },
 }
 
 local function CreateModelVisual(parentNode, bones, monsterType)
@@ -79,8 +103,8 @@ local function CreateModelVisual(parentNode, bones, monsterType)
 
     local attachNode = modelDef.parentBone and bones[modelDef.parentBone] or parentNode
     local visualNode = attachNode:CreateChild(monsterType .. "_model")
-    visualNode.position = modelDef.position
-    visualNode.scale = modelDef.scale
+    visualNode.position = modelDef.position or Vector3.ZERO
+    visualNode.scale = modelDef.scale or Vector3(1, 1, 1)
 
     local model = cache:GetResource("Model", modelDef.modelPath)
     if not model then
@@ -88,26 +112,63 @@ local function CreateModelVisual(parentNode, bones, monsterType)
         return nil
     end
 
+    local isAnimatedModel = modelDef.modelAnim ~= nil or modelDef.animated == true
     local modelComponent = nil
-    if modelDef.animated then
+    if isAnimatedModel then
         modelComponent = visualNode:CreateComponent("AnimatedModel")
     else
         modelComponent = visualNode:CreateComponent("StaticModel")
     end
     modelComponent:SetModel(model)
 
-    local material = cache:GetResource("Material", modelDef.materialPath)
-    if material then
-        modelComponent:SetMaterial(material)
-    else
-        print("[MonsterSkeleton] Missing monster material: " .. modelDef.materialPath)
+    if modelDef.targetHeight then
+        local bb = modelComponent.boundingBox
+        local h = bb.size.y
+        if h > 0 then
+            local s = modelDef.targetHeight / h
+            visualNode.scale = Vector3(s, s, s)
+            visualNode.position = (modelDef.position or Vector3.ZERO) + Vector3(0, -bb.min.y * s, 0)
+        end
     end
+
+    if modelDef.materialPaths then
+        for i, matPath in ipairs(modelDef.materialPaths) do
+            local material = cache:GetResource("Material", matPath)
+            if material then
+                modelComponent:SetMaterial(i - 1, material)
+            end
+        end
+    elseif modelDef.materialPath then
+        local material = cache:GetResource("Material", modelDef.materialPath)
+        if material then
+            modelComponent:SetMaterial(material)
+        else
+            print("[MonsterSkeleton] Missing monster material: " .. modelDef.materialPath)
+        end
+    end
+
     modelComponent.castShadows = true
+
+    local animCtrl = nil
+    if isAnimatedModel then
+        animCtrl = visualNode:GetComponent("AnimationController")
+            or visualNode:GetComponent("AnimationController", true)
+        if not animCtrl then
+            animCtrl = visualNode:CreateComponent("AnimationController")
+        end
+    end
+
     print("[MonsterSkeleton] Loaded model monster: " .. monsterType .. " -> " .. modelDef.modelPath)
     return {
         node = visualNode,
         component = modelComponent,
-        animated = modelDef.animated == true,
+        animCtrl = animCtrl,
+        animated = isAnimatedModel,
+        modelAnim = modelDef.modelAnim,
+        currentAnim = nil,
+        overlayTimer = 0,
+        baseScale = visualNode.scale,
+        basePosition = visualNode.position,
     }
 end
 
@@ -370,6 +431,16 @@ MonsterSkeleton.TYPES = {
         name = "麒麟", bones = BONES_DEER,
         color = Color(0.70, 0.55, 0.25, 1.0),  -- 金色神兽
         scale = 1.25, heightOffset = 0,
+    },
+    qicheng_child = {
+        name = "奇城之子", bones = BONES_ORC,
+        color = Color(0.35, 0.42, 0.50, 1.0),
+        scale = 1.0, heightOffset = 0,
+    },
+    mech_humanoid = {
+        name = "机械人形", bones = BONES_GOLEM,
+        color = Color(0.38, 0.40, 0.42, 1.0),
+        scale = 1.05, heightOffset = 0,
     },
 }
 
@@ -890,11 +961,85 @@ local function UpdateRealDeerAnimation(animData, dt, isMoving)
     end
 end
 
+local MODEL_ANIMS = {
+    humanoid_fast = {
+        idle = { path = "uuid://FBV7wR2EwuoH-ovToVA8vH90", duration = 2.0, loop = true, speed = 1.0 },
+        walk = { path = "uuid://CLwWYfIHxVykOtlpDhB_-T2E", duration = 0.8, loop = true, speed = 0.65 },
+        run = { path = "uuid://ERdI4cE9zRJ78VWiJNaKWtLD", duration = 0.8, loop = true, speed = 1.15 },
+        attack = { path = "uuid://B5CeOfTwRtwDavJOk69BjU3L", duration = 0.966633, loop = false, speed = 1.0 },
+        hit = { path = "uuid://G6J2ITmKfh0oy5_nnbweG8xK", duration = 0.8, loop = false, speed = 2.4 },
+        death = { path = "uuid://Bp84GR3zHR88xE4zRCAL1uMc", duration = 2.3, loop = false, speed = 1.0 },
+    },
+    heavy_mech = {
+        idle = { path = "uuid://Cipz8bNT1q0Hk2NMNBgvzfH_", duration = 2.0, loop = true, speed = 0.85 },
+        walk = { path = "uuid://CjmPmQdzXxZYDG1F3vO1eLPD", duration = 0.866633, loop = true, speed = 0.75 },
+        run = { path = "uuid://ERdI4cE9zRJ78VWiJNaKWtLD", duration = 0.8, loop = true, speed = 0.85 },
+        attack = { path = "uuid://AG7o2TcvrluLScFMCJltgkkF", duration = 1.366633, loop = false, speed = 0.9 },
+        hit = { path = "uuid://G6J2ITmKfh0oy5_nnbweG8xK", duration = 0.8, loop = false, speed = 1.8 },
+        death = { path = "uuid://Dzln6b8wxqprljr5RErNXOqN", duration = 1.4, loop = false, speed = 0.9 },
+    },
+}
+
+local function PlayModelAnim(visual, name)
+    if not visual or not visual.animCtrl or not visual.modelAnim then return end
+    local set = MODEL_ANIMS[visual.modelAnim]
+    local cfg = set and set[name]
+    if not cfg then return end
+    if visual.currentAnim == name and cfg.loop then return end
+
+    visual.currentAnim = name
+    visual.overlayTimer = cfg.loop and 0 or cfg.duration
+    visual.animCtrl:PlayExclusive(cfg.path, 0, cfg.loop, 0.12)
+    visual.animCtrl:SetSpeed(cfg.path, cfg.speed or 1.0)
+end
+
+local function UpdateModelOverlay(visual, dt, animState, isMoving, monsterType)
+    if not visual then return end
+    visual.elapsed = (visual.elapsed or 0) + dt
+
+    if visual.baseScale then
+        local t = visual.elapsed
+        local sx = visual.baseScale.x
+        local sy = visual.baseScale.y
+        local sz = visual.baseScale.z
+        if monsterType == "mech_humanoid" then
+            local pulse = 1.0 + math.sin(t * 7.0) * 0.015
+            visual.node.scale = Vector3(sx * pulse, sy, sz * pulse)
+        elseif monsterType == "qicheng_child" and isMoving then
+            local lean = math.sin(t * 12.0) * 2.0
+            visual.node.rotation = Quaternion(lean, 0, 0)
+        elseif animState ~= "death" then
+            visual.node.rotation = Quaternion.IDENTITY
+        end
+    end
+
+    if visual.overlayTimer and visual.overlayTimer > 0 then
+        visual.overlayTimer = visual.overlayTimer - dt
+        if visual.overlayTimer > 0 then return end
+    end
+
+    if animState == "death" then
+        PlayModelAnim(visual, "death")
+    elseif animState == "attack" then
+        PlayModelAnim(visual, "attack")
+    elseif animState == "hit" then
+        PlayModelAnim(visual, "hit")
+    elseif isMoving then
+        PlayModelAnim(visual, "run")
+    else
+        PlayModelAnim(visual, "idle")
+    end
+end
+
 --- 更新怪物动画
 ---@param animData table {type, state, elapsed, bones, buildOrder}
 ---@param dt number
 ---@param isMoving boolean
 function MonsterSkeleton.UpdateAnimation(animData, dt, isMoving)
+    if animData.visual and animData.visual.animated then
+        UpdateModelOverlay(animData.visual, dt, animData.state, isMoving, animData.type)
+    end
+
     if animData.visual and animData.visual.animated and animData.type == "deer" then
         UpdateRealDeerAnimation(animData, dt, isMoving)
     end
@@ -951,6 +1096,12 @@ end
 
 --- 获取动画时长
 function MonsterSkeleton.GetAnimDuration(monsterType, state)
+    local modelDef = MODEL_MONSTERS[monsterType]
+    if modelDef and modelDef.modelAnim then
+        local set = MODEL_ANIMS[modelDef.modelAnim]
+        local cfg = set and set[state]
+        if cfg then return cfg.duration end
+    end
     local typeAnims = ANIMS[monsterType]
     if not typeAnims or not typeAnims[state] then return 0.5 end
     return typeAnims[state].duration

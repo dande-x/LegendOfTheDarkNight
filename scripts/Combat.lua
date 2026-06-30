@@ -65,6 +65,18 @@ local ENEMY_DEFS = {
         exp = 30, scale = 0.9, tier = "normal",
     },
     {
+        name = "奇城之子", monsterType = "qicheng_child",
+        level = 1, hp = 100, atk = 11, def = 4,
+        speed = 3.4, chaseRange = 13, attackRange = 1.55, attackCD = 1.35,
+        exp = 38, scale = 1.0, tier = "normal",
+    },
+    {
+        name = "机械人形", monsterType = "mech_humanoid",
+        level = 3, hp = 180, atk = 16, def = 8,
+        speed = 2.4, chaseRange = 10, attackRange = 1.65, attackCD = 1.9,
+        exp = 62, scale = 1.0, tier = "normal",
+    },
+    {
         name = "稻草人", monsterType = "scarecrow",
         level = 2,  hp = 110,  atk = 10, def = 4,
         speed = 2.2, chaseRange = 7, attackRange = 1.5, attackCD = 1.8,
@@ -170,8 +182,8 @@ local summons = {}        -- 召唤兽列表
 local groundItems = {}   -- 地面掉落物 {node, type="gold"/"item", amount, item, timer, magnetPhase, vel}
 local killCount = 0
 local spawnTimer = 0
-local SPAWN_INTERVAL = 1.2
-local MAX_ENEMIES = 45
+local SPAWN_INTERVAL = 0.45
+local MAX_ENEMIES = 70
 local ENEMY_MOVE_SPEED = 2.8
 
 Combat.enemies = enemies
@@ -399,7 +411,7 @@ function Combat.SpawnEnemy(scene, playerPos, playerLevel, forceDef)
         hp = scaledHP,
         atk = scaledATK,
         def = scaledDEF,
-        speed = ENEMY_MOVE_SPEED,
+        speed = def.speed or ENEMY_MOVE_SPEED,
         chaseRange = def.chaseRange,
         attackRange = def.attackRange,
         attackCD = def.attackCD,
@@ -2785,10 +2797,10 @@ function Combat.UpdateSpawner(scene, dt, playerNode, player)
     -- 普通怪刷新（频率随场上怪物数量动态调节）
     spawnTimer = spawnTimer + dt
     local dynamicInterval = SPAWN_INTERVAL
-    if #enemies > 35 then
-        dynamicInterval = SPAWN_INTERVAL * 2  -- 场上怪多时放慢
-    elseif #enemies < 18 then
-        dynamicInterval = SPAWN_INTERVAL * 0.5  -- 场上怪少时加快
+    if #enemies > 55 then
+        dynamicInterval = SPAWN_INTERVAL * 1.6  -- 场上怪多时放慢
+    elseif #enemies < 30 then
+        dynamicInterval = SPAWN_INTERVAL * 0.35  -- 场上怪少时加快
     end
 
     if spawnTimer >= dynamicInterval then
