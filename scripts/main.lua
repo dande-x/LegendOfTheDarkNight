@@ -242,15 +242,30 @@ function CreateFloor()
         end
     end
 
-    -- 中央裂谷 / 沟壑，桥会在 CreateSceneDecorations 中跨过这里。
-    local ravine = scene_:CreateChild("CentralRavine")
-    ravine.position = Vector3(3.0, 0.012, 3.5)
-    ravine.scale = Vector3(18.0, 0.035, 3.2)
-    ravine.rotation = Quaternion(-26, Vector3.UP)
-    local ravineModel = ravine:CreateComponent("StaticModel")
-    ravineModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
-    ravineModel:SetMaterial(ashMat)
-    ravineModel.castShadows = false
+    -- 中央焦土 / 泥坑：用多块重叠椭圆替代单个矩形，避免出现突兀方块边缘。
+    for i = 1, 7 do
+        local t = (i - 4) / 3.0
+        local pit = scene_:CreateChild("CentralScorchedPatch_" .. i)
+        pit.position = Vector3(3.0 + t * 4.1 + (math.random() - 0.5) * 0.45, 0.018 + i * 0.001, 3.5 - t * 1.9 + (math.random() - 0.5) * 0.35)
+        pit.scale = Vector3(4.0 + math.random() * 2.1, 0.035, 1.35 + math.random() * 0.85)
+        pit.rotation = Quaternion(-26 + (math.random() - 0.5) * 24.0, Vector3.UP)
+        local pitModel = pit:CreateComponent("StaticModel")
+        pitModel:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
+        pitModel:SetMaterial(ashMat)
+        pitModel.castShadows = false
+    end
+    for i = 1, 12 do
+        local edge = scene_:CreateChild("ScorchedEdge_" .. i)
+        local side = (i % 2 == 0) and 1 or -1
+        local along = (math.random() - 0.5) * 13.5
+        edge.position = Vector3(3.0 + along * 0.9, 0.021 + i * 0.0005, 3.5 + side * (1.4 + math.random() * 1.2) - along * 0.22)
+        edge.scale = Vector3(1.1 + math.random() * 1.7, 0.026, 0.45 + math.random() * 0.8)
+        edge.rotation = Quaternion(-26 + (math.random() - 0.5) * 55.0, Vector3.UP)
+        local edgeModel = edge:CreateComponent("StaticModel")
+        edgeModel:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
+        edgeModel:SetMaterial((i % 3 == 0) and wetMudMat or mossMat)
+        edgeModel.castShadows = false
+    end
 
     -- 地面斑驳层：湿泥 / 苔藓 / 灰烬，略高于地面。
     local patchMats = { wetMudMat, mossMat, ashMat }
@@ -262,7 +277,7 @@ function CreateFloor()
         p.scale = Vector3(3.5 + math.random() * 5.5, 0.025, 1.8 + math.random() * 4.2)
         p.rotation = Quaternion(math.random() * 360, Vector3.UP)
         local model = p:CreateComponent("StaticModel")
-        model:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
+        model:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
         model:SetMaterial(patchMats[math.random(1, #patchMats)])
         model.castShadows = false
     end
