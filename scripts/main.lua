@@ -403,6 +403,7 @@ function CreateSceneDecorations()
             model:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
             model:SetMaterial(deadBarkMat)
             model.castShadows = true
+            AddStaticCollision(post, "cylinder")
         end
     end
 
@@ -421,7 +422,7 @@ function CreateSceneDecorations()
             local sy = 0.35 + math.random() * 0.75
             local sz = 0.65 + math.random() * 1.25
             CreateSphere("DarkRock_" .. i .. "_" .. j, Vector3(x, sy * 0.46, z), Vector3(sx, sy, sz),
-                (j % 2 == 0) and rockDarkMat or rockMat, true, j == 1)
+                (j % 2 == 0) and rockDarkMat or rockMat, true, true)
         end
     end
 
@@ -493,7 +494,11 @@ function CreateSceneDecorations()
     for i, pos in ipairs(torchPositions) do
         local root = scene_:CreateChild("Torch_" .. i)
         root.position = pos
-        CreateCylinder("TorchPole_" .. i, Vector3(pos.x, 0.72, pos.z), Vector3(0.08, 1.44, 0.08), 0, ironMat, true, false)
+        local torchPole = CreateCylinder("TorchPole_" .. i, Vector3(pos.x, 0.72, pos.z), Vector3(0.08, 1.44, 0.08), 0, ironMat, true, true)
+        local torchShape = torchPole:GetComponent("CollisionShape")
+        if torchShape then
+            torchShape:SetCylinder(1.6, 1.0)
+        end
         CreateSphere("TorchEmber_" .. i, Vector3(pos.x, 1.48, pos.z), Vector3(0.28, 0.36, 0.28), emberMat, false, false)
         local flame = scene_:CreateChild("TorchFlame_" .. i)
         flame.position = Vector3(pos.x, 1.78, pos.z)
