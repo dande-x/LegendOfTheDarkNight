@@ -981,19 +981,26 @@ local MODEL_ANIMS = {
 }
 
 local function PlayModelAnim(visual, name)
-    if not visual or not visual.animCtrl or not visual.modelAnim then return end
+    if not visual or not visual.animCtrl or not visual.modelAnim then return false end
     local set = MODEL_ANIMS[visual.modelAnim]
     local cfg = set and set[name]
-    if not cfg then return end
-    if visual.currentAnim == name and cfg.loop then return end
+    if not cfg then
+        if not visual.missingAnimLogged then visual.missingAnimLogged = {} end
+        if not visual.missingAnimLogged[name] then
+            print("[MonsterSkeleton] Missing model anim: " .. tostring(visual.modelAnim) .. "." .. tostring(name))
+            visual.missingAnimLogged[name] = true
+        end
+        return false
+    end
+    if visual.currentAnim == name then return true end
 
     visual.currentAnim = name
-    visual.overlayTimer = cfg.loop and 0 or cfg.duration
     visual.animCtrl:PlayExclusive(cfg.path, 0, cfg.loop, 0.12)
     visual.animCtrl:SetSpeed(cfg.path, cfg.speed or 1.0)
+    return true
 end
 
-local function UpdateModelOverlay(visual, dt, animState, isMoving, monsterType)
+local function UpdateModelOverlay(visual, dt, animState, isMoving, monsterType, moveAnimName)
     if not visual then return end
     visual.elapsed = (visual.elapsed or 0) + dt
 
@@ -1013,11 +1020,6 @@ local function UpdateModelOverlay(visual, dt, animState, isMoving, monsterType)
         end
     end
 
-    if visual.overlayTimer and visual.overlayTimer > 0 then
-        visual.overlayTimer = visual.overlayTimer - dt
-        if visual.overlayTimer > 0 then return end
-    end
-
     if animState == "death" then
         PlayModelAnim(visual, "death")
     elseif animState == "attack" then
@@ -1025,7 +1027,7 @@ local function UpdateModelOverlay(visual, dt, animState, isMoving, monsterType)
     elseif animState == "hit" then
         PlayModelAnim(visual, "hit")
     elseif isMoving then
-        PlayModelAnim(visual, "run")
+        PlayModelAnim(visual, moveAnimName or "run")
     else
         PlayModelAnim(visual, "idle")
     end
@@ -1035,9 +1037,10 @@ end
 ---@param animData table {type, state, elapsed, bones, buildOrder}
 ---@param dt number
 ---@param isMoving boolean
-function MonsterSkeleton.UpdateAnimation(animData, dt, isMoving)
+---@param moveAnimName string|nil
+function MonsterSkeleton.UpdateAnimation(animData, dt, isMoving, moveAnimName)
     if animData.visual and animData.visual.animated then
-        UpdateModelOverlay(animData.visual, dt, animData.state, isMoving, animData.type)
+        UpdateModelOverlay(animData.visual, dt, animData.state, isMoving, animData.type, moveAnimName)
     end
 
     if animData.visual and animData.visual.animated and animData.type == "deer" then
@@ -1045,7 +1048,27 @@ function MonsterSkeleton.UpdateAnimation(animData, dt, isMoving)
     end
 
     local typeAnims = ANIMS[animData.type]
-    if not typeAnims then return end
+    if not typeAnims then
+        if animData.state == "idle" and isMoving then
+            animData.state = "move"
+            animData.elapsed = 0
+        elseif animData.state == "move" and not isMoving then
+            animData.state = "idle"
+            animData.elapsed = 0
+        elseif animData.state ~= "idle" and animData.state ~= "move" then
+            animData.elapsed = animData.elapsed + dt
+            local duration = MonsterSkeleton.GetAnimDuration(animData.type, animData.state)
+            if animData.elapsed >= duration then
+                if animData.onComplete then
+                    animData.onComplete()
+                    animData.onComplete = nil
+                end
+                animData.state = isMoving and "move" or "idle"
+                animData.elapsed = 0
+            end
+        end
+        return
+    end
 
     -- 自动切换 idle/move
     if animData.state == "idle" and isMoving then

@@ -559,6 +559,7 @@ function Combat.UpdateEnemies(dt, playerNode, player)
 
         local eBody = e.node:GetComponent("RigidBody")
         local isMoving = false
+        local moveAnimName = "run"
 
         -- 抗拒火环击退：被推开期间强制水平位移，跳过正常 AI（避免速度被状态机覆盖）
         if (e.knockbackTimer or 0) > 0 then
@@ -570,7 +571,7 @@ function Combat.UpdateEnemies(dt, playerNode, player)
                 eBody:SetLinearVelocity(Vector3(v.x, cur.y, v.z))
             end
             if e.animData then
-                MonsterSkeleton.UpdateAnimation(e.animData, dt, true)
+                MonsterSkeleton.UpdateAnimation(e.animData, dt, true, "run")
             end
             goto continue
         end
@@ -609,6 +610,7 @@ function Combat.UpdateEnemies(dt, playerNode, player)
                     local angle = math.atan2(dir.x, dir.z)
                     e.node.rotation = Quaternion(math.deg(angle), Vector3.UP)
                     isMoving = true
+                    moveAnimName = "walk"
                 else
                     if eBody then eBody:SetLinearVelocity(Vector3.ZERO) end
                 end
@@ -641,6 +643,7 @@ function Combat.UpdateEnemies(dt, playerNode, player)
                 local angle = math.atan2(dir.x, dir.z)
                 e.node.rotation = Quaternion(math.deg(angle), Vector3.UP)
                 isMoving = true
+                moveAnimName = "run"
             end
 
         elseif e.state == "attack" then
@@ -723,7 +726,7 @@ function Combat.UpdateEnemies(dt, playerNode, player)
 
         -- 更新骨架动画
         if e.animData then
-            MonsterSkeleton.UpdateAnimation(e.animData, dt, isMoving)
+            MonsterSkeleton.UpdateAnimation(e.animData, dt, isMoving, moveAnimName)
         end
 
         ::continue::
