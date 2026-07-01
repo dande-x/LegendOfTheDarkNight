@@ -703,8 +703,8 @@ function GameUI._DrawEnemyHealthBars(ctx, sw, sh)
                 -- 阴影
                 nvgFillColor(ctx, nvgRGBA(0, 0, 0, 180))
                 nvgText(ctx, sx + 1, nameSy + 1, nameText, nil)
-                -- 正文（金色）
-                nvgFillColor(ctx, nvgRGBA(255, 225, 120, 255))
+                -- 正文（白色）
+                nvgFillColor(ctx, nvgRGBA(255, 255, 255, 255))
                 nvgText(ctx, sx, nameSy, nameText, nil)
 
                 -- [调试] 显示与玩家的距离 + 身位区间（开关开启时）
