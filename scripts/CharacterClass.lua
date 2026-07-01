@@ -147,7 +147,7 @@ CharacterClass.Classes = {
                 slot = 1, cooldown = 0, manaCost = 0,
                 unlockLevel = 1,
                 damage = 110,  -- ATK倍率110%
-                range = 8.0, projectileSpeed = 12, castTime = 0.25,
+                range = 10.0, projectileSpeed = 12, castTime = 0.25,
             },
 
             {
