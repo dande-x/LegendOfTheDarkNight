@@ -23,9 +23,11 @@ local ASSASSIN_REACH    = 3.0   -- 刺杀剑术(被动)延伸触及(跨一个身
 local ASSASSIN_FACE_DOT = 0.3   -- 刺杀触发的正前方判定(cos阈值, 约±72°)
 local ASSASSIN_ATK_BONUS = 1.15 -- 刺杀触发: 攻击力略微增强(+15%)
 local ASSASSIN_ARMOR_PEN = 0.7  -- 刺杀触发: 大幅穿透防御(忽略70%防御)
+local TARGET_FRONT_DOT  = 0.45  -- 玩家主动攻击优先目标的正前方判定(cos阈值, 约±63°)
 Combat.UNIT = UNIT
 Combat.MELEE_REACH = MELEE_REACH
 Combat.ASSASSIN_REACH = ASSASSIN_REACH
+Combat.TARGET_FRONT_DOT = TARGET_FRONT_DOT
 
 -- ============================================================================
 -- 野蛮冲撞 · 冲刺参数（非瞬移，逐帧推进 + 顶推怪物）
@@ -175,6 +177,9 @@ local projectiles = {}   -- 弹道列表
 local aoeZones = {}      -- 范围持续伤害区域 (火墙等)
 local summons = {}        -- 召唤兽列表
 local groundItems = {}   -- 地面掉落物 {node, type="gold"/"item", amount, item, timer, magnetPhase, vel}
+---@type table|nil
+local lastPlayerTarget = nil -- 玩家上次主动攻击命中的怪物，用于无正前方目标时保持目标连续性
+local IsEnemyTargetable, HorizontalDir, NormalizeHorizontal, RememberPlayerTarget, IsLastPlayerTargetValid, FacePlayerToTarget
 local killCount = 0
 local spawnTimer = 0
 local SPAWN_INTERVAL = 0.45
@@ -184,6 +189,84 @@ local ENEMY_MOVE_SPEED = 2.8
 Combat.enemies = enemies
 Combat.projectiles = projectiles
 Combat.killCount = 0
+
+IsEnemyTargetable = function(enemy)
+    return enemy and enemy.node and enemy.state ~= "dead" and enemy.state ~= "dying" and enemy.hp and enemy.hp > 0
+end
+
+HorizontalDir = function(fromPos, toPos)
+    local dir = toPos - fromPos
+    dir.y = 0
+    local len = dir:Length()
+    if len <= 0.001 then return nil, len end
+    return dir:Normalized(), len
+end
+
+NormalizeHorizontal = function(dir)
+    local flat = Vector3(dir.x, 0, dir.z)
+    if flat:Length() <= 0.001 then return Vector3.FORWARD end
+    return flat:Normalized()
+end
+
+RememberPlayerTarget = function(enemy)
+    if IsEnemyTargetable(enemy) then
+        lastPlayerTarget = enemy
+    end
+end
+
+IsLastPlayerTargetValid = function(pos, maxRange)
+    if not IsEnemyTargetable(lastPlayerTarget) then
+        lastPlayerTarget = nil
+        return false
+    end
+    if maxRange then
+        local toTarget = lastPlayerTarget.node.position - pos
+        toTarget.y = 0
+        if toTarget:Length() > maxRange then
+            return false
+        end
+    end
+    return true
+end
+
+FacePlayerToTarget = function(playerNode, playerPos, target)
+    if not playerNode or not target then return end
+    local dir = target.node.position - playerPos
+    dir.y = 0
+    if dir:Length() <= 0.1 then return end
+    dir = dir:Normalized()
+    playerNode.rotation = Quaternion(math.deg(math.atan2(dir.x, dir.z)), Vector3.UP)
+end
+
+function Combat.FindPriorityEnemy(pos, forward, maxRange)
+    local fwd = NormalizeHorizontal(forward)
+    local nearest = nil
+    local nearestDist = maxRange or 999
+    local frontNearest = nil
+    local frontNearestDist = maxRange or 999
+
+    for _, e in ipairs(enemies) do
+        if IsEnemyTargetable(e) then
+            local dir, d = HorizontalDir(pos, e.node.position)
+            if dir and d <= nearestDist then
+                nearest = e
+                nearestDist = d
+            end
+            if dir and d <= frontNearestDist and fwd:DotProduct(dir) >= TARGET_FRONT_DOT then
+                frontNearest = e
+                frontNearestDist = d
+            end
+        end
+    end
+
+    if frontNearest then return frontNearest, frontNearestDist, "front" end
+    if IsLastPlayerTargetValid(pos, maxRange) then
+        local toLast = lastPlayerTarget.node.position - pos
+        toLast.y = 0
+        return lastPlayerTarget, toLast:Length(), "last"
+    end
+    return nearest, nearestDist, nearest and "nearest" or "none"
+end
 
 -- 地面掉落常量
 local GOLD_MAGNET_DELAY = 0.6    -- 金币落地后多久开始吸附(秒)
@@ -437,6 +520,10 @@ end
 -- ============================================================================
 function Combat.TriggerDeath(enemy, player)
     if enemy.state == "dying" or enemy.state == "dead" then return end
+
+    if lastPlayerTarget == enemy then
+        lastPlayerTarget = nil
+    end
 
     enemy.state = "dying"
     enemy.hp = 0
@@ -760,19 +847,24 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
     local playerPos = playerNode.position
     local playerDir = playerNode:GetDirection()  -- 前方方向
 
-    -- 寻找最近的敌人(自动瞄准)
-    local target, targetDist = Combat.FindNearestEnemy(playerPos, skill.range or 5)
+    -- 玩家主动攻击统一选目标：正前方最近 → 上次命中目标 → 最近目标
+    local target = Combat.FindPriorityEnemy(playerPos, playerDir, skill.range or 5)
+    if target and skill.type ~= SKILL_TYPE.BUFF and skill.type ~= SKILL_TYPE.HEAL and skill.type ~= SKILL_TYPE.SUMMON
+        and not skill.isKnockback then
+        FacePlayerToTarget(playerNode, playerPos, target)
+        playerDir = playerNode:GetDirection()
+    end
 
     if skill.type == SKILL_TYPE.MELEE then
         -- 近战：ATK × 倍率百分比
         local dmg = player.atk * (skill.damage / 100)
         local hitCount = 0
-        for _, e in ipairs(enemies) do
-            if e.state ~= "dead" and e.state ~= "dying" then
-                local d = (e.node.position - playerPos):Length()
-                if d <= skill.range then
-                    -- 半月弯刀：检查角度，仅命中前方半月范围
-                    if skill.aoeAngle then
+        if skill.aoeAngle then
+            for _, e in ipairs(enemies) do
+                if IsEnemyTargetable(e) then
+                    local d = (e.node.position - playerPos):Length()
+                    if d <= skill.range then
+                        -- 半月弯刀：检查角度，仅命中前方半月范围
                         local toEnemy = e.node.position - playerPos
                         toEnemy.y = 0
                         toEnemy = toEnemy:Normalized()
@@ -785,13 +877,13 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
                             Combat.DealDamage(e, dmg, player)
                             hitCount = hitCount + 1
                         end
-                    else
-                        Combat.DealDamage(e, dmg, player)
-                        hitCount = hitCount + 1
-                        if hitCount >= 1 then break end
                     end
                 end
             end
+        elseif target then
+            Combat.DealDamage(target, dmg, player)
+            RememberPlayerTarget(target)
+            hitCount = 1
         end
 
         -- 【刺杀剑术·被动】基本剑术近身落空时，凌空斩出白色剑气，补击"隔一身位"之敌
@@ -825,6 +917,7 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
                     -- 攻击力略微增强 + 大幅穿透防御
                     local procDmg = player.atk * (thrust.damage / 100) * ASSASSIN_ATK_BONUS
                     Combat.DealDamage(bestE, procDmg, player, { armorPen = ASSASSIN_ARMOR_PEN })
+                    RememberPlayerTarget(bestE)
                     -- 白色剑气特效（沿挥砍方向延伸到隔身位距离）
                     Combat.SpawnAssassinSlashVisual(scene, playerPos, sdir, ASSASSIN_REACH)
                 end
@@ -832,6 +925,9 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
         end
 
         -- 技能专属视觉效果（基本剑术近身命中不再有剑弧特效）
+        if hitCount > 0 and target then
+            RememberPlayerTarget(target)
+        end
         if skill.aoeAngle then
             -- 半月弯刀：前方弧形光斩
             Combat.SpawnCrescentVisual(scene, playerPos, playerDir, skill.range, player.classId)
@@ -862,6 +958,7 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
             if target then
                 strikePos = target.node.position
                 Combat.DealDamage(target, dmg, player)
+                RememberPlayerTarget(target)
             else
                 strikePos = playerPos + dir * (skill.range or 6)
                 -- 对落点范围内的敌人造成伤害
@@ -870,6 +967,7 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
                         local d = (e.node.position - strikePos):Length()
                         if d <= 1.5 then
                             Combat.DealDamage(e, dmg, player)
+                            RememberPlayerTarget(e)
                         end
                     end
                 end
@@ -919,6 +1017,7 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
         local center = playerPos
         if target then
             center = target.node.position
+            RememberPlayerTarget(target)
         else
             center = playerPos + playerDir * (radius * 0.5)
         end
@@ -985,7 +1084,10 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
             -- 施毒术：目标点圆形群体 DOT + 减防
             local radius = skill.aoeRadius or 3.0
             local center = playerPos + playerDir * math.min(skill.range or 6.0, 4.0)
-            if target then center = target.node.position end
+            if target then
+                center = target.node.position
+                RememberPlayerTarget(target)
+            end
 
             for _, e in ipairs(enemies) do
                 if e.state ~= "dead" and e.state ~= "dying" then
@@ -1019,7 +1121,10 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
         else
             -- 火墙：长方形范围 DOT，每0.5s出伤一次
             local center = playerPos + playerDir * 4
-            if target then center = target.node.position end
+            if target then
+                center = target.node.position
+                RememberPlayerTarget(target)
+            end
             local radius = skill.aoeRadius or 2.0
             -- 火墙使用长方形区域：宽度=radius*2, 长度=radius*3
             local halfW = radius       -- 半宽
@@ -1316,6 +1421,7 @@ function Combat.UpdateProjectiles(scene, dt, player)
                 local d = (e.node.position - p.node.position):Length()
                 if d < 1.0 then
                     Combat.DealDamage(e, p.damage, player)
+                    RememberPlayerTarget(e)
                     hit = true
                     hitPos = e.node.position
                     break
@@ -3205,6 +3311,7 @@ function Combat.Clear()
     killCount = 0
     Combat.killCount = 0
     spawnTimer = 0
+    lastPlayerTarget = nil
     Combat.CancelDash()
     DivineBeast.Clear()
 end

@@ -1050,8 +1050,8 @@ function SetupGameCallbacks()
             return
         end
 
-        -- 自动瞄准：施法开始时转向最近敌人
-        local target = Combat.FindNearestEnemy(playerNode_.position, skill.range or 5)
+        -- 自动瞄准：正前方最近 → 上次命中目标 → 最近目标
+        local target = Combat.FindPriorityEnemy(playerNode_.position, playerNode_:GetDirection(), skill.range or 5)
         if target then
             local dir = target.node.position - playerNode_.position
             dir.y = 0
