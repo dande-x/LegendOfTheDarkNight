@@ -53,6 +53,7 @@ local MODEL_MONSTERS = {
         materialPath = "Materials/Deer_00_tripo_material_a5521383-f99e-4428-ad84-9a42af4c67f7.xml",
         parentBone = nil,
         position = Vector3(0, 0.90, 0),
+        rotation = Quaternion(180, Vector3.UP),
         scale = Vector3(0.75, 0.75, 0.75),
         hideProceduralBones = true,
     },
@@ -97,6 +98,9 @@ local function CreateModelVisual(parentNode, bones, monsterType)
     local visualNode = attachNode:CreateChild(monsterType .. "_model")
     visualNode.position = modelDef.position or Vector3.ZERO
     visualNode.scale = modelDef.scale or Vector3(1, 1, 1)
+    if modelDef.rotation then
+        visualNode.rotation = modelDef.rotation
+    end
 
     local model = cache:GetResource("Model", modelDef.modelPath)
     if not model then
