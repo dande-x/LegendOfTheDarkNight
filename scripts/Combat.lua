@@ -62,6 +62,7 @@ local ENEMY_DEFS = {
         name = "鹿",     monsterType = "deer",
         level = 1,  hp = 90,   atk = 8,  def = 3,
         speed = 3.0, chaseRange = 8, attackRange = 1.5, attackCD = 2.0,
+        faceYawOffset = 0,
         exp = 30, scale = 0.9, tier = "normal",
     },
     {
@@ -409,6 +410,7 @@ function Combat.SpawnEnemy(scene, playerPos, playerLevel, forceDef)
         chaseRange = def.chaseRange,
         attackRange = def.attackRange,
         attackCD = def.attackCD,
+        faceYawOffset = def.faceYawOffset or 0,
         attackTimer = 0,
         exp = scaledEXP,
         state = "patrol",  -- patrol / chase / attack / dead / dying
@@ -467,6 +469,27 @@ function Combat.TriggerDeath(enemy, player)
     if Combat.onEnemyDeath then
         Combat.onEnemyDeath(enemy.name, enemy.node.position, enemy.exp)
     end
+end
+
+local function FaceEnemyDir(enemy, dir)
+    if not enemy or not enemy.node or not dir then return end
+
+    dir.y = 0
+    if dir:Length() <= 0.001 then return end
+
+    dir = dir:Normalized()
+    local angle = math.atan2(dir.x, dir.z)
+    local rotation = Quaternion(math.deg(angle) + (enemy.faceYawOffset or 0), Vector3.UP)
+    local body = enemy.node:GetComponent("RigidBody")
+    if body then
+        body:SetRotation(rotation)
+    end
+    enemy.node.rotation = rotation
+end
+
+local function FaceEnemyTarget(enemy, targetPos)
+    if not enemy or not targetPos then return end
+    FaceEnemyDir(enemy, targetPos - enemy.node.position)
 end
 
 -- ============================================================================
@@ -601,8 +624,7 @@ function Combat.UpdateEnemies(dt, playerNode, player)
                     if eBody then
                         eBody:SetLinearVelocity(dir * e.speed * 0.5)
                     end
-                    local angle = math.atan2(dir.x, dir.z)
-                    e.node.rotation = Quaternion(math.deg(angle), Vector3.UP)
+                    FaceEnemyDir(e, dir)
                     isMoving = true
                     moveAnimName = "walk"
                 else
@@ -626,6 +648,7 @@ function Combat.UpdateEnemies(dt, playerNode, player)
                 if eBody then eBody:SetLinearVelocity(Vector3.ZERO) end
             elseif chaseTargetDist <= e.attackRange then
                 e.state = "attack"
+                FaceEnemyTarget(e, chaseTargetPos)
                 if eBody then eBody:SetLinearVelocity(Vector3.ZERO) end
             else
                 local dir = (chaseTargetPos - pos)
@@ -634,8 +657,7 @@ function Combat.UpdateEnemies(dt, playerNode, player)
                 if eBody then
                     eBody:SetLinearVelocity(dir * e.speed)
                 end
-                local angle = math.atan2(dir.x, dir.z)
-                e.node.rotation = Quaternion(math.deg(angle), Vector3.UP)
+                FaceEnemyDir(e, dir)
                 isMoving = true
                 moveAnimName = "run"
             end
@@ -661,13 +683,7 @@ function Combat.UpdateEnemies(dt, playerNode, player)
             else
                 -- 面向目标
                 local targetPos = attackTarget == "beast" and beastPos or playerPos
-                local dir = (targetPos - pos)
-                dir.y = 0
-                if dir:Length() > 0.1 then
-                    dir = dir:Normalized()
-                    local angle = math.atan2(dir.x, dir.z)
-                    e.node.rotation = Quaternion(math.deg(angle), Vector3.UP)
-                end
+                FaceEnemyTarget(e, targetPos)
 
                 if e.attackTimer <= 0 then
                     -- 播放攻击动画
@@ -3076,7 +3092,7 @@ function Combat.EndDash(playerNode)
                 e.knockbackTimer = 0          -- 清除残留击退，确保硬直立即生效
                 e.hitStunTimer = DASH_STUN    -- 顶出后进入硬直
                 -- 被顶出后回头面向玩家
-                e.node.rotation = Quaternion(math.deg(math.atan2(-dir.x, -dir.z)), Vector3.UP)
+                FaceEnemyDir(e, -dir)
                 if e.state == "patrol" then e.state = "chase" end
                 if e.animData then
                     MonsterSkeleton.PlayAnim(e.animData, "hit", nil)
@@ -3139,7 +3155,7 @@ function Combat.UpdateDash(dt, playerNode)
             if eBody then eBody:SetLinearVelocity(Vector3.ZERO) end
             -- 顶推期间保持轻硬直，压制怪物自身 AI 移动（次帧 UpdateEnemies 生效）
             if e.hitStunTimer < 0.15 then e.hitStunTimer = 0.15 end
-            e.node.rotation = Quaternion(math.deg(math.atan2(-dir.x, -dir.z)), Vector3.UP)
+            FaceEnemyDir(e, -dir)
         else
             dashState.pushed[e] = nil
         end
