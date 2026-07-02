@@ -485,7 +485,7 @@ MonsterSkeleton.TYPES = {
         scale = 1.25, heightOffset = 0,
     },
     mech_humanoid = {
-        name = "僵尸", bones = BONES_GOLEM,
+        name = "幽灵", bones = BONES_GOLEM,
         color = Color(0.32, 0.46, 0.28, 1.0),
         scale = 1.05, heightOffset = 0,
     },

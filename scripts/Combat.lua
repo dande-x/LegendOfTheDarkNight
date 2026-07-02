@@ -68,7 +68,7 @@ local ENEMY_DEFS = {
         exp = 30, scale = 0.9, tier = "normal",
     },
     {
-        name = "僵尸", monsterType = "mech_humanoid",
+        name = "幽灵", monsterType = "mech_humanoid",
         level = 3, hp = 180, atk = 16, def = 8,
         speed = 2.4, chaseRange = 10, attackRange = 1.65, attackCD = 1.9,
         exp = 62, scale = 1.0, tier = "normal",

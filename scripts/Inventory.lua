@@ -158,7 +158,7 @@ local DROP_TABLES = {
             { id = "boots_leather", weight = 5  },
         },
     },
-    ["僵尸"] = {
+    ["幽灵"] = {
         goldMin = 10, goldMax = 26, dropChance = 0.40,
         items = {
             { id = "sword_iron",    weight = 18 },
