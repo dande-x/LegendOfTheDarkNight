@@ -126,7 +126,7 @@ end
 -- 敌人掉落表
 -- ============================================================================
 local DROP_TABLES = {
-    ["鹿"] = {
+    ["幽灵鹿"] = {
         goldMin = 5, goldMax = 15, dropChance = 0.35,
         items = {
             { id = "sword_iron",    weight = 25 },

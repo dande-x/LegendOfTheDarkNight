@@ -22,6 +22,17 @@ local function CreatePBRMat(color, roughness, metallic)
     return mat
 end
 
+local function CreateGhostDeerMat()
+    local mat = Material:new()
+    mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+    mat:SetShaderParameter("MatDiffColor", Variant(Color(0.55, 0.85, 1.0, 0.42)))
+    mat:SetShaderParameter("MatSpecColor", Variant(Color(0.75, 0.95, 1.0, 1.0)))
+    mat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.18, 0.42, 0.60, 1.0)))
+    mat:SetShaderParameter("Roughness", Variant(0.12))
+    mat:SetShaderParameter("Metallic", Variant(0.0))
+    return mat
+end
+
 -- 纹理贴图材质（国风水墨风）
 local function CreateTexPBRMat(texPath, roughness, metallic, tint)
     local mat = Material:new()
@@ -50,12 +61,13 @@ local MONSTER_TEXTURES = {
 local MODEL_MONSTERS = {
     deer = {
         modelPath = "Meshes/Deer.mdl",
-        materialPath = "Materials/Deer_00_tripo_material_a5521383-f99e-4428-ad84-9a42af4c67f7.xml",
+        materialFactory = CreateGhostDeerMat,
         parentBone = nil,
         position = Vector3(0, 0.90, 0),
         rotation = Quaternion(-90, Vector3.UP),
         scale = Vector3(0.75, 0.75, 0.75),
         hideProceduralBones = true,
+        castShadows = false,
     },
     scarecrow = {
         modelPath = "Meshes/Scarecrow.mdl",
@@ -127,7 +139,9 @@ local function CreateModelVisual(parentNode, bones, monsterType)
         end
     end
 
-    if modelDef.materialPaths then
+    if modelDef.materialFactory then
+        modelComponent:SetMaterial(modelDef.materialFactory())
+    elseif modelDef.materialPaths then
         for i, matPath in ipairs(modelDef.materialPaths) do
             local material = cache:GetResource("Material", matPath)
             if material then
@@ -143,7 +157,7 @@ local function CreateModelVisual(parentNode, bones, monsterType)
         end
     end
 
-    modelComponent.castShadows = true
+    modelComponent.castShadows = modelDef.castShadows ~= false
 
     local animCtrl = nil
     local fsm = nil
@@ -406,8 +420,8 @@ local BONES_SERPENT = {
 -- ============================================================================
 MonsterSkeleton.TYPES = {
     deer = {
-        name = "鹿",  bones = BONES_DEER,
-        color = Color(0.55, 0.40, 0.25, 1.0),  -- 棕色
+        name = "幽灵鹿",  bones = BONES_DEER,
+        color = Color(0.55, 0.85, 1.0, 0.42),
         scale = 0.9, heightOffset = 0,
     },
     scarecrow = {

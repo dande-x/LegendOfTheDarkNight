@@ -61,7 +61,7 @@ local dashState = {
 local ENEMY_DEFS = {
     -- === 低级区 1~10 ===
     {
-        name = "鹿",     monsterType = "deer",
+        name = "幽灵鹿", monsterType = "deer",
         level = 1,  hp = 90,   atk = 8,  def = 3,
         speed = 3.0, chaseRange = 8, attackRange = 1.5, attackCD = 2.0,
         faceYawOffset = 0,
