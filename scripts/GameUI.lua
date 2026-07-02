@@ -397,10 +397,6 @@ function GameUI._DrawOrbs(ctx, sw, sh)
         nvgFillColor(ctx, nvgRGBA(8, 14, 38, 150))
         nvgFill(ctx)
 
-        nvgFillColor(ctx, nvgRGBA(0, 0, 0, 210))
-        nvgText(ctx, hpX + 1 * scale, cy + 1 * scale, hpText, nil)
-        nvgText(ctx, mpX + 1 * scale, cy + 1 * scale, mpText, nil)
-
         nvgFillColor(ctx, nvgRGBA(255, 210, 190, 245))
         nvgText(ctx, hpX, cy, hpText, nil)
 
@@ -1996,10 +1992,11 @@ function GameUI._CreatePotions(player)
     -- 药瓶放在球右边缘右侧
     local potionSize = math.floor(math.max(30, 38 * toUI))
     local innerSize = math.floor(potionSize * 0.74)
+    local labelH = math.floor(math.max(14, 16 * toUI))
     local potionLeft = math.floor((72 + 52 + 10) * toUI)     -- 球右边缘 + 间距
-    local potionBottom = math.floor(105 * toUI - potionSize / 2)  -- 垂直居中于球心
+    local potionBottom = math.floor(105 * toUI - potionSize / 2 - labelH * 0.55)  -- 图标垂直居中于球心，数字在下方
     local potionGap = math.floor(math.max(4, 6 * toUI))
-    local potionFontSize = math.max(11, math.floor(13 * toUI))
+    local potionFontSize = math.max(11, math.floor(12 * toUI))
 
     -- 药瓶图标贴图
     local potionIcons = {
@@ -2031,14 +2028,12 @@ function GameUI._CreatePotions(player)
         uiState.refs["potion_" .. kind .. "_cd"] = cdOverlay
 
         return UI.Panel {
-            width = potionSize, height = potionSize,
-            borderRadius = math.floor(potionSize / 2),
-            backgroundColor = cfg.bodyBg,
-            borderWidth = math.max(2, math.floor(2.5 * toUI)),
-            borderColor = cfg.rimColor,
-            justifyContent = "center",
+            width = potionSize,
+            height = potionSize + labelH,
+            flexDirection = "column",
             alignItems = "center",
-            overflow = "hidden",
+            justifyContent = "flex-start",
+            gap = math.max(1, math.floor(1 * toUI)),
             onPointerUp = function()
                 if kind == "hp" then
                     if GameUI.onUseHpPotion then GameUI.onUseHpPotion() end
@@ -2047,17 +2042,26 @@ function GameUI._CreatePotions(player)
                 end
             end,
             children = {
-                -- 药瓶图标（替代纯色液体圈）
                 UI.Panel {
-                    backgroundImage = potionIcons[kind],
-                    position = "absolute",
-                    width = innerSize, height = innerSize,
-                    borderRadius = math.floor(innerSize / 2),
+                    width = potionSize, height = potionSize,
+                    borderRadius = math.floor(potionSize / 2),
+                    backgroundColor = cfg.bodyBg,
+                    borderWidth = math.max(2, math.floor(2.5 * toUI)),
+                    borderColor = cfg.rimColor,
+                    justifyContent = "center",
+                    alignItems = "center",
+                    overflow = "hidden",
+                    children = {
+                        UI.Panel {
+                            backgroundImage = potionIcons[kind],
+                            position = "absolute",
+                            width = innerSize, height = innerSize,
+                            borderRadius = math.floor(innerSize / 2),
+                        },
+                        cdOverlay,
+                    },
                 },
-                -- 数量（白色居中，叠在图标上方）
                 countLabel,
-                -- CD 遮罩
-                cdOverlay,
             },
         }
     end
