@@ -374,28 +374,17 @@ function GameUI._DrawOrbs(ctx, sw, sh)
     nvgStrokeWidth(ctx, 1.0 * scale)
     nvgStroke(ctx)
 
-    -- 数值文字：左右错开并加底板，避免 HP/MP 多位数连在一起
+    -- 数值文字：左右错开，纯文字显示
     if nvgFontId >= 0 then
         local hpText = tostring(math.floor(player.hp))
         local mpText = tostring(math.floor(player.mp))
         local valueFontSize = math.floor(13 * scale)
         local hpX = cx - r * 0.50
         local mpX = cx + r * 0.50
-        local badgeW = math.floor(34 * scale)
-        local badgeH = math.floor(17 * scale)
 
         nvgFontFaceId(ctx, nvgFontId)
         nvgFontSize(ctx, valueFontSize)
         nvgTextAlign(ctx, NVG_ALIGN_CENTER + NVG_ALIGN_MIDDLE)
-
-        nvgBeginPath(ctx)
-        nvgRoundedRect(ctx, hpX - badgeW / 2, cy - badgeH / 2, badgeW, badgeH, 4 * scale)
-        nvgFillColor(ctx, nvgRGBA(35, 8, 6, 150))
-        nvgFill(ctx)
-        nvgBeginPath(ctx)
-        nvgRoundedRect(ctx, mpX - badgeW / 2, cy - badgeH / 2, badgeW, badgeH, 4 * scale)
-        nvgFillColor(ctx, nvgRGBA(8, 14, 38, 150))
-        nvgFill(ctx)
 
         nvgFillColor(ctx, nvgRGBA(255, 210, 190, 245))
         nvgText(ctx, hpX, cy, hpText, nil)
