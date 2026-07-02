@@ -374,17 +374,38 @@ function GameUI._DrawOrbs(ctx, sw, sh)
     nvgStrokeWidth(ctx, 1.0 * scale)
     nvgStroke(ctx)
 
-    -- 数值文字
+    -- 数值文字：左右错开并加底板，避免 HP/MP 多位数连在一起
     if nvgFontId >= 0 then
+        local hpText = tostring(math.floor(player.hp))
+        local mpText = tostring(math.floor(player.mp))
+        local valueFontSize = math.floor(13 * scale)
+        local hpX = cx - r * 0.50
+        local mpX = cx + r * 0.50
+        local badgeW = math.floor(34 * scale)
+        local badgeH = math.floor(17 * scale)
+
         nvgFontFaceId(ctx, nvgFontId)
-        nvgFontSize(ctx, math.floor(15 * scale))
+        nvgFontSize(ctx, valueFontSize)
         nvgTextAlign(ctx, NVG_ALIGN_CENTER + NVG_ALIGN_MIDDLE)
 
-        nvgFillColor(ctx, nvgRGBA(255, 200, 180, 230))
-        nvgText(ctx, cx - r * 0.32, cy, tostring(math.floor(player.hp)), nil)
+        nvgBeginPath(ctx)
+        nvgRoundedRect(ctx, hpX - badgeW / 2, cy - badgeH / 2, badgeW, badgeH, 4 * scale)
+        nvgFillColor(ctx, nvgRGBA(35, 8, 6, 150))
+        nvgFill(ctx)
+        nvgBeginPath(ctx)
+        nvgRoundedRect(ctx, mpX - badgeW / 2, cy - badgeH / 2, badgeW, badgeH, 4 * scale)
+        nvgFillColor(ctx, nvgRGBA(8, 14, 38, 150))
+        nvgFill(ctx)
 
-        nvgFillColor(ctx, nvgRGBA(180, 210, 255, 230))
-        nvgText(ctx, cx + r * 0.32, cy, tostring(math.floor(player.mp)), nil)
+        nvgFillColor(ctx, nvgRGBA(0, 0, 0, 210))
+        nvgText(ctx, hpX + 1 * scale, cy + 1 * scale, hpText, nil)
+        nvgText(ctx, mpX + 1 * scale, cy + 1 * scale, mpText, nil)
+
+        nvgFillColor(ctx, nvgRGBA(255, 210, 190, 245))
+        nvgText(ctx, hpX, cy, hpText, nil)
+
+        nvgFillColor(ctx, nvgRGBA(190, 220, 255, 245))
+        nvgText(ctx, mpX, cy, mpText, nil)
     end
 
     -- ======== 等级标签(嵌在球底) + 经验条(紧贴球下) ========
