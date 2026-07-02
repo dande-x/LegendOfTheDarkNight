@@ -269,7 +269,7 @@ function Combat.FindPriorityEnemy(pos, forward, maxRange)
 end
 
 -- 地面掉落常量
-local GOLD_MAGNET_DELAY = 0.6    -- 金币落地后多久开始吸附(秒)
+local GOLD_MAGNET_DELAY = 2.0    -- 金币落地后多久开始吸附(秒)
 local GOLD_MAGNET_ACCEL = 25.0   -- 吸附加速度
 local GOLD_MAGNET_MAX_SPEED = 18.0
 local GOLD_PICKUP_DIST = 0.5     -- 拾取判定距离
@@ -3026,6 +3026,7 @@ function Combat.SpawnGroundGold(scene, pos, amount)
             targetY = 0.10,
             fallSpeed = 3.0 + math.random() * 2.0,
             falling = true,
+            pickupDelayTimer = 0,
             magnetPhase = false,
             vel = 0,
         })
@@ -3098,9 +3099,12 @@ function Combat.UpdateGroundItems(dt, playerNode)
         end
 
         if g.type == "gold" then
-            -- 金币：延迟后磁吸向玩家
-            if not g.falling and g.timer >= GOLD_MAGNET_DELAY then
-                g.magnetPhase = true
+            -- 金币：落地后等待 2 秒，再自动磁吸向玩家
+            if not g.falling and not g.magnetPhase then
+                g.pickupDelayTimer = (g.pickupDelayTimer or 0) + dt
+                if g.pickupDelayTimer >= GOLD_MAGNET_DELAY then
+                    g.magnetPhase = true
+                end
             end
 
             if g.magnetPhase then
