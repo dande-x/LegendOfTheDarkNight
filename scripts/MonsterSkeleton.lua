@@ -196,6 +196,7 @@ local function CreateModelVisual(parentNode, bones, monsterType)
         overlayTimer = 0,
         baseScale = visualNode.scale,
         basePosition = visualNode.position,
+        baseRotation = visualNode.rotation,
     }
 end
 
@@ -1002,6 +1003,12 @@ local MODEL_ANIMS = {
     },
 }
 
+local MODEL_ATTACK_OVERLAY = {
+    deer = { duration = 0.58, back = 0.16, forward = 0.42, pitchBack = -13, pitchForward = 18, squash = 0.05 },
+    scarecrow = { duration = 0.62, back = 0.12, forward = 0.36, pitchBack = -10, pitchForward = 15, squash = 0.04 },
+    mech_humanoid = { duration = 0.68, back = 0.10, forward = 0.30, pitchBack = -7, pitchForward = 11, squash = 0.025 },
+}
+
 local function PlayModelAnim(visual, name)
     if not visual or not visual.animCtrl or not visual.modelAnim then return false end
     local set = MODEL_ANIMS[visual.modelAnim]
@@ -1045,24 +1052,79 @@ local function SetModelFSMParameter(visual, animState, isMoving, moveAnimName)
     return true
 end
 
+local function SmoothStep(x)
+    x = math.max(0.0, math.min(1.0, x))
+    return x * x * (3.0 - 2.0 * x)
+end
+
+local function ApplyModelAttackOverlay(visual, dt, monsterType, animState)
+    if not visual or not visual.node then return false end
+    local cfg = MODEL_ATTACK_OVERLAY[monsterType]
+    if not cfg then return false end
+
+    if animState == "attack" then
+        visual.attackOverlayTime = (visual.attackOverlayTime or 0) + dt
+    else
+        visual.attackOverlayTime = nil
+        return false
+    end
+
+    local duration = cfg.duration or 0.6
+    local t = math.min(visual.attackOverlayTime, duration)
+    local p = t / duration
+    local offsetZ = 0.0
+    local pitch = 0.0
+    local squash = 0.0
+
+    if p < 0.38 then
+        local k = SmoothStep(p / 0.38)
+        offsetZ = -(cfg.back or 0.12) * k
+        pitch = (cfg.pitchBack or -10) * k
+    elseif p < 0.68 then
+        local k = SmoothStep((p - 0.38) / 0.30)
+        offsetZ = -(cfg.back or 0.12) + ((cfg.back or 0.12) + (cfg.forward or 0.35)) * k
+        pitch = (cfg.pitchBack or -10) + ((cfg.pitchForward or 14) - (cfg.pitchBack or -10)) * k
+        squash = (cfg.squash or 0.04) * k
+    else
+        local k = SmoothStep((p - 0.68) / 0.32)
+        offsetZ = (cfg.forward or 0.35) * (1.0 - k)
+        pitch = (cfg.pitchForward or 14) * (1.0 - k)
+        squash = (cfg.squash or 0.04) * (1.0 - k)
+    end
+
+    local basePos = visual.basePosition or Vector3.ZERO
+    local baseRot = visual.baseRotation or Quaternion.IDENTITY
+    local baseScale = visual.baseScale or visual.node.scale
+    visual.node.position = basePos + Vector3(0, 0, offsetZ)
+    visual.node.rotation = baseRot * Quaternion(pitch, Vector3.RIGHT)
+    visual.node.scale = Vector3(baseScale.x * (1.0 + squash), baseScale.y * (1.0 - squash * 0.45), baseScale.z * (1.0 + squash))
+    return true
+end
+
 local function UpdateModelOverlay(visual, dt, animState, isMoving, monsterType, moveAnimName)
     if not visual then return end
     visual.elapsed = (visual.elapsed or 0) + dt
 
-    if SetModelFSMParameter(visual, animState, isMoving, moveAnimName) then
-        if visual.baseScale then
-            visual.node.position = visual.basePosition or Vector3.ZERO
-            visual.node.rotation = Quaternion.IDENTITY
-            if monsterType == "mech_humanoid" and animState ~= "death" then
-                local sx = visual.baseScale.x
-                local sy = visual.baseScale.y
-                local sz = visual.baseScale.z
-                local pulse = 1.0 + math.sin(visual.elapsed * 7.0) * 0.01
-                visual.node.scale = Vector3(sx * pulse, sy, sz * pulse)
-            else
-                visual.node.scale = visual.baseScale
-            end
+    local hasFSM = SetModelFSMParameter(visual, animState, isMoving, moveAnimName)
+    if ApplyModelAttackOverlay(visual, dt, monsterType, animState) then
+        return
+    end
+
+    if visual.baseScale then
+        visual.node.position = visual.basePosition or Vector3.ZERO
+        visual.node.rotation = visual.baseRotation or Quaternion.IDENTITY
+        if monsterType == "mech_humanoid" and animState ~= "death" then
+            local sx = visual.baseScale.x
+            local sy = visual.baseScale.y
+            local sz = visual.baseScale.z
+            local pulse = 1.0 + math.sin(visual.elapsed * 7.0) * 0.01
+            visual.node.scale = Vector3(sx * pulse, sy, sz * pulse)
+        else
+            visual.node.scale = visual.baseScale
         end
+    end
+
+    if hasFSM then
         return
     end
 
@@ -1085,7 +1147,7 @@ end
 ---@param isMoving boolean
 ---@param moveAnimName string|nil
 function MonsterSkeleton.UpdateAnimation(animData, dt, isMoving, moveAnimName)
-    if animData.visual and animData.visual.animated then
+    if animData.visual then
         UpdateModelOverlay(animData.visual, dt, animData.state, isMoving, animData.type, moveAnimName)
     end
 
