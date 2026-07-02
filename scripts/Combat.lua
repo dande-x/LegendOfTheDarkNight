@@ -68,7 +68,7 @@ local ENEMY_DEFS = {
         exp = 30, scale = 0.9, tier = "normal",
     },
     {
-        name = "机械人形", monsterType = "mech_humanoid",
+        name = "僵尸", monsterType = "mech_humanoid",
         level = 3, hp = 180, atk = 16, def = 8,
         speed = 2.4, chaseRange = 10, attackRange = 1.65, attackCD = 1.9,
         exp = 62, scale = 1.0, tier = "normal",
@@ -83,7 +83,7 @@ local ENEMY_DEFS = {
         name = "骷髅",   monsterType = "skeleton",
         level = 4,  hp = 135,  atk = 14, def = 5,
         speed = 2.6, chaseRange = 10, attackRange = 1.5, attackCD = 1.5,
-        exp = 55, scale = 0.95, tier = "normal",
+        exp = 55, scale = 1.08, tier = "normal",
     },
     {
         name = "蜘蛛",   monsterType = "spider",
@@ -102,7 +102,7 @@ local ENEMY_DEFS = {
         name = "狼人",   monsterType = "orc",
         level = 10, hp = 260,  atk = 24, def = 10,
         speed = 3.2, chaseRange = 12, attackRange = 1.5, attackCD = 1.5,
-        exp = 120, scale = 1.0, tier = "normal",
+        exp = 120, scale = 1.15, tier = "normal",
     },
     {
         name = "石魔",   monsterType = "golem",
@@ -301,12 +301,21 @@ local function ApplyPoisonTint(enemy)
     local poisonMat = CreatePBR(Color(0.08, 0.85, 0.18, 1.0), 0.0, 0.45)
     poisonMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.1, 1.2, 0.25, 1.0)))
 
-    local function TintModels(node)
-        local model = node:GetComponent("StaticModel")
-        if model then
-            table.insert(enemy.poisonOrigMats, { model = model, mat = model:GetMaterial(0) })
-            model:SetMaterial(poisonMat)
+    local function TintModelComponent(model)
+        if not model then return end
+        local index = 0
+        while index < 16 do
+            local original = model:GetMaterial(index)
+            if not original and index > 0 then break end
+            table.insert(enemy.poisonOrigMats, { model = model, index = index, mat = original })
+            model:SetMaterial(index, poisonMat)
+            index = index + 1
         end
+    end
+
+    local function TintModels(node)
+        TintModelComponent(node:GetComponent("StaticModel"))
+        TintModelComponent(node:GetComponent("AnimatedModel"))
         local count = node:GetNumChildren(false)
         for i = 0, count - 1 do
             TintModels(node:GetChild(i))
@@ -333,7 +342,7 @@ local function RemovePoisonTint(enemy)
     if enemy.poisonOrigMats then
         for _, entry in ipairs(enemy.poisonOrigMats) do
             if entry.model then
-                entry.model:SetMaterial(entry.mat)
+                entry.model:SetMaterial(entry.index or 0, entry.mat)
             end
         end
         enemy.poisonOrigMats = nil

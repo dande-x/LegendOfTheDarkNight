@@ -33,6 +33,26 @@ local function CreateGhostDeerMat()
     return mat
 end
 
+local function CreateZombieMat(index)
+    local palette = {
+        Color(0.36, 0.50, 0.32, 1.0),
+        Color(0.22, 0.31, 0.24, 1.0),
+        Color(0.46, 0.42, 0.30, 1.0),
+        Color(0.18, 0.16, 0.15, 1.0),
+        Color(0.12, 0.20, 0.12, 1.0),
+        Color(0.30, 0.12, 0.10, 1.0),
+        Color(0.50, 0.56, 0.42, 1.0),
+    }
+    local mat = Material:new()
+    mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
+    mat:SetShaderParameter("MatDiffColor", Variant(palette[index] or palette[1]))
+    mat:SetShaderParameter("MatSpecColor", Variant(Color(0.12, 0.18, 0.12, 1.0)))
+    mat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.02, 0.08, 0.02, 1.0)))
+    mat:SetShaderParameter("Roughness", Variant(0.92))
+    mat:SetShaderParameter("Metallic", Variant(0.0))
+    return mat
+end
+
 -- 纹理贴图材质（国风水墨风）
 local function CreateTexPBRMat(texPath, roughness, metallic, tint)
     local mat = Material:new()
@@ -86,14 +106,14 @@ local MODEL_MONSTERS = {
     },
     mech_humanoid = {
         modelPath = "uuid://ARoaobEzRVktIvNfBEsDPWeQ",
-        materialPaths = {
-            "uuid://HGmRkQOrSpS8cu-K8FI-8msZ",
-            "uuid://Gj7zUe5UOfnJv9QnKgg509CS",
-            "uuid://FLvnwcKkp4zkPbadPyW1HjJN",
-            "uuid://GFL9qXVIK62TKlaqTgBC_WpH",
-            "uuid://GEo6ERJkWuWtd6uEwoFnwuZP",
-            "uuid://GEHXGaxNHNk_ULpAcdUb_asm",
-            "uuid://CzXTIebN83FSkQOWhRE31sVH",
+        materialFactories = {
+            CreateZombieMat,
+            CreateZombieMat,
+            CreateZombieMat,
+            CreateZombieMat,
+            CreateZombieMat,
+            CreateZombieMat,
+            CreateZombieMat,
         },
         position = Vector3.ZERO,
         targetHeight = 1.85,
@@ -141,6 +161,10 @@ local function CreateModelVisual(parentNode, bones, monsterType)
 
     if modelDef.materialFactory then
         modelComponent:SetMaterial(modelDef.materialFactory())
+    elseif modelDef.materialFactories then
+        for i, factory in ipairs(modelDef.materialFactories) do
+            modelComponent:SetMaterial(i - 1, factory(i))
+        end
     elseif modelDef.materialPaths then
         for i, matPath in ipairs(modelDef.materialPaths) do
             local material = cache:GetResource("Material", matPath)
@@ -433,7 +457,7 @@ MonsterSkeleton.TYPES = {
     skeleton = {
         name = "骷髅", bones = BONES_SKELETON,
         color = Color(0.85, 0.82, 0.70, 1.0),  -- 骨白色
-        scale = 0.95, heightOffset = 0,
+        scale = 1.08, heightOffset = 0,
     },
     spider = {
         name = "蜘蛛", bones = BONES_SPIDER,
@@ -461,8 +485,8 @@ MonsterSkeleton.TYPES = {
         scale = 1.25, heightOffset = 0,
     },
     mech_humanoid = {
-        name = "机械人形", bones = BONES_GOLEM,
-        color = Color(0.38, 0.40, 0.42, 1.0),
+        name = "僵尸", bones = BONES_GOLEM,
+        color = Color(0.32, 0.46, 0.28, 1.0),
         scale = 1.05, heightOffset = 0,
     },
 }

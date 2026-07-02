@@ -158,6 +158,21 @@ local DROP_TABLES = {
             { id = "boots_leather", weight = 5  },
         },
     },
+    ["僵尸"] = {
+        goldMin = 10, goldMax = 26, dropChance = 0.40,
+        items = {
+            { id = "sword_iron",    weight = 18 },
+            { id = "armor_leather", weight = 12 },
+            { id = "ring_copper",   weight = 12 },
+            { id = "neck_bone",     weight = 16 },
+            { id = "staff_wood",    weight = 10 },
+            { id = "bell_copper",   weight = 10 },
+            { id = "helm_iron",     weight = 10 },
+            { id = "brace_iron",    weight = 10 },
+            { id = "belt_leather",  weight = 6  },
+            { id = "boots_leather", weight = 6  },
+        },
+    },
     ["骷髅"] = {
         goldMin = 15, goldMax = 35, dropChance = 0.40,
         items = {
