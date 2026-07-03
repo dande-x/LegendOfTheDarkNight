@@ -2219,8 +2219,8 @@ function Combat.SpawnAssassinSlashVisual(scene, center, dir, reach)
 
     -- 按参考图分三层叠加：青蓝发光主体(铺开) + 青色中层 + 锋锐白色凸刃(最亮在上)
     -- 三层共享同一外凸刃(相同 R)，越往内越偏深蓝、越淡，形成渐变拖尾
-    local function makeLayer(name, xOff, R, thick, diff, emis, rough)
-        local n = node:CreateChild(name)
+    local function makeLayer(parent, name, xOff, R, thick, diff, emis, rough)
+        local n = parent:CreateChild(name)
         n.position = Vector3(xOff, 0, 0)
         local g = n:CreateComponent("CustomGeometry")
         buildCrescent(g, R, thick)
@@ -2235,12 +2235,20 @@ function Combat.SpawnAssassinSlashVisual(scene, center, dir, reach)
         return n
     end
 
-    -- 主体：深青蓝、最宽、最透明（从凸刃向内大面积铺开）
-    makeLayer("bodyDeep", -0.06, 1.78, 1.30, Color(0.15, 0.42, 1.0, 0.32), Color(0.12, 0.32, 0.9), 0.5)
-    -- 中层：亮青蓝发光带
-    makeLayer("bodyCyan", -0.03, 1.78, 0.70, Color(0.45, 0.82, 1.0, 0.58), Color(0.4, 0.78, 1.0), 0.3)
-    -- 凸刃：锋锐白色亮边（最薄最亮，叠在最上层）
-    makeLayer("edge", 0.0, 1.80, 0.20, Color(0.95, 0.99, 1.0, 0.98), Color(1.0, 1.0, 1.0), 0.05)
+    local function makeBladeGroup(name, yawOffset)
+        local group = node:CreateChild(name)
+        group.rotation = Quaternion(yawOffset, Vector3.UP)
+        -- 主体：深青蓝、最宽、最透明（从凸刃向内大面积铺开）
+        makeLayer(group, "bodyDeep", -0.06, 1.78, 1.30, Color(0.15, 0.42, 1.0, 0.26), Color(0.12, 0.32, 0.9), 0.5)
+        -- 中层：亮青蓝发光带
+        makeLayer(group, "bodyCyan", -0.03, 1.78, 0.70, Color(0.45, 0.82, 1.0, 0.48), Color(0.4, 0.78, 1.0), 0.3)
+        -- 凸刃：锋锐白色亮边（最薄最亮，叠在最上层）
+        makeLayer(group, "edge", 0.0, 1.80, 0.20, Color(0.95, 0.99, 1.0, 0.88), Color(1.0, 1.0, 1.0), 0.05)
+    end
+
+    -- 双片交叉剑气：两片围绕竖直轴各偏转 30°，交叉角约 60°，各角度都更清晰
+    makeBladeGroup("bladeLeft", -30)
+    makeBladeGroup("bladeRight", 30)
 
     -- 飞行：从武器位置朝节点前方短距甩出（由 UpdateVisuals 逐帧推进）
     local travelSpeed = 7.0      -- 慢一点
