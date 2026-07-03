@@ -1560,7 +1560,7 @@ function GameUI.ShowClassSelect(onSelected)
                     marginTop = 3,
                 },
                 UI.Button {
-                    text = "进入山海",
+                    text = "进入暗夜",
                     marginTop = 16,
                     width = 130,
                     height = 40,
