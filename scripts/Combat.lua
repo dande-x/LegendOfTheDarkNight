@@ -2178,10 +2178,10 @@ function Combat.SpawnAssassinSlashVisual(scene, center, dir, reach)
     local segments = 24
     local halfAngle = math.rad(70)   -- 大弧度斩波(约140°)
 
-    -- 在局部 XZ 平面绘制一弯"月牙剑气"(向 +Z 凸出)；两翼对齐到节点原点附近
+    -- 在局部 XY 竖直平面绘制一弯"月牙剑气"(向 +Y 凸出)，相当于原水平剑光旋转 90°
     local function buildCrescent(comp, R, thick)
         comp:BeginGeometry(0, TRIANGLE_LIST)
-        local zc = math.cos(halfAngle) * R
+        local yc = math.cos(halfAngle) * R
         for i = 0, segments - 1 do
             local t0 = -1.0 + (i / segments) * 2.0
             local t1 = -1.0 + ((i + 1) / segments) * 2.0
@@ -2192,28 +2192,36 @@ function Combat.SpawnAssassinSlashVisual(scene, center, dir, reach)
             local th0 = thick * c0 * c0
             local th1 = thick * c1 * c1
             local ox0 = math.sin(a0) * R
-            local oz0 = math.cos(a0) * R - zc
+            local oy0 = math.cos(a0) * R - yc
             local ox1 = math.sin(a1) * R
-            local oz1 = math.cos(a1) * R - zc
+            local oy1 = math.cos(a1) * R - yc
             local ix0 = math.sin(a0) * (R - th0)
-            local iz0 = math.cos(a0) * (R - th0) - zc
+            local iy0 = math.cos(a0) * (R - th0) - yc
             local ix1 = math.sin(a1) * (R - th1)
-            local iz1 = math.cos(a1) * (R - th1) - zc
-            comp:DefineVertex(Vector3(ix0, 0, iz0)); comp:DefineNormal(Vector3.UP); comp:DefineTexCoord(Vector2(0, 0))
-            comp:DefineVertex(Vector3(ox0, 0, oz0)); comp:DefineNormal(Vector3.UP); comp:DefineTexCoord(Vector2(1, 0))
-            comp:DefineVertex(Vector3(ox1, 0, oz1)); comp:DefineNormal(Vector3.UP); comp:DefineTexCoord(Vector2(1, 1))
-            comp:DefineVertex(Vector3(ix0, 0, iz0)); comp:DefineNormal(Vector3.UP); comp:DefineTexCoord(Vector2(0, 0))
-            comp:DefineVertex(Vector3(ox1, 0, oz1)); comp:DefineNormal(Vector3.UP); comp:DefineTexCoord(Vector2(1, 1))
-            comp:DefineVertex(Vector3(ix1, 0, iz1)); comp:DefineNormal(Vector3.UP); comp:DefineTexCoord(Vector2(0, 1))
+            local iy1 = math.cos(a1) * (R - th1) - yc
+            local nFront = Vector3(0, 0, 1)
+            local nBack = Vector3(0, 0, -1)
+            comp:DefineVertex(Vector3(ix0, iy0, 0)); comp:DefineNormal(nFront); comp:DefineTexCoord(Vector2(0, 0))
+            comp:DefineVertex(Vector3(ox0, oy0, 0)); comp:DefineNormal(nFront); comp:DefineTexCoord(Vector2(1, 0))
+            comp:DefineVertex(Vector3(ox1, oy1, 0)); comp:DefineNormal(nFront); comp:DefineTexCoord(Vector2(1, 1))
+            comp:DefineVertex(Vector3(ix0, iy0, 0)); comp:DefineNormal(nFront); comp:DefineTexCoord(Vector2(0, 0))
+            comp:DefineVertex(Vector3(ox1, oy1, 0)); comp:DefineNormal(nFront); comp:DefineTexCoord(Vector2(1, 1))
+            comp:DefineVertex(Vector3(ix1, iy1, 0)); comp:DefineNormal(nFront); comp:DefineTexCoord(Vector2(0, 1))
+            comp:DefineVertex(Vector3(ix0, iy0, 0)); comp:DefineNormal(nBack); comp:DefineTexCoord(Vector2(0, 0))
+            comp:DefineVertex(Vector3(ox1, oy1, 0)); comp:DefineNormal(nBack); comp:DefineTexCoord(Vector2(1, 1))
+            comp:DefineVertex(Vector3(ox0, oy0, 0)); comp:DefineNormal(nBack); comp:DefineTexCoord(Vector2(1, 0))
+            comp:DefineVertex(Vector3(ix0, iy0, 0)); comp:DefineNormal(nBack); comp:DefineTexCoord(Vector2(0, 0))
+            comp:DefineVertex(Vector3(ix1, iy1, 0)); comp:DefineNormal(nBack); comp:DefineTexCoord(Vector2(0, 1))
+            comp:DefineVertex(Vector3(ox1, oy1, 0)); comp:DefineNormal(nBack); comp:DefineTexCoord(Vector2(1, 1))
         end
         comp:Commit()
     end
 
     -- 按参考图分三层叠加：青蓝发光主体(铺开) + 青色中层 + 锋锐白色凸刃(最亮在上)
     -- 三层共享同一外凸刃(相同 R)，越往内越偏深蓝、越淡，形成渐变拖尾
-    local function makeLayer(name, yOff, R, thick, diff, emis, rough)
+    local function makeLayer(name, zOff, R, thick, diff, emis, rough)
         local n = node:CreateChild(name)
-        n.position = Vector3(0, yOff, 0)
+        n.position = Vector3(0, 0, zOff)
         local g = n:CreateComponent("CustomGeometry")
         buildCrescent(g, R, thick)
         local m = Material:new()
