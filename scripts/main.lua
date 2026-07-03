@@ -125,7 +125,7 @@ function CreateScene()
     local physicsWorld = scene_:CreateComponent("PhysicsWorld")
     physicsWorld.gravity = Vector3(0, 0, 0)
 
-    local lightGroupFile = cache:GetResource("XMLFile", "LightGroup/Night.xml")
+    local lightGroupFile = cache:GetResource("XMLFile", "LightGroup/Midnight.xml")
     local lightGroup = scene_:CreateChild("LightGroup")
     lightGroup:LoadXML(lightGroupFile:GetRoot())
 
@@ -133,18 +133,18 @@ function CreateScene()
     -- 使用 LightGroup 自带 Zone，只覆盖雾色和距离，避免创建新 Zone 抢占预设。
     local zone = lightGroup:GetComponent("Zone", true)
     if zone then
-        zone.fogColor = Color(0.18, 0.20, 0.24, 1.0)
-        zone.fogStart = 85.0
-        zone.fogEnd = 220.0
-        zone.fogDensity = 0.24
+        zone.fogColor = Color(0.26, 0.29, 0.34, 1.0)
+        zone.fogStart = 115.0
+        zone.fogEnd = 280.0
+        zone.fogDensity = 0.14
         zone.heightFog = false
     end
 
     -- 冷色主光保证无火把区域可读，火把负责局部暖色对比。
     local dirLight = lightGroup:GetComponent("Light", true)
     if dirLight then
-        dirLight.color = Color(0.76, 0.80, 0.92, 1.0)
-        dirLight.brightness = 1.25
+        dirLight.color = Color(0.88, 0.92, 1.0, 1.0)
+        dirLight.brightness = 2.25
         dirLight.castShadows = true
     end
 
@@ -181,12 +181,12 @@ function CreateFloor()
         return fallback
     end
 
-    local darkSoilMat = GetMaterial("uuid://B2-Y8QtOc5NdOQVWAmvW1aQ_", MakeMat(Color(0.13, 0.10, 0.075, 1.0), 0.96, 0.0))
-    local roadMat = GetMaterial("uuid://GSN7IaGGBlvP2Xk_zX9UQyuq", MakeMat(Color(0.24, 0.23, 0.21, 1.0), 0.88, 0.0))
-    local wetMudMat = MakeMat(Color(0.055, 0.045, 0.040, 1.0), 0.74, 0.0)
-    local mossMat = MakeMat(Color(0.09, 0.13, 0.075, 1.0), 0.93, 0.0)
-    local ashMat = MakeMat(Color(0.035, 0.032, 0.034, 1.0), 0.98, 0.0)
-    local plateauMat = MakeMat(Color(0.095, 0.078, 0.060, 1.0), 0.94, 0.0)
+    local darkSoilMat = GetMaterial("uuid://B2-Y8QtOc5NdOQVWAmvW1aQ_", MakeMat(Color(0.20, 0.16, 0.12, 1.0), 0.94, 0.0))
+    local roadMat = GetMaterial("uuid://GSN7IaGGBlvP2Xk_zX9UQyuq", MakeMat(Color(0.32, 0.31, 0.29, 1.0), 0.86, 0.0))
+    local wetMudMat = MakeMat(Color(0.10, 0.085, 0.075, 1.0), 0.72, 0.0)
+    local mossMat = MakeMat(Color(0.13, 0.18, 0.10, 1.0), 0.90, 0.0)
+    local ashMat = MakeMat(Color(0.075, 0.070, 0.072, 1.0), 0.96, 0.0)
+    local plateauMat = MakeMat(Color(0.15, 0.12, 0.095, 1.0), 0.92, 0.0)
 
     -- 主地面：Box 尺寸 1m，缩放后 120m × 120m，顶面位于 y=0。 
     local floorNode = scene_:CreateChild("DarkSoilFloor")
@@ -512,8 +512,8 @@ function CreateSceneDecorations()
         local light = lightNode:CreateComponent("Light")
         light.lightType = LIGHT_POINT
         light.color = Color(1.0, 0.48, 0.14, 1.0)
-        light.range = 6.5
-        light.brightness = 3.0
+        light.range = 8.5
+        light.brightness = 5.5
         light.castShadows = false
     end
 
