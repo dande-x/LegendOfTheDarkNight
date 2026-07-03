@@ -53,6 +53,17 @@ local function CreateZombieMat(index)
     return mat
 end
 
+local function CreateQilinPatchMat()
+    local mat = Material:new()
+    mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
+    mat:SetShaderParameter("MatDiffColor", Variant(Color(0.50, 0.36, 0.18, 1.0)))
+    mat:SetShaderParameter("MatSpecColor", Variant(Color(0.30, 0.22, 0.12, 1.0)))
+    mat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.04, 0.025, 0.01, 1.0)))
+    mat:SetShaderParameter("Roughness", Variant(0.72))
+    mat:SetShaderParameter("Metallic", Variant(0.0))
+    return mat
+end
+
 -- 纹理贴图材质（国风水墨风）
 local function CreateTexPBRMat(texPath, roughness, metallic, tint)
     local mat = Material:new()
@@ -105,6 +116,7 @@ local MODEL_MONSTERS = {
         rotation = Quaternion(90, Vector3.UP),
         scale = Vector3(1.00, 1.00, 1.00),
         hideProceduralBones = true,
+        patch = "qilinLegPatch",
     },
     mech_humanoid = {
         modelPath = "uuid://ARoaobEzRVktIvNfBEsDPWeQ",
@@ -123,6 +135,23 @@ local MODEL_MONSTERS = {
         modelAnim = "heavy_mech",
     },
 }
+
+local function CreateQilinLegPatch(visualNode)
+    local patchMat = CreateQilinPatchMat()
+    local patches = {
+        { name = "QilinFrontLegPatch_L", pos = Vector3(-0.34, -0.34, 0.42), scale = Vector3(0.16, 0.24, 0.18) },
+        { name = "QilinFrontLegPatch_R", pos = Vector3(0.34, -0.34, 0.42), scale = Vector3(0.16, 0.24, 0.18) },
+    }
+    for _, cfg in ipairs(patches) do
+        local patch = visualNode:CreateChild(cfg.name)
+        patch.position = cfg.pos
+        patch.scale = cfg.scale
+        local model = patch:CreateComponent("StaticModel")
+        model:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
+        model:SetMaterial(patchMat)
+        model.castShadows = false
+    end
+end
 
 local function CreateModelVisual(parentNode, bones, monsterType)
     local modelDef = MODEL_MONSTERS[monsterType]
@@ -184,6 +213,10 @@ local function CreateModelVisual(parentNode, bones, monsterType)
     end
 
     modelComponent.castShadows = modelDef.castShadows ~= false
+
+    if modelDef.patch == "qilinLegPatch" then
+        CreateQilinLegPatch(visualNode)
+    end
 
     local animCtrl = nil
     local fsm = nil
