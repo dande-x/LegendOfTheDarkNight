@@ -2239,11 +2239,11 @@ function Combat.SpawnAssassinSlashVisual(scene, center, dir, reach)
         local group = node:CreateChild(name)
         group.rotation = Quaternion(yawOffset, Vector3.UP)
         -- 主体：深青蓝、最宽、最透明（从凸刃向内大面积铺开）
-        makeLayer(group, "bodyDeep", -0.06, 1.78, 1.30, Color(0.15, 0.42, 1.0, 0.26), Color(0.12, 0.32, 0.9), 0.5)
+        makeLayer(group, "bodyDeep", -0.06, 1.25, 0.90, Color(0.15, 0.42, 1.0, 0.16), Color(0.08, 0.22, 0.65), 0.5)
         -- 中层：亮青蓝发光带
-        makeLayer(group, "bodyCyan", -0.03, 1.78, 0.70, Color(0.45, 0.82, 1.0, 0.48), Color(0.4, 0.78, 1.0), 0.3)
+        makeLayer(group, "bodyCyan", -0.03, 1.25, 0.48, Color(0.45, 0.82, 1.0, 0.30), Color(0.25, 0.55, 0.85), 0.3)
         -- 凸刃：锋锐白色亮边（最薄最亮，叠在最上层）
-        makeLayer(group, "edge", 0.0, 1.80, 0.20, Color(0.95, 0.99, 1.0, 0.88), Color(1.0, 1.0, 1.0), 0.05)
+        makeLayer(group, "edge", 0.0, 1.28, 0.13, Color(0.95, 0.99, 1.0, 0.55), Color(0.65, 0.75, 0.85), 0.05)
     end
 
     -- 双片交叉剑气：两片围绕竖直轴各偏转 30°，交叉角约 60°，各角度都更清晰
@@ -2251,8 +2251,8 @@ function Combat.SpawnAssassinSlashVisual(scene, center, dir, reach)
     makeBladeGroup("bladeRight", 30)
 
     -- 飞行：从武器位置朝节点前方短距甩出（由 UpdateVisuals 逐帧推进）
-    local travelSpeed = 7.0      -- 慢一点
-    local travelRemain = 1.2     -- 不必飞太远，短距甩出即可
+    local travelSpeed = 6.0      -- 短距飞行
+    local travelRemain = 0.75    -- 缩短剑气飞行距离
     node:SetVar("noShrink", Variant(true))             -- 飞行途中不缩小
     node:SetVar("travelSpeed", Variant(travelSpeed))
     node:SetVar("travelRemain", Variant(travelRemain))
