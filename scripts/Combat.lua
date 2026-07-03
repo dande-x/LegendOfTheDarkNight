@@ -2178,7 +2178,7 @@ function Combat.SpawnAssassinSlashVisual(scene, center, dir, reach)
     local segments = 24
     local halfAngle = math.rad(70)   -- 大弧度斩波(约140°)
 
-    -- 在局部 YZ 纵向平面绘制一弯"月牙剑气"：局部 +Z 为角色前方，Y 为竖直方向
+    -- 在局部 YZ 纵向平面绘制一弯"月牙剑气"：弧形中心向局部 +Z 凸出并沿角色前方飞行
     local function buildCrescent(comp, R, thick)
         comp:BeginGeometry(0, TRIANGLE_LIST)
         local yc = math.cos(halfAngle) * R
@@ -2191,14 +2191,14 @@ function Combat.SpawnAssassinSlashVisual(scene, center, dir, reach)
             local c1 = math.cos(t1 * math.pi / 2)
             local th0 = thick * c0 * c0
             local th1 = thick * c1 * c1
-            local oz0 = math.sin(a0) * R
-            local oy0 = math.cos(a0) * R - yc
-            local oz1 = math.sin(a1) * R
-            local oy1 = math.cos(a1) * R - yc
-            local iz0 = math.sin(a0) * (R - th0)
-            local iy0 = math.cos(a0) * (R - th0) - yc
-            local iz1 = math.sin(a1) * (R - th1)
-            local iy1 = math.cos(a1) * (R - th1) - yc
+            local oy0 = math.sin(a0) * R
+            local oz0 = math.cos(a0) * R - yc
+            local oy1 = math.sin(a1) * R
+            local oz1 = math.cos(a1) * R - yc
+            local iy0 = math.sin(a0) * (R - th0)
+            local iz0 = math.cos(a0) * (R - th0) - yc
+            local iy1 = math.sin(a1) * (R - th1)
+            local iz1 = math.cos(a1) * (R - th1) - yc
             local nFront = Vector3(1, 0, 0)
             local nBack = Vector3(-1, 0, 0)
             comp:DefineVertex(Vector3(0, iy0, iz0)); comp:DefineNormal(nFront); comp:DefineTexCoord(Vector2(0, 0))
