@@ -102,7 +102,7 @@ local MODEL_MONSTERS = {
         materialPath = "Materials/Qilin_00_tripo_material_5c1ff8c2-9635-4910-924c-b2eca2720248.xml",
         parentBone = nil,
         position = Vector3(0, 0.75, 0),
-        rotation = Quaternion(-90, Vector3.UP),
+        rotation = Quaternion(90, Vector3.UP),
         scale = Vector3(1.00, 1.00, 1.00),
         hideProceduralBones = true,
     },
