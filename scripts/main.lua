@@ -1,6 +1,6 @@
 ---@diagnostic disable: access-invisible, param-type-mismatch, assign-type-mismatch
 -- ============================================================================
--- main.lua — 传奇·山海 主入口
+-- main.lua — 暗夜传奇 主入口
 -- 俯视角 ARPG: 场景搭建 + 相机跟随 + 角色移动 + 施法系统 + 系统集成
 -- ============================================================================
 
@@ -91,7 +91,7 @@ local chargeGlowNode = nil
 -- 引擎入口
 -- ============================================================================
 function Start()
-    graphics.windowTitle = "贪玩渣渣灰"
+    graphics.windowTitle = "暗夜传奇"
 
     GameUI.InitUI()
     GameUI.InitNanoVG()
@@ -106,7 +106,7 @@ function Start()
 
     SubscribeToEvent("Update", "HandleUpdate")
     SubscribeToEvent("PostUpdate", "HandlePostUpdate")
-    print("=== 贪玩渣渣灰 Started ===")
+    print("=== 暗夜传奇 Started ===")
 end
 
 function Stop()

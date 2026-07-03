@@ -1,5 +1,5 @@
 -- ============================================================================
--- GameUI.lua — 贪玩渣渣灰 完整 UI 系统
+-- GameUI.lua — 暗夜传奇 完整 UI 系统
 -- 暗黑地牢风角色选择 + NanoVG 圆球 HP/MP (左下角) + EXP条 + 开门过渡
 -- + 技能栏 + 飘字 + 菜单/背包按钮 + 背包面板 + 施法条 + 技能选择面板
 -- ============================================================================
@@ -1591,7 +1591,7 @@ function GameUI.ShowClassSelect(onSelected)
         alignItems = "center",
         children = {
             UI.Label {
-                text = "贪玩渣渣灰",
+                text = "暗夜传奇",
                 fontSize = 36,
                 fontColor = {215, 185, 80, 255},
                 marginBottom = 4,

@@ -7,7 +7,7 @@
   "entry": "main.lua",
   "version": "1.0.0",
   "taptap_publish": {
-    "title": "<game title, required>",
+    "title": "暗夜传奇",
     "description": "<game description>",
     "category": "<game category: rpg, casual, action, strategy, simulation, trivia, arcade, adventure, card, sports, racing, puzzle, educational, music, word, board>",
     "screen_orientation": "landscape",
