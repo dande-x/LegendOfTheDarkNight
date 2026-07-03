@@ -2178,7 +2178,7 @@ function Combat.SpawnAssassinSlashVisual(scene, center, dir, reach)
     local segments = 24
     local halfAngle = math.rad(70)   -- 大弧度斩波(约140°)
 
-    -- 在局部 XY 竖直平面绘制一弯"月牙剑气"(向 +Y 凸出)，相当于原水平剑光旋转 90°
+    -- 在局部 YZ 纵向平面绘制一弯"月牙剑气"：局部 +Z 为角色前方，Y 为竖直方向
     local function buildCrescent(comp, R, thick)
         comp:BeginGeometry(0, TRIANGLE_LIST)
         local yc = math.cos(halfAngle) * R
@@ -2191,37 +2191,37 @@ function Combat.SpawnAssassinSlashVisual(scene, center, dir, reach)
             local c1 = math.cos(t1 * math.pi / 2)
             local th0 = thick * c0 * c0
             local th1 = thick * c1 * c1
-            local ox0 = math.sin(a0) * R
+            local oz0 = math.sin(a0) * R
             local oy0 = math.cos(a0) * R - yc
-            local ox1 = math.sin(a1) * R
+            local oz1 = math.sin(a1) * R
             local oy1 = math.cos(a1) * R - yc
-            local ix0 = math.sin(a0) * (R - th0)
+            local iz0 = math.sin(a0) * (R - th0)
             local iy0 = math.cos(a0) * (R - th0) - yc
-            local ix1 = math.sin(a1) * (R - th1)
+            local iz1 = math.sin(a1) * (R - th1)
             local iy1 = math.cos(a1) * (R - th1) - yc
-            local nFront = Vector3(0, 0, 1)
-            local nBack = Vector3(0, 0, -1)
-            comp:DefineVertex(Vector3(ix0, iy0, 0)); comp:DefineNormal(nFront); comp:DefineTexCoord(Vector2(0, 0))
-            comp:DefineVertex(Vector3(ox0, oy0, 0)); comp:DefineNormal(nFront); comp:DefineTexCoord(Vector2(1, 0))
-            comp:DefineVertex(Vector3(ox1, oy1, 0)); comp:DefineNormal(nFront); comp:DefineTexCoord(Vector2(1, 1))
-            comp:DefineVertex(Vector3(ix0, iy0, 0)); comp:DefineNormal(nFront); comp:DefineTexCoord(Vector2(0, 0))
-            comp:DefineVertex(Vector3(ox1, oy1, 0)); comp:DefineNormal(nFront); comp:DefineTexCoord(Vector2(1, 1))
-            comp:DefineVertex(Vector3(ix1, iy1, 0)); comp:DefineNormal(nFront); comp:DefineTexCoord(Vector2(0, 1))
-            comp:DefineVertex(Vector3(ix0, iy0, 0)); comp:DefineNormal(nBack); comp:DefineTexCoord(Vector2(0, 0))
-            comp:DefineVertex(Vector3(ox1, oy1, 0)); comp:DefineNormal(nBack); comp:DefineTexCoord(Vector2(1, 1))
-            comp:DefineVertex(Vector3(ox0, oy0, 0)); comp:DefineNormal(nBack); comp:DefineTexCoord(Vector2(1, 0))
-            comp:DefineVertex(Vector3(ix0, iy0, 0)); comp:DefineNormal(nBack); comp:DefineTexCoord(Vector2(0, 0))
-            comp:DefineVertex(Vector3(ix1, iy1, 0)); comp:DefineNormal(nBack); comp:DefineTexCoord(Vector2(0, 1))
-            comp:DefineVertex(Vector3(ox1, oy1, 0)); comp:DefineNormal(nBack); comp:DefineTexCoord(Vector2(1, 1))
+            local nFront = Vector3(1, 0, 0)
+            local nBack = Vector3(-1, 0, 0)
+            comp:DefineVertex(Vector3(0, iy0, iz0)); comp:DefineNormal(nFront); comp:DefineTexCoord(Vector2(0, 0))
+            comp:DefineVertex(Vector3(0, oy0, oz0)); comp:DefineNormal(nFront); comp:DefineTexCoord(Vector2(1, 0))
+            comp:DefineVertex(Vector3(0, oy1, oz1)); comp:DefineNormal(nFront); comp:DefineTexCoord(Vector2(1, 1))
+            comp:DefineVertex(Vector3(0, iy0, iz0)); comp:DefineNormal(nFront); comp:DefineTexCoord(Vector2(0, 0))
+            comp:DefineVertex(Vector3(0, oy1, oz1)); comp:DefineNormal(nFront); comp:DefineTexCoord(Vector2(1, 1))
+            comp:DefineVertex(Vector3(0, iy1, iz1)); comp:DefineNormal(nFront); comp:DefineTexCoord(Vector2(0, 1))
+            comp:DefineVertex(Vector3(0, iy0, iz0)); comp:DefineNormal(nBack); comp:DefineTexCoord(Vector2(0, 0))
+            comp:DefineVertex(Vector3(0, oy1, oz1)); comp:DefineNormal(nBack); comp:DefineTexCoord(Vector2(1, 1))
+            comp:DefineVertex(Vector3(0, oy0, oz0)); comp:DefineNormal(nBack); comp:DefineTexCoord(Vector2(1, 0))
+            comp:DefineVertex(Vector3(0, iy0, iz0)); comp:DefineNormal(nBack); comp:DefineTexCoord(Vector2(0, 0))
+            comp:DefineVertex(Vector3(0, iy1, iz1)); comp:DefineNormal(nBack); comp:DefineTexCoord(Vector2(0, 1))
+            comp:DefineVertex(Vector3(0, oy1, oz1)); comp:DefineNormal(nBack); comp:DefineTexCoord(Vector2(1, 1))
         end
         comp:Commit()
     end
 
     -- 按参考图分三层叠加：青蓝发光主体(铺开) + 青色中层 + 锋锐白色凸刃(最亮在上)
     -- 三层共享同一外凸刃(相同 R)，越往内越偏深蓝、越淡，形成渐变拖尾
-    local function makeLayer(name, zOff, R, thick, diff, emis, rough)
+    local function makeLayer(name, xOff, R, thick, diff, emis, rough)
         local n = node:CreateChild(name)
-        n.position = Vector3(0, 0, zOff)
+        n.position = Vector3(xOff, 0, 0)
         local g = n:CreateComponent("CustomGeometry")
         buildCrescent(g, R, thick)
         local m = Material:new()
