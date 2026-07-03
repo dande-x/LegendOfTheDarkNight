@@ -2169,9 +2169,9 @@ function Combat.SpawnAssassinSlashVisual(scene, center, dir, reach)
     local fwd = Vector3(dir.x, 0, dir.z)
     if fwd:Length() > 0.001 then fwd = fwd:Normalized() else fwd = Vector3(0, 0, 1) end
 
-    -- 起点：贴着武器(角色前方 0.6m，挥刀高度 1.0m)
+    -- 起点：贴着武器(角色前方 0.6m，挥刀高度 1.35m)
     local startOffset = 0.6
-    node.position = Vector3(center.x + fwd.x * startOffset, 1.0, center.z + fwd.z * startOffset)
+    node.position = Vector3(center.x + fwd.x * startOffset, 1.35, center.z + fwd.z * startOffset)
     -- 朝向飞行方向：局部 +Z = 前方（飞行沿节点 forward）
     node.rotation = Quaternion(math.deg(math.atan2(fwd.x, fwd.z)), Vector3.UP)
 
