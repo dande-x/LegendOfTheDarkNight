@@ -103,6 +103,7 @@ local MODEL_MONSTERS = {
         parentBone = nil,
         position = Vector3(0, 0.75, 0),
         scale = Vector3(1.00, 1.00, 1.00),
+        hideProceduralBones = true,
     },
     mech_humanoid = {
         modelPath = "uuid://ARoaobEzRVktIvNfBEsDPWeQ",
@@ -1029,6 +1030,7 @@ local MODEL_ANIMS = {
 
 local MODEL_ATTACK_OVERLAY = {
     deer = { duration = 0.58, back = 0.16, forward = 0.42, pitchBack = -13, pitchForward = 18, squash = 0.05 },
+    qilin = { duration = 0.66, back = 0.18, forward = 0.54, pitchBack = -15, pitchForward = 22, squash = 0.055 },
     scarecrow = { duration = 0.62, back = 0.12, forward = 0.36, pitchBack = -10, pitchForward = 15, squash = 0.04 },
     mech_humanoid = { duration = 0.68, back = 0.10, forward = 0.30, pitchBack = -7, pitchForward = 11, squash = 0.025 },
 }
@@ -1125,12 +1127,45 @@ local function ApplyModelAttackOverlay(visual, dt, monsterType, animState)
     return true
 end
 
+local function ApplyQilinMoveOverlay(visual, monsterType, animState, isMoving)
+    if monsterType ~= "qilin" or not visual or not visual.node then return false end
+    if animState == "attack" or animState == "hit" or animState == "death" then return false end
+
+    local basePos = visual.basePosition or Vector3.ZERO
+    local baseRot = visual.baseRotation or Quaternion.IDENTITY
+    local baseScale = visual.baseScale or visual.node.scale
+
+    if isMoving then
+        local t = visual.elapsed or 0
+        local stride = math.sin(t * 8.0)
+        local hop = math.abs(math.sin(t * 8.0)) * 0.075
+        local roll = stride * 3.5
+        local pitch = math.sin(t * 8.0 + math.pi * 0.5) * 2.8
+        local swayX = math.sin(t * 4.0) * 0.035
+        local stretch = 1.0 + math.abs(stride) * 0.025
+        visual.node.position = basePos + Vector3(swayX, hop, 0)
+        visual.node.rotation = baseRot * Quaternion(pitch, Vector3.RIGHT) * Quaternion(roll, Vector3.FORWARD)
+        visual.node.scale = Vector3(baseScale.x * (1.0 + math.abs(stride) * 0.018), baseScale.y * stretch, baseScale.z * (1.0 - math.abs(stride) * 0.012))
+    else
+        local t = visual.elapsed or 0
+        local breath = math.sin(t * 2.2)
+        visual.node.position = basePos + Vector3(0, breath * 0.025, 0)
+        visual.node.rotation = baseRot * Quaternion(breath * 1.2, Vector3.RIGHT)
+        visual.node.scale = Vector3(baseScale.x * (1.0 + breath * 0.006), baseScale.y * (1.0 + breath * 0.010), baseScale.z * (1.0 + breath * 0.006))
+    end
+    return true
+end
+
 local function UpdateModelOverlay(visual, dt, animState, isMoving, monsterType, moveAnimName)
     if not visual then return end
     visual.elapsed = (visual.elapsed or 0) + dt
 
     local hasFSM = SetModelFSMParameter(visual, animState, isMoving, moveAnimName)
     if ApplyModelAttackOverlay(visual, dt, monsterType, animState) then
+        return
+    end
+
+    if ApplyQilinMoveOverlay(visual, monsterType, animState, isMoving) then
         return
     end
 
