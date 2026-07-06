@@ -3049,6 +3049,100 @@ function Combat.SpawnGroundGold(scene, pos, amount)
     end
 end
 
+local function CreateDropMaterial(color, metallic, roughness, emissiveScale)
+    local mat = CreatePBR(color, metallic, roughness)
+    local glow = emissiveScale or 0.0
+    if glow > 0 then
+        mat:SetShaderParameter("MatEmissiveColor", Variant(Color(color.r * glow, color.g * glow, color.b * glow)))
+    end
+    return mat
+end
+
+local function AddDropModelPart(parent, name, modelPath, position, scale, rotation, mat, castShadows)
+    local part = parent:CreateChild(name)
+    part.position = position
+    part.scale = scale
+    if rotation then part.rotation = rotation end
+
+    local model = part:CreateComponent("StaticModel")
+    model:SetModel(cache:GetResource("Model", modelPath))
+    model:SetMaterial(mat)
+    model.castShadows = castShadows ~= false
+    return part
+end
+
+local function BrightenColor(color, amount)
+    amount = amount or 0.25
+    return Color(
+        math.min(1.0, color.r + amount),
+        math.min(1.0, color.g + amount),
+        math.min(1.0, color.b + amount),
+        1.0
+    )
+end
+
+local function DarkenColor(color, factor)
+    factor = factor or 0.35
+    return Color(color.r * factor, color.g * factor, color.b * factor, 1.0)
+end
+
+local function CreateGroundEquipmentModel(root, item, rarityColor)
+    local itemType = item.itemType or "weapon"
+    local mainMat = CreateDropMaterial(rarityColor, 0.55, 0.28, 0.45)
+    local brightMat = CreateDropMaterial(BrightenColor(rarityColor, 0.2), 0.75, 0.18, 0.55)
+    local darkMat = CreateDropMaterial(DarkenColor(rarityColor, 0.28), 0.2, 0.65, 0.12)
+    local steelMat = CreateDropMaterial(Color(0.68, 0.70, 0.74, 1.0), 0.9, 0.20, 0.08)
+    local leatherMat = CreateDropMaterial(Color(0.23, 0.12, 0.045, 1.0), 0.0, 0.75, 0.0)
+
+    if itemType == "weapon" then
+        if item.id and string.find(item.id, "staff") then
+            AddDropModelPart(root, "staffShaft", "Models/Cylinder.mdl", Vector3(0, 0.42, 0), Vector3(0.07, 0.82, 0.07), nil, leatherMat, true)
+            AddDropModelPart(root, "staffCore", "Models/Sphere.mdl", Vector3(0, 0.88, 0), Vector3(0.26, 0.26, 0.26), nil, mainMat, true)
+            AddDropModelPart(root, "staffCrown", "Models/Torus.mdl", Vector3(0, 0.88, 0), Vector3(0.28, 0.28, 0.28), Quaternion(90, 0, 0), brightMat, true)
+        elseif item.id and string.find(item.id, "bell") then
+            AddDropModelPart(root, "bellBody", "Models/Cone.mdl", Vector3(0, 0.40, 0), Vector3(0.38, 0.46, 0.38), Quaternion(180, 0, 0), mainMat, true)
+            AddDropModelPart(root, "bellRim", "Models/Torus.mdl", Vector3(0, 0.20, 0), Vector3(0.34, 0.34, 0.34), nil, brightMat, true)
+            AddDropModelPart(root, "bellHandle", "Models/Torus.mdl", Vector3(0, 0.68, 0), Vector3(0.16, 0.16, 0.16), Quaternion(90, 0, 0), steelMat, true)
+        else
+            AddDropModelPart(root, "swordBlade", "Models/Box.mdl", Vector3(0, 0.52, 0), Vector3(0.08, 0.72, 0.04), Quaternion(0, 0, -28), steelMat, true)
+            AddDropModelPart(root, "swordGuard", "Models/Box.mdl", Vector3(0, 0.22, 0), Vector3(0.42, 0.06, 0.08), Quaternion(0, 0, -28), mainMat, true)
+            AddDropModelPart(root, "swordGrip", "Models/Cylinder.mdl", Vector3(0, 0.06, 0), Vector3(0.06, 0.28, 0.06), Quaternion(0, 0, -28), leatherMat, true)
+            AddDropModelPart(root, "swordGem", "Models/Sphere.mdl", Vector3(0.16, 0.34, 0), Vector3(0.09, 0.09, 0.09), nil, brightMat, true)
+        end
+    elseif itemType == "helmet" then
+        AddDropModelPart(root, "helmetDome", "Models/Sphere.mdl", Vector3(0, 0.38, 0), Vector3(0.42, 0.30, 0.42), nil, mainMat, true)
+        AddDropModelPart(root, "helmetVisor", "Models/Box.mdl", Vector3(0, 0.35, -0.25), Vector3(0.46, 0.08, 0.06), nil, darkMat, true)
+        AddDropModelPart(root, "helmetCrest", "Models/Box.mdl", Vector3(0, 0.68, 0), Vector3(0.09, 0.16, 0.48), nil, brightMat, true)
+    elseif itemType == "armor" then
+        AddDropModelPart(root, "chestPlate", "Models/Box.mdl", Vector3(0, 0.43, 0), Vector3(0.48, 0.60, 0.16), nil, mainMat, true)
+        AddDropModelPart(root, "leftShoulder", "Models/Sphere.mdl", Vector3(-0.34, 0.62, 0), Vector3(0.22, 0.14, 0.22), nil, brightMat, true)
+        AddDropModelPart(root, "rightShoulder", "Models/Sphere.mdl", Vector3(0.34, 0.62, 0), Vector3(0.22, 0.14, 0.22), nil, brightMat, true)
+        AddDropModelPart(root, "waistGuard", "Models/Box.mdl", Vector3(0, 0.14, 0), Vector3(0.52, 0.10, 0.18), nil, darkMat, true)
+    elseif itemType == "necklace" then
+        AddDropModelPart(root, "necklaceChain", "Models/Torus.mdl", Vector3(0, 0.48, 0), Vector3(0.46, 0.46, 0.46), Quaternion(90, 0, 0), steelMat, true)
+        AddDropModelPart(root, "necklaceGem", "Models/Sphere.mdl", Vector3(0, 0.16, -0.02), Vector3(0.18, 0.24, 0.12), nil, mainMat, true)
+        AddDropModelPart(root, "necklaceTip", "Models/Cone.mdl", Vector3(0, 0.02, -0.02), Vector3(0.12, 0.18, 0.12), Quaternion(180, 0, 0), brightMat, true)
+    elseif itemType == "bracelet" then
+        AddDropModelPart(root, "braceletRing", "Models/Torus.mdl", Vector3(0, 0.30, 0), Vector3(0.42, 0.42, 0.42), nil, mainMat, true)
+        AddDropModelPart(root, "braceletGemA", "Models/Sphere.mdl", Vector3(0.34, 0.30, 0), Vector3(0.11, 0.11, 0.11), nil, brightMat, true)
+        AddDropModelPart(root, "braceletGemB", "Models/Sphere.mdl", Vector3(-0.34, 0.30, 0), Vector3(0.11, 0.11, 0.11), nil, brightMat, true)
+    elseif itemType == "ring" then
+        AddDropModelPart(root, "ringBand", "Models/Torus.mdl", Vector3(0, 0.30, 0), Vector3(0.28, 0.28, 0.28), Quaternion(90, 0, 0), mainMat, true)
+        AddDropModelPart(root, "ringGem", "Models/Sphere.mdl", Vector3(0, 0.52, -0.02), Vector3(0.16, 0.16, 0.16), nil, brightMat, true)
+    elseif itemType == "belt" then
+        AddDropModelPart(root, "beltBand", "Models/Torus.mdl", Vector3(0, 0.30, 0), Vector3(0.52, 0.34, 0.52), nil, leatherMat, true)
+        AddDropModelPart(root, "beltBuckle", "Models/Box.mdl", Vector3(0, 0.30, -0.35), Vector3(0.28, 0.18, 0.08), nil, mainMat, true)
+        AddDropModelPart(root, "beltGem", "Models/Sphere.mdl", Vector3(0, 0.30, -0.42), Vector3(0.08, 0.08, 0.08), nil, brightMat, true)
+    elseif itemType == "boots" then
+        AddDropModelPart(root, "leftBootLeg", "Models/Box.mdl", Vector3(-0.16, 0.34, 0), Vector3(0.18, 0.42, 0.18), nil, mainMat, true)
+        AddDropModelPart(root, "rightBootLeg", "Models/Box.mdl", Vector3(0.16, 0.34, 0), Vector3(0.18, 0.42, 0.18), nil, mainMat, true)
+        AddDropModelPart(root, "leftBootFoot", "Models/Box.mdl", Vector3(-0.16, 0.12, -0.11), Vector3(0.20, 0.13, 0.36), nil, darkMat, true)
+        AddDropModelPart(root, "rightBootFoot", "Models/Box.mdl", Vector3(0.16, 0.12, -0.11), Vector3(0.20, 0.13, 0.36), nil, darkMat, true)
+    else
+        AddDropModelPart(root, "unknownItem", "Models/Sphere.mdl", Vector3(0, 0.30, 0), Vector3(0.36, 0.36, 0.36), nil, mainMat, true)
+    end
+end
+
 --- 生成装备掉落到地面
 function Combat.SpawnGroundItem(scene, pos, item)
     local Inventory = require("scripts.Inventory")
@@ -3063,14 +3157,8 @@ function Combat.SpawnGroundItem(scene, pos, item)
 
     local itemNode = scene:CreateChild("GroundItem")
     itemNode.position = Vector3(targetPos.x, 1.5, targetPos.z)
-    itemNode.scale = Vector3(0.25, 0.25, 0.25)
-
-    local model = itemNode:CreateComponent("StaticModel")
-    model:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
-    local mat = CreatePBR(c, 0.3, 0.4)
-    mat:SetShaderParameter("MatEmissiveColor", Variant(Color(c.r * 0.5, c.g * 0.5, c.b * 0.5)))
-    model:SetMaterial(mat)
-    model.castShadows = true
+    itemNode.rotation = Quaternion(0, math.random() * 360, 0)
+    CreateGroundEquipmentModel(itemNode, item, c)
 
     table.insert(groundItems, {
         node = itemNode,
