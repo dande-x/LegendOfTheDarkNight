@@ -1812,25 +1812,64 @@ end
 -- ============================================================================
 -- 技能栏图标映射（全局复用）
 local _skillBarIcons = {
-    w_basic = "image/icon_w_basic_20260617040401.png",
-    w_thrust = "image/icon_w_thrust_20260617040358.png",
-    w_crescent = "image/icon_w_crescent_20260617040403.png",
-    w_charge = "image/icon_w_charge_20260617040402.png",
-    w_fire = "image/icon_w_fire_20260617040854.png",
-    w_shield = "image/icon_w_shield_20260617040850.png",
-    m_fireball = "image/icon_m_fireball_20260617040402.png",
-    m_thunder = "image/icon_m_thunder_20260617040400.png",
-    m_explosion = "image/icon_m_explosion_20260617040418.png",
-    m_firewall = "image/icon_m_firewall_20260617040402.png",
-    m_blizzard = "image/icon_m_blizzard_20260617041138.png",
-    m_shield = "image/icon_m_shield_20260617040936.png",
-    t_talisman = "image/icon_t_talisman_20260617040933.png",
-    t_divineBeast = "image/icon_t_divineBeast_20260617064005.png",
-    t_beastRage = "image/icon_t_beastRage_20260617040936.png",
-    t_poison = "image/icon_t_poison_20260617061314.png",
-    t_heal = "image/icon_t_heal_20260617040935.png",
-    t_trapDemon = "image/icon_t_trapDemon_20260617061330.png",
+    w_basic = "image/icon_w_basic_20260617040401_round.png",
+    w_thrust = "image/icon_w_thrust_20260617040358_round.png",
+    w_crescent = "image/icon_w_crescent_20260617040403_round.png",
+    w_charge = "image/icon_w_charge_20260617040402_round.png",
+    w_fire = "image/icon_w_fire_20260617040854_round.png",
+    w_shield = "image/icon_w_shield_20260617040850_round.png",
+    m_fireball = "image/icon_m_fireball_20260617040402_round.png",
+    m_thunder = "image/icon_m_thunder_20260617040400_round.png",
+    m_explosion = "image/icon_m_explosion_20260617040418_round.png",
+    m_firewall = "image/icon_m_firewall_20260617040402_round.png",
+    m_blizzard = "image/icon_m_blizzard_20260617041138_round.png",
+    m_shield = "image/icon_m_shield_20260617040936_round.png",
+    t_talisman = "image/icon_t_talisman_20260617040933_round.png",
+    t_divineBeast = "image/icon_t_divineBeast_20260617064005_round.png",
+    t_beastRage = "image/icon_t_beastRage_20260617040936_round.png",
+    t_poison = "image/icon_t_poison_20260617061314_round.png",
+    t_heal = "image/icon_t_heal_20260617040935_round.png",
+    t_trapDemon = "image/icon_t_trapDemon_20260617061330_round.png",
 }
+
+local function _CreateRoundSkillIcon(props)
+    local size = props.size or 40
+    local iconSrc = props.iconSrc
+    local fallbackText = props.fallbackText or "◆"
+    local fallbackColor = props.fallbackColor or {240, 220, 160, 240}
+    local fallbackFontSize = props.fallbackFontSize or math.floor(size * 0.45)
+    local children = nil
+
+    if not iconSrc then
+        children = {
+            UI.Label {
+                text = fallbackText,
+                fontSize = fallbackFontSize,
+                fontColor = fallbackColor,
+                textAlign = "center",
+            },
+        }
+    end
+
+    return UI.Panel {
+        id = props.id,
+        width = size,
+        height = size,
+        shape = "circle",
+        clipPath = "circle",
+        borderRadius = math.floor(size / 2),
+        backgroundColor = props.backgroundColor or {10, 8, 6, 255},
+        backgroundImage = iconSrc,
+        backgroundFit = iconSrc and "cover" or nil,
+        borderWidth = props.borderWidth,
+        borderColor = props.borderColor,
+        borderAlign = "inside",
+        opacity = props.opacity or 1.0,
+        justifyContent = "center",
+        alignItems = "center",
+        children = children,
+    }
+end
 
 local function _IsSkillUsable(player, skill)
     if not skill or not CharacterClass.IsSkillUnlocked(skill, player.level) then return false end
@@ -1884,6 +1923,8 @@ function GameUI._CreateSkillBar(player)
             width = size,
             height = size,
             borderRadius = size / 2,
+            shape = "circle",
+            clipPath = "circle",
             backgroundColor = usable and {25, 22, 18, 210} or {18, 18, 18, 210},
             borderWidth = 2,
             borderColor = borderClr,
@@ -1891,12 +1932,10 @@ function GameUI._CreateSkillBar(player)
             alignItems = "center",
             overflow = "hidden",
             children = {
-                (skill and _skillBarIcons[skill.id]) and UI.Panel {
+                (skill and _skillBarIcons[skill.id]) and _CreateRoundSkillIcon {
                     id = "skill_icon_" .. i,
-                    backgroundImage = _skillBarIcons[skill.id],
-                    width = math.floor(size * 0.78),
-                    height = math.floor(size * 0.78),
-                    borderRadius = math.floor(size * 0.39),
+                    iconSrc = _skillBarIcons[skill.id],
+                    size = math.floor(size * 0.88),
                     opacity = usable and 1.0 or 0.35,
                 } or UI.Label {
                     text = skillName,
@@ -2296,30 +2335,7 @@ local function _BuildSkillTabContent(player)
     local classDef = CharacterClass.Classes[player.classId]
     local allSkills = CharacterClass.GetSkillsSortedByLevel(player.classId)
 
-    -- 技能图标贴图映射（按 skill.id 对应生成的图标文件）
-    local skillIconImages = {
-        -- 武士
-        w_basic    = "image/icon_w_basic_20260617040401.png",
-        w_thrust   = "image/icon_w_thrust_20260617040358.png",
-        w_crescent = "image/icon_w_crescent_20260617040403.png",
-        w_charge   = "image/icon_w_charge_20260617040402.png",
-        w_fire     = "image/icon_w_fire_20260617040854.png",
-        w_shield   = "image/icon_w_shield_20260617040850.png",
-        -- 法师
-        m_fireball  = "image/icon_m_fireball_20260617040402.png",
-        m_thunder   = "image/icon_m_thunder_20260617040400.png",
-        m_explosion = "image/icon_m_explosion_20260617040418.png",
-        m_firewall  = "image/icon_m_firewall_20260617040402.png",
-        m_blizzard  = "image/icon_m_blizzard_20260617041138.png",
-        m_shield    = "image/icon_m_shield_20260617040936.png",
-        -- 道士
-        t_talisman     = "image/icon_t_talisman_20260617040933.png",
-        t_divineBeast  = "image/icon_t_divineBeast_20260617064005.png",
-        t_beastRage    = "image/icon_t_beastRage_20260617040936.png",
-        t_poison       = "image/icon_t_poison_20260617061314.png",
-        t_heal         = "image/icon_t_heal_20260617040935.png",
-        t_trapDemon    = "image/icon_t_trapDemon_20260617061330.png",
-    }
+    -- 技能菜单与 HUD 共用同一批圆形适配图，避免方形图标露出白边。
     -- 备用 emoji（当图标文件不存在时降级）
     local skillIcons = {
         melee  = "⚔", ranged = "🏹", aoe = "🔥",
@@ -2339,7 +2355,7 @@ local function _BuildSkillTabContent(player)
             end
         end
 
-        local iconSrc = skillIconImages[skill.id]
+        local iconSrc = _skillBarIcons[skill.id]
         local iconFallback = skillIcons[skill.type] or "◆"
         local nameColor = locked and {80, 75, 65, 150} or {235, 225, 200, 255}
         local iconBg = locked and {30, 28, 24, 200} or equippedSlot > 0 and {50, 40, 25, 240} or {35, 30, 22, 230}
@@ -2366,20 +2382,27 @@ local function _BuildSkillTabContent(player)
                 GameUI.ShowCharacterPanel(player, "skill")
             end or nil,
             children = {
-                -- 技能图标方块
+                -- 技能图标圆形容器
                 UI.Panel {
-                    width = 44, height = 44,
+                    width = 48, height = 48,
                     backgroundColor = iconBg,
-                    borderRadius = 4, borderWidth = 1.5,
+                    shape = "circle",
+                    clipPath = "circle",
+                    borderRadius = 24,
+                    borderWidth = 2,
                     borderColor = iconBorder,
+                    borderAlign = "inside",
                     justifyContent = "center", alignItems = "center",
-                    overflow = "hidden",
                     children = {
-                        iconSrc and UI.Panel {
-                            backgroundImage = iconSrc,
-                            width = 40, height = 40, borderRadius = 3,
+                        _CreateRoundSkillIcon {
+                            iconSrc = iconSrc,
+                            size = 42,
+                            backgroundColor = iconBg,
                             opacity = locked and 0.35 or 1.0,
-                        } or UI.Label { text = iconFallback, fontSize = 22, fontColor = locked and {80, 75, 65, 130} or {240, 220, 160, 240} },
+                            fallbackText = iconFallback,
+                            fallbackFontSize = 22,
+                            fallbackColor = locked and {80, 75, 65, 130} or {240, 220, 160, 240},
+                        },
                     },
                 },
                 -- 右侧：技能名 + 描述 + 解锁规则
