@@ -1633,7 +1633,7 @@ function Combat.SpawnAOEVisual(scene, center, radius, classId, skillId, wallAngl
             sModel.castShadows = false
         end
 
-        node:SetVar("removeTimer", Variant(3.0))
+        node:SetVar("removeTimer", Variant(1.6))
         return node
 
     -- ========== 法师 - 火墙：长方形燃烧区域（火墙形态） ==========
