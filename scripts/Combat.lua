@@ -3086,60 +3086,133 @@ local function DarkenColor(color, factor)
     return Color(color.r * factor, color.g * factor, color.b * factor, 1.0)
 end
 
+local function CreateDropCrystalMaterial(color, alpha, emissiveScale)
+    local mat = Material:new()
+    mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+    mat:SetShaderParameter("MatDiffColor", Variant(Color(color.r, color.g, color.b, alpha or 0.72)))
+    mat:SetShaderParameter("MatSpecColor", Variant(Color(0.75, 0.8, 0.9, 1.0)))
+    mat:SetShaderParameter("Metallic", Variant(0.0))
+    mat:SetShaderParameter("Roughness", Variant(0.05))
+    local glow = emissiveScale or 0.8
+    mat:SetShaderParameter("MatEmissiveColor", Variant(Color(color.r * glow, color.g * glow, color.b * glow)))
+    return mat
+end
+
+local function AddSmallGem(parent, name, position, scale, mat)
+    return AddDropModelPart(parent, name, "Models/Sphere.mdl", position, scale, nil, mat, true)
+end
+
+local function AddTrimBox(parent, name, position, scale, rotation, mat)
+    return AddDropModelPart(parent, name, "Models/Box.mdl", position, scale, rotation, mat, true)
+end
+
+local function AddRing(parent, name, position, scale, rotation, mat)
+    return AddDropModelPart(parent, name, "Models/Torus.mdl", position, scale, rotation, mat, true)
+end
+
 local function CreateGroundEquipmentModel(root, item, rarityColor)
     local itemType = item.itemType or "weapon"
-    local mainMat = CreateDropMaterial(rarityColor, 0.55, 0.28, 0.45)
-    local brightMat = CreateDropMaterial(BrightenColor(rarityColor, 0.2), 0.75, 0.18, 0.55)
-    local darkMat = CreateDropMaterial(DarkenColor(rarityColor, 0.28), 0.2, 0.65, 0.12)
-    local steelMat = CreateDropMaterial(Color(0.68, 0.70, 0.74, 1.0), 0.9, 0.20, 0.08)
-    local leatherMat = CreateDropMaterial(Color(0.23, 0.12, 0.045, 1.0), 0.0, 0.75, 0.0)
+    local mainMat = CreateDropMaterial(rarityColor, 0.68, 0.20, 0.42)
+    local brightMat = CreateDropMaterial(BrightenColor(rarityColor, 0.24), 0.82, 0.14, 0.58)
+    local darkMat = CreateDropMaterial(DarkenColor(rarityColor, 0.26), 0.28, 0.62, 0.12)
+    local gemMat = CreateDropCrystalMaterial(BrightenColor(rarityColor, 0.18), 0.78, 1.05)
+    local steelMat = CreateDropMaterial(Color(0.74, 0.76, 0.80, 1.0), 0.92, 0.18, 0.10)
+    local darkSteelMat = CreateDropMaterial(Color(0.36, 0.38, 0.42, 1.0), 0.9, 0.28, 0.02)
+    local goldTrimMat = CreateDropMaterial(Color(1.0, 0.76, 0.22, 1.0), 0.95, 0.16, 0.18)
+    local leatherMat = CreateDropMaterial(Color(0.24, 0.12, 0.045, 1.0), 0.0, 0.78, 0.0)
 
     if itemType == "weapon" then
         if item.id and string.find(item.id, "staff") then
-            AddDropModelPart(root, "staffShaft", "Models/Cylinder.mdl", Vector3(0, 0.42, 0), Vector3(0.07, 0.82, 0.07), nil, leatherMat, true)
-            AddDropModelPart(root, "staffCore", "Models/Sphere.mdl", Vector3(0, 0.88, 0), Vector3(0.26, 0.26, 0.26), nil, mainMat, true)
-            AddDropModelPart(root, "staffCrown", "Models/Torus.mdl", Vector3(0, 0.88, 0), Vector3(0.28, 0.28, 0.28), Quaternion(90, 0, 0), brightMat, true)
+            AddDropModelPart(root, "staffShaft", "Models/Cylinder.mdl", Vector3(0, 0.44, 0), Vector3(0.045, 0.84, 0.045), nil, leatherMat, true)
+            AddRing(root, "staffLowerBand", Vector3(0, 0.18, 0), Vector3(0.10, 0.10, 0.10), Quaternion(90, 0, 0), goldTrimMat)
+            AddRing(root, "staffUpperBand", Vector3(0, 0.64, 0), Vector3(0.11, 0.11, 0.11), Quaternion(90, 0, 0), goldTrimMat)
+            AddDropModelPart(root, "staffOrb", "Models/Sphere.mdl", Vector3(0, 0.90, 0), Vector3(0.21, 0.21, 0.21), nil, gemMat, true)
+            AddRing(root, "staffHalo", Vector3(0, 0.90, 0), Vector3(0.27, 0.27, 0.27), Quaternion(90, 0, 0), brightMat)
+            AddTrimBox(root, "staffProngA", Vector3(-0.18, 0.91, 0), Vector3(0.04, 0.28, 0.04), Quaternion(0, 0, 18), brightMat)
+            AddTrimBox(root, "staffProngB", Vector3(0.18, 0.91, 0), Vector3(0.04, 0.28, 0.04), Quaternion(0, 0, -18), brightMat)
+            AddSmallGem(root, "staffTipGem", Vector3(0, 1.12, 0), Vector3(0.07, 0.07, 0.07), gemMat)
         elseif item.id and string.find(item.id, "bell") then
-            AddDropModelPart(root, "bellBody", "Models/Cone.mdl", Vector3(0, 0.40, 0), Vector3(0.38, 0.46, 0.38), Quaternion(180, 0, 0), mainMat, true)
-            AddDropModelPart(root, "bellRim", "Models/Torus.mdl", Vector3(0, 0.20, 0), Vector3(0.34, 0.34, 0.34), nil, brightMat, true)
-            AddDropModelPart(root, "bellHandle", "Models/Torus.mdl", Vector3(0, 0.68, 0), Vector3(0.16, 0.16, 0.16), Quaternion(90, 0, 0), steelMat, true)
+            AddDropModelPart(root, "bellBody", "Models/Cone.mdl", Vector3(0, 0.38, 0), Vector3(0.34, 0.44, 0.34), Quaternion(180, 0, 0), mainMat, true)
+            AddRing(root, "bellRim", Vector3(0, 0.18, 0), Vector3(0.33, 0.33, 0.33), nil, goldTrimMat)
+            AddRing(root, "bellMidBand", Vector3(0, 0.40, 0), Vector3(0.23, 0.23, 0.23), nil, brightMat)
+            AddRing(root, "bellHandle", Vector3(0, 0.67, 0), Vector3(0.16, 0.16, 0.16), Quaternion(90, 0, 0), steelMat)
+            AddSmallGem(root, "bellClapper", Vector3(0, 0.11, 0), Vector3(0.08, 0.08, 0.08), gemMat)
+            AddSmallGem(root, "bellGemFront", Vector3(0, 0.42, -0.25), Vector3(0.07, 0.07, 0.05), gemMat)
         else
-            AddDropModelPart(root, "swordBlade", "Models/Box.mdl", Vector3(0, 0.52, 0), Vector3(0.08, 0.72, 0.04), Quaternion(0, 0, -28), steelMat, true)
-            AddDropModelPart(root, "swordGuard", "Models/Box.mdl", Vector3(0, 0.22, 0), Vector3(0.42, 0.06, 0.08), Quaternion(0, 0, -28), mainMat, true)
-            AddDropModelPart(root, "swordGrip", "Models/Cylinder.mdl", Vector3(0, 0.06, 0), Vector3(0.06, 0.28, 0.06), Quaternion(0, 0, -28), leatherMat, true)
-            AddDropModelPart(root, "swordGem", "Models/Sphere.mdl", Vector3(0.16, 0.34, 0), Vector3(0.09, 0.09, 0.09), nil, brightMat, true)
+            AddTrimBox(root, "swordBlade", Vector3(0, 0.58, 0), Vector3(0.075, 0.70, 0.035), Quaternion(0, 0, -28), steelMat)
+            AddDropModelPart(root, "swordTip", "Models/Cone.mdl", Vector3(0.18, 0.88, 0), Vector3(0.07, 0.16, 0.07), Quaternion(0, 0, -28), steelMat, true)
+            AddTrimBox(root, "swordFuller", Vector3(-0.03, 0.58, -0.025), Vector3(0.018, 0.48, 0.012), Quaternion(0, 0, -28), darkSteelMat)
+            AddTrimBox(root, "swordGuard", Vector3(0, 0.25, 0), Vector3(0.48, 0.055, 0.085), Quaternion(0, 0, -28), goldTrimMat)
+            AddSmallGem(root, "swordGuardGem", Vector3(0.06, 0.29, -0.02), Vector3(0.075, 0.075, 0.055), gemMat)
+            AddDropModelPart(root, "swordGrip", "Models/Cylinder.mdl", Vector3(-0.08, 0.08, 0), Vector3(0.052, 0.30, 0.052), Quaternion(0, 0, -28), leatherMat, true)
+            AddSmallGem(root, "swordPommel", Vector3(-0.16, -0.04, 0), Vector3(0.075, 0.075, 0.075), brightMat)
         end
     elseif itemType == "helmet" then
-        AddDropModelPart(root, "helmetDome", "Models/Sphere.mdl", Vector3(0, 0.38, 0), Vector3(0.42, 0.30, 0.42), nil, mainMat, true)
-        AddDropModelPart(root, "helmetVisor", "Models/Box.mdl", Vector3(0, 0.35, -0.25), Vector3(0.46, 0.08, 0.06), nil, darkMat, true)
-        AddDropModelPart(root, "helmetCrest", "Models/Box.mdl", Vector3(0, 0.68, 0), Vector3(0.09, 0.16, 0.48), nil, brightMat, true)
+        AddDropModelPart(root, "helmetDome", "Models/Sphere.mdl", Vector3(0, 0.42, 0), Vector3(0.40, 0.30, 0.40), nil, mainMat, true)
+        AddRing(root, "helmetBrowRim", Vector3(0, 0.36, 0), Vector3(0.41, 0.30, 0.41), nil, goldTrimMat)
+        AddTrimBox(root, "helmetVisor", Vector3(0, 0.36, -0.27), Vector3(0.44, 0.07, 0.055), nil, darkMat)
+        AddTrimBox(root, "helmetNoseGuard", Vector3(0, 0.28, -0.31), Vector3(0.055, 0.22, 0.045), nil, darkSteelMat)
+        AddTrimBox(root, "helmetCrest", Vector3(0, 0.72, 0), Vector3(0.075, 0.18, 0.50), nil, brightMat)
+        AddDropModelPart(root, "helmetHornL", "Models/Cone.mdl", Vector3(-0.36, 0.52, 0), Vector3(0.10, 0.28, 0.10), Quaternion(0, 0, 75), steelMat, true)
+        AddDropModelPart(root, "helmetHornR", "Models/Cone.mdl", Vector3(0.36, 0.52, 0), Vector3(0.10, 0.28, 0.10), Quaternion(0, 0, -75), steelMat, true)
+        AddSmallGem(root, "helmetFrontGem", Vector3(0, 0.52, -0.29), Vector3(0.075, 0.075, 0.05), gemMat)
     elseif itemType == "armor" then
-        AddDropModelPart(root, "chestPlate", "Models/Box.mdl", Vector3(0, 0.43, 0), Vector3(0.48, 0.60, 0.16), nil, mainMat, true)
-        AddDropModelPart(root, "leftShoulder", "Models/Sphere.mdl", Vector3(-0.34, 0.62, 0), Vector3(0.22, 0.14, 0.22), nil, brightMat, true)
-        AddDropModelPart(root, "rightShoulder", "Models/Sphere.mdl", Vector3(0.34, 0.62, 0), Vector3(0.22, 0.14, 0.22), nil, brightMat, true)
-        AddDropModelPart(root, "waistGuard", "Models/Box.mdl", Vector3(0, 0.14, 0), Vector3(0.52, 0.10, 0.18), nil, darkMat, true)
+        AddTrimBox(root, "chestBackPlate", Vector3(0, 0.42, 0.04), Vector3(0.52, 0.62, 0.12), nil, darkMat)
+        AddTrimBox(root, "chestFrontPlate", Vector3(0, 0.44, -0.05), Vector3(0.44, 0.56, 0.12), nil, mainMat)
+        AddTrimBox(root, "chestCenterRidge", Vector3(0, 0.48, -0.13), Vector3(0.065, 0.52, 0.04), nil, brightMat)
+        AddTrimBox(root, "chestTopTrim", Vector3(0, 0.74, -0.13), Vector3(0.50, 0.06, 0.045), nil, goldTrimMat)
+        AddTrimBox(root, "chestBeltTrim", Vector3(0, 0.18, -0.13), Vector3(0.52, 0.07, 0.045), nil, goldTrimMat)
+        AddDropModelPart(root, "leftShoulder", "Models/Sphere.mdl", Vector3(-0.36, 0.64, 0), Vector3(0.23, 0.14, 0.23), nil, brightMat, true)
+        AddDropModelPart(root, "rightShoulder", "Models/Sphere.mdl", Vector3(0.36, 0.64, 0), Vector3(0.23, 0.14, 0.23), nil, brightMat, true)
+        AddSmallGem(root, "armorHeartGem", Vector3(0, 0.53, -0.15), Vector3(0.09, 0.11, 0.055), gemMat)
+        AddTrimBox(root, "leftLowerPlate", Vector3(-0.14, 0.04, -0.06), Vector3(0.18, 0.16, 0.10), Quaternion(0, 0, 6), darkMat)
+        AddTrimBox(root, "rightLowerPlate", Vector3(0.14, 0.04, -0.06), Vector3(0.18, 0.16, 0.10), Quaternion(0, 0, -6), darkMat)
     elseif itemType == "necklace" then
-        AddDropModelPart(root, "necklaceChain", "Models/Torus.mdl", Vector3(0, 0.48, 0), Vector3(0.46, 0.46, 0.46), Quaternion(90, 0, 0), steelMat, true)
-        AddDropModelPart(root, "necklaceGem", "Models/Sphere.mdl", Vector3(0, 0.16, -0.02), Vector3(0.18, 0.24, 0.12), nil, mainMat, true)
-        AddDropModelPart(root, "necklaceTip", "Models/Cone.mdl", Vector3(0, 0.02, -0.02), Vector3(0.12, 0.18, 0.12), Quaternion(180, 0, 0), brightMat, true)
+        AddRing(root, "necklaceChain", Vector3(0, 0.50, 0), Vector3(0.44, 0.44, 0.44), Quaternion(90, 0, 0), steelMat)
+        AddRing(root, "necklaceInnerGlow", Vector3(0, 0.50, 0), Vector3(0.28, 0.28, 0.28), Quaternion(90, 0, 0), brightMat)
+        for i = 1, 5 do
+            local a = math.pi * (0.18 + i * 0.13)
+            AddSmallGem(root, "necklaceBead" .. i, Vector3(math.cos(a) * 0.26, 0.50 - math.sin(a) * 0.20, -0.03), Vector3(0.045, 0.045, 0.045), goldTrimMat)
+        end
+        AddSmallGem(root, "necklaceGem", Vector3(0, 0.17, -0.03), Vector3(0.18, 0.23, 0.12), gemMat)
+        AddDropModelPart(root, "necklaceTip", "Models/Cone.mdl", Vector3(0, 0.01, -0.03), Vector3(0.11, 0.17, 0.11), Quaternion(180, 0, 0), brightMat, true)
     elseif itemType == "bracelet" then
-        AddDropModelPart(root, "braceletRing", "Models/Torus.mdl", Vector3(0, 0.30, 0), Vector3(0.42, 0.42, 0.42), nil, mainMat, true)
-        AddDropModelPart(root, "braceletGemA", "Models/Sphere.mdl", Vector3(0.34, 0.30, 0), Vector3(0.11, 0.11, 0.11), nil, brightMat, true)
-        AddDropModelPart(root, "braceletGemB", "Models/Sphere.mdl", Vector3(-0.34, 0.30, 0), Vector3(0.11, 0.11, 0.11), nil, brightMat, true)
+        AddRing(root, "braceletOuter", Vector3(0, 0.31, 0), Vector3(0.42, 0.42, 0.42), nil, mainMat)
+        AddRing(root, "braceletInner", Vector3(0, 0.31, 0), Vector3(0.30, 0.30, 0.30), nil, darkMat)
+        for i = 1, 4 do
+            local a = (i - 1) * math.pi * 0.5
+            AddSmallGem(root, "braceletGem" .. i, Vector3(math.cos(a) * 0.34, 0.31, math.sin(a) * 0.34), Vector3(0.085, 0.085, 0.085), gemMat)
+        end
+        AddTrimBox(root, "braceletEngraveA", Vector3(0, 0.49, 0), Vector3(0.35, 0.025, 0.05), nil, goldTrimMat)
+        AddTrimBox(root, "braceletEngraveB", Vector3(0, 0.13, 0), Vector3(0.35, 0.025, 0.05), nil, goldTrimMat)
     elseif itemType == "ring" then
-        AddDropModelPart(root, "ringBand", "Models/Torus.mdl", Vector3(0, 0.30, 0), Vector3(0.28, 0.28, 0.28), Quaternion(90, 0, 0), mainMat, true)
-        AddDropModelPart(root, "ringGem", "Models/Sphere.mdl", Vector3(0, 0.52, -0.02), Vector3(0.16, 0.16, 0.16), nil, brightMat, true)
+        AddRing(root, "ringBand", Vector3(0, 0.30, 0), Vector3(0.30, 0.30, 0.30), Quaternion(90, 0, 0), mainMat)
+        AddRing(root, "ringInnerTrim", Vector3(0, 0.30, 0), Vector3(0.22, 0.22, 0.22), Quaternion(90, 0, 0), goldTrimMat)
+        AddSmallGem(root, "ringGem", Vector3(0, 0.53, -0.02), Vector3(0.15, 0.15, 0.15), gemMat)
+        AddTrimBox(root, "ringGemProngL", Vector3(-0.09, 0.49, -0.02), Vector3(0.035, 0.10, 0.035), Quaternion(0, 0, -18), goldTrimMat)
+        AddTrimBox(root, "ringGemProngR", Vector3(0.09, 0.49, -0.02), Vector3(0.035, 0.10, 0.035), Quaternion(0, 0, 18), goldTrimMat)
     elseif itemType == "belt" then
-        AddDropModelPart(root, "beltBand", "Models/Torus.mdl", Vector3(0, 0.30, 0), Vector3(0.52, 0.34, 0.52), nil, leatherMat, true)
-        AddDropModelPart(root, "beltBuckle", "Models/Box.mdl", Vector3(0, 0.30, -0.35), Vector3(0.28, 0.18, 0.08), nil, mainMat, true)
-        AddDropModelPart(root, "beltGem", "Models/Sphere.mdl", Vector3(0, 0.30, -0.42), Vector3(0.08, 0.08, 0.08), nil, brightMat, true)
+        AddRing(root, "beltBandOuter", Vector3(0, 0.30, 0), Vector3(0.52, 0.34, 0.52), nil, leatherMat)
+        AddRing(root, "beltBandTrim", Vector3(0, 0.30, 0), Vector3(0.57, 0.38, 0.57), nil, goldTrimMat)
+        AddTrimBox(root, "beltBuckleFrame", Vector3(0, 0.30, -0.36), Vector3(0.33, 0.22, 0.07), nil, goldTrimMat)
+        AddTrimBox(root, "beltBuckleHole", Vector3(0, 0.30, -0.41), Vector3(0.20, 0.12, 0.045), nil, darkMat)
+        AddSmallGem(root, "beltGem", Vector3(0, 0.30, -0.47), Vector3(0.075, 0.075, 0.06), gemMat)
+        AddSmallGem(root, "beltStudL", Vector3(-0.32, 0.30, -0.18), Vector3(0.055, 0.055, 0.055), brightMat)
+        AddSmallGem(root, "beltStudR", Vector3(0.32, 0.30, -0.18), Vector3(0.055, 0.055, 0.055), brightMat)
     elseif itemType == "boots" then
-        AddDropModelPart(root, "leftBootLeg", "Models/Box.mdl", Vector3(-0.16, 0.34, 0), Vector3(0.18, 0.42, 0.18), nil, mainMat, true)
-        AddDropModelPart(root, "rightBootLeg", "Models/Box.mdl", Vector3(0.16, 0.34, 0), Vector3(0.18, 0.42, 0.18), nil, mainMat, true)
-        AddDropModelPart(root, "leftBootFoot", "Models/Box.mdl", Vector3(-0.16, 0.12, -0.11), Vector3(0.20, 0.13, 0.36), nil, darkMat, true)
-        AddDropModelPart(root, "rightBootFoot", "Models/Box.mdl", Vector3(0.16, 0.12, -0.11), Vector3(0.20, 0.13, 0.36), nil, darkMat, true)
+        AddTrimBox(root, "leftBootLeg", Vector3(-0.17, 0.36, 0), Vector3(0.18, 0.42, 0.16), Quaternion(0, 0, -3), mainMat)
+        AddTrimBox(root, "rightBootLeg", Vector3(0.17, 0.36, 0), Vector3(0.18, 0.42, 0.16), Quaternion(0, 0, 3), mainMat)
+        AddTrimBox(root, "leftBootFoot", Vector3(-0.17, 0.12, -0.13), Vector3(0.20, 0.13, 0.38), nil, darkMat)
+        AddTrimBox(root, "rightBootFoot", Vector3(0.17, 0.12, -0.13), Vector3(0.20, 0.13, 0.38), nil, darkMat)
+        AddTrimBox(root, "leftBootCuff", Vector3(-0.17, 0.59, 0), Vector3(0.23, 0.07, 0.20), nil, goldTrimMat)
+        AddTrimBox(root, "rightBootCuff", Vector3(0.17, 0.59, 0), Vector3(0.23, 0.07, 0.20), nil, goldTrimMat)
+        AddTrimBox(root, "leftToeCap", Vector3(-0.17, 0.13, -0.35), Vector3(0.18, 0.10, 0.08), nil, steelMat)
+        AddTrimBox(root, "rightToeCap", Vector3(0.17, 0.13, -0.35), Vector3(0.18, 0.10, 0.08), nil, steelMat)
+        AddSmallGem(root, "leftBootGem", Vector3(-0.17, 0.39, -0.11), Vector3(0.055, 0.055, 0.045), gemMat)
+        AddSmallGem(root, "rightBootGem", Vector3(0.17, 0.39, -0.11), Vector3(0.055, 0.055, 0.045), gemMat)
     else
         AddDropModelPart(root, "unknownItem", "Models/Sphere.mdl", Vector3(0, 0.30, 0), Vector3(0.36, 0.36, 0.36), nil, mainMat, true)
+        AddRing(root, "unknownHalo", Vector3(0, 0.30, 0), Vector3(0.46, 0.46, 0.46), Quaternion(90, 0, 0), brightMat)
     end
 end
 
