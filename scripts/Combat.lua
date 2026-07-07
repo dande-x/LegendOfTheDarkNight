@@ -3110,6 +3110,78 @@ local function AddRing(parent, name, position, scale, rotation, mat)
     return AddDropModelPart(parent, name, "Models/Torus.mdl", position, scale, rotation, mat, true)
 end
 
+local function GetRarityVisualPower(rarity)
+    if rarity == "LEGENDARY" then return 1.35 end
+    if rarity == "EPIC" then return 1.05 end
+    if rarity == "RARE" then return 0.78 end
+    if rarity == "UNCOMMON" then return 0.52 end
+    return 0.30
+end
+
+local function CreateDropGlowMaterial(color, alpha, emissiveScale)
+    local mat = Material:new()
+    mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+    mat:SetShaderParameter("MatDiffColor", Variant(Color(color.r, color.g, color.b, alpha or 0.28)))
+    mat:SetShaderParameter("MatEmissiveColor", Variant(Color(color.r * (emissiveScale or 1.0), color.g * (emissiveScale or 1.0), color.b * (emissiveScale or 1.0))))
+    mat:SetShaderParameter("Metallic", Variant(0.0))
+    mat:SetShaderParameter("Roughness", Variant(0.15))
+    return mat
+end
+
+local function CreateGroundItemNameAndGlow(root, item, rarityInfo, rarityColor)
+    local power = GetRarityVisualPower(item.rarity)
+    local glowMat = CreateDropGlowMaterial(rarityColor, 0.18 + power * 0.16, 0.7 + power * 0.6)
+    local halo = AddDropModelPart(root, "rarityGroundGlow", "Models/Cylinder.mdl", Vector3(0, -0.22, 0), Vector3(0.55 + power * 0.25, 0.012, 0.55 + power * 0.25), nil, glowMat, false)
+    halo.rotation = Quaternion(0, 0, 0)
+
+    local sparkMat = CreateDropCrystalMaterial(BrightenColor(rarityColor, 0.24), 0.52, 1.2 + power * 0.5)
+    local sparkleCount = item.rarity == "LEGENDARY" and 6 or item.rarity == "EPIC" and 5 or item.rarity == "RARE" and 4 or 2
+    for i = 1, sparkleCount do
+        local a = (i - 1) / sparkleCount * math.pi * 2
+        local d = 0.42 + power * 0.08
+        AddSmallGem(root, "raritySpark" .. i, Vector3(math.cos(a) * d, 0.08 + (i % 2) * 0.08, math.sin(a) * d), Vector3(0.035, 0.035, 0.035), sparkMat)
+    end
+
+    local lightNode = root:CreateChild("rarityPointLight")
+    lightNode.position = Vector3(0, 0.62, 0)
+    local light = lightNode:CreateComponent("Light")
+    light.lightType = LIGHT_POINT
+    light.color = rarityColor
+    light.range = 2.0 + power * 2.6
+    light.brightness = 0.7 + power * 1.8
+    light.castShadows = false
+
+    local labelNode = root:CreateChild("itemNameLabel")
+    labelNode.position = Vector3(0, 1.28, 0)
+    local label = labelNode:CreateComponent("Text3D")
+    label:SetFont("Fonts/MiSans-Regular.ttf", 18)
+    label:SetText(item.name or "装备")
+    label:SetColor(rarityColor)
+    label:SetAlignment(HA_CENTER, VA_CENTER)
+    label:SetTextAlignment(HA_CENTER)
+    label:SetTextEffect(TE_SHADOW)
+    label:SetEffectColor(Color(0, 0, 0, 0.9))
+    label:SetEffectShadowOffset(IntVector2(2, 2))
+    label:SetFaceCameraMode(FC_ROTATE_XYZ)
+    label:SetFixedScreenSize(true)
+
+    if rarityInfo and rarityInfo.name and item.rarity ~= "COMMON" then
+        local rarityNode = root:CreateChild("itemRarityLabel")
+        rarityNode.position = Vector3(0, 1.08, 0)
+        local rarityLabel = rarityNode:CreateComponent("Text3D")
+        rarityLabel:SetFont("Fonts/MiSans-Regular.ttf", 13)
+        rarityLabel:SetText("[" .. rarityInfo.name .. "]")
+        rarityLabel:SetColor(BrightenColor(rarityColor, 0.18))
+        rarityLabel:SetAlignment(HA_CENTER, VA_CENTER)
+        rarityLabel:SetTextAlignment(HA_CENTER)
+        rarityLabel:SetTextEffect(TE_SHADOW)
+        rarityLabel:SetEffectColor(Color(0, 0, 0, 0.85))
+        rarityLabel:SetEffectShadowOffset(IntVector2(1, 1))
+        rarityLabel:SetFaceCameraMode(FC_ROTATE_XYZ)
+        rarityLabel:SetFixedScreenSize(true)
+    end
+end
+
 local function CreateGroundEquipmentModel(root, item, rarityColor)
     local itemType = item.itemType or "weapon"
     local mainMat = CreateDropMaterial(rarityColor, 0.68, 0.20, 0.42)
@@ -3139,23 +3211,31 @@ local function CreateGroundEquipmentModel(root, item, rarityColor)
             AddSmallGem(root, "bellClapper", Vector3(0, 0.11, 0), Vector3(0.08, 0.08, 0.08), gemMat)
             AddSmallGem(root, "bellGemFront", Vector3(0, 0.42, -0.25), Vector3(0.07, 0.07, 0.05), gemMat)
         else
-            AddTrimBox(root, "swordBlade", Vector3(0, 0.58, 0), Vector3(0.075, 0.70, 0.035), Quaternion(0, 0, -28), steelMat)
-            AddDropModelPart(root, "swordTip", "Models/Cone.mdl", Vector3(0.18, 0.88, 0), Vector3(0.07, 0.16, 0.07), Quaternion(0, 0, -28), steelMat, true)
-            AddTrimBox(root, "swordFuller", Vector3(-0.03, 0.58, -0.025), Vector3(0.018, 0.48, 0.012), Quaternion(0, 0, -28), darkSteelMat)
-            AddTrimBox(root, "swordGuard", Vector3(0, 0.25, 0), Vector3(0.48, 0.055, 0.085), Quaternion(0, 0, -28), goldTrimMat)
-            AddSmallGem(root, "swordGuardGem", Vector3(0.06, 0.29, -0.02), Vector3(0.075, 0.075, 0.055), gemMat)
-            AddDropModelPart(root, "swordGrip", "Models/Cylinder.mdl", Vector3(-0.08, 0.08, 0), Vector3(0.052, 0.30, 0.052), Quaternion(0, 0, -28), leatherMat, true)
-            AddSmallGem(root, "swordPommel", Vector3(-0.16, -0.04, 0), Vector3(0.075, 0.075, 0.075), brightMat)
+            AddTrimBox(root, "swordBlade", Vector3(0, 0.58, 0), Vector3(0.075, 0.68, 0.035), nil, steelMat)
+            AddTrimBox(root, "swordEdgeL", Vector3(-0.052, 0.58, 0), Vector3(0.018, 0.66, 0.038), nil, brightMat)
+            AddTrimBox(root, "swordEdgeR", Vector3(0.052, 0.58, 0), Vector3(0.018, 0.66, 0.038), nil, brightMat)
+            AddDropModelPart(root, "swordTip", "Models/Cone.mdl", Vector3(0, 0.99, 0), Vector3(0.082, 0.18, 0.082), nil, steelMat, true)
+            AddTrimBox(root, "swordFuller", Vector3(0, 0.58, -0.027), Vector3(0.020, 0.45, 0.012), nil, darkSteelMat)
+            AddTrimBox(root, "swordGuard", Vector3(0, 0.20, 0), Vector3(0.50, 0.055, 0.085), nil, goldTrimMat)
+            AddDropModelPart(root, "swordGuardCapL", "Models/Sphere.mdl", Vector3(-0.27, 0.20, 0), Vector3(0.07, 0.07, 0.07), nil, brightMat, true)
+            AddDropModelPart(root, "swordGuardCapR", "Models/Sphere.mdl", Vector3(0.27, 0.20, 0), Vector3(0.07, 0.07, 0.07), nil, brightMat, true)
+            AddSmallGem(root, "swordGuardGem", Vector3(0, 0.24, -0.05), Vector3(0.075, 0.075, 0.055), gemMat)
+            AddDropModelPart(root, "swordGrip", "Models/Cylinder.mdl", Vector3(0, 0.03, 0), Vector3(0.052, 0.28, 0.052), nil, leatherMat, true)
+            AddRing(root, "swordGripBandA", Vector3(0, 0.12, 0), Vector3(0.075, 0.075, 0.075), Quaternion(90, 0, 0), goldTrimMat)
+            AddRing(root, "swordGripBandB", Vector3(0, -0.06, 0), Vector3(0.075, 0.075, 0.075), Quaternion(90, 0, 0), goldTrimMat)
+            AddSmallGem(root, "swordPommel", Vector3(0, -0.16, 0), Vector3(0.085, 0.085, 0.085), brightMat)
         end
     elseif itemType == "helmet" then
-        AddDropModelPart(root, "helmetDome", "Models/Sphere.mdl", Vector3(0, 0.42, 0), Vector3(0.40, 0.30, 0.40), nil, mainMat, true)
-        AddRing(root, "helmetBrowRim", Vector3(0, 0.36, 0), Vector3(0.41, 0.30, 0.41), nil, goldTrimMat)
-        AddTrimBox(root, "helmetVisor", Vector3(0, 0.36, -0.27), Vector3(0.44, 0.07, 0.055), nil, darkMat)
-        AddTrimBox(root, "helmetNoseGuard", Vector3(0, 0.28, -0.31), Vector3(0.055, 0.22, 0.045), nil, darkSteelMat)
-        AddTrimBox(root, "helmetCrest", Vector3(0, 0.72, 0), Vector3(0.075, 0.18, 0.50), nil, brightMat)
-        AddDropModelPart(root, "helmetHornL", "Models/Cone.mdl", Vector3(-0.36, 0.52, 0), Vector3(0.10, 0.28, 0.10), Quaternion(0, 0, 75), steelMat, true)
-        AddDropModelPart(root, "helmetHornR", "Models/Cone.mdl", Vector3(0.36, 0.52, 0), Vector3(0.10, 0.28, 0.10), Quaternion(0, 0, -75), steelMat, true)
-        AddSmallGem(root, "helmetFrontGem", Vector3(0, 0.52, -0.29), Vector3(0.075, 0.075, 0.05), gemMat)
+        AddDropModelPart(root, "helmetShell", "Models/Sphere.mdl", Vector3(0, 0.43, 0), Vector3(0.42, 0.28, 0.40), nil, mainMat, true)
+        AddTrimBox(root, "helmetOpenCut", Vector3(0, 0.28, -0.26), Vector3(0.42, 0.16, 0.07), nil, darkMat)
+        AddRing(root, "helmetLowerRim", Vector3(0, 0.31, 0), Vector3(0.42, 0.28, 0.42), nil, goldTrimMat)
+        AddTrimBox(root, "helmetBrowPlate", Vector3(0, 0.45, -0.29), Vector3(0.43, 0.08, 0.055), nil, goldTrimMat)
+        AddTrimBox(root, "helmetNoseGuard", Vector3(0, 0.31, -0.33), Vector3(0.052, 0.25, 0.045), nil, darkSteelMat)
+        AddTrimBox(root, "helmetCheekL", Vector3(-0.22, 0.27, -0.22), Vector3(0.10, 0.20, 0.065), Quaternion(0, 0, -8), mainMat)
+        AddTrimBox(root, "helmetCheekR", Vector3(0.22, 0.27, -0.22), Vector3(0.10, 0.20, 0.065), Quaternion(0, 0, 8), mainMat)
+        AddDropModelPart(root, "helmetTopSpike", "Models/Cone.mdl", Vector3(0, 0.74, 0), Vector3(0.12, 0.22, 0.12), nil, brightMat, true)
+        AddTrimBox(root, "helmetCrestBase", Vector3(0, 0.66, 0.03), Vector3(0.10, 0.08, 0.44), nil, goldTrimMat)
+        AddSmallGem(root, "helmetFrontGem", Vector3(0, 0.54, -0.31), Vector3(0.078, 0.078, 0.052), gemMat)
     elseif itemType == "armor" then
         AddTrimBox(root, "chestBackPlate", Vector3(0, 0.42, 0.04), Vector3(0.52, 0.62, 0.12), nil, darkMat)
         AddTrimBox(root, "chestFrontPlate", Vector3(0, 0.44, -0.05), Vector3(0.44, 0.56, 0.12), nil, mainMat)
@@ -3232,6 +3312,7 @@ function Combat.SpawnGroundItem(scene, pos, item)
     itemNode.position = Vector3(targetPos.x, 1.5, targetPos.z)
     itemNode.rotation = Quaternion(0, math.random() * 360, 0)
     CreateGroundEquipmentModel(itemNode, item, c)
+    CreateGroundItemNameAndGlow(itemNode, item, rarity, c)
 
     table.insert(groundItems, {
         node = itemNode,
