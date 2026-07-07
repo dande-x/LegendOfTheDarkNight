@@ -408,11 +408,6 @@ function GameUI.UpdateStartupLogo(dt)
     if not startupLogoState.active then return false end
 
     startupLogoState.timer = startupLogoState.timer + dt
-    local remaining = startupLogoState.duration - startupLogoState.timer
-    if startupLogoState.root and remaining <= 0.45 then
-        local alpha = math.max(0, remaining / 0.45)
-        startupLogoState.root:SetStyle({ opacity = alpha })
-    end
 
     if startupLogoState.timer >= startupLogoState.duration and not startupLogoState.finished then
         startupLogoState.finished = true
