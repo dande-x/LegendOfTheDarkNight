@@ -159,7 +159,7 @@ function CreateFloor()
         1. 大面积暗色泥土作为可行走底面。
         2. 一条弯曲破碎石板路贯穿出生点，提供视觉引导。
         3. 路边加入湿泥、苔藓、碎石色块，避免单调平面。
-        4. 高地和坡面只放在道路外侧作为视觉层次，不改变玩家 Y=0 的移动规则。
+        4. 不生成抬高土台，避免角色和怪物在装饰地块上穿模。
     ]]
     math.randomseed(7301)
 
@@ -186,7 +186,6 @@ function CreateFloor()
     local wetMudMat = MakeMat(Color(0.10, 0.085, 0.075, 1.0), 0.72, 0.0)
     local mossMat = MakeMat(Color(0.13, 0.18, 0.10, 1.0), 0.90, 0.0)
     local ashMat = MakeMat(Color(0.075, 0.070, 0.072, 1.0), 0.96, 0.0)
-    local plateauMat = MakeMat(Color(0.15, 0.12, 0.095, 1.0), 0.92, 0.0)
 
     -- 主地面：Box 尺寸 1m，缩放后 120m × 120m，顶面位于 y=0。 
     local floorNode = scene_:CreateChild("DarkSoilFloor")
@@ -196,24 +195,6 @@ function CreateFloor()
     floorModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
     floorModel:SetMaterial(darkSoilMat)
     floorModel.castShadows = false
-
-    -- 周边抬高地块：制造坡度/高差感，但不放在主路上，避免影响俯视角移动。
-    local plateaus = {
-        { pos = Vector3(-34, 0.12, 22), scale = Vector3(18, 0.32, 12), rot = -12 },
-        { pos = Vector3(32, 0.16, -24), scale = Vector3(22, 0.42, 15), rot = 18 },
-        { pos = Vector3(-30, 0.10, -28), scale = Vector3(16, 0.28, 14), rot = 30 },
-        { pos = Vector3(35, 0.11, 28), scale = Vector3(19, 0.30, 12), rot = -25 },
-    }
-    for i, data in ipairs(plateaus) do
-        local node = scene_:CreateChild("DarkPlateau_" .. i)
-        node.position = data.pos
-        node.scale = data.scale
-        node.rotation = Quaternion(data.rot, Vector3.UP)
-        local model = node:CreateComponent("StaticModel")
-        model:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
-        model:SetMaterial(plateauMat)
-        model.castShadows = true
-    end
 
     -- 破碎主路：按路径点生成石板段。
     local path = {
@@ -283,7 +264,7 @@ function CreateFloor()
     end
 
     math.randomseed(os.time())
-    print("[main] Dark fantasy floor created: soil, broken stone road, ravine, patches, plateaus")
+    print("[main] Dark fantasy floor created: soil, broken stone road, ravine, patches")
 end
 
 function CreateSceneDecorations()
