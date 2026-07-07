@@ -1555,7 +1555,7 @@ function GameUI.ShowSaveSlots(slots, callbacks)
         local isSelected = (index == selectedSlot)
         local data = slots[index]
         local borderCol = isSelected and C_BORDER_ACTIVE or C_BORDER_NORMAL
-        local statusText = isSelected and "当前选中" or "点击选择 NO." .. index
+        local statusText = isSelected and "当前角色" or "选择 NO." .. index
         local statusColor = isSelected and C_GOLD or {178, 172, 185, 205}
 
         return UI.Button {
@@ -1623,7 +1623,7 @@ function GameUI.ShowSaveSlots(slots, callbacks)
                             borderColor = {150, 150, 142, 230},
                             children = {
                                 UI.Label {
-                                    text = data and "已锁定此角色" or "将在此槽创建新角色",
+                                    text = data and "已选中该角色" or "将在这里创建角色",
                                     fontSize = 12,
                                     fontColor = {220, 220, 210, 255},
                                 },
@@ -1679,7 +1679,7 @@ function GameUI.ShowSaveSlots(slots, callbacks)
                         },
                     },
                     UI.Label {
-                        text = isSelected and "已选中" or "点此选择",
+                        text = isSelected and "已选中" or "点击选择",
                         fontSize = 12,
                         fontColor = isSelected and {220, 220, 210, 255} or {170, 170, 164, 205},
                     },
@@ -1728,13 +1728,13 @@ function GameUI.ShowSaveSlots(slots, callbacks)
                 marginBottom = 4,
                 children = {
                     UI.Label {
-                        text = "空槽位",
+                        text = "未创建角色",
                         fontSize = 15,
                         fontColor = isSelected and {210, 210, 202, 240} or C_LABEL_DIM,
                         fontWeight = "bold",
                     },
                     UI.Label {
-                        text = "选中后点击创建人物",
+                        text = "点击创建新角色",
                         fontSize = 11,
                         fontColor = {150, 144, 160, 190},
                         marginTop = 3,
@@ -1744,7 +1744,7 @@ function GameUI.ShowSaveSlots(slots, callbacks)
         end
 
         table.insert(infoChildren, UI.Button {
-            text = isSelected and "当前槽位" or "选择 NO." .. index,
+            text = isSelected and "当前角色" or "选择 NO." .. index,
             width = "100%",
             height = 30,
             marginTop = 4,
@@ -1835,10 +1835,10 @@ function GameUI.ShowSaveSlots(slots, callbacks)
     local btnStart = MakeActionButton("开始游戏", hasData, function()
         if callbacks.onContinue then callbacks.onContinue(selectedSlot) end
     end)
-    local btnCreate = MakeActionButton("创建人物", not hasData, function()
+    local btnCreate = MakeActionButton("创建角色", not hasData, function()
         if callbacks.onCreate then callbacks.onCreate(selectedSlot) end
     end)
-    local btnDelete = MakeActionButton("删除人物", hasData, function()
+    local btnDelete = MakeActionButton("删除角色", hasData, function()
         GameUI._ShowDeleteConfirm(selectedSlot, slots, callbacks)
     end)
 
