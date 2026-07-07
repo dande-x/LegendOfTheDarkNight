@@ -273,7 +273,8 @@ local GOLD_MAGNET_DELAY = 2.0    -- 金币落地后多久开始吸附(秒)
 local GOLD_MAGNET_ACCEL = 25.0   -- 吸附加速度
 local GOLD_MAGNET_MAX_SPEED = 18.0
 local GOLD_PICKUP_DIST = 0.5     -- 拾取判定距离
-local ITEM_PICKUP_DIST = 2.0     -- 装备拾取距离
+local ITEM_PICKUP_DIST = 0.65    -- 装备拾取距离：必须踩到装备上才拾取
+local ITEM_PICKUP_DELAY = 2.0    -- 装备刚掉落后延迟拾取(秒)
 local ITEM_LIFETIME = 60.0       -- 装备存在时间(秒)
 local GOLD_LIFETIME = 30.0       -- 金币存在时间(秒)
 
@@ -3323,6 +3324,7 @@ function Combat.SpawnGroundItem(scene, pos, item)
         targetY = 0.25,
         fallSpeed = 2.5 + math.random() * 1.5,
         falling = true,
+        pickupDelayTimer = 0,
         rotSpeed = 60 + math.random() * 40,
     })
 end
@@ -3403,7 +3405,9 @@ function Combat.UpdateGroundItems(dt, playerNode)
             toPlayer.y = 0
             local dist = toPlayer:Length()
 
-            if dist < ITEM_PICKUP_DIST then
+            -- 装备刚掉落的前 2 秒不可拾取，之后必须踩到装备上才触发
+            g.pickupDelayTimer = math.min(ITEM_PICKUP_DELAY, (g.pickupDelayTimer or 0) + dt)
+            if not g.falling and g.pickupDelayTimer >= ITEM_PICKUP_DELAY and dist < ITEM_PICKUP_DIST then
                 if Combat.onItemPickup then
                     Combat.onItemPickup(g.item, pos)
                 end
