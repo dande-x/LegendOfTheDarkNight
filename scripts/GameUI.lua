@@ -154,87 +154,136 @@ end
 -- 启动 Logo 展示
 -- ============================================================================
 local function _CreateLogoGlyph()
-    local outerRing = UI.Panel {
+    local shadow = UI.Panel {
         position = "absolute",
-        left = 10, top = 10,
-        width = 140, height = 140,
-        shape = "circle",
-        borderRadius = 70,
-        backgroundColor = {10, 8, 18, 180},
-        borderWidth = 2,
-        borderColor = {170, 130, 255, 190},
+        left = 12, top = 18,
+        width = 256, height = 116,
+        borderRadius = 12,
+        backgroundColor = {0, 0, 0, 105},
         boxShadow = {
-            { x = 0, y = 0, blur = 26, spread = 4, color = {110, 70, 255, 80} },
+            { x = 0, y = 18, blur = 30, spread = 0, color = {0, 0, 0, 150} },
         },
     }
 
-    local diamond = UI.Panel {
+    local plaque = UI.Panel {
         position = "absolute",
-        left = 38, top = 38,
-        width = 84, height = 84,
+        left = 0, top = 0,
+        width = 280, height = 128,
+        borderRadius = 10,
+        backgroundGradient = {
+            type = "linear",
+            direction = "to-bottom",
+            from = {88, 88, 86, 255},
+            to = {24, 24, 23, 255},
+        },
+        borderWidth = 3,
+        borderColor = {136, 136, 132, 235},
+        boxShadow = {
+            { x = 0, y = 2, blur = 8, spread = 0, color = {0, 0, 0, 140}, inset = true },
+            { x = 0, y = 0, blur = 18, spread = 1, color = {120, 120, 115, 65} },
+        },
+    }
+
+    local inner = UI.Panel {
+        position = "absolute",
+        left = 14, top = 14,
+        width = 252, height = 100,
+        borderRadius = 6,
+        backgroundGradient = {
+            type = "linear",
+            direction = "to-bottom",
+            from = {48, 48, 47, 255},
+            to = {12, 12, 12, 255},
+        },
+        borderWidth = 1,
+        borderColor = {98, 98, 94, 230},
+    }
+
+    local bladeLeft = UI.Panel {
+        position = "absolute",
+        left = 23, top = 58,
+        width = 84, height = 6,
+        rotate = -18,
+        borderRadius = 3,
+        backgroundGradient = {
+            type = "linear",
+            direction = "to-right",
+            from = {48, 48, 48, 230},
+            to = {162, 162, 156, 235},
+        },
+        borderWidth = 1,
+        borderColor = {82, 82, 80, 220},
+    }
+
+    local bladeRight = UI.Panel {
+        position = "absolute",
+        left = 173, top = 58,
+        width = 84, height = 6,
+        rotate = 18,
+        borderRadius = 3,
+        backgroundGradient = {
+            type = "linear",
+            direction = "to-left",
+            from = {48, 48, 48, 230},
+            to = {162, 162, 156, 235},
+        },
+        borderWidth = 1,
+        borderColor = {82, 82, 80, 220},
+    }
+
+    local gem = UI.Panel {
+        position = "absolute",
+        left = 121, top = 42,
+        width = 38, height = 38,
         rotate = 45,
-        borderRadius = 18,
+        borderRadius = 5,
         backgroundGradient = {
             type = "linear",
             direction = "to-bottom-right",
-            from = {255, 210, 95, 245},
-            to = {95, 55, 190, 245},
+            from = {122, 122, 118, 255},
+            to = {36, 36, 36, 255},
         },
         borderWidth = 2,
-        borderColor = {255, 235, 170, 225},
-        boxShadow = {
-            { x = 0, y = 0, blur = 22, spread = 0, color = {255, 170, 70, 85} },
-            { x = 0, y = 1, blur = 6, spread = 0, color = {0, 0, 0, 80}, inset = true },
-        },
+        borderColor = {176, 176, 168, 230},
     }
 
-    local core = UI.Panel {
+    local sigil = UI.Label {
         position = "absolute",
-        left = 53, top = 53,
-        width = 54, height = 54,
-        shape = "circle",
-        borderRadius = 27,
-        backgroundColor = {12, 9, 18, 245},
-        borderWidth = 2,
-        borderColor = {255, 220, 120, 230},
-        justifyContent = "center",
-        alignItems = "center",
-        children = {
-            UI.Label {
-                text = "夜",
-                fontSize = 30,
-                fontColor = {255, 230, 150, 255},
-                fontWeight = "bold",
-            },
-        },
+        left = 0, top = 35,
+        width = 280,
+        text = "暗夜传奇",
+        fontSize = 32,
+        fontColor = {214, 214, 206, 255},
+        fontWeight = "bold",
+        textAlign = "center",
     }
 
     local mark = UI.Panel {
-        width = 160,
-        height = 160,
+        width = 280,
+        height = 128,
         opacity = 0,
-        scale = 0.86,
+        scale = 0.88,
         transformOrigin = "center",
-        children = { outerRing, diamond, core },
+        children = { shadow, plaque, inner, bladeLeft, bladeRight, gem, sigil },
     }
 
     mark:Animate({
         keyframes = {
-            [0] = { opacity = 0, scale = 0.78, rotate = -10 },
-            [0.45] = { opacity = 1, scale = 1.06, rotate = 2 },
-            [1] = { opacity = 1, scale = 1.0, rotate = 0 },
+            [0] = { opacity = 0, scale = 0.82, translateY = 16 },
+            [0.55] = { opacity = 1, scale = 1.03, translateY = -2 },
+            [1] = { opacity = 1, scale = 1.0, translateY = 0 },
         },
         duration = 0.9,
         easing = "easeOutBack",
         fillMode = "forwards",
     })
 
-    outerRing:Animate({
+    plaque:Animate({
         keyframes = {
-            [0] = { opacity = 0.55, scale = 0.94 },
-            [1] = { opacity = 1.0, scale = 1.04 },
+            [0] = { opacity = 0.88 },
+            [1] = { opacity = 1.0 },
         },
-        duration = 1.35,
+        duration = 1.5,
         easing = "easeInOut",
         loop = true,
         direction = "alternate",
@@ -252,13 +301,13 @@ function GameUI.ShowStartupLogo(onComplete)
 
     local logo = _CreateLogoGlyph()
     local title = UI.Label {
-        text = "暗夜传奇",
-        fontSize = 44,
-        fontColor = {245, 218, 140, 255},
+        text = "RETRO LEGEND",
+        fontSize = 14,
+        fontColor = {156, 156, 150, 230},
         fontWeight = "bold",
-        marginTop = 10,
+        marginTop = 16,
         opacity = 0,
-        translateY = 18,
+        translateY = 12,
     }
     title:Animate({
         keyframes = {
@@ -271,13 +320,12 @@ function GameUI.ShowStartupLogo(onComplete)
     })
 
     local subtitle = UI.Label {
-        text = "NIGHT LEGEND",
+        text = "石门将启  英雄归来",
         fontSize = 13,
-        fontColor = {150, 135, 210, 210},
-        letterSpacing = 2,
-        marginTop = 4,
+        fontColor = {118, 118, 114, 210},
+        marginTop = 6,
         opacity = 0,
-        translateY = 10,
+        translateY = 8,
     }
     subtitle:Animate({
         keyframes = {
@@ -290,10 +338,10 @@ function GameUI.ShowStartupLogo(onComplete)
     })
 
     local hint = UI.Label {
-        text = "黑夜降临，传奇重燃",
-        fontSize = 14,
-        fontColor = {185, 178, 205, 180},
-        marginTop = 26,
+        text = "暗黑灰石 · 复古传奇",
+        fontSize = 13,
+        fontColor = {150, 150, 144, 165},
+        marginTop = 22,
         opacity = 0,
     }
     hint:Animate({
@@ -318,8 +366,8 @@ function GameUI.ShowStartupLogo(onComplete)
         backgroundGradient = {
             type = "linear",
             direction = "to-bottom",
-            from = {5, 6, 16, 255},
-            to = {20, 10, 28, 255},
+            from = {7, 7, 7, 255},
+            to = {26, 26, 25, 255},
         },
         children = {
             UI.Panel {
@@ -329,9 +377,9 @@ function GameUI.ShowStartupLogo(onComplete)
                 backgroundGradient = {
                     type = "radial",
                     innerRadius = 0,
-                    outerRadius = 540,
-                    from = {75, 45, 145, 80},
-                    to = {5, 6, 16, 0},
+                    outerRadius = 560,
+                    from = {92, 92, 88, 54},
+                    to = {7, 7, 7, 0},
                 },
             },
             UI.Panel {
@@ -340,12 +388,12 @@ function GameUI.ShowStartupLogo(onComplete)
                 paddingHorizontal = 28,
                 paddingVertical = 24,
                 borderRadius = 28,
-                backgroundColor = {8, 7, 15, 145},
+                backgroundColor = {10, 10, 10, 162},
                 borderWidth = 1,
-                borderColor = {150, 120, 255, 80},
+                borderColor = {88, 88, 84, 120},
                 boxShadow = {
-                    { x = 0, y = 18, blur = 40, spread = 0, color = {0, 0, 0, 150} },
-                    { x = 0, y = 0, blur = 34, spread = 2, color = {105, 70, 210, 60} },
+                    { x = 0, y = 18, blur = 40, spread = 0, color = {0, 0, 0, 160} },
+                    { x = 0, y = 0, blur = 28, spread = 1, color = {92, 92, 88, 38} },
                 },
                 children = { logo, title, subtitle, hint },
             },
@@ -1481,18 +1529,18 @@ function GameUI.ShowSaveSlots(slots, callbacks)
     -- 下半：左右角色信息卡 + 中间操作按钮
     -- ========================================================================
 
-    -- 颜色配置（现代暗夜 + 传奇石纹）
-    local C_BORDER_ACTIVE = {255, 214, 108, 255}   -- 选中：金色高亮边框
-    local C_BORDER_NORMAL = {76, 72, 84, 210}      -- 未选中：暗紫灰边框
-    local C_STONE_BG      = {26, 24, 30, 255}      -- 底部暗夜石板
-    local C_INFO_BG       = {38, 36, 43, 255}      -- 信息卡底色
-    local C_LABEL         = {214, 210, 198, 232}   -- 正文信息色
-    local C_LABEL_DIM     = {140, 134, 128, 190}   -- 暗淡标签色
-    local C_GOLD          = {244, 220, 138, 255}   -- 高亮金色
-    local C_ACCENT        = {140, 96, 255, 235}    -- 暗夜紫强调色
-    local C_BTN_BG        = {70, 60, 50, 242}      -- 按钮底色
-    local C_BTN_BORDER    = {128, 110, 78, 225}    -- 按钮边框
-    local C_BTN_DISABLED  = {38, 35, 35, 205}      -- 按钮禁用底色
+    -- 颜色配置（暗黑灰石 + 复古传奇金属质感）
+    local C_BORDER_ACTIVE = {188, 188, 180, 255}   -- 选中：冷灰金属高亮
+    local C_BORDER_NORMAL = {66, 66, 64, 210}      -- 未选中：暗灰边框
+    local C_STONE_BG      = {24, 24, 23, 255}      -- 底部暗灰石板
+    local C_INFO_BG       = {38, 38, 36, 255}      -- 信息卡底色
+    local C_LABEL         = {210, 210, 202, 232}   -- 正文信息色
+    local C_LABEL_DIM     = {132, 132, 126, 190}   -- 暗淡标签色
+    local C_GOLD          = {222, 222, 212, 255}   -- 高亮文字（灰白）
+    local C_ACCENT        = {158, 158, 150, 235}   -- 灰色强调色
+    local C_BTN_BG        = {58, 58, 54, 242}      -- 按钮底色
+    local C_BTN_BORDER    = {105, 105, 98, 225}    -- 按钮边框
+    local C_BTN_DISABLED  = {34, 34, 32, 205}      -- 按钮禁用底色
 
     local function SelectSlot(index)
         if selectedSlot ~= index then
@@ -1515,16 +1563,16 @@ function GameUI.ShowSaveSlots(slots, callbacks)
             text = "",
             flexGrow = 1,
             height = "100%",
-            backgroundColor = isSelected and {22, 16, 34, 42} or {0, 0, 0, 0},
-            hoverBackgroundColor = {45, 34, 62, 70},
-            pressedBackgroundColor = {70, 48, 68, 92},
+            backgroundColor = isSelected and {20, 20, 20, 42} or {0, 0, 0, 0},
+            hoverBackgroundColor = {54, 54, 52, 70},
+            pressedBackgroundColor = {68, 68, 64, 92},
             borderWidth = isSelected and 4 or 2,
             borderColor = borderCol,
             borderRadius = 8,
             transition = "backgroundColor 0.18s easeOut, borderColor 0.18s easeOut, scale 0.15s easeOut",
             boxShadow = isSelected and {
-                { x = 0, y = 0, blur = 22, spread = 2, color = {255, 198, 78, 92} },
-                { x = 0, y = 0, blur = 32, spread = 0, color = {130, 75, 255, 70} },
+                { x = 0, y = 0, blur = 22, spread = 2, color = {160, 160, 150, 82} },
+                { x = 0, y = 0, blur = 32, spread = 0, color = {70, 70, 68, 70} },
             } or {
                 { x = 0, y = 6, blur = 16, spread = 0, color = {0, 0, 0, 90} },
             },
@@ -1541,9 +1589,9 @@ function GameUI.ShowSaveSlots(slots, callbacks)
                     alignItems = "center",
                     paddingHorizontal = 10,
                     borderRadius = 16,
-                    backgroundColor = isSelected and {28, 20, 16, 222} or {12, 12, 16, 170},
+                    backgroundColor = isSelected and {26, 26, 24, 222} or {12, 12, 12, 170},
                     borderWidth = 1,
-                    borderColor = isSelected and {245, 210, 110, 230} or {100, 92, 115, 170},
+                    borderColor = isSelected and {170, 170, 162, 230} or {92, 92, 88, 170},
                     children = {
                         UI.Label {
                             text = "NO." .. index,
@@ -1570,14 +1618,14 @@ function GameUI.ShowSaveSlots(slots, callbacks)
                             paddingHorizontal = 14,
                             paddingVertical = 6,
                             borderRadius = 16,
-                            backgroundColor = {76, 48, 15, 228},
+                            backgroundColor = {44, 44, 41, 228},
                             borderWidth = 1,
-                            borderColor = {255, 210, 95, 230},
+                            borderColor = {150, 150, 142, 230},
                             children = {
                                 UI.Label {
                                     text = data and "已锁定此角色" or "将在此槽创建新角色",
                                     fontSize = 12,
-                                    fontColor = {255, 232, 170, 255},
+                                    fontColor = {220, 220, 210, 255},
                                 },
                             },
                         },
@@ -1626,14 +1674,14 @@ function GameUI.ShowSaveSlots(slots, callbacks)
                                 height = isSelected and 8 or 6,
                                 shape = "circle",
                                 borderRadius = isSelected and 4 or 3,
-                                backgroundColor = isSelected and {255, 212, 92, 255} or {105, 100, 112, 190},
+                                backgroundColor = isSelected and {184, 184, 176, 255} or {105, 105, 100, 190},
                             },
                         },
                     },
                     UI.Label {
                         text = isSelected and "已选中" or "点此选择",
                         fontSize = 12,
-                        fontColor = isSelected and {255, 232, 165, 255} or {170, 166, 176, 205},
+                        fontColor = isSelected and {220, 220, 210, 255} or {170, 170, 164, 205},
                     },
                 },
             },
@@ -1645,10 +1693,10 @@ function GameUI.ShowSaveSlots(slots, callbacks)
                 backgroundGradient = isSelected and {
                     type = "linear",
                     direction = "to-right",
-                    from = {255, 205, 78, 255},
-                    to = {132, 88, 255, 230},
+                    from = {178, 178, 170, 255},
+                    to = {82, 82, 78, 230},
                 } or nil,
-                backgroundColor = isSelected and nil or {72, 68, 78, 170},
+                backgroundColor = isSelected and nil or {70, 70, 66, 170},
                 marginBottom = 8,
             },
         }
@@ -1682,7 +1730,7 @@ function GameUI.ShowSaveSlots(slots, callbacks)
                     UI.Label {
                         text = "空槽位",
                         fontSize = 15,
-                        fontColor = isSelected and {255, 225, 150, 240} or C_LABEL_DIM,
+                        fontColor = isSelected and {210, 210, 202, 240} or C_LABEL_DIM,
                         fontWeight = "bold",
                     },
                     UI.Label {
@@ -1703,18 +1751,18 @@ function GameUI.ShowSaveSlots(slots, callbacks)
             backgroundGradient = isSelected and {
                 type = "linear",
                 direction = "to-bottom",
-                from = {130, 82, 34, 245},
-                to = {74, 42, 22, 245},
+                from = {82, 82, 78, 245},
+                to = {42, 42, 39, 245},
             } or nil,
-            backgroundColor = isSelected and nil or {48, 45, 54, 230},
-            hoverBackgroundColor = isSelected and {142, 92, 42, 245} or {64, 58, 76, 240},
-            pressedBackgroundColor = {88, 56, 36, 245},
+            backgroundColor = isSelected and nil or {48, 48, 45, 230},
+            hoverBackgroundColor = isSelected and {96, 96, 90, 245} or {58, 58, 55, 240},
+            pressedBackgroundColor = {68, 68, 64, 245},
             borderRadius = 5,
             borderWidth = 1,
-            borderColor = isSelected and {255, 218, 120, 235} or {102, 96, 116, 200},
+            borderColor = isSelected and {178, 178, 168, 235} or {96, 96, 90, 200},
             fontSize = 13,
             fontWeight = "bold",
-            fontColor = isSelected and {255, 238, 185, 255} or {205, 200, 215, 230},
+            fontColor = isSelected and {230, 230, 220, 255} or {196, 196, 188, 230},
             transition = "backgroundColor 0.15s easeOut, scale 0.12s easeOut",
             onClick = function()
                 SelectSlot(index)
@@ -1727,8 +1775,8 @@ function GameUI.ShowSaveSlots(slots, callbacks)
             backgroundGradient = isSelected and {
                 type = "linear",
                 direction = "to-bottom",
-                from = {58, 44, 37, 255},
-                to = {33, 30, 42, 255},
+                from = {56, 56, 52, 255},
+                to = {28, 28, 27, 255},
             } or nil,
             backgroundColor = isSelected and nil or C_INFO_BG,
             borderWidth = isSelected and 3 or 1,
@@ -1739,7 +1787,7 @@ function GameUI.ShowSaveSlots(slots, callbacks)
             scale = isSelected and 1.02 or 1.0,
             transition = "backgroundColor 0.18s easeOut, borderColor 0.18s easeOut, scale 0.18s easeOut",
             boxShadow = isSelected and {
-                { x = 0, y = 0, blur = 18, spread = 1, color = {255, 196, 82, 70} },
+                { x = 0, y = 0, blur = 18, spread = 1, color = {145, 145, 136, 65} },
                 { x = 0, y = 10, blur = 18, spread = 0, color = {0, 0, 0, 110} },
             } or {
                 { x = 0, y = 5, blur = 12, spread = 0, color = {0, 0, 0, 85} },
