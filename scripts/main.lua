@@ -101,8 +101,10 @@ function Start()
     -- 初始化存档系统
     SaveSystem.Init()
 
-    -- 显示存档槽位选择界面
-    ShowSaveSlotScreen()
+    -- 先展示启动 Logo，再进入存档槽位选择界面
+    GameUI.ShowStartupLogo(function()
+        ShowSaveSlotScreen()
+    end)
 
     SubscribeToEvent("Update", "HandleUpdate")
     SubscribeToEvent("PostUpdate", "HandlePostUpdate")
@@ -1457,6 +1459,11 @@ end
 -- ============================================================================
 function HandleUpdate(eventType, eventData)
     local dt = eventData["TimeStep"]:GetFloat()
+
+    -- 启动 Logo：只更新开场 UI，结束后回调进入存档界面
+    if GameUI.UpdateStartupLogo(dt) then
+        return
+    end
 
     -- 预览模式：只更新预览动画，不运行游戏逻辑
     if previewActive_ then

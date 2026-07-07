@@ -48,6 +48,18 @@ local doorState = {
 }
 
 -- ============================================================================
+-- 启动 Logo 状态
+-- ============================================================================
+local startupLogoState = {
+    active = false,
+    timer = 0,
+    duration = 2.8,
+    onComplete = nil,
+    root = nil,
+    finished = false,
+}
+
+-- ============================================================================
 -- 施法条状态（由 main.lua 设置）
 -- ============================================================================
 local castBarState = {
@@ -136,6 +148,240 @@ end
 function HandleNanoVGRender(eventType, eventData)
     if not nvgCtx then return end
     GameUI._RenderNanoVG()
+end
+
+-- ============================================================================
+-- 启动 Logo 展示
+-- ============================================================================
+local function _CreateLogoGlyph()
+    local outerRing = UI.Panel {
+        position = "absolute",
+        left = 10, top = 10,
+        width = 140, height = 140,
+        shape = "circle",
+        borderRadius = 70,
+        backgroundColor = {10, 8, 18, 180},
+        borderWidth = 2,
+        borderColor = {170, 130, 255, 190},
+        boxShadow = {
+            { x = 0, y = 0, blur = 26, spread = 4, color = {110, 70, 255, 80} },
+        },
+    }
+
+    local diamond = UI.Panel {
+        position = "absolute",
+        left = 38, top = 38,
+        width = 84, height = 84,
+        rotate = 45,
+        borderRadius = 18,
+        backgroundGradient = {
+            type = "linear",
+            direction = "to-bottom-right",
+            from = {255, 210, 95, 245},
+            to = {95, 55, 190, 245},
+        },
+        borderWidth = 2,
+        borderColor = {255, 235, 170, 225},
+        boxShadow = {
+            { x = 0, y = 0, blur = 22, spread = 0, color = {255, 170, 70, 85} },
+            { x = 0, y = 1, blur = 6, spread = 0, color = {0, 0, 0, 80}, inset = true },
+        },
+    }
+
+    local core = UI.Panel {
+        position = "absolute",
+        left = 53, top = 53,
+        width = 54, height = 54,
+        shape = "circle",
+        borderRadius = 27,
+        backgroundColor = {12, 9, 18, 245},
+        borderWidth = 2,
+        borderColor = {255, 220, 120, 230},
+        justifyContent = "center",
+        alignItems = "center",
+        children = {
+            UI.Label {
+                text = "夜",
+                fontSize = 30,
+                fontColor = {255, 230, 150, 255},
+                fontWeight = "bold",
+            },
+        },
+    }
+
+    local mark = UI.Panel {
+        width = 160,
+        height = 160,
+        opacity = 0,
+        scale = 0.86,
+        transformOrigin = "center",
+        children = { outerRing, diamond, core },
+    }
+
+    mark:Animate({
+        keyframes = {
+            [0] = { opacity = 0, scale = 0.78, rotate = -10 },
+            [0.45] = { opacity = 1, scale = 1.06, rotate = 2 },
+            [1] = { opacity = 1, scale = 1.0, rotate = 0 },
+        },
+        duration = 0.9,
+        easing = "easeOutBack",
+        fillMode = "forwards",
+    })
+
+    outerRing:Animate({
+        keyframes = {
+            [0] = { opacity = 0.55, scale = 0.94 },
+            [1] = { opacity = 1.0, scale = 1.04 },
+        },
+        duration = 1.35,
+        easing = "easeInOut",
+        loop = true,
+        direction = "alternate",
+    })
+
+    return mark
+end
+
+function GameUI.ShowStartupLogo(onComplete)
+    startupLogoState.active = true
+    startupLogoState.timer = 0
+    startupLogoState.duration = 2.8
+    startupLogoState.onComplete = onComplete
+    startupLogoState.finished = false
+
+    local logo = _CreateLogoGlyph()
+    local title = UI.Label {
+        text = "暗夜传奇",
+        fontSize = 44,
+        fontColor = {245, 218, 140, 255},
+        fontWeight = "bold",
+        marginTop = 10,
+        opacity = 0,
+        translateY = 18,
+    }
+    title:Animate({
+        keyframes = {
+            [0] = { opacity = 0, translateY = 20 },
+            [1] = { opacity = 1, translateY = 0 },
+        },
+        duration = 0.75,
+        easing = "easeOutCubic",
+        fillMode = "forwards",
+    })
+
+    local subtitle = UI.Label {
+        text = "NIGHT LEGEND",
+        fontSize = 13,
+        fontColor = {150, 135, 210, 210},
+        letterSpacing = 2,
+        marginTop = 4,
+        opacity = 0,
+        translateY = 10,
+    }
+    subtitle:Animate({
+        keyframes = {
+            [0] = { opacity = 0, translateY = 10 },
+            [1] = { opacity = 1, translateY = 0 },
+        },
+        duration = 0.85,
+        easing = "easeOutCubic",
+        fillMode = "forwards",
+    })
+
+    local hint = UI.Label {
+        text = "黑夜降临，传奇重燃",
+        fontSize = 14,
+        fontColor = {185, 178, 205, 180},
+        marginTop = 26,
+        opacity = 0,
+    }
+    hint:Animate({
+        keyframes = {
+            [0] = { opacity = 0 },
+            [0.5] = { opacity = 1 },
+            [1] = { opacity = 0.72 },
+        },
+        duration = 1.4,
+        easing = "easeInOut",
+        loop = true,
+        direction = "alternate",
+    })
+
+    startupLogoState.root = UI.Panel {
+        id = "startupLogo",
+        width = "100%",
+        height = "100%",
+        pointerEvents = "box-none",
+        justifyContent = "center",
+        alignItems = "center",
+        backgroundGradient = {
+            type = "linear",
+            direction = "to-bottom",
+            from = {5, 6, 16, 255},
+            to = {20, 10, 28, 255},
+        },
+        children = {
+            UI.Panel {
+                position = "absolute",
+                width = "100%",
+                height = "100%",
+                backgroundGradient = {
+                    type = "radial",
+                    innerRadius = 0,
+                    outerRadius = 540,
+                    from = {75, 45, 145, 80},
+                    to = {5, 6, 16, 0},
+                },
+            },
+            UI.Panel {
+                alignItems = "center",
+                justifyContent = "center",
+                paddingHorizontal = 28,
+                paddingVertical = 24,
+                borderRadius = 28,
+                backgroundColor = {8, 7, 15, 145},
+                borderWidth = 1,
+                borderColor = {150, 120, 255, 80},
+                boxShadow = {
+                    { x = 0, y = 18, blur = 40, spread = 0, color = {0, 0, 0, 150} },
+                    { x = 0, y = 0, blur = 34, spread = 2, color = {105, 70, 210, 60} },
+                },
+                children = { logo, title, subtitle, hint },
+            },
+        },
+    }
+
+    UI.SetRoot(startupLogoState.root)
+    print("[GameUI] Startup logo shown")
+end
+
+function GameUI.UpdateStartupLogo(dt)
+    if not startupLogoState.active then return false end
+
+    startupLogoState.timer = startupLogoState.timer + dt
+    local remaining = startupLogoState.duration - startupLogoState.timer
+    if startupLogoState.root and remaining <= 0.45 then
+        local alpha = math.max(0, remaining / 0.45)
+        startupLogoState.root:SetStyle({ opacity = alpha })
+    end
+
+    if startupLogoState.timer >= startupLogoState.duration and not startupLogoState.finished then
+        startupLogoState.finished = true
+        startupLogoState.active = false
+        local cb = startupLogoState.onComplete
+        startupLogoState.root = nil
+        startupLogoState.onComplete = nil
+        print("[GameUI] Startup logo complete")
+        if cb then cb() end
+        return true
+    end
+
+    return true
+end
+
+function GameUI.IsStartupLogoActive()
+    return startupLogoState.active
 end
 
 -- ============================================================================
@@ -1235,38 +1481,111 @@ function GameUI.ShowSaveSlots(slots, callbacks)
     -- 下半：左右角色信息卡 + 中间操作按钮
     -- ========================================================================
 
-    -- 颜色配置（老旧灰色石块风格 — 经典传奇石砖UI）
-    local C_BORDER_ACTIVE = {160, 160, 150, 255}    -- 选中：亮石灰色边框
-    local C_BORDER_NORMAL = {55, 55, 52, 200}       -- 未选中：暗石缝色
-    local C_STONE_BG      = {38, 38, 36, 255}       -- 石块底色（深灰岩）
-    local C_INFO_BG       = {48, 47, 44, 255}       -- 信息卡底色（浅灰石板）
-    local C_LABEL          = {190, 188, 180, 220}   -- 正文信息色（浅灰白）
-    local C_LABEL_DIM      = {110, 108, 100, 180}   -- 暗淡标签色
-    local C_GOLD           = {210, 208, 195, 255}   -- 高亮文字（亮白灰，非金色）
-    local C_BTN_BG         = {62, 60, 56, 240}      -- 按钮底色（灰石板）
-    local C_BTN_BORDER     = {90, 88, 80, 220}      -- 按钮边框（石缝灰）
-    local C_BTN_DISABLED   = {35, 34, 32, 200}      -- 按钮禁用底色（深暗灰）
+    -- 颜色配置（现代暗夜 + 传奇石纹）
+    local C_BORDER_ACTIVE = {255, 214, 108, 255}   -- 选中：金色高亮边框
+    local C_BORDER_NORMAL = {76, 72, 84, 210}      -- 未选中：暗紫灰边框
+    local C_STONE_BG      = {26, 24, 30, 255}      -- 底部暗夜石板
+    local C_INFO_BG       = {38, 36, 43, 255}      -- 信息卡底色
+    local C_LABEL         = {214, 210, 198, 232}   -- 正文信息色
+    local C_LABEL_DIM     = {140, 134, 128, 190}   -- 暗淡标签色
+    local C_GOLD          = {244, 220, 138, 255}   -- 高亮金色
+    local C_ACCENT        = {140, 96, 255, 235}    -- 暗夜紫强调色
+    local C_BTN_BG        = {70, 60, 50, 242}      -- 按钮底色
+    local C_BTN_BORDER    = {128, 110, 78, 225}    -- 按钮边框
+    local C_BTN_DISABLED  = {38, 35, 35, 205}      -- 按钮禁用底色
+
+    local function SelectSlot(index)
+        if selectedSlot ~= index then
+            persistedSelectedSlot_ = index
+            if callbacks.onSelect then callbacks.onSelect(index) end
+            GameUI.ShowSaveSlots(slots, callbacks)
+        end
+    end
 
     --- 构建角色展示窗口（上半部分，完全透明让3D角色透出）
     local function BuildViewport(index)
         local isSelected = (index == selectedSlot)
+        local data = slots[index]
         local borderCol = isSelected and C_BORDER_ACTIVE or C_BORDER_NORMAL
+        local statusText = isSelected and "当前选中" or "点击选择 NO." .. index
+        local statusColor = isSelected and C_GOLD or {178, 172, 185, 205}
+
         return UI.Button {
             id = "viewport_" .. index,
             text = "",
             flexGrow = 1,
             height = "100%",
-            -- 无背景填充！让3D场景（深色背板+角色）直接可见
-            backgroundColor = {0, 0, 0, 0},
-            borderWidth = isSelected and 3 or 1,
+            backgroundColor = isSelected and {22, 16, 34, 42} or {0, 0, 0, 0},
+            hoverBackgroundColor = {45, 34, 62, 70},
+            pressedBackgroundColor = {70, 48, 68, 92},
+            borderWidth = isSelected and 4 or 2,
             borderColor = borderCol,
-            borderRadius = 2,
+            borderRadius = 8,
+            transition = "backgroundColor 0.18s easeOut, borderColor 0.18s easeOut, scale 0.15s easeOut",
+            boxShadow = isSelected and {
+                { x = 0, y = 0, blur = 22, spread = 2, color = {255, 198, 78, 92} },
+                { x = 0, y = 0, blur = 32, spread = 0, color = {130, 75, 255, 70} },
+            } or {
+                { x = 0, y = 6, blur = 16, spread = 0, color = {0, 0, 0, 90} },
+            },
+            children = {
+                -- 顶部状态条：比单纯边框更容易被新人识别
+                UI.Panel {
+                    position = "absolute",
+                    top = 10,
+                    left = 12,
+                    right = 12,
+                    height = 32,
+                    flexDirection = "row",
+                    justifyContent = "space-between",
+                    alignItems = "center",
+                    paddingHorizontal = 10,
+                    borderRadius = 16,
+                    backgroundColor = isSelected and {28, 20, 16, 222} or {12, 12, 16, 170},
+                    borderWidth = 1,
+                    borderColor = isSelected and {245, 210, 110, 230} or {100, 92, 115, 170},
+                    children = {
+                        UI.Label {
+                            text = "NO." .. index,
+                            fontSize = 15,
+                            fontWeight = "bold",
+                            fontColor = isSelected and C_GOLD or {205, 200, 210, 220},
+                        },
+                        UI.Label {
+                            text = statusText,
+                            fontSize = 12,
+                            fontColor = statusColor,
+                        },
+                    },
+                },
+                isSelected and UI.Panel {
+                    position = "absolute",
+                    bottom = 14,
+                    left = 0,
+                    right = 0,
+                    alignItems = "center",
+                    pointerEvents = "none",
+                    children = {
+                        UI.Panel {
+                            paddingHorizontal = 14,
+                            paddingVertical = 6,
+                            borderRadius = 16,
+                            backgroundColor = {76, 48, 15, 228},
+                            borderWidth = 1,
+                            borderColor = {255, 210, 95, 230},
+                            children = {
+                                UI.Label {
+                                    text = data and "已锁定此角色" or "将在此槽创建新角色",
+                                    fontSize = 12,
+                                    fontColor = {255, 232, 170, 255},
+                                },
+                            },
+                        },
+                    },
+                } or nil,
+            },
             onClick = function()
-                if selectedSlot ~= index then
-                    persistedSelectedSlot_ = index
-                    if callbacks.onSelect then callbacks.onSelect(index) end
-                    GameUI.ShowSaveSlots(slots, callbacks)
-                end
+                SelectSlot(index)
             end,
         }
     end
@@ -1277,80 +1596,157 @@ function GameUI.ShowSaveSlots(slots, callbacks)
         local isEmpty = (data == nil)
         local isSelected = (index == selectedSlot)
         local borderCol = isSelected and C_BORDER_ACTIVE or C_BORDER_NORMAL
+        local cName = "未创建"
+        if not isEmpty then
+            cName = classNames[data.classId] or data.className or "???"
+        end
 
-        -- 信息行构建
-        local infoChildren = {}
-        -- 标题行：NO.X + 选择按钮
-        table.insert(infoChildren, UI.Panel {
-            width = "100%",
-            flexDirection = "row",
-            justifyContent = "space-between",
-            alignItems = "center",
-            marginBottom = 4,
-            children = {
-                UI.Label {
-                    text = "NO." .. index,
-                    fontSize = 15,
-                    fontColor = C_GOLD,
-                },
-                UI.Button {
-                    text = isSelected and "已选" or "选择",
-                    width = 52,
-                    height = 22,
-                    fontSize = 12,
-                    backgroundColor = isSelected and {55, 54, 50, 220} or {40, 39, 36, 200},
-                    borderRadius = 2,
-                    borderWidth = 1,
-                    borderColor = isSelected and {140, 138, 130, 200} or {65, 63, 58, 180},
-                    fontColor = isSelected and C_GOLD or C_LABEL_DIM,
-                    onClick = function()
-                        if selectedSlot ~= index then
-                            persistedSelectedSlot_ = index
-                            if callbacks.onSelect then callbacks.onSelect(index) end
-                            GameUI.ShowSaveSlots(slots, callbacks)
-                        end
-                    end,
+        local infoChildren = {
+            -- 顶部 NO 标签 + 明确状态徽标
+            UI.Panel {
+                width = "100%",
+                flexDirection = "row",
+                justifyContent = "space-between",
+                alignItems = "center",
+                marginBottom = 6,
+                children = {
+                    UI.Panel {
+                        flexDirection = "row",
+                        alignItems = "center",
+                        gap = 6,
+                        children = {
+                            UI.Label {
+                                text = "NO." .. index,
+                                fontSize = isSelected and 19 or 17,
+                                fontWeight = "bold",
+                                fontColor = isSelected and C_GOLD or {220, 215, 205, 235},
+                            },
+                            UI.Panel {
+                                width = isSelected and 8 or 6,
+                                height = isSelected and 8 or 6,
+                                shape = "circle",
+                                borderRadius = isSelected and 4 or 3,
+                                backgroundColor = isSelected and {255, 212, 92, 255} or {105, 100, 112, 190},
+                            },
+                        },
+                    },
+                    UI.Label {
+                        text = isSelected and "已选中" or "点此选择",
+                        fontSize = 12,
+                        fontColor = isSelected and {255, 232, 165, 255} or {170, 166, 176, 205},
+                    },
                 },
             },
-        })
+            -- 选中横条：让状态比小按钮更醒目
+            UI.Panel {
+                width = "100%",
+                height = isSelected and 4 or 2,
+                borderRadius = 2,
+                backgroundGradient = isSelected and {
+                    type = "linear",
+                    direction = "to-right",
+                    from = {255, 205, 78, 255},
+                    to = {132, 88, 255, 230},
+                } or nil,
+                backgroundColor = isSelected and nil or {72, 68, 78, 170},
+                marginBottom = 8,
+            },
+        }
 
         if not isEmpty then
-            ---@type string
-            local cName = classNames[data.classId] or data.className or "???"
-            -- 等级行
             table.insert(infoChildren, UI.Panel {
-                width = "100%", flexDirection = "row", marginBottom = 2,
+                width = "100%",
+                flexDirection = "row",
+                marginBottom = 3,
                 children = {
-                    UI.Label { text = "等级", fontSize = 13, fontColor = C_LABEL_DIM, width = 40 },
-                    UI.Label { text = tostring(data.level or 1), fontSize = 13, fontColor = C_LABEL },
+                    UI.Label { text = "等级", fontSize = 13, fontColor = C_LABEL_DIM, width = 42 },
+                    UI.Label { text = tostring(data.level or 1), fontSize = 13, fontColor = C_LABEL, fontWeight = "bold" },
                 },
             })
-            -- 职业行
             table.insert(infoChildren, UI.Panel {
-                width = "100%", flexDirection = "row",
+                width = "100%",
+                flexDirection = "row",
+                marginBottom = 6,
                 children = {
-                    UI.Label { text = "职业", fontSize = 13, fontColor = C_LABEL_DIM, width = 40 },
-                    UI.Label { text = cName, fontSize = 13, fontColor = C_GOLD },
+                    UI.Label { text = "职业", fontSize = 13, fontColor = C_LABEL_DIM, width = 42 },
+                    UI.Label { text = cName, fontSize = 13, fontColor = C_GOLD, fontWeight = "bold" },
                 },
             })
         else
-            table.insert(infoChildren, UI.Label {
-                text = "— 空 —",
-                fontSize = 14,
-                fontColor = C_LABEL_DIM,
-                marginTop = 8,
+            table.insert(infoChildren, UI.Panel {
+                width = "100%",
+                alignItems = "center",
+                marginTop = 4,
+                marginBottom = 4,
+                children = {
+                    UI.Label {
+                        text = "空槽位",
+                        fontSize = 15,
+                        fontColor = isSelected and {255, 225, 150, 240} or C_LABEL_DIM,
+                        fontWeight = "bold",
+                    },
+                    UI.Label {
+                        text = "选中后点击创建人物",
+                        fontSize = 11,
+                        fontColor = {150, 144, 160, 190},
+                        marginTop = 3,
+                    },
+                },
             })
         end
+
+        table.insert(infoChildren, UI.Button {
+            text = isSelected and "当前槽位" or "选择 NO." .. index,
+            width = "100%",
+            height = 30,
+            marginTop = 4,
+            backgroundGradient = isSelected and {
+                type = "linear",
+                direction = "to-bottom",
+                from = {130, 82, 34, 245},
+                to = {74, 42, 22, 245},
+            } or nil,
+            backgroundColor = isSelected and nil or {48, 45, 54, 230},
+            hoverBackgroundColor = isSelected and {142, 92, 42, 245} or {64, 58, 76, 240},
+            pressedBackgroundColor = {88, 56, 36, 245},
+            borderRadius = 5,
+            borderWidth = 1,
+            borderColor = isSelected and {255, 218, 120, 235} or {102, 96, 116, 200},
+            fontSize = 13,
+            fontWeight = "bold",
+            fontColor = isSelected and {255, 238, 185, 255} or {205, 200, 215, 230},
+            transition = "backgroundColor 0.15s easeOut, scale 0.12s easeOut",
+            onClick = function()
+                SelectSlot(index)
+            end,
+        })
 
         return UI.Panel {
             id = "info_card_" .. index,
             flexGrow = 1,
-            backgroundColor = C_INFO_BG,
-            borderWidth = isSelected and 2 or 1,
+            backgroundGradient = isSelected and {
+                type = "linear",
+                direction = "to-bottom",
+                from = {58, 44, 37, 255},
+                to = {33, 30, 42, 255},
+            } or nil,
+            backgroundColor = isSelected and nil or C_INFO_BG,
+            borderWidth = isSelected and 3 or 1,
             borderColor = borderCol,
-            borderRadius = 2,
-            paddingHorizontal = 10,
-            paddingVertical = 6,
+            borderRadius = 8,
+            paddingHorizontal = 12,
+            paddingVertical = 8,
+            scale = isSelected and 1.02 or 1.0,
+            transition = "backgroundColor 0.18s easeOut, borderColor 0.18s easeOut, scale 0.18s easeOut",
+            boxShadow = isSelected and {
+                { x = 0, y = 0, blur = 18, spread = 1, color = {255, 196, 82, 70} },
+                { x = 0, y = 10, blur = 18, spread = 0, color = {0, 0, 0, 110} },
+            } or {
+                { x = 0, y = 5, blur = 12, spread = 0, color = {0, 0, 0, 85} },
+            },
+            onPointerUp = function()
+                SelectSlot(index)
+            end,
             children = infoChildren,
         }
     end
