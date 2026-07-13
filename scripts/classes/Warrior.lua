@@ -7,6 +7,9 @@ local WEAPON_SCALE = 1.55
 
 local Warrior = {}
 
+-- 武士是男角色，动作必须使用独立男版动作集，不能跟女角色共用。
+Warrior.animSet = "male"
+
 -- 武器挂载配置（正手持刀：刀刃朝前，刀尖朝上）
 Warrior.weapon = {
     name = "屠龙刀",

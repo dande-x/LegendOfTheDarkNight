@@ -84,6 +84,22 @@ local ANIM_PATHS = {
     die         = "uuid://EUvBwU0-VB_KCvzQldvwX1gF",
 }
 
+local ANIM_SETS = {
+    male = ANIM_PATHS,
+}
+
+local currentAnimPaths = ANIM_SETS.male
+
+local function SelectAnimSet(classId, classMod)
+    local setName = classMod.animSet or "male"
+    currentAnimPaths = ANIM_SETS[setName] or ANIM_SETS.male
+    print(string.format("[PlayerAnim] Animation set selected: %s -> %s", tostring(classId), setName))
+end
+
+local function GetCurrentAnimPaths()
+    return currentAnimPaths or ANIM_PATHS
+end
+
 -- 动画时长
 local ANIM_DURATIONS = {
     idle        = 1.33,
@@ -209,6 +225,9 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors)
     currentClassId = classId
     playerNode_ = playerNode
 
+    local classMod = ClassModules[classId] or ClassModules.warrior
+    SelectAnimSet(classId, classMod)
+
     if modelNode_ then
         modelNode_:Remove()
         modelNode_ = nil
@@ -219,7 +238,6 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors)
     local ok, err = pcall(function()
         local parentScene = playerNode:GetScene()
         -- 支持按职业加载独立 prefab（如道士有自己的道袍模型）
-        local classMod = ClassModules[classId] or ClassModules.warrior
         local prefabPath = classMod.prefab or CHARACTER_PREFAB
         local prefabFile = cache:GetFile(prefabPath)
         if not prefabFile then
@@ -282,8 +300,9 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors)
             animCtrl_ = modelNode_:CreateComponent("AnimationController")
         end
 
-        if animCtrl_ and ANIM_PATHS.idle then
-            animCtrl_:PlayExclusive(ANIM_PATHS.idle, 0, true, 0.0)
+        local animPaths = GetCurrentAnimPaths()
+        if animCtrl_ and animPaths.idle then
+            animCtrl_:PlayExclusive(animPaths.idle, 0, true, 0.0)
             animState.current = "idle"
         end
 
@@ -298,9 +317,10 @@ end
 -- 动画播放
 -- ============================================================================
 function PlayerAnim.Play(animName, onComplete, opts)
-    local animPath = ANIM_PATHS[animName]
+    local animPaths = GetCurrentAnimPaths()
+    local animPath = animPaths[animName]
     if not animPath then
-        if animName == "hit" then animPath = ANIM_PATHS.melee_fast
+        if animName == "hit" then animPath = animPaths.melee_fast
         else return end
     end
 
@@ -347,13 +367,15 @@ end
 function PlayerAnim.Update(dt, isMoving)
     if hitFeedback.hitPause > 0 then
         hitFeedback.hitPause = hitFeedback.hitPause - dt
-        if animCtrl_ and ANIM_PATHS[animState.current] then
-            animCtrl_:SetSpeed(ANIM_PATHS[animState.current], 0.0)
+        local animPaths = GetCurrentAnimPaths()
+        if animCtrl_ and animPaths[animState.current] then
+            animCtrl_:SetSpeed(animPaths[animState.current], 0.0)
         end
         return
     else
-        if animCtrl_ and ANIM_PATHS[animState.current] then
-            animCtrl_:SetSpeed(ANIM_PATHS[animState.current], animState.speed or 1.0)
+        local animPaths = GetCurrentAnimPaths()
+        if animCtrl_ and animPaths[animState.current] then
+            animCtrl_:SetSpeed(animPaths[animState.current], animState.speed or 1.0)
         end
     end
 

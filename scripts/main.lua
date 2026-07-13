@@ -601,13 +601,27 @@ end
 -- 角色预览系统（存档选择界面展示3D角色）
 -- ============================================================================
 
--- 预览用动画路径（与 PlayerAnim 相同）
-local PREVIEW_ANIM_PATHS = {
+-- 预览用男角色动画路径
+local PREVIEW_MALE_ANIM_PATHS = {
     idle       = "uuid://GikiEX04hbY9D5ALGNz051Zh",
     melee_fast = "uuid://Ai-SCaONHGJAnRCLZmoO2QJ8",
     cast_quick = "uuid://E3rZmUDaM9pq2-V2gj3pCyW4",
     sweep_l    = "uuid://BzVkoQzPfkBeIJ_SyLQNwXpI",
 }
+
+local PREVIEW_ANIM_SETS = {
+    male = PREVIEW_MALE_ANIM_PATHS,
+}
+
+local function GetPreviewAnimPaths(classId)
+    local ClassModules = {
+        warrior = require("classes.Warrior"),
+        mage    = require("classes.Mage"),
+        taoist  = require("classes.Taoist"),
+    }
+    local classMod = ClassModules[classId] or ClassModules.warrior
+    return PREVIEW_ANIM_SETS[classMod.animSet or "male"] or PREVIEW_MALE_ANIM_PATHS
+end
 local PREVIEW_ANIM_DURATIONS = {
     melee_fast = 1.07,
     cast_quick = 1.5,
@@ -723,8 +737,9 @@ function CreatePreviewCharacter(slotIndex, classId)
     previewAttackTimer_[slotIndex] = 0
 
     -- 默认播放 idle
-    if animCtrl and PREVIEW_ANIM_PATHS.idle then
-        animCtrl:PlayExclusive(PREVIEW_ANIM_PATHS.idle, 0, true, 0.0)
+    local previewAnimPaths = GetPreviewAnimPaths(classId)
+    if animCtrl and previewAnimPaths.idle then
+        animCtrl:PlayExclusive(previewAnimPaths.idle, 0, true, 0.0)
     end
 
     print("[Preview] Created character slot " .. slotIndex .. ": " .. classId)
@@ -776,14 +791,16 @@ function SetPreviewSelected(slotIndex, classIds)
             if i == slotIndex and classIds[i] then
                 -- 选中：播放攻击动画（通过 timer 循环）
                 local attackAnim = PREVIEW_CLASS_ATTACK[classIds[i]] or "melee_fast"
-                local animPath = PREVIEW_ANIM_PATHS[attackAnim]
+                local previewAnimPaths = GetPreviewAnimPaths(classIds[i])
+                local animPath = previewAnimPaths[attackAnim]
                 if animPath then
                     ctrl:PlayExclusive(animPath, 0, false, 0.2)
                     previewAttackTimer_[i] = PREVIEW_ANIM_DURATIONS[attackAnim] or 1.0
                 end
             else
                 -- 未选中：播放 idle
-                ctrl:PlayExclusive(PREVIEW_ANIM_PATHS.idle, 0, true, 0.2)
+                local previewAnimPaths = GetPreviewAnimPaths(classIds[i])
+                ctrl:PlayExclusive(previewAnimPaths.idle, 0, true, 0.2)
                 previewAttackTimer_[i] = 0
             end
         end
@@ -800,7 +817,8 @@ function UpdatePreviewAnimations(dt, classIds)
                 -- 重播攻击动画（循环）
                 local classId = classIds[i]
                 local attackAnim = PREVIEW_CLASS_ATTACK[classId] or "melee_fast"
-                local animPath = PREVIEW_ANIM_PATHS[attackAnim]
+                local previewAnimPaths = GetPreviewAnimPaths(classId)
+                local animPath = previewAnimPaths[attackAnim]
                 local ctrl = previewAnimCtrls_[i]
                 if ctrl and animPath then
                     ctrl:PlayExclusive(animPath, 0, false, 0.1)
