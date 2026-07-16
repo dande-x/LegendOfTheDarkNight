@@ -1920,9 +1920,9 @@ function GameUI.ShowClassSelect(onSelected)
     }
     -- 职业武器 icon 贴图（复古暗灰石质按钮风格）
     local classAvatars = {
-        warrior = "image/class_icon_mage_weapon_20260716094559.png",      -- 剑
-        mage    = "image/class_icon_warrior_weapon_20260716094603.png",   -- 法杖
-        taoist  = "image/class_icon_taoist_weapon_20260716094604.png",    -- 法扇
+        warrior = "image/class_icon_warrior_sword_inner.png",
+        mage    = "image/class_icon_mage_staff_inner.png",
+        taoist  = "image/class_icon_taoist_fan_inner.png",
     }
     local classGlowColors = {
         warrior = {200, 85, 45, 255},
@@ -1955,22 +1955,17 @@ function GameUI.ShowClassSelect(onSelected)
             },
             children = {
                 UI.Panel {
-                    width = 94, height = 94,
-                    borderRadius = 10,
-                    backgroundColor = {15, 16, 17, 255},
-                    borderWidth = 2,
-                    borderColor = {116, 120, 124, 220},
+                    width = 96, height = 96,
+                    borderRadius = 0,
+                    backgroundColor = {0, 0, 0, 0},
+                    borderWidth = 0,
                     justifyContent = "center",
                     alignItems = "center",
-                    overflow = "hidden",
-                    boxShadow = {
-                        { x = 0, y = 8, blur = 16, spread = 0, color = {0, 0, 0, 115} },
-                        { x = 0, y = 0, blur = 14, spread = 0, color = {glow[1], glow[2], glow[3], 34} },
-                    },
+                    overflow = "visible",
                     children = {
                         UI.Panel {
                             backgroundImage = classAvatars[classId],
-                            width = 88, height = 88,
+                            width = 94, height = 94,
                             borderRadius = 8,
                         },
                     },
