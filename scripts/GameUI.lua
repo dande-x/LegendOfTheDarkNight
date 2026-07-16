@@ -1493,6 +1493,7 @@ end
 ---@param slots table[] 存档槽位数组 (最多2个，nil表示空槽)
 ---@param callbacks table { onSelect(idx), onContinue(idx), onCreate(idx), onDelete(idx, onDone) }
 function GameUI.ShowSaveSlots(slots, callbacks)
+    local overlayMode = false
     uiState.phase = "select"
     uiState.charPanelOpen = false
     uiState.charPanelRoot = nil
@@ -1945,9 +1946,9 @@ function GameUI.ShowClassSelect(onSelected, overlayMode, overlaySlotIndex)
         local glow = classGlowColors[classId]
 
         table.insert(cards, UI.Panel {
-            width = overlayMode and 142 or 185,
-            paddingVertical = overlayMode and 14 or 22,
-            paddingHorizontal = overlayMode and 9 or 14,
+            width = overlayMode and 104 or 185,
+            paddingVertical = overlayMode and 10 or 22,
+            paddingHorizontal = overlayMode and 6 or 14,
             alignItems = "center",
             backgroundColor = {18, 18, 19, 248},
             borderRadius = 8,
@@ -1959,7 +1960,7 @@ function GameUI.ShowClassSelect(onSelected, overlayMode, overlaySlotIndex)
             },
             children = {
                 UI.Panel {
-                    width = overlayMode and 74 or 96, height = overlayMode and 74 or 96,
+                    width = overlayMode and 54 or 96, height = overlayMode and 54 or 96,
                     borderRadius = 0,
                     backgroundColor = {0, 0, 0, 0},
                     borderWidth = 0,
@@ -1969,30 +1970,30 @@ function GameUI.ShowClassSelect(onSelected, overlayMode, overlaySlotIndex)
                     children = {
                         UI.Panel {
                             backgroundImage = classAvatars[classId],
-                            width = overlayMode and 72 or 94, height = overlayMode and 72 or 94,
+                            width = overlayMode and 52 or 94, height = overlayMode and 52 or 94,
                             borderRadius = 8,
                         },
                     },
                 },
                 UI.Label {
                     text = cls.name,
-                    fontSize = overlayMode and 18 or 22,
+                    fontSize = overlayMode and 16 or 22,
                     fontColor = {224, 226, 224, 255},
-                    marginTop = 14,
+                    marginTop = overlayMode and 8 or 14,
                 },
-                UI.Label {
+                (not overlayMode) and UI.Label {
                     text = classDescLines[classId],
                     fontSize = 11,
                     fontColor = {152, 154, 150, 198},
                     marginTop = 6,
                     textAlign = "center",
-                },
+                } or nil,
                 UI.Panel {
                     width = "80%",
                     height = 1,
                     backgroundColor = {74, 76, 78, 110},
-                    marginTop = 12,
-                    marginBottom = 8,
+                    marginTop = overlayMode and 7 or 12,
+                    marginBottom = overlayMode and 5 or 8,
                 },
                 UI.Label {
                     text = "生命 " .. cls.baseHP,
@@ -2001,15 +2002,15 @@ function GameUI.ShowClassSelect(onSelected, overlayMode, overlaySlotIndex)
                 },
                 UI.Label {
                     text = "攻击 " .. cls.baseATK .. "  防御 " .. cls.baseDEF,
-                    fontSize = 11,
+                    fontSize = overlayMode and 10 or 11,
                     fontColor = {140, 130, 115, 160},
-                    marginTop = 3,
+                    marginTop = overlayMode and 1 or 3,
                 },
                 UI.Button {
-                    text = "进入暗夜",
-                    marginTop = 16,
-                    width = 130,
-                    height = 40,
+                    text = overlayMode and "创建角色" or "进入暗夜",
+                    marginTop = overlayMode and 8 or 16,
+                    width = overlayMode and 92 or 130,
+                    height = overlayMode and 30 or 40,
                     backgroundColor = {48, 49, 50, 244},
                     borderRadius = 4,
                     borderWidth = 1,
@@ -2035,13 +2036,13 @@ function GameUI.ShowClassSelect(onSelected, overlayMode, overlaySlotIndex)
         position = overlayMode and "absolute" or nil,
         top = overlayMode and 0 or nil,
         left = overlayMode and ((overlaySlotIndex == 2) and "50%" or 0) or nil,
-        backgroundColor = overlayMode and {0, 0, 0, 136} or {10, 8, 6, 252},
+        backgroundColor = overlayMode and {0, 0, 0, 118} or {10, 8, 6, 252},
         justifyContent = "center",
         alignItems = "center",
         children = {
             UI.Label {
                 text = "暗夜传奇",
-                fontSize = overlayMode and 26 or 36,
+                fontSize = overlayMode and 18 or 36,
                 fontColor = {220, 221, 219, 255},
                 marginBottom = 4,
             },
@@ -2049,11 +2050,11 @@ function GameUI.ShowClassSelect(onSelected, overlayMode, overlaySlotIndex)
                 text = "选择你的命运",
                 fontSize = 13,
                 fontColor = {138, 140, 138, 180},
-                marginBottom = overlayMode and 14 or 30,
+                marginBottom = overlayMode and 8 or 30,
             },
             UI.Panel {
                 flexDirection = "row",
-                gap = overlayMode and 8 or 18,
+                gap = overlayMode and 5 or 18,
                 children = cards,
             },
         },
