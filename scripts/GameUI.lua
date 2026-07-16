@@ -700,10 +700,10 @@ function GameUI._DrawOrbs(ctx, sw, sh)
     nvgFillColor(ctx, nvgRGBA(18, 14, 10, 245))
     nvgFill(ctx)
 
-    -- 药丸金色边框
+    -- 药丸金属灰边框
     nvgBeginPath(ctx)
     nvgRoundedRect(ctx, pillX, pillY, pillW, pillH, pillH / 2)
-    nvgStrokeColor(ctx, nvgRGBA(200, 170, 60, 210))
+    nvgStrokeColor(ctx, nvgRGBA(142, 146, 150, 220))
     nvgStrokeWidth(ctx, 1.8 * scale)
     nvgStroke(ctx)
 
@@ -715,8 +715,8 @@ function GameUI._DrawOrbs(ctx, sw, sh)
         -- 阴影
         nvgFillColor(ctx, nvgRGBA(0, 0, 0, 200))
         nvgText(ctx, cx + 1, pillY + pillH / 2 + 1, lvText, nil)
-        -- 金色文字
-        nvgFillColor(ctx, nvgRGBA(255, 225, 100, 255))
+        -- 银灰文字
+        nvgFillColor(ctx, nvgRGBA(234, 236, 232, 255))
         nvgText(ctx, cx, pillY + pillH / 2, lvText, nil)
     end
 
@@ -742,14 +742,14 @@ function GameUI._DrawOrbs(ctx, sw, sh)
     nvgFillPaint(ctx, barBgGrad)
     nvgFill(ctx)
 
-    -- 经验条填充（金色渐变）
+    -- 经验条填充（银灰金属渐变）
     if expProg > 0 then
         local fillW = math.max(barH * 0.6, barW * expProg)
         nvgBeginPath(ctx)
         nvgRoundedRect(ctx, barX, barY, fillW, barH, barH / 2)
         local expGrad = nvgLinearGradient(ctx, barX, barY, barX, barY + barH,
-            nvgRGBA(255, 225, 80, 245),
-            nvgRGBA(195, 145, 25, 225))
+            nvgRGBA(214, 218, 218, 245),
+            nvgRGBA(116, 120, 124, 232))
         nvgFillPaint(ctx, expGrad)
         nvgFill(ctx)
 
@@ -757,14 +757,14 @@ function GameUI._DrawOrbs(ctx, sw, sh)
         nvgBeginPath(ctx)
         nvgRoundedRect(ctx, barX + 2 * scale, barY + 1 * scale,
             fillW - 4 * scale, barH * 0.35, barH * 0.17)
-        nvgFillColor(ctx, nvgRGBA(255, 255, 220, 50))
+        nvgFillColor(ctx, nvgRGBA(245, 248, 248, 48))
         nvgFill(ctx)
     end
 
     -- 经验条边框
     nvgBeginPath(ctx)
     nvgRoundedRect(ctx, barX, barY, barW, barH, barH / 2)
-    nvgStrokeColor(ctx, nvgRGBA(130, 105, 45, 140))
+    nvgStrokeColor(ctx, nvgRGBA(116, 120, 124, 155))
     nvgStrokeWidth(ctx, 1.0 * scale)
     nvgStroke(ctx)
 
@@ -776,7 +776,7 @@ function GameUI._DrawOrbs(ctx, sw, sh)
         nvgFillColor(ctx, nvgRGBA(0, 0, 0, 150))
         nvgText(ctx, barX + barW + 5 * scale + 1, barCenterY + 1,
             math.floor(expProg * 100) .. "%", nil)
-        nvgFillColor(ctx, nvgRGBA(210, 195, 130, 210))
+        nvgFillColor(ctx, nvgRGBA(190, 194, 194, 215))
         nvgText(ctx, barX + barW + 5 * scale, barCenterY,
             math.floor(expProg * 100) .. "%", nil)
     end
@@ -1207,12 +1207,12 @@ function GameUI._DrawToasts(ctx, sw, sh)
         nvgRoundedRect(ctx, tx, y - th / 2, tw, th, 6 * scale)
         nvgFillColor(ctx, nvgRGBA(20, 18, 15, math.floor(200 * alpha)))
         nvgFill(ctx)
-        nvgStrokeColor(ctx, nvgRGBA(200, 170, 60, math.floor(180 * alpha)))
+        nvgStrokeColor(ctx, nvgRGBA(138, 142, 146, math.floor(180 * alpha)))
         nvgStrokeWidth(ctx, 1.5 * scale)
         nvgStroke(ctx)
 
         -- 文字
-        nvgFillColor(ctx, nvgRGBA(255, 230, 120, math.floor(255 * alpha)))
+        nvgFillColor(ctx, nvgRGBA(232, 234, 232, math.floor(255 * alpha)))
         nvgText(ctx, sw / 2, y, toast.text, nil)
     end
 end
@@ -1247,14 +1247,14 @@ function GameUI._DrawCastBar(ctx, sw, sh)
             local pAlpha = math.floor(220 * pulse)
             nvgFillColor(ctx, nvgRGBA(60, 140, 255, pAlpha))
         else
-            nvgFillColor(ctx, nvgRGBA(220, 180, 60, 220))
+            nvgFillColor(ctx, nvgRGBA(178, 184, 190, 225))
         end
         nvgFill(ctx)
     end
 
     nvgBeginPath(ctx)
     nvgRoundedRect(ctx, bx, by, barW, barH, 4 * scale)
-    nvgStrokeColor(ctx, nvgRGBA(140, 120, 80, 180))
+    nvgStrokeColor(ctx, nvgRGBA(132, 136, 140, 185))
     nvgStrokeWidth(ctx, 1.5 * scale)
     nvgStroke(ctx)
 
@@ -1262,7 +1262,7 @@ function GameUI._DrawCastBar(ctx, sw, sh)
         nvgFontFaceId(ctx, nvgFontId)
         nvgFontSize(ctx, math.floor(10 * scale))
         nvgTextAlign(ctx, NVG_ALIGN_CENTER + NVG_ALIGN_MIDDLE)
-        nvgFillColor(ctx, nvgRGBA(255, 240, 200, 230))
+        nvgFillColor(ctx, nvgRGBA(232, 234, 232, 230))
         nvgText(ctx, sw / 2, by + barH / 2, castBarState.skillName, nil)
     end
 end
@@ -1945,10 +1945,14 @@ function GameUI.ShowClassSelect(onSelected)
             paddingVertical = 22,
             paddingHorizontal = 14,
             alignItems = "center",
-            backgroundColor = {16, 12, 10, 245},
-            borderRadius = 4,
-            borderWidth = 2,
-            borderColor = {60, 50, 38, 200},
+            backgroundColor = {18, 18, 19, 248},
+            borderRadius = 8,
+            borderWidth = 1.5,
+            borderColor = {92, 94, 98, 215},
+            boxShadow = {
+                { x = 0, y = 10, blur = 24, spread = 0, color = {0, 0, 0, 110} },
+                { x = 0, y = 0, blur = 18, spread = 0, color = {118, 122, 128, 34} },
+            },
             children = {
                 UI.Panel {
                     width = 88, height = 88,
@@ -1970,20 +1974,20 @@ function GameUI.ShowClassSelect(onSelected)
                 UI.Label {
                     text = cls.name,
                     fontSize = 22,
-                    fontColor = {210, 180, 75, 255},
+                    fontColor = {224, 226, 224, 255},
                     marginTop = 14,
                 },
                 UI.Label {
                     text = classDescLines[classId],
                     fontSize = 11,
-                    fontColor = {125, 115, 100, 190},
+                    fontColor = {152, 154, 150, 198},
                     marginTop = 6,
                     textAlign = "center",
                 },
                 UI.Panel {
                     width = "80%",
                     height = 1,
-                    backgroundColor = {60, 50, 38, 100},
+                    backgroundColor = {74, 76, 78, 110},
                     marginTop = 12,
                     marginBottom = 8,
                 },
@@ -2003,12 +2007,12 @@ function GameUI.ShowClassSelect(onSelected)
                     marginTop = 16,
                     width = 130,
                     height = 40,
-                    backgroundColor = {50, 40, 30, 240},
+                    backgroundColor = {48, 49, 50, 244},
                     borderRadius = 4,
                     borderWidth = 1,
-                    borderColor = {95, 80, 58, 180},
+                    borderColor = {104, 106, 110, 205},
                     fontSize = 14,
-                    fontColor = {210, 195, 155, 255},
+                    fontColor = {222, 224, 222, 255},
                     onClick = function()
                         uiState.selectedClass = classId
                         GameUI.HideClassSelect()
@@ -2032,13 +2036,13 @@ function GameUI.ShowClassSelect(onSelected)
             UI.Label {
                 text = "暗夜传奇",
                 fontSize = 36,
-                fontColor = {215, 185, 80, 255},
+                fontColor = {220, 221, 219, 255},
                 marginBottom = 4,
             },
             UI.Label {
                 text = "选择你的命运",
                 fontSize = 13,
-                fontColor = {110, 100, 85, 170},
+                fontColor = {138, 140, 138, 180},
                 marginBottom = 30,
             },
             UI.Panel {
@@ -2136,7 +2140,7 @@ function GameUI.ShowGameHUD(player)
         id = "fullmap_area",
         backgroundColor = {25, 38, 25, 245},
         borderWidth = 3,
-        borderColor = {200, 170, 60, 255},
+        borderColor = {126, 130, 134, 245},
         borderRadius = 4,
         overflow = "hidden",
         children = fmChildren,
@@ -2146,7 +2150,7 @@ function GameUI.ShowGameHUD(player)
     local fullMapTitle = UI.Label {
         text = "竞技场地图 (120m × 120m)",
         fontSize = 15,
-        fontColor = {230, 215, 160, 240},
+        fontColor = {218, 220, 218, 240},
         fontWeight = "bold",
         marginBottom = 6,
     }
@@ -2167,7 +2171,7 @@ function GameUI.ShowGameHUD(player)
             UI.Panel {
                 flexDirection = "row", alignItems = "center", gap = 4,
                 children = {
-                    UI.Panel { width = 14, height = 14, backgroundColor = {25, 38, 25, 245}, borderWidth = 2, borderColor = {200, 170, 60, 255} },
+                    UI.Panel { width = 14, height = 14, backgroundColor = {30, 32, 34, 245}, borderWidth = 2, borderColor = {126, 130, 134, 245} },
                     UI.Label { text = "竞技场范围", fontSize = 11, fontColor = {200, 200, 190, 220} },
                 },
             },
@@ -2611,9 +2615,9 @@ function GameUI._CreateMiniMapArea(player)
         position = "absolute",
         left = arenaPad, top = arenaPad,
         width = arenaDrawSize, height = arenaDrawSize,
-        backgroundColor = {30, 45, 30, 200},  -- 深绿色填充
+        backgroundColor = {30, 32, 34, 200},  -- 深灰填充
         borderWidth = 2,
-        borderColor = {200, 170, 60, 255},  -- 金色粗边框
+        borderColor = {126, 130, 134, 245},  -- 银灰粗边框
         overflow = "hidden",  -- 裁剪超出边界的玩家标记
         children = { gridH, gridV, playerDir, playerDot },
     }
@@ -2623,7 +2627,7 @@ function GameUI._CreateMiniMapArea(player)
         position = "absolute",
         text = "N",
         fontSize = 9,
-        fontColor = {255, 230, 80, 240},
+        fontColor = {226, 228, 226, 240},
         fontWeight = "bold",
         top = 1, left = mapRadius - 4,
     }
@@ -2631,14 +2635,14 @@ function GameUI._CreateMiniMapArea(player)
     -- 组合所有子元素
     local mapChildren = { arenaBlock, northLabel }
 
-    -- 小地图容器（圆形深色背景 + 金色边框）
+    -- 小地图容器（圆形深色背景 + 银灰边框）
     local miniMap = UI.Panel {
         id = "minimap_ui",
         width = mapSize, height = mapSize,
         borderRadius = mapRadius,
-        backgroundColor = {8, 10, 8, 230},
+        backgroundColor = {12, 13, 14, 232},
         borderWidth = 2,
-        borderColor = {180, 150, 50, 220},
+        borderColor = {126, 130, 134, 225},
         overflow = "hidden",
         onPointerUp = function()
             GameUI._OpenFullMap()
@@ -2659,10 +2663,10 @@ function GameUI._CreateMiniMapArea(player)
     local infoBar = UI.Panel {
         flexDirection = "row",
         alignItems = "center",
-        backgroundColor = {16, 14, 10, 190},
+        backgroundColor = {18, 18, 19, 205},
         borderRadius = 10,
         borderWidth = 1,
-        borderColor = {90, 75, 40, 120},
+        borderColor = {94, 98, 102, 140},
         paddingLeft = 8, paddingRight = 10,
         paddingTop = 3, paddingBottom = 3,
         gap = 10,
@@ -2686,10 +2690,10 @@ function GameUI._CreateMiniMapArea(player)
             UI.Panel {
                 flexDirection = "row", alignItems = "center", gap = 3,
                 children = {
-                    UI.Label { text = "💰", fontSize = 11, fontColor = {255, 210, 60, 240} },
+                    UI.Label { text = "💰", fontSize = 11, fontColor = {218, 220, 218, 230} },
                     (function()
                         local lbl = UI.Label {
-                            text = "0", fontSize = 11, fontColor = {255, 225, 110, 240},
+                            text = "0", fontSize = 11, fontColor = {226, 228, 226, 240},
                         }
                         uiState.refs.goldLabel = lbl
                         return lbl
@@ -2730,9 +2734,9 @@ function GameUI._CreateMiniMapArea(player)
         marginTop = 4,
         children = {
             makeBtn("角色",
-                {240, 215, 100, 255},
-                {30, 26, 20, 210},
-                {140, 115, 50, 160},
+                {232, 234, 232, 255},
+                {34, 35, 37, 214},
+                {118, 122, 126, 170},
                 function() if GameUI.onCharacterPanelToggle then GameUI.onCharacterPanelToggle() end end
             ),
             makeBtn("系统",
@@ -2796,9 +2800,9 @@ local function _BuildSkillTabContent(player)
 
         local iconSrc = _skillBarIcons[skill.id]
         local iconFallback = skillIcons[skill.type] or "◆"
-        local nameColor = locked and {80, 75, 65, 150} or {235, 225, 200, 255}
-        local iconBg = locked and {30, 28, 24, 200} or equippedSlot > 0 and {50, 40, 25, 240} or {35, 30, 22, 230}
-        local iconBorder = locked and {50, 45, 38, 130} or equippedSlot > 0 and {180, 140, 50, 200} or {80, 70, 50, 170}
+        local nameColor = locked and {92, 92, 92, 155} or {224, 226, 224, 255}
+        local iconBg = locked and {30, 30, 31, 200} or equippedSlot > 0 and {54, 56, 60, 242} or {38, 39, 41, 232}
+        local iconBorder = locked and {54, 54, 54, 135} or equippedSlot > 0 and {136, 140, 144, 210} or {92, 94, 98, 180}
 
         table.insert(skillRows, UI.Panel {
             width = "100%", flexDirection = "row", alignItems = "center",
@@ -2840,7 +2844,7 @@ local function _BuildSkillTabContent(player)
                             opacity = locked and 0.35 or 1.0,
                             fallbackText = iconFallback,
                             fallbackFontSize = 22,
-                            fallbackColor = locked and {80, 75, 65, 130} or {240, 220, 160, 240},
+                            fallbackColor = locked and {92, 92, 92, 132} or {226, 228, 226, 240},
                         },
                     },
                 },
@@ -2855,7 +2859,7 @@ local function _BuildSkillTabContent(player)
                         },
                         UI.Label {
                             text = skill.desc or "",
-                            fontSize = 11, fontColor = locked and {80, 75, 65, 120} or {180, 170, 150, 200},
+                            fontSize = 11, fontColor = locked and {90, 90, 90, 125} or {174, 176, 176, 205},
                             marginTop = 2,
                         },
                         UI.Label {
@@ -2864,7 +2868,7 @@ local function _BuildSkillTabContent(player)
                                 locked and "未解锁" or "已解锁",
                                 _FormatCooldown(skill.cooldown)),
                             fontSize = 10,
-                            fontColor = locked and {100, 80, 60, 150} or {160, 140, 90, 200},
+                            fontColor = locked and {100, 100, 100, 155} or {178, 180, 178, 205},
                             marginTop = 2,
                         },
                     },
@@ -2872,11 +2876,11 @@ local function _BuildSkillTabContent(player)
                 -- 装备状态指示
                 equippedSlot > 0 and UI.Panel {
                     width = 20, height = 20, borderRadius = 10,
-                    backgroundColor = {60, 50, 20, 220},
-                    borderWidth = 1, borderColor = {200, 170, 60, 200},
+                    backgroundColor = {88, 90, 94, 220},
+                    borderWidth = 1, borderColor = {126, 130, 134, 220},
                     justifyContent = "center", alignItems = "center",
                     children = {
-                        UI.Label { text = tostring(equippedSlot), fontSize = 10, fontColor = {255, 220, 80, 255}, fontWeight = "bold" },
+                        UI.Label { text = tostring(equippedSlot), fontSize = 10, fontColor = {236, 238, 236, 255}, fontWeight = "bold" },
                     },
                 } or nil,
             },
@@ -2885,7 +2889,7 @@ local function _BuildSkillTabContent(player)
         -- 分隔线（除最后一项）
         if _ < #allSkills then
             table.insert(skillRows, UI.Panel {
-                width = "100%", height = 1, backgroundColor = {50, 44, 34, 80},
+                width = "100%", height = 1, backgroundColor = {70, 72, 74, 85},
             })
         end
     end
@@ -3123,7 +3127,7 @@ local function _BuildEquipTabContent(player)
             UI.Panel {
                 width = "100%", marginTop = 10, alignItems = "center", gap = 3,
                 children = {
-                    UI.Label { text = "— 装备属性 —", fontSize = 10, fontColor = {150, 140, 110, 180} },
+                    UI.Label { text = "— 装备属性 —", fontSize = 10, fontColor = {172, 174, 174, 180} },
                     UI.Panel {
                         flexDirection = "row", gap = 8, marginTop = 4,
                         children = {
@@ -3143,7 +3147,7 @@ local function _BuildEquipTabContent(player)
             -- 提示
             UI.Label {
                 text = "点击装备查看详情 · ✕卸下",
-                fontSize = 10, fontColor = {140, 130, 110, 160},
+                fontSize = 10, fontColor = {150, 152, 152, 165},
                 textAlign = "center", marginBottom = 6,
             },
             -- 三列布局
@@ -3221,14 +3225,14 @@ local function _BuildBagTabContent(player)
                 flexDirection = "row", alignItems = "center", gap = 6, marginBottom = 10,
                 children = {
                     UI.Label { text = "💰", fontSize = 16 },
-                    UI.Label { text = tostring(inv.gold), fontSize = 16, fontColor = {255, 215, 70, 255}, fontWeight = "bold" },
+                    UI.Label { text = tostring(inv.gold), fontSize = 16, fontColor = {226, 228, 226, 255}, fontWeight = "bold" },
                 },
             },
             -- 药水区
             UI.Panel {
                 flexDirection = "row", gap = 10, marginBottom = 12, alignItems = "center",
                 children = {
-                    UI.Label { text = "药水", fontSize = 12, fontColor = {180, 170, 145, 200} },
+                    UI.Label { text = "药水", fontSize = 12, fontColor = {178, 180, 178, 205} },
                     -- HP 药水购买
                     UI.Panel {
                         flexDirection = "row", alignItems = "center", gap = 4,
@@ -3245,7 +3249,7 @@ local function _BuildBagTabContent(player)
                         children = {
                             UI.Label { text = "血药", fontSize = 11, fontColor = {240, 100, 80, 255}, fontWeight = "bold" },
                             UI.Label { text = inv.potions.hp .. "/" .. Inventory.POTION_CONFIG.hp.max, fontSize = 10, fontColor = {200, 190, 170, 200} },
-                            UI.Label { text = "💰" .. Inventory.POTION_CONFIG.hp.price, fontSize = 10, fontColor = {255, 215, 70, 220} },
+                            UI.Label { text = "💰" .. Inventory.POTION_CONFIG.hp.price, fontSize = 10, fontColor = {220, 222, 220, 220} },
                         },
                     },
                     -- MP 药水购买
@@ -3264,15 +3268,15 @@ local function _BuildBagTabContent(player)
                         children = {
                             UI.Label { text = "蓝药", fontSize = 11, fontColor = {80, 150, 230, 255}, fontWeight = "bold" },
                             UI.Label { text = inv.potions.mp .. "/" .. Inventory.POTION_CONFIG.mp.max, fontSize = 10, fontColor = {200, 190, 170, 200} },
-                            UI.Label { text = "💰" .. Inventory.POTION_CONFIG.mp.price, fontSize = 10, fontColor = {255, 215, 70, 220} },
+                            UI.Label { text = "💰" .. Inventory.POTION_CONFIG.mp.price, fontSize = 10, fontColor = {220, 222, 220, 220} },
                         },
                     },
                 },
             },
             -- 分隔
-            UI.Panel { width = "100%", height = 1, backgroundColor = {65, 58, 42, 100}, marginBottom = 10 },
+            UI.Panel { width = "100%", height = 1, backgroundColor = {72, 74, 76, 105}, marginBottom = 10 },
             -- 背包区
-            UI.Label { text = "背包 " .. #inv.bag .. "/20", fontSize = 12, fontColor = {180, 170, 145, 200}, marginBottom = 8 },
+            UI.Label { text = "背包 " .. #inv.bag .. "/20", fontSize = 12, fontColor = {178, 180, 178, 205}, marginBottom = 8 },
             UI.Panel { flexDirection = "row", flexWrap = "wrap", gap = 6, children = bagCells },
         },
     }
@@ -3297,9 +3301,9 @@ function GameUI.ShowCharacterPanel(player, tab)
         local active = (activeTab == tabId)
         return UI.Panel {
             flex = 1, height = 36, borderRadius = 6,
-            backgroundColor = active and {55, 45, 30, 245} or {28, 22, 18, 190},
+            backgroundColor = active and {62, 64, 68, 245} or {30, 31, 33, 195},
             borderWidth = active and 1.5 or 0,
-            borderColor = {160, 130, 55, 180},
+            borderColor = {126, 130, 134, 180},
             justifyContent = "center", alignItems = "center",
             onPointerUp = function()
                 if activeTab ~= tabId then
@@ -3311,7 +3315,7 @@ function GameUI.ShowCharacterPanel(player, tab)
                 UI.Label {
                     text = label,
                     fontSize = 15,
-                    fontColor = active and {245, 220, 105, 255} or {160, 150, 130, 200},
+                    fontColor = active and {236, 238, 236, 255} or {176, 178, 180, 200},
                     fontWeight = active and "bold" or "normal",
                 },
             },
@@ -3338,7 +3342,7 @@ function GameUI.ShowCharacterPanel(player, tab)
                 width = 320, height = 520,
                 backgroundColor = {16, 12, 10, 248},
                 borderRadius = 10, borderWidth = 2,
-                borderColor = {110, 90, 45, 190},
+                borderColor = {124, 126, 130, 198},
                 padding = 14, overflow = "hidden",
                 children = {
                     -- 标题栏
@@ -3346,7 +3350,7 @@ function GameUI.ShowCharacterPanel(player, tab)
                         flexDirection = "row", justifyContent = "space-between", alignItems = "center",
                         width = "100%", marginBottom = 10,
                         children = {
-                            UI.Label { text = "角色 — " .. classDef.name, fontSize = 18, fontColor = {230, 200, 85, 255}, fontWeight = "bold" },
+                            UI.Label { text = "角色 — " .. classDef.name, fontSize = 18, fontColor = {234, 236, 234, 255}, fontWeight = "bold" },
                             UI.Label { text = "Lv." .. player.level, fontSize = 15, fontColor = {200, 190, 170, 220} },
                         },
                     },
@@ -3360,7 +3364,7 @@ function GameUI.ShowCharacterPanel(player, tab)
                         },
                     },
                     -- 分隔线
-                    UI.Panel { width = "100%", height = 1, backgroundColor = {70, 60, 42, 120}, marginBottom = 10 },
+                    UI.Panel { width = "100%", height = 1, backgroundColor = {72, 74, 76, 120}, marginBottom = 10 },
                     -- 内容区
                     content,
                     -- 关闭按钮
@@ -3370,10 +3374,10 @@ function GameUI.ShowCharacterPanel(player, tab)
                             UI.Button {
                                 text = "关闭",
                                 width = 120, height = 38,
-                                backgroundColor = {50, 40, 30, 240},
+                                backgroundColor = {48, 49, 50, 244},
                                 borderRadius = 6, borderWidth = 1,
-                                borderColor = {100, 85, 60, 190},
-                                fontSize = 15, fontColor = {220, 205, 165, 255},
+                                borderColor = {126, 130, 134, 205},
+                                fontSize = 15, fontColor = {222, 224, 222, 255},
                                 onClick = function()
                                     GameUI.HideCharacterPanel()
                                     if GameUI.onCharacterPanelClosed then
@@ -3436,15 +3440,15 @@ function GameUI.ShowSystemPanel()
                 width = 260,
                 backgroundColor = {16, 12, 10, 248},
                 borderRadius = 8, borderWidth = 2,
-                borderColor = {80, 75, 60, 180},
+                borderColor = {124, 126, 130, 198},
                 padding = 20,
                 alignItems = "center",
                 gap = 10,
                 children = {
                     -- 标题
-                    UI.Label { text = "系统", fontSize = 18, fontColor = {190, 180, 160, 240} },
+                    UI.Label { text = "系统", fontSize = 18, fontColor = {228, 230, 228, 240} },
                     -- 分隔线
-                    UI.Panel { width = "100%", height = 1, backgroundColor = {60, 50, 38, 100} },
+                    UI.Panel { width = "100%", height = 1, backgroundColor = {72, 74, 76, 110} },
                     -- 退出游戏按钮
                     UI.Button {
                         text = "退出游戏",
@@ -3459,24 +3463,24 @@ function GameUI.ShowSystemPanel()
                         end,
                     },
                     -- 分隔线
-                    UI.Panel { width = "100%", height = 1, backgroundColor = {50, 45, 35, 80} },
+                    UI.Panel { width = "100%", height = 1, backgroundColor = {70, 72, 74, 90} },
                     -- DBG 区域
                     UI.Panel {
                         width = "100%",
-                        backgroundColor = {14, 18, 14, 160},
+                        backgroundColor = {18, 19, 20, 172},
                         borderRadius = 6, borderWidth = 1,
-                        borderColor = {55, 100, 55, 100},
+                        borderColor = {86, 90, 94, 118},
                         padding = 8,
                         alignItems = "center",
                         gap = 6,
                         children = {
-                            UI.Label { text = "调试", fontSize = 10, fontColor = {100, 170, 100, 150} },
+                            UI.Label { text = "调试", fontSize = 10, fontColor = {146, 150, 154, 165} },
                             UI.Panel {
                                 flexDirection = "row", gap = 10, alignItems = "center",
                                 children = {
                                     UI.Panel {
                                         width = 60, height = 36, borderRadius = 6,
-                                        backgroundColor = {40, 75, 40, 220},
+                                        backgroundColor = {58, 60, 64, 220},
                                         justifyContent = "center", alignItems = "center",
                                         onPointerUp = function()
                                             if GameUI.onDebugLevelChange then GameUI.onDebugLevelChange(1) end
@@ -3484,21 +3488,21 @@ function GameUI.ShowSystemPanel()
                                             GameUI.ShowSystemPanel()
                                         end,
                                         children = {
-                                            UI.Label { text = "Lv+", fontSize = 13, fontColor = {160, 240, 160, 255} },
+                                            UI.Label { text = "Lv+", fontSize = 13, fontColor = {232, 234, 232, 255} },
                                         },
                                     },
                                     (function()
                                         local lbl = UI.Label {
                                             text = "Lv." .. (uiState.player and uiState.player.level or 1),
                                             fontSize = 14,
-                                            fontColor = {200, 210, 200, 240},
+                                            fontColor = {214, 216, 214, 240},
                                         }
                                         uiState.debugLevelLabel = lbl
                                         return lbl
                                     end)(),
                                     UI.Panel {
                                         width = 60, height = 36, borderRadius = 6,
-                                        backgroundColor = {75, 40, 40, 220},
+                                        backgroundColor = {70, 58, 58, 220},
                                         justifyContent = "center", alignItems = "center",
                                         onPointerUp = function()
                                             if GameUI.onDebugLevelChange then GameUI.onDebugLevelChange(-1) end
@@ -3506,7 +3510,7 @@ function GameUI.ShowSystemPanel()
                                             GameUI.ShowSystemPanel()
                                         end,
                                         children = {
-                                            UI.Label { text = "Lv-", fontSize = 13, fontColor = {240, 160, 160, 255} },
+                                            UI.Label { text = "Lv-", fontSize = 13, fontColor = {236, 200, 200, 255} },
                                         },
                                     },
                                 },
@@ -3514,7 +3518,7 @@ function GameUI.ShowSystemPanel()
                             -- 一键满级+技能全开
                             UI.Panel {
                                 width = 140, height = 36, borderRadius = 6,
-                                backgroundColor = {75, 55, 20, 220},
+                                backgroundColor = {66, 68, 72, 220},
                                 justifyContent = "center", alignItems = "center",
                                 marginTop = 4,
                                 onPointerUp = function()
@@ -3523,7 +3527,7 @@ function GameUI.ShowSystemPanel()
                                     GameUI.ShowSystemPanel()
                                 end,
                                 children = {
-                                    UI.Label { text = "一键满级", fontSize = 13, fontColor = {255, 220, 100, 255} },
+                                    UI.Label { text = "一键满级", fontSize = 13, fontColor = {236, 238, 236, 255} },
                                 },
                             },
                         },
@@ -3532,10 +3536,10 @@ function GameUI.ShowSystemPanel()
                     UI.Button {
                         text = "关闭",
                         width = 130, height = 40,
-                        backgroundColor = {40, 35, 28, 240},
+                        backgroundColor = {36, 36, 38, 240},
                         borderRadius = 6, borderWidth = 1,
-                        borderColor = {80, 70, 50, 160},
-                        fontSize = 15, fontColor = {180, 170, 145, 240},
+                        borderColor = {124, 126, 130, 180},
+                        fontSize = 15, fontColor = {220, 222, 220, 240},
                         onClick = function()
                             GameUI.HideSystemPanel()
                         end,
