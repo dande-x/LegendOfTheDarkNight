@@ -1162,7 +1162,7 @@ function SetupGameCallbacks()
         player_.def   = classDef.baseDEF + g.def * (newLevel - 1)
         player_.hp = player_.maxHP
         player_.mp = player_.maxMP
-        player_.expToNext = 50 + newLevel * 60
+        player_.expToNext = CharacterClass.GetExpToNext(newLevel)
         player_.exp = 0
         print("[Debug] Level set to " .. newLevel)
         -- 刷新技能栏（解锁状态可能变化）
@@ -1184,7 +1184,7 @@ function SetupGameCallbacks()
         player_.def   = classDef.baseDEF + g.def * (maxLv - 1)
         player_.hp = player_.maxHP
         player_.mp = player_.maxMP
-        player_.expToNext = 50 + maxLv * 60
+        player_.expToNext = CharacterClass.GetExpToNext(maxLv)
         player_.exp = 0
         -- 按解锁等级从低到高装备全部主动技能到低位槽
         CharacterClass.RebuildEquippedSkills(player_, true)

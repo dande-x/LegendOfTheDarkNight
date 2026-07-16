@@ -49,6 +49,17 @@ local BASE_GROWTH = {
     taoist  = { hp = 30, mp = 18, atk = 5, def = 3, speed = 3.3 },
 }
 
+-- 高等级经验曲线：15 级后开始逐渐拉长升级间隔
+function CharacterClass.GetExpToNext(level)
+    level = math.max(1, math.floor(level or 1))
+    local base = 50 + level * 60
+    if level <= 15 then
+        return base
+    end
+    local extra = level - 15
+    return base + extra * extra * 8
+end
+
 -- ============================================================================
 -- 职业定义
 -- ============================================================================
@@ -114,7 +125,7 @@ CharacterClass.Classes = {
             {
                 id = "w_shield", name = "真气护盾", type = SKILL_TYPE.BUFF,
                 desc = "运真气凝结护壁，吞噬外来攻击之力",
-                slot = 5, cooldown = 7, manaCost = 30,
+                slot = 5, cooldown = 7, manaCost = 45,
                 unlockLevel = 12,
                 shieldPercent = 50,
                 duration = 6,
@@ -153,7 +164,7 @@ CharacterClass.Classes = {
             {
                 id = "m_thunder", name = "雷电术", type = SKILL_TYPE.RANGED,
                 desc = "引下天雷，威力巨大但施法较慢",
-                slot = 3, cooldown = 3.5, manaCost = 40,
+                slot = 3, cooldown = 3.5, manaCost = 55,
                 unlockLevel = 11,
                 damage = 250,  -- ATK倍率250% (单体高伤)
                 range = 7.0, castTime = 0.45,
@@ -161,7 +172,7 @@ CharacterClass.Classes = {
             {
                 id = "m_explosion", name = "抗拒火环", type = SKILL_TYPE.AOE,
                 desc = "周身迸发烈焰火环，将逼近之敌尽数震退（无直接伤害）",
-                slot = 4, cooldown = 4.0, manaCost = 45,
+                slot = 4, cooldown = 4.0, manaCost = 60,
                 unlockLevel = 8,
                 isKnockback = true,        -- 纯击退技能，无直接伤害
                 knockbackSpeed = 14,       -- 推开速度(米/秒)
@@ -171,7 +182,7 @@ CharacterClass.Classes = {
             {
                 id = "m_firewall", name = "火墙", type = SKILL_TYPE.DOT,
                 desc = "点燃不灭之火，烈焰如怨念般不息",
-                slot = 5, cooldown = 5.0, manaCost = 42,
+                slot = 5, cooldown = 5.0, manaCost = 55,
                 unlockLevel = 5,
                 damage = 45, -- ATK倍率45%/秒 (DOT持续)
                 duration = 5,
@@ -180,7 +191,7 @@ CharacterClass.Classes = {
             {
                 id = "m_blizzard", name = "冰咆哮", type = SKILL_TYPE.AOE,
                 desc = "召唤冰雪暴风，刺骨寒意冻裂金铁",
-                slot = 6, cooldown = 5.5, manaCost = 70,
+                slot = 6, cooldown = 5.5, manaCost = 90,
                 unlockLevel = 14,
                 damage = 320,  -- ATK倍率320% (大招AOE)
                 range = 6.0, aoeRadius = 3.5, castTime = 0.55,
@@ -188,7 +199,7 @@ CharacterClass.Classes = {
             {
                 id = "m_shield", name = "魔法盾", type = SKILL_TYPE.BUFF,
                 desc = "纯粹魔力凝成护盾，保命之本",
-                slot = 0, cooldown = 5.5, manaCost = 60,
+                slot = 0, cooldown = 5.5, manaCost = 75,
                 unlockLevel = 12,
                 shieldPercent = 40,
                 duration = 5,    -- 接近 CD，护盾节奏更紧凑
@@ -228,7 +239,7 @@ CharacterClass.Classes = {
             {
                 id = "t_divineBeast", name = "召唤神兽", type = SKILL_TYPE.SUMMON,
                 desc = "召唤远古神兽为随从，喷火焚敌，永不消散",
-                slot = 2, cooldown = 8, manaCost = 45,
+                slot = 2, cooldown = 8, manaCost = 60,
                 unlockLevel = 1,
                 damage = 150,  -- 神兽基础ATK倍率150%
                 duration = -1, -- -1 表示永久
@@ -240,7 +251,7 @@ CharacterClass.Classes = {
             {
                 id = "t_heal", name = "治愈术", type = SKILL_TYPE.HEAL,
                 desc = "引天地灵气修补自身与神兽，道士自保之术",
-                slot = 3, cooldown = 10, manaCost = 25,
+                slot = 3, cooldown = 10, manaCost = 35,
                 unlockLevel = 4,
                 healPercent = 35,
                 range = 0,
@@ -249,7 +260,7 @@ CharacterClass.Classes = {
             {
                 id = "t_poison", name = "施毒术", type = SKILL_TYPE.DOT,
                 desc = "瞬间释放毒雾，使命中范围内妖魔中毒5秒",
-                slot = 4, cooldown = 5, manaCost = 28,
+                slot = 4, cooldown = 5, manaCost = 38,
                 unlockLevel = 6,
                 damage = 50, -- ATK倍率50%/秒
                 duration = 5,
@@ -270,7 +281,7 @@ CharacterClass.Classes = {
             {
                 id = "t_trapDemon", name = "困魔咒", type = SKILL_TYPE.AOE,
                 desc = "布下法阵困锁妖魔，圈内之敌无法逃脱且防御降低30%",
-                slot = 6, cooldown = 12, manaCost = 50,
+                slot = 6, cooldown = 12, manaCost = 65,
                 unlockLevel = 12,
                 damage = 0,  -- 不造成伤害，纯控制
                 range = 8.0, aoeRadius = 3.5, castTime = 0.80,
@@ -347,7 +358,7 @@ function CharacterClass.CreatePlayer(classId, level)
         className = classDef.name,
         level     = level,
         exp       = 0,
-        expToNext = 50 + level * 60,
+        expToNext = CharacterClass.GetExpToNext(level),
 
         maxHP  = classDef.baseHP + g.hp * (level - 1),
         maxMP  = classDef.baseMP + g.mp * (level - 1),
@@ -440,7 +451,7 @@ function CharacterClass.LevelUp(player)
     player.def   = classDef.baseDEF + g.def * (player.level - 1)
     player.hp = player.maxHP
     player.mp = player.maxMP
-    player.expToNext = 50 + player.level * 60
+    player.expToNext = CharacterClass.GetExpToNext(player.level)
     print("[CharacterClass] " .. classDef.name .. " upgraded to Lv." .. player.level)
 
     -- 自动装备本次升级新解锁的技能，并按解锁等级重排技能栏
@@ -473,7 +484,7 @@ function CharacterClass.UpdateCooldowns(player, dt)
         end
     end
     -- MP 自然恢复
-    local regenRate = 2 -- 每秒恢复
+    local regenRate = 1.25 -- 每秒恢复，压低中后期续航
     player.mp = math.min(player.maxMP, player.mp + regenRate * dt)
 end
 

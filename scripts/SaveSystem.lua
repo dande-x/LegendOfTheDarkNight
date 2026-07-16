@@ -311,10 +311,10 @@ end
 function SaveSystem.RestorePlayer(saveData, player)
     player.level    = saveData.level or 1
     player.exp      = saveData.exp or 0
-    player.expToNext = saveData.expToNext or (50 + player.level * 60)
 
     -- 恢复 HP/MP（限制在上限内）
     local CharacterClass = require("scripts.CharacterClass")
+    player.expToNext = CharacterClass.GetExpToNext(player.level)
     local classDef = CharacterClass.Classes[player.classId]
     local g = classDef.growth
 
