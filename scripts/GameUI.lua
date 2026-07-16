@@ -1920,7 +1920,7 @@ function GameUI.ShowClassSelect(onSelected)
     }
     -- 职业武器 icon 贴图（复古暗灰石质按钮风格）
     local classAvatars = {
-        warrior = "image/class_icon_warrior_sword_inner2.png",
+        warrior = "image/class_icon_warrior_sword_relief.png",
         mage    = "image/class_icon_mage_staff_inner.png",
         taoist  = "image/class_icon_taoist_fan_inner.png",
     }
