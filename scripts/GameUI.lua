@@ -2031,11 +2031,13 @@ function GameUI.ShowClassSelect(onSelected, overlayMode, overlaySlotIndex)
 
     uiState.selectRoot = UI.Panel {
         id = "classSelect",
-        width = overlayMode and "50%" or "100%",
-        height = overlayMode and "58%" or "100%",
+        width = overlayMode and "100%" or "100%",
+        height = overlayMode and "100%" or "100%",
         position = overlayMode and "absolute" or nil,
         top = overlayMode and 0 or nil,
-        left = overlayMode and ((overlaySlotIndex == 2) and "50%" or 0) or nil,
+        left = overlayMode and 0 or nil,
+        right = overlayMode and 0 or nil,
+        bottom = overlayMode and 0 or nil,
         backgroundColor = overlayMode and {0, 0, 0, 118} or {10, 8, 6, 252},
         justifyContent = "center",
         alignItems = "center",
@@ -2061,7 +2063,12 @@ function GameUI.ShowClassSelect(onSelected, overlayMode, overlaySlotIndex)
     }
 
     if overlayMode and uiState.saveSlotRoot then
-        uiState.saveSlotRoot:AddChild(uiState.selectRoot)
+        local targetViewport = uiState.saveSlotRoot:FindById("viewport_" .. overlaySlotIndex)
+        if targetViewport then
+            targetViewport:AddChild(uiState.selectRoot)
+        else
+            uiState.saveSlotRoot:AddChild(uiState.selectRoot)
+        end
     else
         UI.SetRoot(uiState.selectRoot)
     end
