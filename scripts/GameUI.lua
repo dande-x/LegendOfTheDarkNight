@@ -1918,11 +1918,11 @@ function GameUI.ShowClassSelect(onSelected)
         mage    = "法",
         taoist  = "道",
     }
-    -- 角色头像贴图
+    -- 职业武器 icon 贴图（复古暗灰石质按钮风格）
     local classAvatars = {
-        warrior = "image/avatar_warrior_20260611121040.png",
-        mage    = "image/avatar_mage_20260611121045.png",
-        taoist  = "image/avatar_taoist_20260611121042.png",
+        warrior = "image/class_icon_mage_weapon_20260716094559.png",      -- 剑
+        mage    = "image/class_icon_warrior_weapon_20260716094603.png",   -- 法杖
+        taoist  = "image/class_icon_taoist_weapon_20260716094604.png",    -- 法扇
     }
     local classGlowColors = {
         warrior = {200, 85, 45, 255},
@@ -1955,19 +1955,23 @@ function GameUI.ShowClassSelect(onSelected)
             },
             children = {
                 UI.Panel {
-                    width = 88, height = 88,
-                    borderRadius = 44,
-                    backgroundColor = {8, 6, 5, 255},
-                    borderWidth = 3,
-                    borderColor = glow,
+                    width = 94, height = 94,
+                    borderRadius = 10,
+                    backgroundColor = {15, 16, 17, 255},
+                    borderWidth = 2,
+                    borderColor = {116, 120, 124, 220},
                     justifyContent = "center",
                     alignItems = "center",
                     overflow = "hidden",
+                    boxShadow = {
+                        { x = 0, y = 8, blur = 16, spread = 0, color = {0, 0, 0, 115} },
+                        { x = 0, y = 0, blur = 14, spread = 0, color = {glow[1], glow[2], glow[3], 34} },
+                    },
                     children = {
                         UI.Panel {
                             backgroundImage = classAvatars[classId],
-                            width = 82, height = 82,
-                            borderRadius = 41,
+                            width = 88, height = 88,
+                            borderRadius = 8,
                         },
                     },
                 },
