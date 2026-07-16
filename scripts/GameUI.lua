@@ -1940,6 +1940,14 @@ function GameUI.ShowClassSelect(onSelected, overlayMode, overlaySlotIndex)
         taoist  = "万灵召唤\n驱使群兽，碾压一切",
     }
 
+    local function ChooseClass(classId)
+        uiState.selectedClass = classId
+        GameUI.HideClassSelect()
+        if uiState.onClassSelected then
+            uiState.onClassSelected(classId)
+        end
+    end
+
     local cards = {}
     for _, classId in ipairs(classOrder) do
         local cls = CharacterClass.Classes[classId]
@@ -1958,6 +1966,9 @@ function GameUI.ShowClassSelect(onSelected, overlayMode, overlaySlotIndex)
                 { x = 0, y = 10, blur = 24, spread = 0, color = {0, 0, 0, 110} },
                 { x = 0, y = 0, blur = 18, spread = 0, color = {118, 122, 128, 34} },
             },
+            onClick = function()
+                ChooseClass(classId)
+            end,
             children = {
                 UI.Panel {
                     width = overlayMode and 54 or 96, height = overlayMode and 54 or 96,
@@ -2018,11 +2029,7 @@ function GameUI.ShowClassSelect(onSelected, overlayMode, overlaySlotIndex)
                     fontSize = 14,
                     fontColor = {222, 224, 222, 255},
                     onClick = function()
-                        uiState.selectedClass = classId
-                        GameUI.HideClassSelect()
-                        if uiState.onClassSelected then
-                            uiState.onClassSelected(classId)
-                        end
+                        ChooseClass(classId)
                     end,
                 },
             },
@@ -2031,13 +2038,11 @@ function GameUI.ShowClassSelect(onSelected, overlayMode, overlaySlotIndex)
 
     uiState.selectRoot = UI.Panel {
         id = "classSelect",
-        width = overlayMode and "100%" or "100%",
-        height = overlayMode and "100%" or "100%",
+        width = overlayMode and "50%" or "100%",
+        height = overlayMode and "58%" or "100%",
         position = overlayMode and "absolute" or nil,
         top = overlayMode and 0 or nil,
-        left = overlayMode and 0 or nil,
-        right = overlayMode and 0 or nil,
-        bottom = overlayMode and 0 or nil,
+        left = overlayMode and ((overlaySlotIndex == 2) and "50%" or 0) or nil,
         backgroundColor = overlayMode and {0, 0, 0, 118} or {10, 8, 6, 252},
         justifyContent = "center",
         alignItems = "center",
@@ -2063,12 +2068,7 @@ function GameUI.ShowClassSelect(onSelected, overlayMode, overlaySlotIndex)
     }
 
     if overlayMode and uiState.saveSlotRoot then
-        local targetViewport = uiState.saveSlotRoot:FindById("viewport_" .. overlaySlotIndex)
-        if targetViewport then
-            targetViewport:AddChild(uiState.selectRoot)
-        else
-            uiState.saveSlotRoot:AddChild(uiState.selectRoot)
-        end
+        uiState.saveSlotRoot:AddChild(uiState.selectRoot)
     else
         UI.SetRoot(uiState.selectRoot)
     end
