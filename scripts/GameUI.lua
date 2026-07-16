@@ -106,6 +106,7 @@ local uiState = {
     toasts = {},        -- { text, timer, duration }
     onClassSelected = nil,
     hudRoot = nil,
+    saveSlotRoot = nil,
     selectRoot = nil,
     refs = {},
     charPanelOpen = false,
@@ -1897,6 +1898,7 @@ function GameUI.ShowSaveSlots(slots, callbacks)
         },
     }
 
+    uiState.saveSlotRoot = saveSlotRoot
     UI.SetRoot(saveSlotRoot)
     print("[GameUI] Save slot screen shown (selected=" .. selectedSlot .. ")")
 end
@@ -1904,7 +1906,9 @@ end
 -- ============================================================================
 -- 角色选择界面 (暗黑地牢风格)
 -- ============================================================================
-function GameUI.ShowClassSelect(onSelected)
+function GameUI.ShowClassSelect(onSelected, overlayMode, overlaySlotIndex)
+    overlayMode = overlayMode == true
+    overlaySlotIndex = overlaySlotIndex or 1
     uiState.phase = "select"
     uiState.onClassSelected = onSelected
     uiState.charPanelOpen = false
@@ -1941,9 +1945,9 @@ function GameUI.ShowClassSelect(onSelected)
         local glow = classGlowColors[classId]
 
         table.insert(cards, UI.Panel {
-            width = 185,
-            paddingVertical = 22,
-            paddingHorizontal = 14,
+            width = overlayMode and 142 or 185,
+            paddingVertical = overlayMode and 14 or 22,
+            paddingHorizontal = overlayMode and 9 or 14,
             alignItems = "center",
             backgroundColor = {18, 18, 19, 248},
             borderRadius = 8,
@@ -1955,7 +1959,7 @@ function GameUI.ShowClassSelect(onSelected)
             },
             children = {
                 UI.Panel {
-                    width = 96, height = 96,
+                    width = overlayMode and 74 or 96, height = overlayMode and 74 or 96,
                     borderRadius = 0,
                     backgroundColor = {0, 0, 0, 0},
                     borderWidth = 0,
@@ -1965,14 +1969,14 @@ function GameUI.ShowClassSelect(onSelected)
                     children = {
                         UI.Panel {
                             backgroundImage = classAvatars[classId],
-                            width = 94, height = 94,
+                            width = overlayMode and 72 or 94, height = overlayMode and 72 or 94,
                             borderRadius = 8,
                         },
                     },
                 },
                 UI.Label {
                     text = cls.name,
-                    fontSize = 22,
+                    fontSize = overlayMode and 18 or 22,
                     fontColor = {224, 226, 224, 255},
                     marginTop = 14,
                 },
@@ -2026,15 +2030,18 @@ function GameUI.ShowClassSelect(onSelected)
 
     uiState.selectRoot = UI.Panel {
         id = "classSelect",
-        width = "100%",
-        height = "100%",
-        backgroundColor = {10, 8, 6, 252},
+        width = overlayMode and "50%" or "100%",
+        height = overlayMode and "58%" or "100%",
+        position = overlayMode and "absolute" or nil,
+        top = overlayMode and 0 or nil,
+        left = overlayMode and ((overlaySlotIndex == 2) and "50%" or 0) or nil,
+        backgroundColor = overlayMode and {0, 0, 0, 136} or {10, 8, 6, 252},
         justifyContent = "center",
         alignItems = "center",
         children = {
             UI.Label {
                 text = "暗夜传奇",
-                fontSize = 36,
+                fontSize = overlayMode and 26 or 36,
                 fontColor = {220, 221, 219, 255},
                 marginBottom = 4,
             },
@@ -2042,22 +2049,29 @@ function GameUI.ShowClassSelect(onSelected)
                 text = "选择你的命运",
                 fontSize = 13,
                 fontColor = {138, 140, 138, 180},
-                marginBottom = 30,
+                marginBottom = overlayMode and 14 or 30,
             },
             UI.Panel {
                 flexDirection = "row",
-                gap = 18,
+                gap = overlayMode and 8 or 18,
                 children = cards,
             },
         },
     }
 
-    UI.SetRoot(uiState.selectRoot)
+    if overlayMode and uiState.saveSlotRoot then
+        uiState.saveSlotRoot:AddChild(uiState.selectRoot)
+    else
+        UI.SetRoot(uiState.selectRoot)
+    end
     print("[GameUI] Class select screen shown (dungeon style)")
 end
 
 function GameUI.HideClassSelect()
-    uiState.selectRoot = nil
+    if uiState.selectRoot then
+        uiState.selectRoot:Remove()
+        uiState.selectRoot = nil
+    end
 end
 
 -- ============================================================================

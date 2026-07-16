@@ -943,12 +943,11 @@ function ShowSaveSlotScreen()
             end
         end,
         onCreate = function(slotIndex)
-            -- 创建新角色：清除预览，进入职业选择
-            CleanupPreview()
+            -- 创建新角色：在当前选中槽位的模型展示区覆盖职业选择，不离开存档页
             currentSlotIndex = slotIndex
             GameUI.ShowClassSelect(function(classId)
                 OnClassSelected(classId)
-            end)
+            end, true, slotIndex)
         end,
         onDelete = function(slotIndex, onDone)
             -- 删除角色
@@ -1286,31 +1285,19 @@ end
 function OnClassSelected(classId)
     print("[main] Selected class: " .. classId)
 
-    -- 初始化背包
+    -- 只创建角色存档，不立即进入游戏；用户需要回到槽位页点击“开始游戏”。
     Inventory.Init()
+    local newPlayer = CharacterClass.CreatePlayer(classId, 1)
 
-    -- 创建角色
-    player_ = CharacterClass.CreatePlayer(classId, 1)
-    CreatePlayerNode(classId)
-    GameUI.SetPlayerNode(playerNode_)
-    GameUI.ShowGameHUD(player_)
-    SetupGameCallbacks()
-
-    -- 初始刷怪
-    for i = 1, 28 do
-        Combat.SpawnEnemy(scene_, playerNode_.position, player_.level)
-    end
-
-    -- 首次保存到当前槽位
     if currentSlotIndex then
-        local snapshot = SaveSystem.CreateSnapshot(player_, Inventory.playerData, Combat.killCount)
+        local snapshot = SaveSystem.CreateSnapshot(newPlayer, Inventory.playerData, 0)
         SaveSystem.SaveToSlot(currentSlotIndex, snapshot)
-        print("[main] Initial save to slot " .. currentSlotIndex)
+        GameUI.SetSelectedSlot(currentSlotIndex)
+        print("[main] Created character in slot " .. currentSlotIndex)
     end
 
-    -- 开门动画
-    GameUI.StartDoorOpen()
-    print("[main] Game started with " .. CharacterClass.Classes[classId].name)
+    GameUI.HideClassSelect()
+    ShowSaveSlotScreen()
 end
 
 -- ============================================================================
