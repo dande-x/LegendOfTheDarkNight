@@ -54,6 +54,20 @@ PlayerAnim.hitFeedback = hitFeedback
 -- ============================================================================
 local CHARACTER_PREFAB = "Prefabs/LegendWarrior.prefab"
 
+-- 新角色模型：与职业解耦，所有职业共用所选性别模型。
+-- 旧模型路径保持原样，确保旧存档和原有职业外观逻辑不受影响。
+local NEW_CHARACTER_PREFABS = {
+    male = "model/33542021dc2e421f80edbbaf04c9f4b5/Prefabs/rig-1-9fd97390-f993-4ec1-8e2f-95e79f6583d9.prefab",
+    female = "model/67c4497f48ef47c3917a12f33ead8505/Prefabs/rig-1-67b00aed-4cb6-45a2-b848-74921ee0866c.prefab",
+}
+
+local function GetCharacterPrefab(classMod, modelStyle, gender)
+    if modelStyle == "new" then
+        return NEW_CHARACTER_PREFABS[gender or "male"] or NEW_CHARACTER_PREFABS.male
+    end
+    return classMod.prefab or CHARACTER_PREFAB
+end
+
 local ANIM_PATHS = {
     -- 基础移动
     idle       = "uuid://GikiEX04hbY9D5ALGNz051Zh",  -- 枪骑士战斗待机 1.33s loop
@@ -138,11 +152,17 @@ local ANIM_LOOPING = {
 -- ============================================================================
 local ORIGINAL_TEXTURE_UUID = "uuid://ARGvkYnzrbbOxkjh2N68upmG"
 
-local function ApplyClassMaterial(classId)
+local function ApplyClassMaterial(classId, modelStyle)
     if not animModel_ then return end
 
     local classMod = ClassModules[classId] or ClassModules.warrior
     local config = classMod.material
+
+    -- 新模型保留自身 PBR 材质，避免职业贴图覆盖基础体型；旧模型沿用原逻辑。
+    if modelStyle == "new" then
+        print(string.format("[PlayerAnim] New model keeps base PBR material: %s", classId))
+        return
+    end
 
     -- 如果职业使用独立模型且不覆盖材质，保留模型自带贴图
     if classMod.prefab and not config.useTexture then
@@ -217,11 +237,15 @@ local function AttachWeapon(classId)
         config.name, config.bone, ws.x, ws.y, ws.z))
 end
 
--- ============================================================================
--- 创建角色
--- ============================================================================
-function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors)
-    print("[PlayerAnim] CreateSkeleton called: " .. tostring(classId))
+function PlayerAnim.GetPrefabPath(classId, modelStyle, gender)
+    local classMod = ClassModules[classId] or ClassModules.warrior
+    return GetCharacterPrefab(classMod, modelStyle, gender)
+end
+
+function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors, modelStyle, gender)
+    print("[PlayerAnim] CreateSkeleton called: " .. tostring(classId)
+        .. " style=" .. tostring(modelStyle or "old")
+        .. " gender=" .. tostring(gender or "male"))
     currentClassId = classId
     playerNode_ = playerNode
 
@@ -237,8 +261,8 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors)
 
     local ok, err = pcall(function()
         local parentScene = playerNode:GetScene()
-        -- 支持按职业加载独立 prefab（如道士有自己的道袍模型）
-        local prefabPath = classMod.prefab or CHARACTER_PREFAB
+        -- 新模型按性别选择，旧模型继续按职业选择。
+        local prefabPath = GetCharacterPrefab(classMod, modelStyle, gender)
         local prefabFile = cache:GetFile(prefabPath)
         if not prefabFile then
             print("[PlayerAnim] ERROR: Cannot find prefab: " .. prefabPath)
@@ -306,7 +330,7 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors)
             animState.current = "idle"
         end
 
-        ApplyClassMaterial(classId)
+        ApplyClassMaterial(classId, modelStyle)
         AttachWeapon(classId)
     end
 

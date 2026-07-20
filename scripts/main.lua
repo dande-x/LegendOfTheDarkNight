@@ -637,7 +637,7 @@ local PREVIEW_CLASS_ATTACK = {
 --- 创建预览角色（在远处，供存档界面展示）
 ---@param slotIndex number 1 或 2
 ---@param classId string "warrior"|"mage"|"taoist"
-function CreatePreviewCharacter(slotIndex, classId)
+function CreatePreviewCharacter(slotIndex, classId, modelStyle, gender)
     -- 清除该槽位已有的预览
     DestroyPreviewCharacter(slotIndex)
 
@@ -653,7 +653,7 @@ function CreatePreviewCharacter(slotIndex, classId)
         taoist  = require("classes.Taoist"),
     }
     local classMod = ClassModules[classId] or ClassModules.warrior
-    local prefabPath = classMod.prefab or "Prefabs/LegendWarrior.prefab"
+    local prefabPath = PlayerAnim.GetPrefabPath(classId, modelStyle, gender)
 
     local prefabFile = cache:GetFile(prefabPath)
     if not prefabFile then
@@ -690,9 +690,9 @@ function CreatePreviewCharacter(slotIndex, classId)
             modelNode.position = Vector3(0, -minY * s, 0)
         end
 
-        -- 应用职业材质（仅在 useTexture=true 时覆盖；否则保留 prefab 自带材质）
+        -- 应用职业材质（仅旧模型且 useTexture=true 时覆盖；新模型保留自身材质）
         local config = classMod.material
-        if config.useTexture then
+        if modelStyle ~= "new" and config.useTexture then
             local mat = Material:new()
             mat:SetTechnique(0, cache:GetResource("Technique", config.technique))
             mat:SetTexture(TU_DIFFUSE, cache:GetResource("Texture2D", "uuid://ARGvkYnzrbbOxkjh2N68upmG"))
@@ -705,22 +705,22 @@ function CreatePreviewCharacter(slotIndex, classId)
                 animModel:SetMaterial(i, mat)
             end
         end
-        -- 对所有职业：强制切换到无法线贴图的 Technique，彻底消除脸部坑洼
-        local smoothTech = cache:GetResource("Technique", "Techniques/PBR/PBRDiff.xml")
-        local numGeom = animModel:GetNumGeometries()
-        for i = 0, numGeom - 1 do
-            local mat = animModel:GetMaterial(i)
-            if mat then
-                mat = mat:Clone()
-                -- 切换 Technique 为仅 Diffuse（不采样法线贴图）
-                mat:SetTechnique(0, smoothTech)
-                -- 清除法线和属性贴图
-                mat:SetTexture(TU_NORMAL, nil)
-                mat:SetTexture(TU_SPECULAR, nil)
-                -- 统一设置光滑参数
-                mat:SetShaderParameter("Roughness", Variant(0.8))
-                mat:SetShaderParameter("Metallic", Variant(0.0))
-                animModel:SetMaterial(i, mat)
+
+        -- 旧模型沿用原有平滑处理；新模型保留法线贴图和自身 PBR 材质。
+        if modelStyle ~= "new" then
+            local smoothTech = cache:GetResource("Technique", "Techniques/PBR/PBRDiff.xml")
+            local numGeom = animModel:GetNumGeometries()
+            for i = 0, numGeom - 1 do
+                local mat = animModel:GetMaterial(i)
+                if mat then
+                    mat = mat:Clone()
+                    mat:SetTechnique(0, smoothTech)
+                    mat:SetTexture(TU_NORMAL, nil)
+                    mat:SetTexture(TU_SPECULAR, nil)
+                    mat:SetShaderParameter("Roughness", Variant(0.8))
+                    mat:SetShaderParameter("Metallic", Variant(0.0))
+                    animModel:SetMaterial(i, mat)
+                end
             end
         end
     end
@@ -912,7 +912,7 @@ function ShowSaveSlotScreen()
     for i = 1, 2 do
         if slots[i] and slots[i].classId then
             classIds[i] = slots[i].classId
-            CreatePreviewCharacter(i, slots[i].classId)
+            CreatePreviewCharacter(i, slots[i].classId, slots[i].modelStyle or "old", slots[i].gender or "male")
         end
     end
 
@@ -945,8 +945,8 @@ function ShowSaveSlotScreen()
         onCreate = function(slotIndex)
             -- 创建新角色：在当前选中槽位的模型展示区覆盖职业选择，不离开存档页
             currentSlotIndex = slotIndex
-            GameUI.ShowClassSelect(function(classId)
-                OnClassSelected(classId)
+            GameUI.ShowClassSelect(function(classId, modelStyle, gender)
+                OnClassSelected(classId, modelStyle, gender)
             end, true, slotIndex)
         end,
         onDelete = function(slotIndex, onDone)
@@ -971,7 +971,7 @@ function LoadFromSave(saveData)
     SaveSystem.RestoreInventory(saveData, Inventory.playerData)
 
     -- 创建角色运行时对象
-    player_ = CharacterClass.CreatePlayer(saveData.classId, 1)
+    player_ = CharacterClass.CreatePlayer(saveData.classId, 1, saveData.modelStyle or "old", saveData.gender or "male")
 
     -- 恢复角色属性（等级、经验等）
     SaveSystem.RestorePlayer(saveData, player_)
@@ -980,7 +980,7 @@ function LoadFromSave(saveData)
     Combat.killCount = saveData.killCount or 0
 
     -- 创建角色节点并进入游戏
-    CreatePlayerNode(saveData.classId)
+    CreatePlayerNode(saveData.classId, player_.modelStyle, player_.gender)
     GameUI.SetPlayerNode(playerNode_)
     GameUI.ShowGameHUD(player_)
     SetupGameCallbacks()
@@ -1282,12 +1282,14 @@ end
 -- ============================================================================
 -- 角色选择回调（新建角色流程）
 -- ============================================================================
-function OnClassSelected(classId)
-    print("[main] Selected class: " .. classId)
+function OnClassSelected(classId, modelStyle, gender)
+    modelStyle = modelStyle or "old"
+    gender = gender or "male"
+    print("[main] Selected class: " .. classId .. " style=" .. modelStyle .. " gender=" .. gender)
 
     -- 只创建角色存档，不立即进入游戏；用户需要回到槽位页点击“开始游戏”。
     Inventory.Init()
-    local newPlayer = CharacterClass.CreatePlayer(classId, 1)
+    local newPlayer = CharacterClass.CreatePlayer(classId, 1, modelStyle, gender)
 
     if currentSlotIndex then
         local snapshot = SaveSystem.CreateSnapshot(newPlayer, Inventory.playerData, 0)
@@ -1433,15 +1435,18 @@ end
 -- ============================================================================
 -- 玩家角色节点（人形骨架）
 -- ============================================================================
-function CreatePlayerNode(classId)
+function CreatePlayerNode(classId, modelStyle, gender)
     local classDef = CharacterClass.Classes[classId]
     local color = C[classDef.color]
+
+    modelStyle = modelStyle or (player_ and player_.modelStyle) or "old"
+    gender = gender or (player_ and player_.gender) or "male"
 
     playerNode_ = scene_:CreateChild("Player")
     playerNode_.position = Vector3(0, 0, 0)
 
     -- 使用 PlayerAnim 创建人形骨架
-    PlayerAnim.CreateSkeleton(playerNode_, classId, color, C)
+    PlayerAnim.CreateSkeleton(playerNode_, classId, color, C, modelStyle, gender)
 
     -- 玩家动态碰撞体（胶囊体，无重力，不旋转，锁 Y）
     local body = playerNode_:CreateComponent("RigidBody")

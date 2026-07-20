@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<node>
+	<attribute name="Is Enabled" value="true" />
+	<attribute name="Name" value="rig-1-9fd97390-f993-4ec1-8e2f-95e79f6583d9" />
+	<attribute name="Tags" value="" />
+	<attribute name="Position" value="0 0 0" />
+	<attribute name="Rotation" value="1 0 0 0" />
+	<attribute name="Scale" value="1 1 1" />
+	<attribute name="Variables" value="" />
+	<component type="AnimatedModel">
+		<attribute name="Model" value="Model;uuid://EvmScYFLBOwHeC8bHkl5Crx7" />
+		<attribute name="Material" value="Material;uuid://F0GJuRlako2qlE9f_j3O-yY4" />
+		<attribute name="Cast Shadows" value="true" />
+	</component>
+</node>

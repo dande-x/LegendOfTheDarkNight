@@ -76,6 +76,8 @@ function SaveSystem.CreateSnapshot(player, inventoryData, killCount)
         -- 角色基础
         classId    = player.classId,
         className  = player.className,
+        modelStyle = player.modelStyle or "old",
+        gender     = player.gender or "male",
         level      = player.level,
         exp        = player.exp,
         expToNext  = player.expToNext,

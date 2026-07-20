@@ -343,7 +343,7 @@ function CharacterClass.RebuildEquippedSkills(player, includeLocked)
 end
 
 --- 创建角色实例
-function CharacterClass.CreatePlayer(classId, level)
+function CharacterClass.CreatePlayer(classId, level, modelStyle, gender)
     local classDef = CharacterClass.Classes[classId]
     if not classDef then
         print("[CharacterClass] ERROR: unknown class " .. tostring(classId))
@@ -356,6 +356,8 @@ function CharacterClass.CreatePlayer(classId, level)
     local player = {
         classId   = classId,
         className = classDef.name,
+        modelStyle = modelStyle or "old",
+        gender = gender or "male",
         level     = level,
         exp       = 0,
         expToNext = CharacterClass.GetExpToNext(level),
