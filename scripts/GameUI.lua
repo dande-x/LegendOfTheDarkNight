@@ -1393,14 +1393,14 @@ local previewClassIds_ = {}
 -- 角色选择与存档页使用二维职业立绘，不再依赖三维模型预览。
 local CLASS_PORTRAITS = {
     male = {
-        warrior = "image/portrait_male_warrior_20260720104447.png",
-        mage = "image/portrait_male_mage_20260720104453.png",
-        taoist = "image/portrait_male_taoist_20260720104502.png",
+        warrior = "image/portrait_male_warrior_restrained_20260720115032.png",
+        mage = "image/portrait_male_mage_restrained_20260720115036.png",
+        taoist = "image/portrait_male_taoist_restrained_20260720115037.png",
     },
     female = {
-        warrior = "image/portrait_female_warrior_20260720104454.png",
-        mage = "image/portrait_female_mage_20260720104448.png",
-        taoist = "image/portrait_female_taoist_20260720104506.png",
+        warrior = "image/portrait_female_warrior_restrained_20260720115023.png",
+        mage = "image/portrait_female_mage_restrained_20260720115022.png",
+        taoist = "image/portrait_female_taoist_restrained_20260720115028.png",
     },
 }
 
