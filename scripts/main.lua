@@ -900,24 +900,12 @@ end
 -- 存档系统：槽位选择界面 & 自动保存
 -- ============================================================================
 
---- 显示存档槽位选择界面（传奇风格双槽位 + 3D 角色预览）
+--- 显示存档槽位选择界面（二维职业立绘，不实例化三维角色）
 function ShowSaveSlotScreen()
     local slots = SaveSystem.GetAllSlots()
 
-    -- 清除旧预览
+    -- 清理可能残留的旧三维预览；立绘动画由 GameUI 控件负责。
     CleanupPreview()
-
-    -- 为有数据的槽位创建预览角色
-    local classIds = {}
-    for i = 1, 2 do
-        if slots[i] and slots[i].classId then
-            classIds[i] = slots[i].classId
-            CreatePreviewCharacter(i, slots[i].classId, slots[i].modelStyle or "old", slots[i].gender or "male")
-        end
-    end
-
-    -- 激活预览摄像机
-    ActivatePreview()
 
     -- 默认选中第一个有数据的槽位（如果没有持久化值的话默认选1）
     local defaultSelected = 1
@@ -926,12 +914,10 @@ function ShowSaveSlotScreen()
     end
     -- 设置持久化选中（ShowSaveSlots 会读取此值）
     GameUI.SetSelectedSlot(defaultSelected)
-    SetPreviewSelected(defaultSelected, classIds)
 
     GameUI.ShowSaveSlots(slots, {
         onSelect = function(slotIndex)
-            -- 槽位选中回调：切换预览动画
-            SetPreviewSelected(slotIndex, classIds)
+            print("[main] Selected portrait slot " .. slotIndex)
         end,
         onContinue = function(slotIndex)
             -- 继续游戏：清除预览，加载存档

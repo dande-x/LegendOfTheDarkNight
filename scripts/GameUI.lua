@@ -1384,11 +1384,30 @@ function GameUI.StartDoorOpen(onComplete)
 end
 
 -- ============================================================================
--- 存档槽位选择界面（传奇风格：双槽位 + 3D角色预览）
+-- 存档槽位选择界面（传奇风格：双槽位 + 动态职业立绘）
 -- ============================================================================
 
 -- 存储预览状态供 main.lua 查询
 local previewClassIds_ = {}
+
+-- 角色选择与存档页使用二维职业立绘，不再依赖三维模型预览。
+local CLASS_PORTRAITS = {
+    male = {
+        warrior = "image/portrait_male_warrior_20260720104447.png",
+        mage = "image/portrait_male_mage_20260720104453.png",
+        taoist = "image/portrait_male_taoist_20260720104502.png",
+    },
+    female = {
+        warrior = "image/portrait_female_warrior_20260720104454.png",
+        mage = "image/portrait_female_mage_20260720104448.png",
+        taoist = "image/portrait_female_taoist_20260720104506.png",
+    },
+}
+
+local function GetClassPortrait(classId, gender)
+    local genderSet = CLASS_PORTRAITS[gender or "male"] or CLASS_PORTRAITS.male
+    return genderSet[classId] or CLASS_PORTRAITS.male.warrior
+end
 -- 持久化选中的槽位索引（跨 ShowSaveSlots 重建保留）
 local persistedSelectedSlot_ = nil
 
@@ -1522,7 +1541,7 @@ function GameUI.ShowSaveSlots(slots, callbacks)
 
     -- ========================================================================
     -- 经典传奇风格角色选择界面（参照热血传奇原版布局）
-    -- 上半：两个大角色展示窗（3D角色透出）
+    -- 上半：两个大角色立绘展示窗
     -- 下半：左右角色信息卡 + 中间操作按钮
     -- ========================================================================
 
@@ -1555,8 +1574,36 @@ function GameUI.ShowSaveSlots(slots, callbacks)
         local statusText = isSelected and "当前角色" or "选择 NO." .. index
         local statusColor = isSelected and C_GOLD or {178, 172, 185, 205}
 
+        local portrait = data and GetClassPortrait(data.classId, data.gender) or nil
+        local portraitPanel = portrait and UI.Panel {
+            position = "absolute",
+            top = 40,
+            bottom = 8,
+            left = 8,
+            right = 8,
+            backgroundImage = portrait,
+            backgroundFit = "contain",
+            pointerEvents = "none",
+            opacity = isSelected and 1.0 or 0.72,
+            transformOrigin = "bottom",
+            boxShadow = isSelected and {
+                { x = 0, y = 0, blur = 28, spread = 2, color = {180, 170, 135, 70} },
+            } or nil,
+        } or nil
+        if portraitPanel and isSelected then
+            portraitPanel:Animate({
+                keyframes = {
+                    [0] = { scale = 0.99, translateY = 2 },
+                    [0.5] = { scale = 1.015, translateY = -3 },
+                    [1] = { scale = 0.99, translateY = 2 },
+                },
+                duration = 3.2,
+                easing = "easeInOut",
+                loop = true,
+            })
+        end
+
         return UI.Button {
-            id = "viewport_" .. index,
             text = "",
             flexGrow = 1,
             height = "100%",
@@ -1574,6 +1621,7 @@ function GameUI.ShowSaveSlots(slots, callbacks)
                 { x = 0, y = 6, blur = 16, spread = 0, color = {0, 0, 0, 90} },
             },
             children = {
+                portraitPanel,
                 -- 顶部状态条：比单纯边框更容易被新人识别
                 UI.Panel {
                     position = "absolute",
@@ -1923,12 +1971,7 @@ function GameUI.ShowClassSelect(onSelected, overlayMode, overlaySlotIndex)
         mage    = "法",
         taoist  = "道",
     }
-    -- 职业武器 icon 贴图（复古暗灰石质按钮风格）
-    local classAvatars = {
-        warrior = "image/class_icon_warrior_ref.png",
-        mage    = "image/class_icon_mage_staff_inner.png",
-        taoist  = "image/class_icon_taoist_fan_inner.png",
-    }
+    -- 职业立绘会按当前性别在运行时切换。
     local classGlowColors = {
         warrior = {200, 85, 45, 255},
         mage    = {50, 120, 210, 255},
@@ -1942,6 +1985,13 @@ function GameUI.ShowClassSelect(onSelected, overlayMode, overlaySlotIndex)
 
     local selectedModelStyle = "old"
     local selectedGender = "male"
+    local classPortraitRefs = {}
+
+    local function UpdateClassPortraits()
+        for classId, portrait in pairs(classPortraitRefs) do
+            portrait:SetBackgroundImage(GetClassPortrait(classId, selectedGender))
+        end
+    end
 
     local function ChooseClass(classId)
         uiState.selectedClass = classId
@@ -1955,6 +2005,25 @@ function GameUI.ShowClassSelect(onSelected, overlayMode, overlaySlotIndex)
     for _, classId in ipairs(classOrder) do
         local cls = CharacterClass.Classes[classId]
         local glow = classGlowColors[classId]
+        local portrait = UI.Panel {
+            backgroundImage = GetClassPortrait(classId, selectedGender),
+            backgroundFit = "contain",
+            width = overlayMode and 86 or 160,
+            height = overlayMode and 126 or 250,
+            transformOrigin = "bottom",
+            pointerEvents = "none",
+        }
+        portrait:Animate({
+            keyframes = {
+                [0] = { scale = 0.99, translateY = 2 },
+                [0.5] = { scale = 1.015, translateY = -3 },
+                [1] = { scale = 0.99, translateY = 2 },
+            },
+            duration = 3.0 + (#cards * 0.18),
+            easing = "easeInOut",
+            loop = true,
+        })
+        classPortraitRefs[classId] = portrait
 
         table.insert(cards, UI.Panel {
             width = overlayMode and 104 or 185,
@@ -1974,19 +2043,17 @@ function GameUI.ShowClassSelect(onSelected, overlayMode, overlaySlotIndex)
             end,
             children = {
                 UI.Panel {
-                    width = overlayMode and 54 or 96, height = overlayMode and 54 or 96,
-                    borderRadius = 0,
-                    backgroundColor = {0, 0, 0, 0},
-                    borderWidth = 0,
-                    justifyContent = "center",
+                    width = overlayMode and 88 or 162,
+                    height = overlayMode and 128 or 252,
+                    borderRadius = 6,
+                    backgroundColor = {8, 8, 9, 180},
+                    borderWidth = 1,
+                    borderColor = {glow[1], glow[2], glow[3], 120},
+                    justifyContent = "flex-end",
                     alignItems = "center",
-                    overflow = "visible",
+                    overflow = "hidden",
                     children = {
-                        UI.Panel {
-                            backgroundImage = classAvatars[classId],
-                            width = overlayMode and 52 or 94, height = overlayMode and 52 or 94,
-                            borderRadius = 8,
-                        },
+                        portrait,
                     },
                 },
                 UI.Label {
@@ -2090,6 +2157,7 @@ function GameUI.ShowClassSelect(onSelected, overlayMode, overlaySlotIndex)
                         value = "male",
                         onChange = function(self, value)
                             selectedGender = value
+                            UpdateClassPortraits()
                         end,
                     },
                 },
