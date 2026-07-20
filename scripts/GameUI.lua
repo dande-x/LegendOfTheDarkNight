@@ -1394,13 +1394,13 @@ local previewClassIds_ = {}
 local CLASS_PORTRAITS = {
     male = {
         warrior = "image/portrait_male_warrior_restrained_20260720115032.png",
-        mage = "image/portrait_male_mage_restrained_20260720115036.png",
+        mage = "image/portrait_male_mage_refined_20260720120053.png",
         taoist = "image/portrait_male_taoist_restrained_20260720115037.png",
     },
     female = {
-        warrior = "image/portrait_female_warrior_restrained_20260720115023.png",
-        mage = "image/portrait_female_mage_restrained_20260720115022.png",
-        taoist = "image/portrait_female_taoist_restrained_20260720115028.png",
+        warrior = "image/portrait_female_warrior_nohelmet_20260720120059.png",
+        mage = "image/portrait_female_mage_refined_staff_20260720120334.png",
+        taoist = "image/portrait_female_taoist_refined_singlefan_20260720120323.png",
     },
 }
 
