@@ -54,16 +54,27 @@ PlayerAnim.hitFeedback = hitFeedback
 -- ============================================================================
 local CHARACTER_PREFAB = "Prefabs/LegendWarrior.prefab"
 
--- 新角色模型：与职业解耦，所有职业共用所选性别模型。
+-- 新角色模型按性别和职业映射。当前男性职业共用男性基础模型；
+-- 女性武士使用已穿戴武士装备的专用模型，女性法师和道士继续共用女性基础模型。
 -- 旧模型路径保持原样，确保旧存档和原有职业外观逻辑不受影响。
 local NEW_CHARACTER_PREFABS = {
-    male = "model/33542021dc2e421f80edbbaf04c9f4b5/Prefabs/rig-1-9fd97390-f993-4ec1-8e2f-95e79f6583d9.prefab",
-    female = "model/67c4497f48ef47c3917a12f33ead8505/Prefabs/rig-1-67b00aed-4cb6-45a2-b848-74921ee0866c.prefab",
+    male = {
+        warrior = "model/33542021dc2e421f80edbbaf04c9f4b5/Prefabs/rig-1-9fd97390-f993-4ec1-8e2f-95e79f6583d9.prefab",
+        mage = "model/33542021dc2e421f80edbbaf04c9f4b5/Prefabs/rig-1-9fd97390-f993-4ec1-8e2f-95e79f6583d9.prefab",
+        taoist = "model/33542021dc2e421f80edbbaf04c9f4b5/Prefabs/rig-1-9fd97390-f993-4ec1-8e2f-95e79f6583d9.prefab",
+    },
+    female = {
+        warrior = "model/4e4dfbd1c5614236995be1033de34e24/Prefabs/rig-1-96b79026-4057-4dce-8f3d-70328dab0da9.prefab",
+        mage = "model/67c4497f48ef47c3917a12f33ead8505/Prefabs/rig-1-67b00aed-4cb6-45a2-b848-74921ee0866c.prefab",
+        taoist = "model/67c4497f48ef47c3917a12f33ead8505/Prefabs/rig-1-67b00aed-4cb6-45a2-b848-74921ee0866c.prefab",
+    },
 }
 
-local function GetCharacterPrefab(classMod, modelStyle, gender)
+local function GetCharacterPrefab(classId, classMod, modelStyle, gender)
     if modelStyle == "new" then
-        return NEW_CHARACTER_PREFABS[gender or "male"] or NEW_CHARACTER_PREFABS.male
+        local genderSet = NEW_CHARACTER_PREFABS[gender or "male"]
+            or NEW_CHARACTER_PREFABS.male
+        return genderSet[classId] or genderSet.warrior
     end
     return classMod.prefab or CHARACTER_PREFAB
 end
@@ -239,7 +250,7 @@ end
 
 function PlayerAnim.GetPrefabPath(classId, modelStyle, gender)
     local classMod = ClassModules[classId] or ClassModules.warrior
-    return GetCharacterPrefab(classMod, modelStyle, gender)
+    return GetCharacterPrefab(classId, classMod, modelStyle, gender)
 end
 
 function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors, modelStyle, gender)
@@ -261,8 +272,14 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors, modelStyl
 
     local ok, err = pcall(function()
         local parentScene = playerNode:GetScene()
-        -- 新模型按性别选择，旧模型继续按职业选择。
-        local prefabPath = GetCharacterPrefab(classMod, modelStyle, gender)
+        -- 新模型按性别和职业选择，旧模型继续按职业选择。
+        local prefabPath = GetCharacterPrefab(
+            classId,
+            classMod,
+            modelStyle,
+            gender
+        )
+        print("[PlayerAnim] Loading character prefab: " .. prefabPath)
         local prefabFile = cache:GetFile(prefabPath)
         if not prefabFile then
             print("[PlayerAnim] ERROR: Cannot find prefab: " .. prefabPath)

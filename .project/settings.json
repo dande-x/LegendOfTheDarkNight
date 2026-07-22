@@ -27,7 +27,7 @@
       "background_match": false,
       "match_info": {
         "desc_name": "free_match",
-        "immediately_start": false,
+        "immediately_start": true,
         "match_timeout": 0,
         "player_number": 1
       },
