@@ -223,6 +223,21 @@ end
 ---@type Node
 local weaponNode_ = nil
 
+local LEGACY_MALE_WARRIOR_HEIGHT = 1.85
+
+local function GetWeaponScaleCompensation(classId)
+    if classId == "warrior"
+        and currentModelStyle == "new"
+        and currentGender == "female"
+        and baseScale_ > 0 then
+        -- 两种角色最终都归一化到 TARGET_HEIGHT_，但武器会继承模型缩放。
+        -- 用男性旧武士的模型缩放反向补偿，确保同一把刀的世界尺寸一致。
+        local legacyModelScale = TARGET_HEIGHT_ / LEGACY_MALE_WARRIOR_HEIGHT
+        return legacyModelScale / baseScale_
+    end
+    return 1.0
+end
+
 local function GetWeaponRotation(classId, config)
     if classId == "warrior"
         and currentModelStyle == "new"
@@ -266,13 +281,14 @@ local function AttachWeapon(classId)
     weaponNode_ = boneNode:CreateChild(config.name)
     weaponNode_.position = config.offset
     weaponNode_.rotation = GetWeaponRotation(classId, config)
-    weaponNode_.scale = config.scale
+    local scaleCompensation = GetWeaponScaleCompensation(classId)
+    weaponNode_.scale = config.scale * scaleCompensation
 
     classMod.buildWeapon(weaponNode_)
 
     local ws = weaponNode_.worldScale
-    print(string.format("[PlayerAnim] Weapon attached: %s → %s | rotation=%s | worldScale=(%.4f,%.4f,%.4f)",
-        config.name, config.bone, weaponNode_.rotation:ToString(), ws.x, ws.y, ws.z))
+    print(string.format("[PlayerAnim] Weapon attached: %s → %s | rotation=%s | scaleComp=%.4f | worldScale=(%.4f,%.4f,%.4f)",
+        config.name, config.bone, weaponNode_.rotation:ToString(), scaleCompensation, ws.x, ws.y, ws.z))
 end
 
 function PlayerAnim.GetPrefabPath(classId, modelStyle, gender)
