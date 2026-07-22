@@ -32,6 +32,8 @@ local hitFeedback = {
 }
 
 local currentClassId = "warrior"
+local currentModelStyle = "old"
+local currentGender = "male"
 
 ---@type Node
 local modelNode_ = nil
@@ -125,6 +127,20 @@ local function GetCurrentAnimPaths()
     return currentAnimPaths or ANIM_PATHS
 end
 
+local function ResolvePlayedAnimName(animName)
+    local classMod = ClassModules[currentClassId] or ClassModules.warrior
+
+    if currentModelStyle == "new"
+        and currentGender == "female"
+        and animName == "idle"
+        and classMod.poseAnims
+        and classMod.poseAnims.hold then
+        return classMod.poseAnims.hold
+    end
+
+    return animName
+end
+
 -- 动画时长
 local ANIM_DURATIONS = {
     idle        = 1.33,
@@ -207,6 +223,17 @@ end
 ---@type Node
 local weaponNode_ = nil
 
+local function GetWeaponRotation(classId, config)
+    if classId == "warrior"
+        and currentModelStyle == "new"
+        and currentGender == "female" then
+        -- 女性新模型的 R_Hand 局部前后轴与男性旧模型相反，
+        -- 仅翻转武器局部朝向，避免改动骨骼动画和男性旧模型。
+        return Quaternion(0, 180, 0) * config.rotation
+    end
+    return config.rotation
+end
+
 local function AttachWeapon(classId)
     if weaponNode_ then
         weaponNode_:Remove()
@@ -238,14 +265,14 @@ local function AttachWeapon(classId)
 
     weaponNode_ = boneNode:CreateChild(config.name)
     weaponNode_.position = config.offset
-    weaponNode_.rotation = config.rotation
+    weaponNode_.rotation = GetWeaponRotation(classId, config)
     weaponNode_.scale = config.scale
 
     classMod.buildWeapon(weaponNode_)
 
     local ws = weaponNode_.worldScale
-    print(string.format("[PlayerAnim] Weapon attached: %s → %s | worldScale=(%.4f,%.4f,%.4f)",
-        config.name, config.bone, ws.x, ws.y, ws.z))
+    print(string.format("[PlayerAnim] Weapon attached: %s → %s | rotation=%s | worldScale=(%.4f,%.4f,%.4f)",
+        config.name, config.bone, weaponNode_.rotation:ToString(), ws.x, ws.y, ws.z))
 end
 
 function PlayerAnim.GetPrefabPath(classId, modelStyle, gender)
@@ -258,6 +285,8 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors, modelStyl
         .. " style=" .. tostring(modelStyle or "old")
         .. " gender=" .. tostring(gender or "male"))
     currentClassId = classId
+    currentModelStyle = modelStyle or "old"
+    currentGender = gender or "male"
     playerNode_ = playerNode
 
     local classMod = ClassModules[classId] or ClassModules.warrior
@@ -342,7 +371,7 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors, modelStyl
         end
 
         local animPaths = GetCurrentAnimPaths()
-        local holdAnimName = (classMod.poseAnims and classMod.poseAnims.hold) or "idle"
+        local holdAnimName = ResolvePlayedAnimName("idle")
         local holdAnimPath = animPaths[holdAnimName] or animPaths.idle
         if animCtrl_ and holdAnimPath then
             animCtrl_:PlayExclusive(holdAnimPath, 0, true, 0.0)
@@ -367,30 +396,25 @@ end
 -- ============================================================================
 function PlayerAnim.Play(animName, onComplete, opts)
     local animPaths = GetCurrentAnimPaths()
-    local classMod = ClassModules[currentClassId] or ClassModules.warrior
-
-    -- idle 状态统一使用各职业男性旧模型的持武器姿势。
-    if animName == "idle" and classMod.poseAnims and classMod.poseAnims.hold then
-        animName = classMod.poseAnims.hold
-    end
-
-    local animPath = animPaths[animName]
+    local stateName = animName
+    local playedAnimName = ResolvePlayedAnimName(stateName)
+    local animPath = animPaths[playedAnimName]
     if not animPath then
-        if animName == "hit" then animPath = animPaths.melee_fast
+        if stateName == "hit" then animPath = animPaths.melee_fast
         else return end
     end
 
     if not animCtrl_ then return end
 
     local speed = (opts and opts.speed) or 1.0
-    local isLoop = ANIM_LOOPING[animName] or false
-    local duration = (opts and opts.duration) or ANIM_DURATIONS[animName] or 1.0
+    local isLoop = ANIM_LOOPING[stateName] or false
+    local duration = (opts and opts.duration) or ANIM_DURATIONS[stateName] or 1.0
 
-    if animState.current == animName and isLoop then
+    if animState.current == stateName and isLoop then
         return
     end
 
-    animState.current = animName
+    animState.current = stateName
     animState.elapsed = 0
     animState.duration = duration
     animState.onComplete = onComplete
@@ -405,9 +429,11 @@ function PlayerAnim.PlaySkill(skillType, onComplete)
     local config = classMod.skillAnims[skillType] or classMod.skillAnims.melee
     local animName = config.anim
 
-    -- 新模型的基础姿势与攻击动作明确沿用对应男性旧模型。
-    -- 保留各职业 skillAnims 的速度和时长，避免改变战斗节奏。
-    if classMod.poseAnims and skillType == "melee" then
+    -- 仅女性新模型覆盖普通攻击动作；男性旧模型保持原职业逻辑。
+    if currentModelStyle == "new"
+        and currentGender == "female"
+        and classMod.poseAnims
+        and skillType == "melee" then
         animName = classMod.poseAnims.attack
     end
 
@@ -428,17 +454,19 @@ end
 -- 每帧更新
 -- ============================================================================
 function PlayerAnim.Update(dt, isMoving)
+    local animPaths = GetCurrentAnimPaths()
+    local playedAnimName = ResolvePlayedAnimName(animState.current)
+    local currentAnimPath = animPaths[playedAnimName]
+
     if hitFeedback.hitPause > 0 then
         hitFeedback.hitPause = hitFeedback.hitPause - dt
-        local animPaths = GetCurrentAnimPaths()
-        if animCtrl_ and animPaths[animState.current] then
-            animCtrl_:SetSpeed(animPaths[animState.current], 0.0)
+        if animCtrl_ and currentAnimPath then
+            animCtrl_:SetSpeed(currentAnimPath, 0.0)
         end
         return
     else
-        local animPaths = GetCurrentAnimPaths()
-        if animCtrl_ and animPaths[animState.current] then
-            animCtrl_:SetSpeed(animPaths[animState.current], animState.speed or 1.0)
+        if animCtrl_ and currentAnimPath then
+            animCtrl_:SetSpeed(currentAnimPath, animState.speed or 1.0)
         end
     end
 

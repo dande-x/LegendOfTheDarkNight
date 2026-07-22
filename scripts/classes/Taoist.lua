@@ -7,7 +7,7 @@ local WEAPON_SCALE = 1.16
 
 local Taoist = {}
 
--- 男女新旧模型统一复用男性旧道士的持扇与攻击动作。
+-- 女性新模型复用男性旧道士的持扇与攻击动作；男性旧模型保持原逻辑。
 Taoist.animSet = "male"
 Taoist.poseAnims = {
     hold = "combat_idle",

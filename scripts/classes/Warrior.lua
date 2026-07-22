@@ -7,7 +7,7 @@ local WEAPON_SCALE = 1.55
 
 local Warrior = {}
 
--- 男女新旧模型统一复用男性旧武士的持刀与攻击动作。
+-- 女性新模型复用男性旧武士的持刀与攻击动作；男性旧模型保持原逻辑。
 Warrior.animSet = "male"
 Warrior.poseAnims = {
     hold = "combat_idle",

@@ -7,7 +7,7 @@ local WEAPON_SCALE = 1.16
 
 local Mage = {}
 
--- 男女新旧模型统一复用男性旧法师的持杖与攻击动作。
+-- 女性新模型复用男性旧法师的持杖与攻击动作；男性旧模型保持原逻辑。
 Mage.animSet = "male"
 Mage.poseAnims = {
     hold = "combat_idle",
