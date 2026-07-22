@@ -342,10 +342,18 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors, modelStyl
         end
 
         local animPaths = GetCurrentAnimPaths()
-        if animCtrl_ and animPaths.idle then
-            animCtrl_:PlayExclusive(animPaths.idle, 0, true, 0.0)
+        local holdAnimName = (classMod.poseAnims and classMod.poseAnims.hold) or "idle"
+        local holdAnimPath = animPaths[holdAnimName] or animPaths.idle
+        if animCtrl_ and holdAnimPath then
+            animCtrl_:PlayExclusive(holdAnimPath, 0, true, 0.0)
             animState.current = "idle"
         end
+
+        print(string.format(
+            "[PlayerAnim] Legacy male pose mapping: hold=%s attack=%s",
+            tostring(classMod.poseAnims and classMod.poseAnims.hold or "idle"),
+            tostring(classMod.poseAnims and classMod.poseAnims.attack or "skill mapping")
+        ))
 
         ApplyClassMaterial(classId, modelStyle)
         AttachWeapon(classId)
@@ -359,6 +367,13 @@ end
 -- ============================================================================
 function PlayerAnim.Play(animName, onComplete, opts)
     local animPaths = GetCurrentAnimPaths()
+    local classMod = ClassModules[currentClassId] or ClassModules.warrior
+
+    -- idle 状态统一使用各职业男性旧模型的持武器姿势。
+    if animName == "idle" and classMod.poseAnims and classMod.poseAnims.hold then
+        animName = classMod.poseAnims.hold
+    end
+
     local animPath = animPaths[animName]
     if not animPath then
         if animName == "hit" then animPath = animPaths.melee_fast
@@ -388,8 +403,15 @@ end
 function PlayerAnim.PlaySkill(skillType, onComplete)
     local classMod = ClassModules[currentClassId] or ClassModules.warrior
     local config = classMod.skillAnims[skillType] or classMod.skillAnims.melee
+    local animName = config.anim
 
-    PlayerAnim.Play(config.anim, onComplete, {
+    -- 新模型的基础姿势与攻击动作明确沿用对应男性旧模型。
+    -- 保留各职业 skillAnims 的速度和时长，避免改变战斗节奏。
+    if classMod.poseAnims and skillType == "melee" then
+        animName = classMod.poseAnims.attack
+    end
+
+    PlayerAnim.Play(animName, onComplete, {
         speed = config.speed,
         duration = config.duration,
     })

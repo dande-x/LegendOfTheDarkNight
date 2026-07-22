@@ -606,6 +606,7 @@ local PREVIEW_MALE_ANIM_PATHS = {
     idle       = "uuid://GikiEX04hbY9D5ALGNz051Zh",
     melee_fast = "uuid://Ai-SCaONHGJAnRCLZmoO2QJ8",
     cast_quick = "uuid://E3rZmUDaM9pq2-V2gj3pCyW4",
+    staff_slam  = "uuid://AG7o2TcvrluLScFMCJltgkkF",
     sweep_l    = "uuid://BzVkoQzPfkBeIJ_SyLQNwXpI",
 }
 
@@ -625,13 +626,14 @@ end
 local PREVIEW_ANIM_DURATIONS = {
     melee_fast = 1.07,
     cast_quick = 1.5,
+    staff_slam = 1.37,
     sweep_l    = 1.33,
 }
--- 各职业预览攻击动画
+-- 各职业预览攻击动画，保持与实战职业动作一致。
 local PREVIEW_CLASS_ATTACK = {
-    warrior = "melee_fast",
-    mage    = "cast_quick",
-    taoist  = "sweep_l",
+    warrior = "sweep_l",
+    mage    = "staff_slam",
+    taoist  = "cast_quick",
 }
 
 --- 创建预览角色（在远处，供存档界面展示）

@@ -7,6 +7,13 @@ local WEAPON_SCALE = 1.16
 
 local Mage = {}
 
+-- 男女新旧模型统一复用男性旧法师的持杖与攻击动作。
+Mage.animSet = "male"
+Mage.poseAnims = {
+    hold = "combat_idle",
+    attack = "staff_slam",
+}
+
 -- ========================================================================
 -- 武器挂载配置
 -- 几何体以 Y=0 为握持点（掌心位置）
