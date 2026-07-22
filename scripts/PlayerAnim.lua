@@ -67,8 +67,8 @@ local NEW_CHARACTER_PREFABS = {
     },
     female = {
         warrior = "model/4e4dfbd1c5614236995be1033de34e24/Prefabs/rig-1-96b79026-4057-4dce-8f3d-70328dab0da9.prefab",
-        mage = "model/67c4497f48ef47c3917a12f33ead8505/Prefabs/rig-1-67b00aed-4cb6-45a2-b848-74921ee0866c.prefab",
-        taoist = "model/67c4497f48ef47c3917a12f33ead8505/Prefabs/rig-1-67b00aed-4cb6-45a2-b848-74921ee0866c.prefab",
+        mage = "model/3adc443e7a73436282b6f2349c1be7c4/Prefabs/rig-1-d76f31e6-a0c1-4d45-a3a7-c4de592bc3bf.prefab",
+        taoist = "model/3adc443e7a73436282b6f2349c1be7c4/Prefabs/rig-1-d76f31e6-a0c1-4d45-a3a7-c4de592bc3bf.prefab",
     },
 }
 
