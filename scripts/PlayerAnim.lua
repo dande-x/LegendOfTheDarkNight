@@ -223,17 +223,23 @@ end
 ---@type Node
 local weaponNode_ = nil
 
-local LEGACY_MALE_WARRIOR_HEIGHT = 1.85
+local LEGACY_MALE_MODEL_HEIGHTS = {
+    warrior = 1.85,
+    mage = 1.80,
+    taoist = 1.85,
+}
 
 local function GetWeaponScaleCompensation(classId)
-    if classId == "warrior"
-        and currentModelStyle == "new"
+    if currentModelStyle == "new"
         and currentGender == "female"
         and baseScale_ > 0 then
-        -- 两种角色最终都归一化到 TARGET_HEIGHT_，但武器会继承模型缩放。
-        -- 用男性旧武士的模型缩放反向补偿，确保同一把刀的世界尺寸一致。
-        local legacyModelScale = TARGET_HEIGHT_ / LEGACY_MALE_WARRIOR_HEIGHT
-        return legacyModelScale / baseScale_
+        -- 男女角色最终都归一化到 TARGET_HEIGHT_，但武器会继承角色模型缩放。
+        -- 按对应男性旧职业模型的原始高度反向补偿，使同一武器建模保持相同世界尺寸。
+        local legacyHeight = LEGACY_MALE_MODEL_HEIGHTS[classId]
+        if legacyHeight then
+            local legacyModelScale = TARGET_HEIGHT_ / legacyHeight
+            return legacyModelScale / baseScale_
+        end
     end
     return 1.0
 end
