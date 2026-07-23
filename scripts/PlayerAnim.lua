@@ -242,6 +242,14 @@ local function GetWeaponScaleCompensation(classId)
 end
 
 local function GetWeaponRotation(classId, config)
+    if currentModelStyle == "new"
+        and currentGender == "male"
+        and classId == "mage" then
+        -- 男性新模型的 R_Hand 在待机动画中已让武器 Y 轴竖直；
+        -- 旧法师额外的 Z=90° 会把法杖转成横向并穿过腰腹。
+        return Quaternion.IDENTITY
+    end
+
     if classId == "warrior"
         and currentModelStyle == "new"
         and currentGender == "female" then
