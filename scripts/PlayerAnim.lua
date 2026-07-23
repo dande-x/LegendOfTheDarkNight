@@ -131,7 +131,6 @@ local function ResolvePlayedAnimName(animName)
     local classMod = ClassModules[currentClassId] or ClassModules.warrior
 
     if currentModelStyle == "new"
-        and currentGender == "female"
         and animName == "idle"
         and classMod.poseAnims
         and classMod.poseAnims.hold then
@@ -230,11 +229,9 @@ local LEGACY_MALE_MODEL_HEIGHTS = {
 }
 
 local function GetWeaponScaleCompensation(classId)
-    if currentModelStyle == "new"
-        and currentGender == "female"
-        and baseScale_ > 0 then
-        -- 男女角色最终都归一化到 TARGET_HEIGHT_，但武器会继承角色模型缩放。
-        -- 按对应男性旧职业模型的原始高度反向补偿，使同一武器建模保持相同世界尺寸。
+    if currentModelStyle == "new" and baseScale_ > 0 then
+        -- 新男女模型原始高度约 1m，归一化到 TARGET_HEIGHT_ 后会同步放大武器和握点偏移。
+        -- 按对应男性旧职业模型的原始高度反向补偿，复刻旧模型的武器世界尺寸与掌心位置。
         local legacyHeight = LEGACY_MALE_MODEL_HEIGHTS[classId]
         if legacyHeight then
             local legacyModelScale = TARGET_HEIGHT_ / legacyHeight
@@ -285,9 +282,9 @@ local function AttachWeapon(classId)
     end
 
     weaponNode_ = boneNode:CreateChild(config.name)
-    weaponNode_.position = config.offset
-    weaponNode_.rotation = GetWeaponRotation(classId, config)
     local scaleCompensation = GetWeaponScaleCompensation(classId)
+    weaponNode_.position = config.offset * scaleCompensation
+    weaponNode_.rotation = GetWeaponRotation(classId, config)
     weaponNode_.scale = config.scale * scaleCompensation
 
     classMod.buildWeapon(weaponNode_)
@@ -451,9 +448,8 @@ function PlayerAnim.PlaySkill(skillType, onComplete)
     local config = classMod.skillAnims[skillType] or classMod.skillAnims.melee
     local animName = config.anim
 
-    -- 仅女性新模型覆盖普通攻击动作；男性旧模型保持原职业逻辑。
+    -- 所有新模型复用对应男性旧职业的普通攻击动作；旧模型保持原职业逻辑。
     if currentModelStyle == "new"
-        and currentGender == "female"
         and classMod.poseAnims
         and skillType == "melee" then
         animName = classMod.poseAnims.attack
