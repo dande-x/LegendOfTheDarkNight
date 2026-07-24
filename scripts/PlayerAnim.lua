@@ -241,13 +241,25 @@ local function GetWeaponScaleCompensation(classId)
     return 1.0
 end
 
+local MALE_NEW_MAGE_WEAPON_ROTATION = Quaternion(
+    0.261297,
+    -0.873050,
+    -0.339708,
+    0.232607
+)
+local MALE_NEW_MAGE_WEAPON_OFFSET = Vector3(
+    0.039659,
+    0.042883,
+    -0.013718
+)
+
 local function GetWeaponRotation(classId, config)
     if currentModelStyle == "new"
         and currentGender == "male"
         and classId == "mage" then
-        -- 男性新模型的 R_Hand 在待机动画中已让武器 Y 轴竖直；
-        -- 旧法师额外的 Z=90° 会把法杖转成横向并穿过腰腹。
-        return Quaternion.IDENTITY
+        -- 由新旧法师 MDL 的 R_Hand 初始骨骼姿态精确反解，
+        -- 使男性新法师的法杖世界朝向复刻男性旧法师。
+        return MALE_NEW_MAGE_WEAPON_ROTATION
     end
 
     if classId == "warrior"
@@ -258,6 +270,16 @@ local function GetWeaponRotation(classId, config)
         return Quaternion(0, 180, 0) * config.rotation
     end
     return config.rotation
+end
+
+local function GetWeaponOffset(classId, config, scaleCompensation)
+    if currentModelStyle == "new"
+        and currentGender == "male"
+        and classId == "mage" then
+        -- 与旋转使用同一骨骼基准差，复刻旧法师的掌心偏移方向。
+        return MALE_NEW_MAGE_WEAPON_OFFSET * scaleCompensation
+    end
+    return config.offset * scaleCompensation
 end
 
 local function AttachWeapon(classId)
@@ -291,7 +313,7 @@ local function AttachWeapon(classId)
 
     weaponNode_ = boneNode:CreateChild(config.name)
     local scaleCompensation = GetWeaponScaleCompensation(classId)
-    weaponNode_.position = config.offset * scaleCompensation
+    weaponNode_.position = GetWeaponOffset(classId, config, scaleCompensation)
     weaponNode_.rotation = GetWeaponRotation(classId, config)
     weaponNode_.scale = config.scale * scaleCompensation
 
