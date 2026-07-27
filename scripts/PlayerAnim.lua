@@ -263,12 +263,20 @@ local function GetWeaponRotation(classId, config)
     end
 
     if classId == "warrior"
-        and currentModelStyle == "new"
-        and currentGender == "female" then
-        -- 女性新模型的 R_Hand 局部前后轴与男性旧模型相反，
-        -- 仅翻转武器局部朝向，避免改动骨骼动画和男性旧模型。
+        and currentModelStyle == "new" then
+        -- 新模型（男女通用）的 R_Hand 局部前后轴与旧模型相反，
+        -- 翻转武器局部朝向，使持剑姿势一致（通用持剑姿势）。
         return Quaternion(0, 180, 0) * config.rotation
     end
+
+    if classId == "taoist"
+        and currentModelStyle == "new"
+        and currentGender == "male" then
+        -- 男性新道士与男武士共用基础模型，R_Hand 朝向一致，
+        -- 同样翻转武器避免扇柄穿模。
+        return Quaternion(0, 180, 0) * config.rotation
+    end
+
     return config.rotation
 end
 
@@ -279,6 +287,14 @@ local function GetWeaponOffset(classId, config, scaleCompensation)
         -- 与旋转使用同一骨骼基准差，复刻旧法师的掌心偏移方向。
         return MALE_NEW_MAGE_WEAPON_OFFSET * scaleCompensation
     end
+
+    if classId == "taoist"
+        and currentModelStyle == "new"
+        and currentGender == "male" then
+        -- 男性新道士：增大 Y 偏移让扇柄远离手掌，避免穿模。
+        return Vector3(0.0, 0.12, 0.0) * scaleCompensation
+    end
+
     return config.offset * scaleCompensation
 end
 
