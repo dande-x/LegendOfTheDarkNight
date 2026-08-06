@@ -1399,7 +1399,7 @@ local CLASS_PORTRAITS = {
     },
     female = {
         warrior = "image/portrait_female_warrior_chinese_dark_20260720121212.png",
-        mage = "image/portrait_female_mage_chinese_dark_20260720121203.png",
+        mage = "image/portrait_female_mage_light_20260806063726.png",
         taoist = "image/portrait_female_taoist_refined_singlefan_20260720120323.png",
     },
 }
