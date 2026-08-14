@@ -2,6 +2,7 @@
 -- Mage.lua — 法师职业：大型木质法杖（顶部白光大宝珠）+ 传奇法袍
 -- ============================================================================
 local G = require("classes.GeomUtils")
+local Outfit = require("classes.OutfitUtils")
 
 local WEAPON_SCALE = 1.16
 
@@ -135,6 +136,40 @@ function Mage.buildWeapon(weaponNode)
     -- 白色发光（宝珠整体泛白光）
     mat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.8, 0.85, 1.0)))
     geom:SetMaterial(mat)
+end
+
+-- ========================================================================
+-- 新男性模型职业服装：星陨蓝紫法袍
+-- 服装以长袍、披肩、护腕和发光法术核心表达远程法术职业。
+-- ========================================================================
+function Mage.buildOutfit(modelNode, frame)
+    local robe = Outfit.MakeMaterial(Color(0.075, 0.08, 0.20, 1.0), 0.72, 0.03, Color(0.008, 0.01, 0.04))
+    local violet = Outfit.MakeMaterial(Color(0.28, 0.12, 0.48, 1.0), 0.42, 0.16, Color(0.06, 0.015, 0.10))
+    local silver = Outfit.MakeMaterial(Color(0.56, 0.62, 0.74, 1.0), 0.24, 0.82, Color(0.03, 0.04, 0.08))
+    local arcane = Outfit.MakeMaterial(Color(0.18, 0.55, 0.95, 1.0), 0.25, 0.14, Color(0.18, 0.40, 1.25))
+
+    local torsoW = frame.torsoWidth
+    local torsoD = frame.torsoDepth
+    local y = frame.y
+
+    Outfit.Tapered(modelNode, "MageOuterRobe", robe, 0, y(0.48), 0,
+        torsoW * 0.60, torsoW * 0.76, frame.height * 0.48, 12)
+    Outfit.Box(modelNode, "MageShoulderMantle", violet, 0, y(0.71), 0,
+        torsoW * 0.60, frame.height * 0.04, torsoD * 0.53)
+    Outfit.Box(modelNode, "MageChestRunes", silver, 0, y(0.63), torsoD * 0.52,
+        torsoW * 0.30, frame.height * 0.018, torsoD * 0.025)
+    Outfit.Box(modelNode, "MageBelt", silver, 0, y(0.46), torsoD * 0.50,
+        torsoW * 0.57, frame.height * 0.020, torsoD * 0.06)
+
+    for _, side in ipairs({-1, 1}) do
+        Outfit.Box(modelNode, "MageCuff_" .. side, violet, side * torsoW * 0.45, y(0.49), torsoD * 0.16,
+            torsoW * 0.10, frame.height * 0.055, torsoD * 0.12)
+        Outfit.Box(modelNode, "MageBoot_" .. side, robe, side * torsoW * 0.20, y(0.11), torsoD * 0.18,
+            torsoW * 0.16, frame.height * 0.035, torsoD * 0.20)
+    end
+
+    Outfit.Sphere(modelNode, "MageArcaneCore", arcane, 0, y(0.56), torsoD * 0.59,
+        frame.height * 0.042, 8, 12)
 end
 
 return Mage

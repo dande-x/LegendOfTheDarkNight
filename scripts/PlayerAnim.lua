@@ -43,6 +43,8 @@ local animCtrl_ = nil
 local animModel_ = nil
 ---@type Node
 local playerNode_ = nil
+---@type Node
+local outfitNode_ = nil
 
 local baseScale_ = 1.0
 local baseFootOffset_ = 0.0
@@ -281,6 +283,32 @@ local function GetWeaponOffset(classId, config, scaleCompensation)
     return config.offset * scaleCompensation
 end
 
+local function AttachOutfit(classId)
+    if outfitNode_ then
+        outfitNode_:Remove()
+        outfitNode_ = nil
+    end
+
+    -- 仅为男性新模型叠加职业服装；旧模型与女性新模型保持原实现不变。
+    if currentModelStyle ~= "new" or currentGender ~= "male" or not modelNode_ or not animModel_ then
+        return
+    end
+
+    local classMod = ClassModules[classId] or ClassModules.warrior
+    if not classMod.buildOutfit then
+        print("[PlayerAnim] No outfit builder for class: " .. tostring(classId))
+        return
+    end
+
+    local frame = require("classes.OutfitUtils").GetFrame(animModel_.boundingBox)
+    outfitNode_ = modelNode_:CreateChild("ProfessionOutfit")
+    outfitNode_.position = Vector3.ZERO
+    outfitNode_.rotation = Quaternion.IDENTITY
+    outfitNode_.scale = Vector3(1, 1, 1)
+    classMod.buildOutfit(outfitNode_, frame)
+    print(string.format("[PlayerAnim] Male new outfit attached: %s height=%.3f", classId, frame.height))
+end
+
 local function AttachWeapon(classId)
     if weaponNode_ then
         weaponNode_:Remove()
@@ -433,6 +461,7 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors, modelStyl
         ))
 
         ApplyClassMaterial(classId, modelStyle)
+        AttachOutfit(classId)
         AttachWeapon(classId)
     end
 

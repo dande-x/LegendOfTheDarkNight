@@ -2,6 +2,7 @@
 -- Taoist.lua — 道士职业：逍遥扇（白色+道纹）+ 传奇道袍
 -- ============================================================================
 local G = require("classes.GeomUtils")
+local Outfit = require("classes.OutfitUtils")
 
 local WEAPON_SCALE = 1.16
 
@@ -187,6 +188,42 @@ function Taoist.buildWeapon(weaponNode)
     boneMat:SetShaderParameter("Metallic", Variant(0.20))   -- 带点金属感（环和边框）
     boneMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.01, 0.01, 0.0)))
     boneGeom:SetMaterial(boneMat)
+end
+
+-- ========================================================================
+-- 新男性模型职业服装：玄青灵袍
+-- 服装保持长袍、玉带、护腕和符箓挂饰的识别点，适配召唤/治疗职业。
+-- ========================================================================
+function Taoist.buildOutfit(modelNode, frame)
+    local robe = Outfit.MakeMaterial(Color(0.055, 0.16, 0.18, 1.0), 0.78, 0.02, Color(0.0, 0.012, 0.01))
+    local jade = Outfit.MakeMaterial(Color(0.08, 0.42, 0.30, 1.0), 0.36, 0.28, Color(0.0, 0.035, 0.018))
+    local cream = Outfit.MakeMaterial(Color(0.80, 0.72, 0.53, 1.0), 0.48, 0.34)
+    local ink = Outfit.MakeMaterial(Color(0.025, 0.035, 0.045, 1.0), 0.82, 0.03)
+
+    local torsoW = frame.torsoWidth
+    local torsoD = frame.torsoDepth
+    local y = frame.y
+
+    -- 叠层道袍：上窄下宽，保留腿部动作空间。
+    Outfit.Tapered(modelNode, "TaoistOuterRobe", robe, 0, y(0.47), 0,
+        torsoW * 0.62, torsoW * 0.82, frame.height * 0.50, 12)
+    Outfit.Box(modelNode, "TaoistChestPanel", ink, 0, y(0.64), torsoD * 0.50,
+        torsoW * 0.34, frame.height * 0.10, torsoD * 0.035)
+    Outfit.Box(modelNode, "TaoistJadeSash", jade, 0, y(0.46), torsoD * 0.51,
+        torsoW * 0.58, frame.height * 0.022, torsoD * 0.065)
+    Outfit.Box(modelNode, "TaoistShoulderMantle", robe, 0, y(0.70), 0,
+        torsoW * 0.62, frame.height * 0.035, torsoD * 0.52)
+
+    for _, side in ipairs({-1, 1}) do
+        Outfit.Box(modelNode, "TaoistCuff_" .. side, jade, side * torsoW * 0.45, y(0.48), torsoD * 0.16,
+            torsoW * 0.10, frame.height * 0.055, torsoD * 0.12)
+    end
+
+    -- 玉佩与符箓挂饰：独立小几何体，随角色整体动作移动。
+    Outfit.Sphere(modelNode, "TaoistJadePendant", jade, 0, y(0.39), torsoD * 0.60,
+        frame.height * 0.035, 8, 12)
+    Outfit.Box(modelNode, "TaoistTalisman", cream, torsoW * 0.18, y(0.36), torsoD * 0.59,
+        torsoW * 0.045, frame.height * 0.075, torsoD * 0.018)
 end
 
 return Taoist
