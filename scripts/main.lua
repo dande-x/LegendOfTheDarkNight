@@ -692,24 +692,23 @@ function CreatePreviewCharacter(slotIndex, classId, modelStyle, gender)
             modelNode.position = Vector3(0, -minY * s, 0)
         end
 
-        -- 应用职业材质（仅旧模型且 useTexture=true 时覆盖；新模型保留自身材质）
-        local config = classMod.material
-        if modelStyle ~= "new" and config.useTexture then
-            local mat = Material:new()
-            mat:SetTechnique(0, cache:GetResource("Technique", config.technique))
-            mat:SetTexture(TU_DIFFUSE, cache:GetResource("Texture2D", "uuid://ARGvkYnzrbbOxkjh2N68upmG"))
-            mat:SetShaderParameter("MatDiffColor", Variant(config.diffColor))
-            mat:SetShaderParameter("Roughness", Variant(0.6))
-            mat:SetShaderParameter("Metallic", Variant(0.2))
-            mat:SetShaderParameter("MatEmissiveColor", Variant(config.emissive))
-            local numGeom = animModel:GetNumGeometries()
-            for i = 0, numGeom - 1 do
-                animModel:SetMaterial(i, mat)
-            end
-        end
-
-        -- 旧模型沿用原有平滑处理；新模型保留法线贴图和自身 PBR 材质。
+        -- 新模型预览保留职业 prefab 自带的完整模型与材质；旧模型沿用原有平滑处理。
         if modelStyle ~= "new" then
+            local config = classMod.material
+            if config.useTexture then
+                local mat = Material:new()
+                mat:SetTechnique(0, cache:GetResource("Technique", config.technique))
+                mat:SetTexture(TU_DIFFUSE, cache:GetResource("Texture2D", "uuid://ARGvkYnzrbbOxkjh2N68upmG"))
+                mat:SetShaderParameter("MatDiffColor", Variant(config.diffColor))
+                mat:SetShaderParameter("Roughness", Variant(0.6))
+                mat:SetShaderParameter("Metallic", Variant(0.2))
+                mat:SetShaderParameter("MatEmissiveColor", Variant(config.emissive))
+                local numGeom = animModel:GetNumGeometries()
+                for i = 0, numGeom - 1 do
+                    animModel:SetMaterial(i, mat)
+                end
+            end
+
             local smoothTech = cache:GetResource("Technique", "Techniques/PBR/PBRDiff.xml")
             local numGeom = animModel:GetNumGeometries()
             for i = 0, numGeom - 1 do

@@ -56,14 +56,14 @@ PlayerAnim.hitFeedback = hitFeedback
 -- ============================================================================
 local CHARACTER_PREFAB = "Prefabs/LegendWarrior.prefab"
 
--- 女性武士、法师与道士使用各自已绑定骨骼的专用新模型。
+-- 女性新模型使用各自已绑定骨骼的专用职业模型；男性新模型直接复用项目中已经带职业服装的完整蒙皮模型。
+-- 不再把无职业服装的男性基础人体当成职业外观，也不再向其叠加未蒙皮几何体。
 -- 旧模型路径保持原样，确保旧存档和原有职业外观逻辑不受影响。
 local NEW_CHARACTER_PREFABS = {
     male = {
-        -- 与女性新角色一致：每个职业使用一套完整蒙皮模型，而不是在基础人体上挂静态几何。
-        warrior = "model/33542021dc2e421f80edbbaf04c9f4b5/Prefabs/rig-1-9fd97390-f993-4ec1-8e2f-95e79f6583d9.prefab",
-        mage = "model/3adc443e7a73436282b6f2349c1be7c4/Prefabs/rig-1-d76f31e6-a0c1-4d45-a3a7-c4de592bc3bf.prefab",
-        taoist = "model/67c4497f48ef47c3917a12f33ead8505/Prefabs/rig-1-67b00aed-4cb6-45a2-b848-74921ee0866c.prefab",
+        warrior = "Prefabs/LegendWarrior.prefab",
+        mage = "Prefabs/MageRobe.prefab",
+        taoist = "Prefabs/TaoistRobe.prefab",
     },
     female = {
         warrior = "model/4e4dfbd1c5614236995be1033de34e24/Prefabs/rig-1-96b79026-4057-4dce-8f3d-70328dab0da9.prefab",
