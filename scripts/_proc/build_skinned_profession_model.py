@@ -96,6 +96,7 @@ class Bone:
     position: tuple[float, float, float]
     rotation: tuple[float, float, float, float]
     scale: tuple[float, float, float]
+    offset_matrix: tuple[float, ...]
 
 
 @dataclass
@@ -117,32 +118,41 @@ class V:
     bone: int
 
 
+@dataclass(frozen=True)
+class Transform:
+    position: tuple[float, float, float]
+    matrix: tuple[float, float, float, float, float, float, float, float, float]
+
+
 class Mesh:
     def __init__(self):
         self.vertices: list[V] = []
         self.indices: list[int] = []
 
-    def quad(self, points: Iterable[tuple[float, float, float]], normal, bone: int):
+    def quad(self, points: Iterable[tuple[float, float, float]], normal, bone: int,
+             transform: Transform):
         p = list(points)
         base = len(self.vertices)
+        world_normal = norm(transform_direction(transform, normal))
         for point, uv in zip(p, ((0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0))):
-            self.vertices.append(V(point, normal, uv, bone))
+            self.vertices.append(V(transform_point(transform, point), world_normal, uv, bone))
         self.indices.extend((base, base + 1, base + 2, base, base + 2, base + 3))
 
-    def box(self, center, half, bone: int):
+    def box(self, center, half, bone: int, transform: Transform):
         cx, cy, cz = center
         hx, hy, hz = half
         x0, x1 = cx - hx, cx + hx
         y0, y1 = cy - hy, cy + hy
         z0, z1 = cz - hz, cz + hz
-        self.quad(((x0,y0,z1),(x1,y0,z1),(x1,y1,z1),(x0,y1,z1)), (0,0,1), bone)
-        self.quad(((x1,y0,z0),(x0,y0,z0),(x0,y1,z0),(x1,y1,z0)), (0,0,-1), bone)
-        self.quad(((x0,y0,z0),(x0,y0,z1),(x0,y1,z1),(x0,y1,z0)), (-1,0,0), bone)
-        self.quad(((x1,y0,z1),(x1,y0,z0),(x1,y1,z0),(x1,y1,z1)), (1,0,0), bone)
-        self.quad(((x0,y1,z1),(x1,y1,z1),(x1,y1,z0),(x0,y1,z0)), (0,1,0), bone)
-        self.quad(((x0,y0,z0),(x1,y0,z0),(x1,y0,z1),(x0,y0,z1)), (0,-1,0), bone)
+        self.quad(((x0,y0,z1),(x1,y0,z1),(x1,y1,z1),(x0,y1,z1)), (0,0,1), bone, transform)
+        self.quad(((x1,y0,z0),(x0,y0,z0),(x0,y1,z0),(x1,y1,z0)), (0,0,-1), bone, transform)
+        self.quad(((x0,y0,z0),(x0,y0,z1),(x0,y1,z1),(x0,y1,z0)), (-1,0,0), bone, transform)
+        self.quad(((x1,y0,z1),(x1,y0,z0),(x1,y1,z0),(x1,y1,z1)), (1,0,0), bone, transform)
+        self.quad(((x0,y1,z1),(x1,y1,z1),(x1,y1,z0),(x0,y1,z0)), (0,1,0), bone, transform)
+        self.quad(((x0,y0,z0),(x1,y0,z0),(x1,y0,z1),(x0,y0,z1)), (0,-1,0), bone, transform)
 
-    def cylinder(self, center, radius: float, height: float, bone: int, segments: int = 12):
+    def cylinder(self, center, radius: float, height: float, bone: int, transform: Transform,
+                 segments: int = 12):
         cx, cy, cz = center
         hh = height * 0.5
         for i in range(segments):
@@ -153,12 +163,58 @@ class Mesh:
             self.quad(((cx+c0*radius,cy-hh,cz+s0*radius),
                        (cx+c1*radius,cy-hh,cz+s1*radius),
                        (cx+c1*radius,cy+hh,cz+s1*radius),
-                       (cx+c0*radius,cy+hh,cz+s0*radius)), n, bone)
+                       (cx+c0*radius,cy+hh,cz+s0*radius)), n, bone, transform)
 
 
 def norm(v):
     length = math.sqrt(sum(c * c for c in v)) or 1.0
     return tuple(c / length for c in v)
+
+
+def transform_direction(transform: Transform, direction):
+    x, y, z = direction
+    m = transform.matrix
+    return (
+        m[0] * x + m[1] * y + m[2] * z,
+        m[3] * x + m[4] * y + m[5] * z,
+        m[6] * x + m[7] * y + m[8] * z,
+    )
+
+
+def transform_point(transform: Transform, point):
+    x, y, z = transform_direction(transform, point)
+    tx, ty, tz = transform.position
+    return x + tx, y + ty, z + tz
+
+
+def inverse_offset_transform(offset: tuple[float, ...]) -> Transform:
+    r00, r01, r02, tx, r10, r11, r12, ty, r20, r21, r22, tz = offset
+    determinant = (
+        r00 * (r11 * r22 - r12 * r21)
+        - r01 * (r10 * r22 - r12 * r20)
+        + r02 * (r10 * r21 - r11 * r20)
+    )
+    if abs(determinant) < 1e-8:
+        raise ValueError("bone offset matrix is singular")
+    inverse = (
+        (r11 * r22 - r12 * r21) / determinant,
+        (r02 * r21 - r01 * r22) / determinant,
+        (r01 * r12 - r02 * r11) / determinant,
+        (r12 * r20 - r10 * r22) / determinant,
+        (r00 * r22 - r02 * r20) / determinant,
+        (r02 * r10 - r00 * r12) / determinant,
+        (r10 * r21 - r11 * r20) / determinant,
+        (r01 * r20 - r00 * r21) / determinant,
+        (r00 * r11 - r01 * r10) / determinant,
+    )
+    inverse_tx = -(inverse[0] * tx + inverse[1] * ty + inverse[2] * tz)
+    inverse_ty = -(inverse[3] * tx + inverse[4] * ty + inverse[5] * tz)
+    inverse_tz = -(inverse[6] * tx + inverse[7] * ty + inverse[8] * tz)
+    return Transform((inverse_tx, inverse_ty, inverse_tz), inverse)
+
+
+def bind_transforms(source: SourceModel) -> list[Transform]:
+    return [inverse_offset_transform(bone.offset_matrix) for bone in source.bones]
 
 
 def parse_source(path: Path) -> SourceModel:
@@ -211,60 +267,64 @@ def parse_source(path: Path) -> SourceModel:
         position = struct.unpack("<3f", r.read(12))
         rotation = struct.unpack("<4f", r.read(16))
         scale = struct.unpack("<3f", r.read(12))
-        r.read(48)  # Matrix3x4 offset matrix
+        offset_matrix = struct.unpack("<12f", r.read(48))
         collision_mask = r.u8()
         if collision_mask & 1:
             r.read(4)
         if collision_mask & 2:
             r.read(24)
-        bones.append(Bone(name, parent, position, rotation, scale))
+        bones.append(Bone(name, parent, position, rotation, scale, offset_matrix))
 
     return SourceModel(magic, vertex_buffers, index_buffers, geometries, data[tail_start:], bones,
                        {bone.name: i for i, bone in enumerate(bones)})
 
 
-def add_piece(mesh: Mesh, source: SourceModel, kind: str, bone: str, center, size):
+def add_piece(mesh: Mesh, source: SourceModel, transforms: list[Transform], kind: str, bone: str,
+              center, size):
     index = source.bone_index.get(bone)
     if index is None:
         raise ValueError(f"required bone not found: {bone}")
+    transform = transforms[index]
     if kind == "box":
-        mesh.box(center, size, index)
+        mesh.box(center, size, index, transform)
     elif kind == "cylinder":
-        mesh.cylinder(center, size[0], size[1], index)
+        mesh.cylinder(center, size[0], size[1], index, transform)
     else:
         raise ValueError(kind)
 
 
 def build_outfit(source: SourceModel, profession: str) -> Mesh:
     mesh = Mesh()
-    # Dimensions are authored in each bone's bind-local space. These three source rigs use
-    # the same standard humanoid hierarchy and approximately 1-metre source height.
+    transforms = bind_transforms(source)
+    # Each piece is authored in its bone-local space, then baked into model bind space.
+    # At the bind pose UrhoX skinning resolves to identity; animations then move it by the
+    # same bone that drives the corresponding body region.
     if profession == "warrior":
-        add_piece(mesh, source, "box", "Spine02", (0, 0.01, 0.018), (0.145, 0.105, 0.070))
-        add_piece(mesh, source, "box", "Spine02", (0, -0.055, 0.089), (0.110, 0.018, 0.010))
-        add_piece(mesh, source, "box", "Spine01", (0, -0.035, 0.012), (0.135, 0.070, 0.065))
-        add_piece(mesh, source, "box", "Pelvis", (0, 0.060, 0.078), (0.150, 0.015, 0.012))
+        add_piece(mesh, source, transforms, "box", "Spine02", (0, 0.01, 0.018), (0.145, 0.105, 0.070))
+        add_piece(mesh, source, transforms, "box", "Spine02", (0, -0.055, 0.089), (0.110, 0.018, 0.010))
+        add_piece(mesh, source, transforms, "box", "Spine01", (0, -0.035, 0.012), (0.135, 0.070, 0.065))
+        add_piece(mesh, source, transforms, "box", "Pelvis", (0, 0.060, 0.078), (0.150, 0.015, 0.012))
         for side in ("L", "R"):
-            add_piece(mesh, source, "box", f"{side}_Clavicle", (0, 0, 0), (0.070, 0.045, 0.075))
-            add_piece(mesh, source, "cylinder", f"{side}_Forearm", (0, 0, 0), (0.040, 0.150))
-            add_piece(mesh, source, "box", f"{side}_Thigh", (0, -0.025, 0.018), (0.052, 0.135, 0.050))
-            add_piece(mesh, source, "box", f"{side}_Calf", (0, -0.030, 0.010), (0.048, 0.125, 0.052))
+            add_piece(mesh, source, transforms, "box", f"{side}_Clavicle", (0, 0, 0), (0.070, 0.045, 0.075))
+            add_piece(mesh, source, transforms, "cylinder", f"{side}_Forearm", (0, 0, 0), (0.040, 0.150))
+            add_piece(mesh, source, transforms, "box", f"{side}_Thigh", (0, -0.025, 0.018), (0.052, 0.135, 0.050))
+            add_piece(mesh, source, transforms, "box", f"{side}_Calf", (0, -0.030, 0.010), (0.048, 0.125, 0.052))
     elif profession == "mage":
-        add_piece(mesh, source, "box", "Spine02", (0, 0.005, 0.015), (0.135, 0.125, 0.062))
-        add_piece(mesh, source, "box", "Spine01", (0, -0.050, 0.005), (0.145, 0.095, 0.066))
-        add_piece(mesh, source, "box", "Pelvis", (0, -0.075, 0.000), (0.165, 0.145, 0.078))
+        add_piece(mesh, source, transforms, "box", "Spine02", (0, 0.005, 0.015), (0.135, 0.125, 0.062))
+        add_piece(mesh, source, transforms, "box", "Spine01", (0, -0.050, 0.005), (0.145, 0.095, 0.066))
+        add_piece(mesh, source, transforms, "box", "Pelvis", (0, -0.075, 0.000), (0.165, 0.145, 0.078))
         for side in ("L", "R"):
-            add_piece(mesh, source, "box", f"{side}_Upperarm", (0, 0, 0), (0.060, 0.130, 0.060))
-            add_piece(mesh, source, "cylinder", f"{side}_Forearm", (0, 0, 0), (0.043, 0.145))
-            add_piece(mesh, source, "box", f"{side}_Thigh", (0, -0.045, 0), (0.060, 0.145, 0.060))
+            add_piece(mesh, source, transforms, "box", f"{side}_Upperarm", (0, 0, 0), (0.060, 0.130, 0.060))
+            add_piece(mesh, source, transforms, "cylinder", f"{side}_Forearm", (0, 0, 0), (0.043, 0.145))
+            add_piece(mesh, source, transforms, "box", f"{side}_Thigh", (0, -0.045, 0), (0.060, 0.145, 0.060))
     elif profession == "taoist":
-        add_piece(mesh, source, "box", "Spine02", (0, 0.005, 0.014), (0.132, 0.125, 0.061))
-        add_piece(mesh, source, "box", "Spine01", (0, -0.050, 0.006), (0.145, 0.095, 0.066))
-        add_piece(mesh, source, "box", "Pelvis", (0, -0.075, 0), (0.162, 0.145, 0.076))
+        add_piece(mesh, source, transforms, "box", "Spine02", (0, 0.005, 0.014), (0.132, 0.125, 0.061))
+        add_piece(mesh, source, transforms, "box", "Spine01", (0, -0.050, 0.006), (0.145, 0.095, 0.066))
+        add_piece(mesh, source, transforms, "box", "Pelvis", (0, -0.075, 0), (0.162, 0.145, 0.076))
         for side in ("L", "R"):
-            add_piece(mesh, source, "box", f"{side}_Upperarm", (0, 0, 0), (0.058, 0.135, 0.058))
-            add_piece(mesh, source, "cylinder", f"{side}_Forearm", (0, 0, 0), (0.040, 0.145))
-            add_piece(mesh, source, "box", f"{side}_Thigh", (0, -0.045, 0), (0.060, 0.145, 0.060))
+            add_piece(mesh, source, transforms, "box", f"{side}_Upperarm", (0, 0, 0), (0.058, 0.135, 0.058))
+            add_piece(mesh, source, transforms, "cylinder", f"{side}_Forearm", (0, 0, 0), (0.040, 0.145))
+            add_piece(mesh, source, transforms, "box", f"{side}_Thigh", (0, -0.045, 0), (0.060, 0.145, 0.060))
     else:
         raise ValueError(f"unknown profession: {profession}")
     return mesh
