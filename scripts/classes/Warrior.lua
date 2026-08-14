@@ -2,7 +2,6 @@
 -- Warrior.lua — 武士职业：屠龙刀 + 大刀横扫动画
 -- ============================================================================
 local G = require("classes.GeomUtils")
-local Outfit = require("classes.OutfitUtils")
 
 local WEAPON_SCALE = 1.55
 
@@ -125,48 +124,6 @@ function Warrior.buildWeapon(weaponNode)
     bladeMat:SetShaderParameter("Metallic", Variant(0.98))
     bladeMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.06, 0.08, 0.12)))  -- 微冷光泽
     bladeGeom:SetMaterial(bladeMat)
-end
-
--- 新男性武士：新模型本体不变，甲片分别跟随躯干、手臂和腿部骨骼。
-function Warrior.buildOutfit(modelNode, animModel)
-    local skeleton = animModel and animModel:GetSkeleton()
-    if not skeleton then return end
-
-    local frame = Outfit.GetFrame(animModel.boundingBox)
-    local iron = Outfit.MakeMaterial(Color(0.075, 0.085, 0.10, 1.0), 0.34, 0.78, Color(0.01, 0.012, 0.018))
-    local vermilion = Outfit.MakeMaterial(Color(0.48, 0.055, 0.035, 1.0), 0.42, 0.42, Color(0.025, 0.002, 0.0))
-    local gold = Outfit.MakeMaterial(Color(0.62, 0.39, 0.09, 1.0), 0.26, 0.88, Color(0.06, 0.025, 0.0))
-    local leather = Outfit.MakeMaterial(Color(0.12, 0.045, 0.025, 1.0), 0.72, 0.12)
-
-    Outfit.BoxOnBone(skeleton, "Spine02", "WarriorChestPlate", iron,
-        Vector3(0, 0, frame.torsoDepth * 0.08),
-        Vector3(frame.torsoWidth * 0.55, frame.height * 0.14, frame.torsoDepth * 0.58))
-    Outfit.BoxOnBone(skeleton, "Spine02", "WarriorChestSash", vermilion,
-        Vector3(0, -frame.height * 0.045, frame.torsoDepth * 0.62),
-        Vector3(frame.torsoWidth * 0.46, frame.height * 0.025, frame.torsoDepth * 0.055))
-    Outfit.BoxOnBone(skeleton, "Spine02", "WarriorDragonCrest", gold,
-        Vector3(0, frame.height * 0.04, frame.torsoDepth * 0.66),
-        Vector3(frame.torsoWidth * 0.11, frame.height * 0.055, frame.torsoDepth * 0.035))
-    Outfit.BoxOnBone(skeleton, "Spine01", "WarriorWaistGuard", leather,
-        Vector3(0, -frame.height * 0.06, 0),
-        Vector3(frame.torsoWidth * 0.55, frame.height * 0.09, frame.torsoDepth * 0.55))
-    Outfit.BoxOnBone(skeleton, "Pelvis", "WarriorBelt", gold,
-        Vector3(0, frame.height * 0.07, frame.torsoDepth * 0.58),
-        Vector3(frame.torsoWidth * 0.60, frame.height * 0.018, frame.torsoDepth * 0.055))
-
-    for _, side in ipairs({"L", "R"}) do
-        Outfit.BoxOnBone(skeleton, side .. "_Clavicle", "WarriorShoulder_" .. side, iron,
-            Vector3(0, 0, 0),
-            Vector3(frame.limbWidth * 1.7, frame.height * 0.065, frame.limbDepth * 1.8))
-        Outfit.CylinderOnBone(skeleton, side .. "_Forearm", "WarriorBracer_" .. side, iron,
-            Vector3.ZERO, frame.limbWidth * 1.18, frame.height * 0.12, 10)
-        Outfit.BoxOnBone(skeleton, side .. "_Thigh", "WarriorLegGuard_" .. side, iron,
-            Vector3(0, -frame.height * 0.02, frame.limbDepth * 0.22),
-            Vector3(frame.limbWidth * 1.35, frame.height * 0.14, frame.limbDepth * 1.25))
-        Outfit.BoxOnBone(skeleton, side .. "_Calf", "WarriorBoot_" .. side, leather,
-            Vector3(0, -frame.height * 0.03, 0),
-            Vector3(frame.limbWidth * 1.25, frame.height * 0.13, frame.limbDepth * 1.4))
-    end
 end
 
 return Warrior

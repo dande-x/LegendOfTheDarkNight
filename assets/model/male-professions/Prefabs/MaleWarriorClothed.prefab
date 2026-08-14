@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<node>
+	<attribute name="Is Enabled" value="true" />
+	<attribute name="Name" value="MaleWarriorClothed" />
+	<attribute name="Position" value="0 0 0" />
+	<attribute name="Rotation" value="1 0 0 0" />
+	<attribute name="Scale" value="1 1 1" />
+	<component type="AnimatedModel">
+		<attribute name="Model" value="Model;model/male-professions/Meshes/MaleWarriorClothed.mdl" />
+		<attribute name="Material" value="Material;model/33542021dc2e421f80edbbaf04c9f4b5/Materials/rig-1-9fd97390-f993-4ec1-8e2f-95e79f6583d9_00_tripo_material_2478410c-c90a-4f67-9952-14fb155704aa.xml;model/male-professions/Materials/MaleWarriorArmor.xml" />
+		<attribute name="Cast Shadows" value="true" />
+	</component>
+</node>

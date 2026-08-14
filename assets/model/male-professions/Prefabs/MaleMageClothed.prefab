@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<node>
+	<attribute name="Is Enabled" value="true" />
+	<attribute name="Name" value="MaleMageClothed" />
+	<attribute name="Position" value="0 0 0" />
+	<attribute name="Rotation" value="1 0 0 0" />
+	<attribute name="Scale" value="1 1 1" />
+	<component type="AnimatedModel">
+		<attribute name="Model" value="Model;model/male-professions/Meshes/MaleMageClothed.mdl" />
+		<attribute name="Material" value="Material;model/3adc443e7a73436282b6f2349c1be7c4/Materials/rig-1-d76f31e6-a0c1-4d45-a3a7-c4de592bc3bf_00_tripo_material_15a4318d-b3ae-4441-8c84-ad028b38248c.xml;model/male-professions/Materials/MaleMageRobe.xml" />
+		<attribute name="Cast Shadows" value="true" />
+	</component>
+</node>
