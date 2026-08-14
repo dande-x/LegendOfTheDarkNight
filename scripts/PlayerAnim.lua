@@ -56,14 +56,14 @@ PlayerAnim.hitFeedback = hitFeedback
 -- ============================================================================
 local CHARACTER_PREFAB = "Prefabs/LegendWarrior.prefab"
 
--- 女性新模型使用各自已绑定骨骼的专用职业模型；男性新模型由本地离线工具生成
--- “原新模型身体 + 同骨架职业服装几何”的一体化蒙皮资源，不依赖 Maker 3D 服务。
+-- 女性新模型使用各自已绑定骨骼的专用职业模型；男性新模型使用三套独立的新基础人体。
+-- 男性职业服装由各职业模块创建，并分别绑定到新模型的躯干、手臂和腿部骨骼。
 -- 旧模型路径保持原样，确保旧存档和原有职业外观逻辑不受影响。
 local NEW_CHARACTER_PREFABS = {
     male = {
-        warrior = "model/male-professions/Prefabs/MaleWarriorClothed.prefab",
-        mage = "model/male-professions/Prefabs/MaleMageClothed.prefab",
-        taoist = "model/male-professions/Prefabs/MaleTaoistClothed.prefab",
+        warrior = "model/33542021dc2e421f80edbbaf04c9f4b5/Prefabs/rig-1-9fd97390-f993-4ec1-8e2f-95e79f6583d9.prefab",
+        mage = "model/3adc443e7a73436282b6f2349c1be7c4/Prefabs/rig-1-d76f31e6-a0c1-4d45-a3a7-c4de592bc3bf.prefab",
+        taoist = "model/67c4497f48ef47c3917a12f33ead8505/Prefabs/rig-1-67b00aed-4cb6-45a2-b848-74921ee0866c.prefab",
     },
     female = {
         warrior = "model/4e4dfbd1c5614236995be1033de34e24/Prefabs/rig-1-96b79026-4057-4dce-8f3d-70328dab0da9.prefab",
@@ -434,6 +434,16 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors, modelStyl
         ))
 
         ApplyClassMaterial(classId, modelStyle)
+
+        -- 男性新模型保留新的基础人体，并将职业服装分片挂到对应身体骨骼。
+        -- 女性新模型的职业服装已经包含在自身完整蒙皮模型中，无需重复叠加。
+        if modelStyle == "new"
+            and gender == "male"
+            and classMod.buildOutfit then
+            classMod.buildOutfit(modelNode_, animModel_)
+            print(string.format("[PlayerAnim] Bone-following outfit attached: %s", classId))
+        end
+
         AttachWeapon(classId)
     end
 

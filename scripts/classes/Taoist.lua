@@ -2,6 +2,7 @@
 -- Taoist.lua — 道士职业：逍遥扇（白色+道纹）+ 传奇道袍
 -- ============================================================================
 local G = require("classes.GeomUtils")
+local Outfit = require("classes.OutfitUtils")
 
 local WEAPON_SCALE = 1.16
 
@@ -187,6 +188,47 @@ function Taoist.buildWeapon(weaponNode)
     boneMat:SetShaderParameter("Metallic", Variant(0.20))   -- 带点金属感（环和边框）
     boneMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.01, 0.01, 0.0)))
     boneGeom:SetMaterial(boneMat)
+end
+
+-- 新男性道士：道袍分片绑定在新模型骨骼上，随施法、跑动和攻击动作移动。
+function Taoist.buildOutfit(modelNode, animModel)
+    local skeleton = animModel and animModel:GetSkeleton()
+    if not skeleton then return end
+
+    local frame = Outfit.GetFrame(animModel.boundingBox)
+    local robe = Outfit.MakeMaterial(Color(0.76, 0.72, 0.58, 1.0), 0.82, 0.01, Color(0.012, 0.010, 0.006))
+    local dark = Outfit.MakeMaterial(Color(0.08, 0.15, 0.13, 1.0), 0.70, 0.04, Color(0.0, 0.012, 0.008))
+    local jade = Outfit.MakeMaterial(Color(0.08, 0.46, 0.34, 1.0), 0.28, 0.18, Color(0.01, 0.07, 0.045))
+    local gold = Outfit.MakeMaterial(Color(0.58, 0.43, 0.12, 1.0), 0.34, 0.60, Color(0.035, 0.02, 0.0))
+
+    Outfit.BoxOnBone(skeleton, "Spine02", "TaoistOuterRobe", robe,
+        Vector3(0, 0, frame.torsoDepth * 0.08),
+        Vector3(frame.torsoWidth * 0.50, frame.height * 0.15, frame.torsoDepth * 0.54))
+    Outfit.BoxOnBone(skeleton, "Spine02", "TaoistChestPanel", dark,
+        Vector3(0, -frame.height * 0.015, frame.torsoDepth * 0.60),
+        Vector3(frame.torsoWidth * 0.17, frame.height * 0.12, frame.torsoDepth * 0.045))
+    Outfit.BoxOnBone(skeleton, "Spine01", "TaoistJadeSash", jade,
+        Vector3(0, -frame.height * 0.055, frame.torsoDepth * 0.57),
+        Vector3(frame.torsoWidth * 0.56, frame.height * 0.022, frame.torsoDepth * 0.055))
+    Outfit.BoxOnBone(skeleton, "Pelvis", "TaoistLowerRobe", robe,
+        Vector3(0, -frame.height * 0.06, 0),
+        Vector3(frame.torsoWidth * 0.62, frame.height * 0.15, frame.torsoDepth * 0.61))
+    Outfit.BoxOnBone(skeleton, "Pelvis", "TaoistPendant", jade,
+        Vector3(0, -frame.height * 0.03, frame.torsoDepth * 0.66),
+        Vector3(frame.torsoWidth * 0.08, frame.height * 0.055, frame.torsoDepth * 0.035))
+    Outfit.BoxOnBone(skeleton, "Spine02", "TaoistTalisman", gold,
+        Vector3(0, frame.height * 0.065, frame.torsoDepth * 0.64),
+        Vector3(frame.torsoWidth * 0.06, frame.height * 0.07, frame.torsoDepth * 0.025))
+
+    for _, side in ipairs({"L", "R"}) do
+        Outfit.BoxOnBone(skeleton, side .. "_Upperarm", "TaoistSleeve_" .. side, robe,
+            Vector3.ZERO, Vector3(frame.limbWidth * 1.45, frame.height * 0.15, frame.limbDepth * 1.45))
+        Outfit.CylinderOnBone(skeleton, side .. "_Forearm", "TaoistCuff_" .. side, dark,
+            Vector3.ZERO, frame.limbWidth * 1.18, frame.height * 0.12, 10)
+        Outfit.BoxOnBone(skeleton, side .. "_Thigh", "TaoistLegRobe_" .. side, robe,
+            Vector3(0, -frame.height * 0.035, 0),
+            Vector3(frame.limbWidth * 1.42, frame.height * 0.15, frame.limbDepth * 1.42))
+    end
 end
 
 return Taoist

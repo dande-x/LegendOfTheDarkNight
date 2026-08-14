@@ -2,6 +2,7 @@
 -- Mage.lua — 法师职业：大型木质法杖（顶部白光大宝珠）+ 传奇法袍
 -- ============================================================================
 local G = require("classes.GeomUtils")
+local Outfit = require("classes.OutfitUtils")
 
 local WEAPON_SCALE = 1.16
 
@@ -137,5 +138,37 @@ function Mage.buildWeapon(weaponNode)
     geom:SetMaterial(mat)
 end
 
+
+-- 新男性法师：服装部件挂在新模型对应骨骼，而不是挂在根节点。
+function Mage.buildOutfit(modelNode, animModel)
+    local skeleton = animModel and animModel:GetSkeleton()
+    if not skeleton then return end
+
+    local frame = Outfit.GetFrame(animModel.boundingBox)
+    local robe = Outfit.MakeMaterial(Color(0.10, 0.035, 0.16, 1.0), 0.72, 0.02, Color(0.015, 0.0, 0.025))
+    local trim = Outfit.MakeMaterial(Color(0.55, 0.10, 0.08, 1.0), 0.42, 0.18, Color(0.035, 0.005, 0.0))
+    local gold = Outfit.MakeMaterial(Color(0.62, 0.40, 0.10, 1.0), 0.28, 0.72, Color(0.05, 0.02, 0.0))
+
+    Outfit.BoxOnBone(skeleton, "Spine02", "MageRobeChest", robe, Vector3(0, 0, frame.torsoDepth * 0.10),
+        Vector3(frame.torsoWidth * 0.52, frame.height * 0.15, frame.torsoDepth * 0.52))
+    Outfit.BoxOnBone(skeleton, "Spine01", "MageRobeWaist", robe, Vector3(0, -frame.height * 0.05, 0),
+        Vector3(frame.torsoWidth * 0.56, frame.height * 0.11, frame.torsoDepth * 0.56))
+    Outfit.BoxOnBone(skeleton, "Spine01", "MageRobeTrim", trim, Vector3(0, frame.height * 0.04, frame.torsoDepth * 0.56),
+        Vector3(frame.torsoWidth * 0.48, frame.height * 0.018, frame.torsoDepth * 0.06))
+    Outfit.BoxOnBone(skeleton, "Pelvis", "MageRobeSkirt", robe, Vector3(0, -frame.height * 0.05, 0),
+        Vector3(frame.torsoWidth * 0.64, frame.height * 0.13, frame.torsoDepth * 0.64))
+    Outfit.BoxOnBone(skeleton, "Pelvis", "MageRobeBelt", gold, Vector3(0, frame.height * 0.07, frame.torsoDepth * 0.62),
+        Vector3(frame.torsoWidth * 0.65, frame.height * 0.018, frame.torsoDepth * 0.055))
+
+    for _, side in ipairs({"L", "R"}) do
+        Outfit.CylinderOnBone(skeleton, side .. "_Forearm", "MageCuff_" .. side, trim,
+            Vector3.ZERO, frame.limbWidth * 1.15, frame.height * 0.12, 10)
+        Outfit.BoxOnBone(skeleton, side .. "_Upperarm", "MageSleeve_" .. side, robe, Vector3.ZERO,
+            Vector3(frame.limbWidth * 1.35, frame.height * 0.14, frame.limbDepth * 1.35))
+        Outfit.BoxOnBone(skeleton, side .. "_Thigh", "MageLegWrap_" .. side, robe,
+            Vector3(0, -frame.height * 0.03, 0),
+            Vector3(frame.limbWidth * 1.35, frame.height * 0.14, frame.limbDepth * 1.35))
+    end
+end
 
 return Mage
