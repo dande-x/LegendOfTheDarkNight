@@ -43,8 +43,6 @@ local animCtrl_ = nil
 local animModel_ = nil
 ---@type Node
 local playerNode_ = nil
----@type Node
-local outfitNode_ = nil
 
 local baseScale_ = 1.0
 local baseFootOffset_ = 0.0
@@ -62,9 +60,10 @@ local CHARACTER_PREFAB = "Prefabs/LegendWarrior.prefab"
 -- 旧模型路径保持原样，确保旧存档和原有职业外观逻辑不受影响。
 local NEW_CHARACTER_PREFABS = {
     male = {
+        -- 与女性新角色一致：每个职业使用一套完整蒙皮模型，而不是在基础人体上挂静态几何。
         warrior = "model/33542021dc2e421f80edbbaf04c9f4b5/Prefabs/rig-1-9fd97390-f993-4ec1-8e2f-95e79f6583d9.prefab",
-        mage = "model/33542021dc2e421f80edbbaf04c9f4b5/Prefabs/rig-1-9fd97390-f993-4ec1-8e2f-95e79f6583d9.prefab",
-        taoist = "model/33542021dc2e421f80edbbaf04c9f4b5/Prefabs/rig-1-9fd97390-f993-4ec1-8e2f-95e79f6583d9.prefab",
+        mage = "model/3adc443e7a73436282b6f2349c1be7c4/Prefabs/rig-1-d76f31e6-a0c1-4d45-a3a7-c4de592bc3bf.prefab",
+        taoist = "model/67c4497f48ef47c3917a12f33ead8505/Prefabs/rig-1-67b00aed-4cb6-45a2-b848-74921ee0866c.prefab",
     },
     female = {
         warrior = "model/4e4dfbd1c5614236995be1033de34e24/Prefabs/rig-1-96b79026-4057-4dce-8f3d-70328dab0da9.prefab",
@@ -283,32 +282,6 @@ local function GetWeaponOffset(classId, config, scaleCompensation)
     return config.offset * scaleCompensation
 end
 
-local function AttachOutfit(classId)
-    if outfitNode_ then
-        outfitNode_:Remove()
-        outfitNode_ = nil
-    end
-
-    -- 仅为男性新模型叠加职业服装；旧模型与女性新模型保持原实现不变。
-    if currentModelStyle ~= "new" or currentGender ~= "male" or not modelNode_ or not animModel_ then
-        return
-    end
-
-    local classMod = ClassModules[classId] or ClassModules.warrior
-    if not classMod.buildOutfit then
-        print("[PlayerAnim] No outfit builder for class: " .. tostring(classId))
-        return
-    end
-
-    local frame = require("classes.OutfitUtils").GetFrame(animModel_.boundingBox)
-    outfitNode_ = modelNode_:CreateChild("ProfessionOutfit")
-    outfitNode_.position = Vector3.ZERO
-    outfitNode_.rotation = Quaternion.IDENTITY
-    outfitNode_.scale = Vector3(1, 1, 1)
-    classMod.buildOutfit(outfitNode_, frame)
-    print(string.format("[PlayerAnim] Male new outfit attached: %s height=%.3f", classId, frame.height))
-end
-
 local function AttachWeapon(classId)
     if weaponNode_ then
         weaponNode_:Remove()
@@ -461,7 +434,6 @@ function PlayerAnim.CreateSkeleton(playerNode, classId, color, colors, modelStyl
         ))
 
         ApplyClassMaterial(classId, modelStyle)
-        AttachOutfit(classId)
         AttachWeapon(classId)
     end
 

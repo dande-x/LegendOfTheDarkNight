@@ -2,7 +2,6 @@
 -- Warrior.lua — 武士职业：屠龙刀 + 大刀横扫动画
 -- ============================================================================
 local G = require("classes.GeomUtils")
-local Outfit = require("classes.OutfitUtils")
 
 local WEAPON_SCALE = 1.55
 
@@ -125,47 +124,6 @@ function Warrior.buildWeapon(weaponNode)
     bladeMat:SetShaderParameter("Metallic", Variant(0.98))
     bladeMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.06, 0.08, 0.12)))  -- 微冷光泽
     bladeGeom:SetMaterial(bladeMat)
-end
-
--- ============================================================================
--- 新男性模型职业服装：玄铁龙纹重甲
--- 服装跟随 CharacterModel 节点，使用同一套骨架动画；只添加静态外层部件。
--- ============================================================================
-function Warrior.buildOutfit(modelNode, frame)
-    local iron = Outfit.MakeMaterial(Color(0.075, 0.085, 0.10, 1.0), 0.34, 0.78, Color(0.01, 0.012, 0.018))
-    local vermilion = Outfit.MakeMaterial(Color(0.48, 0.055, 0.035, 1.0), 0.42, 0.42, Color(0.025, 0.002, 0.0))
-    local gold = Outfit.MakeMaterial(Color(0.62, 0.39, 0.09, 1.0), 0.26, 0.88, Color(0.06, 0.025, 0.0))
-    local leather = Outfit.MakeMaterial(Color(0.12, 0.045, 0.025, 1.0), 0.72, 0.12)
-
-    local torsoW = frame.torsoWidth
-    local torsoD = frame.torsoDepth
-    local y = frame.y
-
-    -- 胸甲 + 朱红内衬：覆盖躯干核心，保持正面辨识度。
-    Outfit.Box(modelNode, "WarriorChestPlate", iron, 0, y(0.58), 0, torsoW * 0.48, frame.height * 0.105, torsoD * 0.48)
-    Outfit.Box(modelNode, "WarriorChestSash", vermilion, 0, y(0.55), torsoD * 0.50, torsoW * 0.42, frame.height * 0.026, torsoD * 0.08)
-
-    -- 肩甲、护腕、腰封与护腿，强调前排重装职业。
-    for _, side in ipairs({-1, 1}) do
-        Outfit.Box(modelNode, "WarriorShoulder_" .. side, iron, side * torsoW * 0.54, y(0.70), 0,
-            torsoW * 0.16, frame.height * 0.07, torsoD * 0.52)
-        Outfit.Box(modelNode, "WarriorBracer_" .. side, iron, side * torsoW * 0.46, y(0.46), torsoD * 0.34,
-            torsoW * 0.10, frame.height * 0.08, torsoD * 0.13)
-        Outfit.Box(modelNode, "WarriorLegGuard_" .. side, iron, side * torsoW * 0.20, y(0.30), torsoD * 0.18,
-            torsoW * 0.15, frame.height * 0.12, torsoD * 0.16)
-    end
-    Outfit.Box(modelNode, "WarriorWaistGuard", leather, 0, y(0.43), torsoD * 0.02,
-        torsoW * 0.52, frame.height * 0.045, torsoD * 0.44)
-    Outfit.Box(modelNode, "WarriorBelt", gold, 0, y(0.47), torsoD * 0.48,
-        torsoW * 0.53, frame.height * 0.018, torsoD * 0.07)
-
-    -- 龙纹护心片：用金色窄片表达武士职业徽记，不依赖贴图。
-    Outfit.Box(modelNode, "WarriorDragonCrest", gold, 0, y(0.61), torsoD * 0.53,
-        torsoW * 0.10, frame.height * 0.055, torsoD * 0.025)
-    Outfit.Box(modelNode, "WarriorBoot_" .. "L", leather, -torsoW * 0.20, y(0.105), torsoD * 0.18,
-        torsoW * 0.16, frame.height * 0.035, torsoD * 0.20)
-    Outfit.Box(modelNode, "WarriorBoot_" .. "R", leather, torsoW * 0.20, y(0.105), torsoD * 0.18,
-        torsoW * 0.16, frame.height * 0.035, torsoD * 0.20)
 end
 
 return Warrior
