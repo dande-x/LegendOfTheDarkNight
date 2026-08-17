@@ -1473,7 +1473,7 @@ function SetupGameCallbacks()
             GameUI.HideTeleportPanel()
             return
         end
-        -- 构建地图列表（标注当前地图）
+        -- 构建地图列表（标注当前地图 + 等级门槛）
         local maps = {}
         for _, mapId in ipairs(MAP_ORDER) do
             local def = MapZone.GetDef(mapId)

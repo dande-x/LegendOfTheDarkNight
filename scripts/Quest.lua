@@ -78,15 +78,15 @@ Quest.CHAIN = {
     },
     {
         id = "q_006", name = "边城守卫战", chapter = "第一幕 · 边城烽火",
-        type = "boss", target = "沃玛教主", count = 1,
+        type = "boss", target = "半兽勇士", count = 1,
         desc = "真相大白——你曾最信任的守卫队长，正是为半兽人打开城门的叛徒。",
         rewardExp = 1500, rewardGold = 800,
         dialogues = {
             { speaker = "守卫队长", text = "没想到是你活了下来。" },
             { speaker = "守卫队长", text = "不错，是我开的门。半兽人答应我，事成之后，比奇城归我。" },
             { speaker = "你", text = "师父的命，全村人的命，就为了一个城主的位子？" },
-            { speaker = "守卫队长", text = "杀了我，也改变不了什么。沃玛教主已经压境了！" },
-            { speaker = "旁白", text = "山岳般的魔影在城门外站起。这是你第一次，直面真正的恐惧。" },
+            { speaker = "守卫队长", text = "杀了我，也改变不了什么。半兽勇士已经压境了！" },
+            { speaker = "旁白", text = "城门洞开，半兽勇士率军冲入。这是你第一次，直面真正的战场。" },
         },
     },
 
@@ -112,14 +112,15 @@ Quest.CHAIN = {
         },
     },
     {
-        id = "q_009", name = "蛛后巢穴", chapter = "第二幕 · 黄沙盟重",
-        type = "boss", target = "蚁后", count = 1,
-        desc = "城主竟被掉了包！杀入蚁后巢穴，夺回城主信物。",
+        id = "q_009", name = "猪洞之影", chapter = "第二幕 · 黄沙盟重",
+        type = "boss", target = "白野猪", count = 1,
+        desc = "城主竟被掉了包！猪洞的骚乱只是调虎离山。杀入石墓，夺回城主信物。",
         rewardExp = 3000, rewardGold = 1500,
         dialogues = {
             { speaker = "旁白", text = "你终于见到了城主，却发现——他的眼神，不对。" },
             { speaker = "假城主", text = "真正的城主被我关在猪洞深处。而你，也一起留下吧！" },
-            { speaker = "旁白", text = "假城主现出原形，召唤蚁后袭来。守城，夺回信物！" },
+            { speaker = "旁白", text = "石墓（猪洞）深处传来闷雷般的咆哮。白野猪撞碎石门，冲了出来！" },
+            { speaker = "旁白", text = "假城主现出原形。守住土城，夺回城主信物！" },
         },
     },
 
@@ -154,6 +155,17 @@ Quest.CHAIN = {
             { speaker = "你", text = "……所以，他骗了我。他让我来找的，是他自己的死亡。" },
         },
     },
+    {
+        id = "q_012b", name = "蚁后之渊", chapter = "第三幕 · 怒海寻踪",
+        type = "boss", target = "蚁后", count = 1,
+        desc = "水城的蚁患背后，是沃玛教主的黑暗力量。击败蚁后，夺回进入沃玛寺庙的通行证。",
+        rewardExp = 8000, rewardGold = 4000,
+        dialogues = {
+            { speaker = "旁白", text = "水城蚁患肆虐，整片海域的航路都被蚁群吞噬。" },
+            { speaker = "故交", text = "蚁后不是元凶，它只是被沃玛教主的黑暗力量驱使。" },
+            { speaker = "你", text = "为了水城，也为了拿到进入沃玛寺庙的通行证——必须击破蚁后！" },
+        },
+    },
 
     -- ============ 终章「屠龙之战」（沃玛寺庙 → 祖玛寺庙，Lv45~50）============
     {
@@ -177,12 +189,23 @@ Quest.CHAIN = {
         },
     },
     {
+        id = "q_014b", name = "沃玛教主", chapter = "终章 · 屠龙之战",
+        type = "boss", target = "沃玛教主", count = 1,
+        desc = "沃玛寺庙深处，沃玛教主祭起黑暗法阵。击败它，夺回通往祖玛的钥匙。",
+        rewardExp = 11000, rewardGold = 7000,
+        dialogues = {
+            { speaker = "旁白", text = "沃玛寺庙深处，师父当年封印的黑暗，终于现出真身。" },
+            { speaker = "沃玛教主", text = "守门人的徒弟？你和他一样，都将葬身于此！" },
+            { speaker = "你", text = "师父没能彻底消灭你。今天，我来替他完成。" },
+        },
+    },
+    {
         id = "q_015", name = "骨龙之渊", chapter = "终章 · 屠龙之战",
         type = "boss", target = "火龙王", count = 1,
-        desc = "沃玛寺庙深处，骨龙守护着最后的封印。",
+        desc = "祖玛寺庙深处，火龙王守护着最后的封印。",
         rewardExp = 12000, rewardGold = 8000,
         dialogues = {
-            { speaker = "旁白", text = "沃玛教主祭起黑暗法阵，火龙王在深渊中缓缓睁开眼。" },
+            { speaker = "旁白", text = "祖玛寺庙深处，火龙王在熔岩深渊中缓缓睁开眼。" },
             { speaker = "旁白", text = "这是最后的守护。屠龙宝刀在此觉醒。" },
         },
     },
