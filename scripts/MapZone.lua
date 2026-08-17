@@ -43,7 +43,7 @@ MapZone.DEFS = {
         boss = "蚁后",
         spawnPos = Vector3.ZERO,
         safeZoneRadius = 8,
-        teleportCost = 300,
+        teleportCost = 100,
     },
     map_wm = {
         name = "沃玛寺庙",
@@ -55,7 +55,7 @@ MapZone.DEFS = {
         boss = "沃玛教主",
         spawnPos = Vector3.ZERO,
         safeZoneRadius = 8,
-        teleportCost = 600,
+        teleportCost = 100,
     },
     map_zm = {
         name = "祖玛寺庙",
@@ -67,7 +67,7 @@ MapZone.DEFS = {
         boss = { "牛魔王", "火龙王" },
         spawnPos = Vector3.ZERO,
         safeZoneRadius = 8,
-        teleportCost = 1000,
+        teleportCost = 100,
     },
 }
 

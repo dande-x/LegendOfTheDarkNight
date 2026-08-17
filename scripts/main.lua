@@ -202,21 +202,9 @@ function CreateFloor(groundColor)
     floorModel:SetMaterial(darkSoilMat)
     floorModel.castShadows = false
 
-    -- 安全区视觉：蓝色半透明方形底盘 + 蓝色发光尖锐针状虚线边界
+    -- 安全区视觉：仅外围蓝色发光尖锐针状虚线边界（无地面发光）
     local safeRadius = MapZone.GetSafeZoneRadius(MapZone.GetCurrentMapId())
     local half = safeRadius
-
-    -- 蓝色半透明方形底盘
-    local safeZoneMat = Material:new()
-    safeZoneMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
-    safeZoneMat:SetShaderParameter("MatDiffColor", Variant(Color(0.2, 0.5, 1.0, 0.15)))
-    local safeZone = scene_:CreateChild("SafeZone")
-    safeZone.position = Vector3(0, 0.02, 0)
-    safeZone.scale = Vector3(half * 2, 0.05, half * 2)
-    local safeModel = safeZone:CreateComponent("StaticModel")
-    safeModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
-    safeModel:SetMaterial(safeZoneMat)
-    safeModel.castShadows = false
 
     -- 蓝色发光尖锐针状虚线边界（方形四边，针尖朝外）
     local needleMat = Material:new()
@@ -1578,7 +1566,7 @@ function SetupGameCallbacks()
         GameUI.ShowNPCPanel("管家 · 传送", rows)
     end
 
-    -- 与商人交互：打开商店（买药水）
+    -- 与商人交互：打开商店（买药水 + 装备）
     local function openMerchantPanel()
         local rows = {
             {
@@ -1612,7 +1600,52 @@ function SetupGameCallbacks()
                 end,
             },
         }
-        GameUI.ShowNPCPanel("商人 · 药水商店", rows)
+
+        -- 装备售卖：按玩家等级筛选适销装备（4 件），随机排序
+        local allItems = Inventory.GetAllItemTemplates()
+        local suitable = {}
+        for _, tmpl in ipairs(allItems) do
+            -- 仅武器/头盔/盔甲等装备，且非传说（传说留给 Boss/合成）
+            if tmpl.rarity ~= "LEGENDARY" and tmpl.itemType then
+                table.insert(suitable, tmpl)
+            end
+        end
+        -- 随机抽取最多 4 件
+        local shopItems = {}
+        while #shopItems < 4 and #suitable > 0 do
+            local idx = math.random(#suitable)
+            table.insert(shopItems, suitable[idx])
+            table.remove(suitable, idx)
+        end
+        for _, tmpl in ipairs(shopItems) do
+            local price = Inventory.GetItemPrice(tmpl)
+            local rarityName = Inventory.GetRarityName(tmpl.rarity)
+            local itemCopy = tmpl
+            table.insert(rows, {
+                text = "[" .. rarityName .. "] " .. tmpl.name,
+                hint = "💰" .. price,
+                onTap = function()
+                    if not Inventory.SpendGold(price) then
+                        GameUI.ShowToast("金币不足，需要 " .. price .. " 金币")
+                        return
+                    end
+                    -- 克隆装备实例并放入背包（自动装备由玩家决定）
+                    local item = {}
+                    for k, v in pairs(itemCopy) do item[k] = v end
+                    item.enhance = 0
+                    local added = Inventory.AddToBag(item)
+                    if not added then
+                        GameUI.ShowToast("背包已满")
+                    else
+                        GameUI.ShowToast("购买成功：" .. item.name)
+                    end
+                    GameUI.HideNPCPanel()
+                    openMerchantPanel()
+                end,
+            })
+        end
+
+        GameUI.ShowNPCPanel("商人 · 商店", rows)
     end
 
     -- NPC 交互回调（由 HandleUpdate 每帧检测后触发）

@@ -761,4 +761,29 @@ end
 
 Inventory.MAX_BAG_SLOTS = MAX_BAG_SLOTS
 
+-- ============================================================================
+-- 商人售卖：装备模板与价格
+-- ============================================================================
+
+--- 装备售价（商人定价，与回收价区分）
+---@param item table 装备模板
+---@return number 售价
+function Inventory.GetItemPrice(item)
+    if not item then return 0 end
+    local r = RARITY[item.rarity]
+    local mult = r and r.mult or 1.0
+    local score = item.atk * 2 + item.def * 1.5 + item.hp * 0.3
+    return math.max(10, math.floor(score * mult * 8))
+end
+
+--- 获取所有装备模板（供商人货架）
+---@return table[] 装备模板数组
+function Inventory.GetAllItemTemplates()
+    local result = {}
+    for _, tmpl in ipairs(ITEM_TEMPLATES) do
+        result[#result + 1] = tmpl
+    end
+    return result
+end
+
 return Inventory
