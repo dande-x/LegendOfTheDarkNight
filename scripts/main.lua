@@ -157,10 +157,10 @@ function CreateScene()
     print("[main] Scene created (with PhysicsWorld + dark fantasy atmosphere)")
 end
 
-function CreateFloor()
+function CreateFloor(groundColor)
     --[[
         暗黑地表设计：
-        1. 大面积暗色泥土作为可行走底面。
+        1. 大面积暗色泥土作为可行走底面（颜色可按地图传入，默认暗褐）。
         2. 一条弯曲破碎石板路贯穿出生点，提供视觉引导。
         3. 路边加入湿泥、苔藓、碎石色块，避免单调平面。
         4. 不生成抬高土台，避免角色和怪物在装饰地块上穿模。
@@ -185,7 +185,8 @@ function CreateFloor()
         return fallback
     end
 
-    local darkSoilMat = GetMaterial("uuid://B2-Y8QtOc5NdOQVWAmvW1aQ_", MakeMat(Color(0.20, 0.16, 0.12, 1.0), 0.94, 0.0))
+    local soilColor = groundColor or Color(0.20, 0.16, 0.12, 1.0)
+    local darkSoilMat = GetMaterial("uuid://B2-Y8QtOc5NdOQVWAmvW1aQ_", MakeMat(soilColor, 0.94, 0.0))
     local roadMat = GetMaterial("uuid://GSN7IaGGBlvP2Xk_zX9UQyuq", MakeMat(Color(0.32, 0.31, 0.29, 1.0), 0.86, 0.0))
     local wetMudMat = MakeMat(Color(0.10, 0.085, 0.075, 1.0), 0.72, 0.0)
     local mossMat = MakeMat(Color(0.13, 0.18, 0.10, 1.0), 0.90, 0.0)
@@ -975,6 +976,16 @@ function LoadFromSave(saveData)
     local mapId = saveData.mapId or "map_bq"
     Combat.SetMap(mapId)
 
+    -- 按存档地图重铺地面与雾色
+    local mapDef = MapZone.GetDef(mapId)
+    if mapDef then
+        local oldFloor = scene_:GetChild("DarkSoilFloor")
+        if oldFloor then oldFloor:Remove() end
+        CreateFloor(mapDef.groundColor)
+        local zone = scene_:GetComponent("Zone", true)
+        if zone then zone.fogColor = mapDef.fogColor end
+    end
+
     -- 创建角色节点并进入游戏
     CreatePlayerNode(saveData.classId, player_.modelStyle, player_.gender)
     GameUI.SetPlayerNode(playerNode_)
@@ -1024,6 +1035,11 @@ function SwitchMap(mapId)
 
     -- 设置战斗系统当前地图（决定按图刷怪池）
     Combat.SetMap(mapId)
+
+    -- 重铺地面（按地图主色，移除旧地面节点）
+    local oldFloor = scene_:GetChild("DarkSoilFloor")
+    if oldFloor then oldFloor:Remove() end
+    CreateFloor(mapDef.groundColor)
 
     -- 更新 Zone 雾色（主光色保持，仅切雾色体现地域差异）
     local zone = scene_:GetComponent("Zone", true)
