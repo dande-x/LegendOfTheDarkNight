@@ -47,6 +47,61 @@ MonsterData.NEW_ENEMIES = {
         speed = 1.5, chaseRange = 12, attackRange = 1.8, attackCD = 2.8,
         exp = 900, scale = 2.2, tier = "boss",
     },
+    -- === 25~50 区间补齐（同类物种进阶变体，合理复用骨架）===
+    {
+        name = "石像鬼", monsterType = "golem",
+        level = 26, hp = 620, atk = 40, def = 20,
+        speed = 1.8, chaseRange = 9, attackRange = 1.5, attackCD = 2.2,
+        exp = 320, scale = 1.5, tier = "normal",
+    },
+    {
+        name = "海妖", monsterType = "serpent",
+        level = 30, hp = 720, atk = 46, def = 16,
+        speed = 2.6, chaseRange = 13, attackRange = 1.5, attackCD = 1.7,
+        exp = 400, scale = 1.7, tier = "normal",
+    },
+    {
+        name = "巨蜥", monsterType = "serpent",
+        level = 33, hp = 840, atk = 50, def = 19,
+        speed = 2.4, chaseRange = 12, attackRange = 1.5, attackCD = 1.6,
+        exp = 480, scale = 1.9, tier = "normal",
+    },
+    {
+        name = "岩甲兽", monsterType = "golem",
+        level = 37, hp = 1020, atk = 58, def = 24,
+        speed = 1.6, chaseRange = 9, attackRange = 1.5, attackCD = 2.0,
+        exp = 620, scale = 1.7, tier = "normal",
+    },
+    {
+        name = "黑鳞蟒", monsterType = "serpent",
+        level = 40, hp = 1150, atk = 64, def = 20,
+        speed = 2.7, chaseRange = 14, attackRange = 1.5, attackCD = 1.5,
+        exp = 720, scale = 2.1, tier = "normal",
+    },
+    {
+        name = "深渊恶鬼", monsterType = "orc",
+        level = 43, hp = 1300, atk = 70, def = 26,
+        speed = 2.3, chaseRange = 13, attackRange = 1.5, attackCD = 1.4,
+        exp = 850, scale = 1.4, tier = "normal",
+    },
+    {
+        name = "熔岩巨兽", monsterType = "golem",
+        level = 46, hp = 1500, atk = 76, def = 30,
+        speed = 1.7, chaseRange = 10, attackRange = 1.6, attackCD = 1.9,
+        exp = 1000, scale = 1.9, tier = "normal",
+    },
+    {
+        name = "魔龙幼崽", monsterType = "serpent",
+        level = 48, hp = 1700, atk = 82, def = 28,
+        speed = 2.8, chaseRange = 15, attackRange = 1.6, attackCD = 1.6,
+        exp = 1200, scale = 2.2, tier = "normal",
+    },
+    {
+        name = "祖玛卫士", monsterType = "orc",
+        level = 50, hp = 2000, atk = 88, def = 32,
+        speed = 2.2, chaseRange = 13, attackRange = 1.6, attackCD = 1.5,
+        exp = 1400, scale = 1.5, tier = "elite",
+    },
 }
 
 -- 补充掉落表。key 使用 Combat 改名后的经典怪物名。

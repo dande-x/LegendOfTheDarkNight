@@ -115,6 +115,11 @@ local uiState = {
     systemPanelRoot = nil,
     teleportPanelOpen = false,
     teleportPanelRoot = nil,
+    dialogueActive = false,
+    dialogueLines = nil,      -- 待播放的对话行列表
+    dialogueIndex = 0,
+    dialogueRoot = nil,
+    dialogueOnDone = nil,
 }
 
 GameUI.state = uiState
@@ -898,7 +903,7 @@ end
 
 --- 判断游戏是否应暂停（任何面板打开时暂停）
 function GameUI.IsGamePaused()
-    return mapState.fullMapOpen or uiState.charPanelOpen or uiState.systemPanelOpen or uiState.teleportPanelOpen
+    return mapState.fullMapOpen or uiState.charPanelOpen or uiState.systemPanelOpen or uiState.teleportPanelOpen or uiState.dialogueActive
 end
 
 -- ============================================================================
@@ -1224,6 +1229,123 @@ end
 function GameUI.ShowToast(text, duration)
     duration = duration or 2.5
     table.insert(uiState.toasts, { text = text, timer = 0, duration = duration })
+end
+
+-- ============================================================================
+-- 剧情对话演出系统
+-- ============================================================================
+
+--- 播放一段对话（逐句）
+---@param lines table[] {speaker=说话人, text=台词}
+---@param onDone function|nil 全部播完后的回调
+function GameUI.PlayDialogue(lines, onDone)
+    if not lines or #lines == 0 then
+        if onDone then onDone() end
+        return
+    end
+
+    uiState.dialogueActive = true
+    uiState.dialogueLines = lines
+    uiState.dialogueIndex = 0
+    uiState.dialogueOnDone = onDone
+
+    GameUI._ShowDialogueLine(lines[1])
+end
+
+--- 显示单句对话
+function GameUI._ShowDialogueLine(line)
+    -- 清除旧对话框
+    if uiState.dialogueRoot then
+        uiState.dialogueRoot:Remove()
+        uiState.dialogueRoot = nil
+    end
+
+    local speaker = line.speaker or "旁白"
+    local isNarrator = (line.speaker == nil or line.speaker == "旁白")
+    local nameColor = isNarrator and {200, 190, 160, 255} or {255, 210, 90, 255}
+
+    uiState.dialogueRoot = UI.Panel {
+        id = "dialogueOverlay",
+        position = "absolute",
+        left = 0, right = 0, bottom = 0,
+        height = "30%",
+        pointerEvents = "auto",
+        paddingHorizontal = 40, paddingVertical = 16,
+        children = {
+            UI.Panel {
+                width = "100%", height = "100%",
+                backgroundColor = {8, 6, 5, 232},
+                borderRadius = 10, borderWidth = 2,
+                borderColor = {150, 120, 70, 180},
+                padding = 18,
+                justifyContent = "flex-start",
+                onPointerUp = function()
+                    GameUI._AdvanceDialogue()
+                end,
+                children = {
+                    UI.Label {
+                        text = speaker,
+                        fontSize = 15, fontWeight = "bold",
+                        fontColor = nameColor, marginBottom = 8,
+                    },
+                    UI.Label {
+                        text = line.text,
+                        fontSize = 16,
+                        fontColor = {235, 232, 222, 255},
+                        lineHeight = 1.4,
+                    },
+                    UI.Label {
+                        text = "▼ 点击继续",
+                        fontSize = 11, fontColor = {140, 138, 130, 180},
+                        position = "absolute", right = 16, bottom = 12,
+                    },
+                },
+            },
+        },
+    }
+
+    -- 挂到当前 HUD 根（若存在）
+    if uiState.hudRoot then
+        uiState.hudRoot:AddChild(uiState.dialogueRoot)
+    else
+        UI.SetRoot(uiState.dialogueRoot)
+    end
+end
+
+--- 推进到下一句对话
+function GameUI._AdvanceDialogue()
+    if not uiState.dialogueActive then return end
+
+    uiState.dialogueIndex = uiState.dialogueIndex + 1
+    local lines = uiState.dialogueLines
+    local idx = uiState.dialogueIndex
+
+    if idx > #lines then
+        -- 播放完毕
+        GameUI._EndDialogue()
+        return
+    end
+
+    GameUI._ShowDialogueLine(lines[idx])
+end
+
+--- 结束对话
+function GameUI._EndDialogue()
+    if uiState.dialogueRoot then
+        uiState.dialogueRoot:Remove()
+        uiState.dialogueRoot = nil
+    end
+    uiState.dialogueActive = false
+    uiState.dialogueLines = nil
+    uiState.dialogueIndex = 0
+    local onDone = uiState.dialogueOnDone
+    uiState.dialogueOnDone = nil
+    if onDone then onDone() end
+end
+
+--- 是否正在播放对话
+function GameUI.IsDialogueActive()
+    return uiState.dialogueActive
 end
 
 -- ============================================================================

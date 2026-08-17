@@ -153,7 +153,7 @@ function CreateScene()
     end
 
     CreateFloor()
-    CreateSceneDecorations()
+    CreateSceneDecorations("map_bq")
     print("[main] Scene created (with PhysicsWorld + dark fantasy atmosphere)")
 end
 
@@ -272,7 +272,7 @@ function CreateFloor(groundColor)
     print("[main] Dark fantasy floor created: soil, broken stone road, ravine, patches")
 end
 
-function CreateSceneDecorations()
+function CreateSceneDecorations(mapId)
     --[[
         碰撞设计：
         - 主地面和石板路不加碰撞体，玩家保持 y=0 的俯视角移动规则。
@@ -532,7 +532,165 @@ function CreateSceneDecorations()
     end
 
     math.randomseed(os.time())
+
+    -- 地图差异化装饰（按 mapId 分派标志性场景元素）
+    if mapId and mapId ~= "map_bq" then
+        local mapDef = MapZone.GetDef(mapId)
+        if mapDef then
+            CreateMapDecorations(mapId, mapDef)
+        end
+    end
+
     print("[main] Dark fantasy decorations created: bridge, rocks, dead trees, graves, torches, fences, scrub")
+end
+
+--- 为特定地图构建标志性装饰（差异化场景元素）
+function CreateMapDecorations(mapId, mapDef)
+    local function solid(color, roughness)
+        local mat = Material:new()
+        mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
+        mat:SetShaderParameter("MatDiffColor", Variant(color))
+        mat:SetShaderParameter("Roughness", Variant(roughness or 0.85))
+        mat:SetShaderParameter("Metallic", Variant(0.0))
+        return mat
+    end
+
+    if mapId == "map_mz" then
+        -- 盟重土城：沙丘 + 仙人掌 + 破败城墙
+        local sandMat = solid(Color(0.52, 0.42, 0.26, 1.0), 0.9)
+        local cactusMat = solid(Color(0.18, 0.35, 0.16, 1.0), 0.8)
+        local wallMat = solid(Color(0.44, 0.38, 0.28, 1.0), 0.9)
+        for i = 1, 14 do
+            local x = (math.random() - 0.5) * 80
+            local z = (math.random() - 0.5) * 80
+            local s = 1.6 + math.random() * 2.4
+            local dune = scene_:CreateChild("Dune_" .. i)
+            dune.position = Vector3(x, 0.12, z)
+            dune.scale = Vector3(s, 0.5, s)
+            local m = dune:CreateComponent("StaticModel")
+            m:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
+            m:SetMaterial(sandMat)
+            m.castShadows = false
+        end
+        for i = 1, 10 do
+            local x = (math.random() - 0.5) * 70
+            local z = (math.random() - 0.5) * 70
+            local h = 1.4 + math.random() * 1.2
+            local c = scene_:CreateChild("Cactus_" .. i)
+            c.position = Vector3(x, h * 0.5, z)
+            c.scale = Vector3(0.22, h, 0.22)
+            local m = c:CreateComponent("StaticModel")
+            m:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+            m:SetMaterial(cactusMat)
+            m.castShadows = true
+        end
+        for i = 1, 6 do
+            local x = -46 + math.random() * 92
+            local z = (i % 2 == 0) and 46 or -46
+            local w = scene_:CreateChild("RuinedWall_" .. i)
+            w.position = Vector3(x, 0.8, z)
+            w.scale = Vector3(4.5, 1.6, 0.6)
+            local m = w:CreateComponent("StaticModel")
+            m:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
+            m:SetMaterial(wallMat)
+            m.castShadows = true
+        end
+    elseif mapId == "map_sc" then
+        -- 水上城市：珊瑚礁 + 栈桥柱 + 灯塔
+        local coralMat = solid(Color(0.65, 0.22, 0.30, 1.0), 0.7)
+        local pierMat = solid(Color(0.32, 0.24, 0.16, 1.0), 0.85)
+        local lightMat = solid(Color(0.9, 0.88, 0.7, 1.0), 0.4)
+        for i = 1, 16 do
+            local x = (math.random() - 0.5) * 80
+            local z = (math.random() - 0.5) * 80
+            local c = scene_:CreateChild("Coral_" .. i)
+            c.position = Vector3(x, 0.3, z)
+            c.scale = Vector3(0.5 + math.random() * 0.8, 0.5 + math.random() * 0.8, 0.5 + math.random() * 0.8)
+            local m = c:CreateComponent("StaticModel")
+            m:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
+            m:SetMaterial(coralMat)
+            m.castShadows = false
+        end
+        for i = 1, 8 do
+            local x = -40 + math.random() * 80
+            local z = (i % 2 == 0) and 40 or -40
+            local p = scene_:CreateChild("PierPost_" .. i)
+            p.position = Vector3(x, 0.9, z)
+            p.scale = Vector3(0.3, 1.8, 0.3)
+            local m = p:CreateComponent("StaticModel")
+            m:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+            m:SetMaterial(pierMat)
+            m.castShadows = true
+        end
+        local tower = scene_:CreateChild("Lighthouse")
+        tower.position = Vector3(0, 2.5, 30)
+        tower.scale = Vector3(1.4, 5.0, 1.4)
+        local tm = tower:CreateComponent("StaticModel")
+        tm:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+        tm:SetMaterial(lightMat)
+        tm.castShadows = true
+    elseif mapId == "map_wm" then
+        -- 沃玛寺庙：石柱 + 祭坛 + 火盆
+        local pillarMat = solid(Color(0.42, 0.44, 0.48, 1.0), 0.6)
+        local altarMat = solid(Color(0.24, 0.26, 0.30, 1.0), 0.7)
+        local brazierMat = solid(Color(0.2, 0.1, 0.05, 1.0), 0.9)
+        for i = 1, 10 do
+            local x = -36 + math.random() * 72
+            local z = -36 + math.random() * 72
+            local p = scene_:CreateChild("Pillar_" .. i)
+            p.position = Vector3(x, 2.2, z)
+            p.scale = Vector3(0.7, 4.4, 0.7)
+            local m = p:CreateComponent("StaticModel")
+            m:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+            m:SetMaterial(pillarMat)
+            m.castShadows = true
+        end
+        local altar = scene_:CreateChild("Altar")
+        altar.position = Vector3(0, 0.5, 0)
+        altar.scale = Vector3(3.0, 1.0, 3.0)
+        local am = altar:CreateComponent("StaticModel")
+        am:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
+        am:SetMaterial(altarMat)
+        am.castShadows = true
+        for i = 1, 6 do
+            local x = -20 + math.random() * 40
+            local z = -20 + math.random() * 40
+            local b = scene_:CreateChild("Brazier_" .. i)
+            b.position = Vector3(x, 0.5, z)
+            b.scale = Vector3(0.6, 1.0, 0.6)
+            local m = b:CreateComponent("StaticModel")
+            m:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+            m:SetMaterial(brazierMat)
+            m.castShadows = true
+        end
+    elseif mapId == "map_zm" then
+        -- 祖玛寺庙：岩浆池 + 熔岩石 + 岩浆裂隙
+        local lavaMat = solid(Color(0.85, 0.25, 0.05, 1.0), 0.3)
+        local lavaGlowMat = solid(Color(1.0, 0.4, 0.08, 1.0), 0.2)
+        local rockMat = solid(Color(0.16, 0.10, 0.08, 1.0), 0.95)
+        for i = 1, 5 do
+            local x = -30 + math.random() * 60
+            local z = -30 + math.random() * 60
+            local pool = scene_:CreateChild("LavaPool_" .. i)
+            pool.position = Vector3(x, 0.1, z)
+            pool.scale = Vector3(2.5 + math.random() * 2, 0.3, 2.5 + math.random() * 2)
+            local m = pool:CreateComponent("StaticModel")
+            m:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
+            m:SetMaterial(lavaMat)
+            m.castShadows = false
+        end
+        for i = 1, 12 do
+            local x = -40 + math.random() * 80
+            local z = -40 + math.random() * 80
+            local r = scene_:CreateChild("LavaRock_" .. i)
+            r.position = Vector3(x, 0.3, z)
+            r.scale = Vector3(0.8 + math.random() * 1.2, 0.5 + math.random() * 0.8, 0.8 + math.random() * 1.2)
+            local m = r:CreateComponent("StaticModel")
+            m:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
+            m:SetMaterial(rockMat)
+            m.castShadows = true
+        end
+    end
 end
 
 -- ============================================================================
@@ -976,12 +1134,14 @@ function LoadFromSave(saveData)
     local mapId = saveData.mapId or "map_bq"
     Combat.SetMap(mapId)
 
-    -- 按存档地图重铺地面与雾色
+    -- 按存档地图重铺地面、装饰与雾色
     local mapDef = MapZone.GetDef(mapId)
     if mapDef then
+        ClearDecorations()
         local oldFloor = scene_:GetChild("DarkSoilFloor")
         if oldFloor then oldFloor:Remove() end
         CreateFloor(mapDef.groundColor)
+        CreateSceneDecorations(mapId)
         local zone = scene_:GetComponent("Zone", true)
         if zone then zone.fogColor = mapDef.fogColor end
     end
@@ -996,6 +1156,9 @@ function LoadFromSave(saveData)
     local cur = Quest.GetCurrent()
     local p, c = Quest.GetProgress()
     GameUI.UpdateQuestTracker(cur, p, c)
+
+    -- 触发当前任务剧情对话（读档后首次进入播放）
+    Quest.TriggerCurrentStart()
 
     -- 初始刷怪（按当前地图怪物池）
     for i = 1, 28 do
@@ -1022,6 +1185,37 @@ end
 -- ============================================================================
 local MAP_ORDER = { "map_bq", "map_mz", "map_sc", "map_wm", "map_zm" }
 
+-- 装饰节点前缀（切图时按前缀清理）
+local DECOR_PREFIXES = {
+    "BrokenStoneRoad_", "CentralScorchedPatch_", "ScorchedEdge_", "GroundPatch_",
+    "RuinedBridge", "BridgePlank_", "BridgePost_",
+    "DarkRock_", "DeadTree_", "DeadBranch_", "SickCrown_",
+    "Grave_", "Torch_", "TorchFlame_", "TorchLight_", "BrokenFence_", "DarkScrub_",
+    "Dune_", "Cactus_", "RuinedWall_",
+    "Coral_", "PierPost_", "Lighthouse",
+    "Pillar_", "Altar", "Brazier_",
+    "LavaPool_", "LavaRock_",
+}
+
+--- 清理所有装饰节点（切图时调用）
+function ClearDecorations()
+    local children = scene_:GetChildren()
+    for i = #children, 1, -1 do
+        local child = children[i]
+        local name = child.name or ""
+        local matched = false
+        for _, prefix in ipairs(DECOR_PREFIXES) do
+            if name:sub(1, #prefix) == prefix or name == prefix then
+                matched = true
+                break
+            end
+        end
+        if matched then
+            child:Remove()
+        end
+    end
+end
+
 --- 切换到指定地图（清怪 + 改雾色 + 传送玩家 + 按图刷怪）
 function SwitchMap(mapId)
     local mapDef = MapZone.GetDef(mapId)
@@ -1036,10 +1230,12 @@ function SwitchMap(mapId)
     -- 设置战斗系统当前地图（决定按图刷怪池）
     Combat.SetMap(mapId)
 
-    -- 重铺地面（按地图主色，移除旧地面节点）
+    -- 重铺地面与装饰（按地图主色，移除旧地面/装饰节点）
+    ClearDecorations()
     local oldFloor = scene_:GetChild("DarkSoilFloor")
     if oldFloor then oldFloor:Remove() end
     CreateFloor(mapDef.groundColor)
+    CreateSceneDecorations(mapId)
 
     -- 更新 Zone 雾色（主光色保持，仅切雾色体现地域差异）
     local zone = scene_:GetComponent("Zone", true)
@@ -1400,6 +1596,18 @@ function SetupGameCallbacks()
 
     Quest.onProgressUpdate = function(quest, progress, count)
         GameUI.UpdateQuestTracker(quest, progress, count)
+    end
+
+    Quest.onQuestStart = function(quest)
+        -- 播放剧情对话（若有）
+        if quest.dialogues and #quest.dialogues > 0 then
+            GameUI.PlayDialogue(quest.dialogues, function()
+                -- 对话结束，刷新任务追踪条
+                local cur = Quest.GetCurrent()
+                local p, c = Quest.GetProgress()
+                GameUI.UpdateQuestTracker(cur, p, c)
+            end)
+        end
     end
 
     print("[main] Game callbacks bound")
