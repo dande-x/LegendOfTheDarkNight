@@ -2679,15 +2679,28 @@ end
 -- NPC 交互面板（管家传送 / 商人商店）
 -- ============================================================================
 
---- 显示/隐藏 HUD 上的 NPC 交互按钮
+--- 显示/隐藏 HUD 上的 NPC 交互按钮（去重：状态不变时不重建，避免每帧销毁导致点击失效）
 ---@param show boolean
 ---@param label string|nil 按钮文案
 ---@param onTap function|nil 点击回调
 function GameUI.SetNPCInteract(show, label, onTap)
+    -- 状态缓存：避免每帧 Remove+AddChild 导致按钮无法被点击
+    if uiState.npcInteractKey == show and not show then
+        return  -- 连续隐藏，无需重复清理
+    end
+    if uiState.npcInteractKey == show and show and uiState.npcInteractLabel == label then
+        return  -- 同状态同文案，保持现有按钮
+    end
+
+    -- 清理旧按钮
     if uiState.npcInteractBtn then
         uiState.npcInteractBtn:Remove()
         uiState.npcInteractBtn = nil
     end
+
+    uiState.npcInteractKey = show
+    uiState.npcInteractLabel = label
+
     if not show or not uiState.hudRoot then return end
 
     uiState.npcInteractBtn = UI.Panel {
@@ -2699,8 +2712,8 @@ function GameUI.SetNPCInteract(show, label, onTap)
             UI.Button {
                 text = label or "交谈",
                 fontSize = 15, fontWeight = "bold",
-                width = 140, height = 44,
-                backgroundColor = {34, 30, 20, 235},
+                width = 160, height = 48,
+                backgroundColor = {34, 30, 20, 240},
                 borderRadius = 8, borderWidth = 1.5,
                 borderColor = {170, 140, 70, 220},
                 fontColor = {240, 230, 190, 255},

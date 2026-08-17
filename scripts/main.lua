@@ -202,34 +202,64 @@ function CreateFloor(groundColor)
     floorModel:SetMaterial(darkSoilMat)
     floorModel.castShadows = false
 
-    -- 安全区视觉：半透明金色圆盘 + 边界圆环（出生点周围，怪物不进）
+    -- 安全区视觉：蓝色半透明方形底盘 + 蓝色发光尖锐针状虚线边界
     local safeRadius = MapZone.GetSafeZoneRadius(MapZone.GetCurrentMapId())
+    local half = safeRadius
+
+    -- 蓝色半透明方形底盘
     local safeZoneMat = Material:new()
     safeZoneMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
-    safeZoneMat:SetShaderParameter("MatDiffColor", Variant(Color(0.9, 0.8, 0.4, 0.18)))
+    safeZoneMat:SetShaderParameter("MatDiffColor", Variant(Color(0.2, 0.5, 1.0, 0.15)))
     local safeZone = scene_:CreateChild("SafeZone")
     safeZone.position = Vector3(0, 0.02, 0)
-    safeZone.scale = Vector3(safeRadius, 0.06, safeRadius)
+    safeZone.scale = Vector3(half * 2, 0.05, half * 2)
     local safeModel = safeZone:CreateComponent("StaticModel")
-    safeModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+    safeModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
     safeModel:SetMaterial(safeZoneMat)
     safeModel.castShadows = false
 
-    -- 边界圆环（用多个小方块围成一圈）
-    local ringMat = Material:new()
-    ringMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
-    ringMat:SetShaderParameter("MatDiffColor", Variant(Color(0.95, 0.85, 0.45, 1.0)))
-    ringMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.4, 0.3, 0.05, 1.0)))
-    for i = 0, 31 do
-        local ang = (i / 32) * math.pi * 2
-        local ringNode = scene_:CreateChild("SafeZoneRing_" .. i)
-        ringNode.position = Vector3(math.cos(ang) * safeRadius, 0.04, math.sin(ang) * safeRadius)
-        ringNode.scale = Vector3(0.5, 0.04, 0.5)
-        ringNode.rotation = Quaternion(math.deg(ang), Vector3.UP)
-        local ringModel = ringNode:CreateComponent("StaticModel")
-        ringModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
-        ringModel:SetMaterial(ringMat)
-        ringModel.castShadows = false
+    -- 蓝色发光尖锐针状虚线边界（方形四边，针尖朝外）
+    local needleMat = Material:new()
+    needleMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
+    needleMat:SetShaderParameter("MatDiffColor", Variant(Color(0.3, 0.65, 1.0, 1.0)))
+    needleMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.8, 1.4, 2.4, 1.0)))
+    local gapInterval = safeRadius * 2 / 8   -- 每条边分 8 段（虚线间隔）
+    local segLen = gapInterval * 0.5          -- 每段实线长度（占间隔一半）
+    for side = 0, 3 do
+        -- side 0=上边(z=-half), 1=右边(x=+half), 2=下边(z=+half), 3=左边(x=-half)
+        for seg = 0, 7 do
+            local t0 = -half + seg * gapInterval
+            local t1 = t0 + segLen
+            local cx = (t0 + t1) / 2
+            local len = (t1 - t0)
+            local pos = Vector3(0, 0.05, 0)
+            local needleDir = Vector3(1, 0, 0)  -- 针尖朝向
+            if side == 0 then
+                pos = Vector3(cx, 0.05, -half)
+                needleDir = Vector3(0, 0, -1)
+            elseif side == 1 then
+                pos = Vector3(half, 0.05, cx)
+                needleDir = Vector3(1, 0, 0)
+            elseif side == 2 then
+                pos = Vector3(cx, 0.05, half)
+                needleDir = Vector3(0, 0, 1)
+            else
+                pos = Vector3(-half, 0.05, cx)
+                needleDir = Vector3(-1, 0, 0)
+            end
+            -- 针尖朝向：计算朝向的角度
+            local yaw = math.deg(math.atan2(needleDir.x, needleDir.z))
+            local needle = scene_:CreateChild("SafeZoneRing_" .. side .. "_" .. seg)
+            needle.position = pos
+            -- 尖锐针状：细长圆锥（尖端朝外）
+            needle.rotation = Quaternion(yaw, Vector3.UP)
+            -- 用 Cone 作为针尖，尖端朝向 +Z，需要旋转让尖端朝外
+            needle.scale = Vector3(0.12, 0.55, 0.12)
+            local needleModel = needle:CreateComponent("StaticModel")
+            needleModel:SetModel(cache:GetResource("Model", "Models/Cone.mdl"))
+            needleModel:SetMaterial(needleMat)
+            needleModel.castShadows = false
+        end
     end
 
     -- 破碎主路：按路径点生成石板段。
@@ -1315,6 +1345,17 @@ function SetupGameCallbacks()
         if castState.active then return end  -- 施法中不可再按
         if GameUI.IsCharacterPanelOpen() then return end -- 角色面板打开时不放技能
         if GameUI.IsSystemPanelOpen() then return end -- 系统面板打开时不放技能
+
+        -- 安全区内禁止攻击
+        if playerNode_ then
+            local safeRadius = MapZone.GetSafeZoneRadius(Combat.currentMapId)
+            local pp = playerNode_.position
+            local safeDist = math.sqrt(pp.x * pp.x + pp.z * pp.z)
+            if safeDist < safeRadius then
+                GameUI.AddFloatingText("安全区内无法攻击", playerNode_.position + Vector3(0, 1.0, 0), {160, 200, 255, 255})
+                return
+            end
+        end
 
         if not skill then return end
         local canCast, reason = CharacterClass.CanCastSkill(player_, skill)
