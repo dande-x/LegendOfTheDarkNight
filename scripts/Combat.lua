@@ -467,20 +467,31 @@ function Combat.SpawnEnemy(scene, playerPos, playerLevel, forceDef, mapId)
     local scaledDEF = math.floor((def.def + levelDiff * LEVEL_SCALE.def_per_level) * tierMult.def)
     local scaledEXP = math.floor((def.exp + levelDiff * LEVEL_SCALE.exp_per_level) * tierMult.exp)
 
-    -- 在玩家周围 15-25 米随机位置生成（避开安全区：出生点附近安全半径内不刷）
+    -- 在玩家周围随机位置生成（避开安全区 + 保证最小距离）
+    -- 安全区以地图出生点(0,0)为圆心，半径 safeRadius；怪物不得生成在安全区内
     local safeRadius = MapZone.GetSafeZoneRadius(currentMapId)
-    local angle = math.random() * math.pi * 2
-    local dist = 15 + math.random() * 10
-    local spawnPos = Vector3(
-        playerPos.x + math.cos(angle) * dist,
-        0,
-        playerPos.z + math.sin(angle) * dist
-    )
-    -- 若落在安全区内，则推向安全区外
-    local flatDist = math.sqrt(spawnPos.x * spawnPos.x + spawnPos.z * spawnPos.z)
-    if flatDist < safeRadius then
-        local scale = safeRadius / math.max(flatDist, 0.001)
-        spawnPos = Vector3(spawnPos.x * scale, 0, spawnPos.z * scale)
+    local minSpawnDist = 12   -- 怪物距玩家最小距离
+    local maxSpawnDist = 28   -- 怪物距玩家最大距离
+    local spawnPos = nil
+    for attempt = 1, 10 do
+        local angle = math.random() * math.pi * 2
+        local dist = minSpawnDist + math.random() * (maxSpawnDist - minSpawnDist)
+        local candidate = Vector3(
+            playerPos.x + math.cos(angle) * dist,
+            0,
+            playerPos.z + math.sin(angle) * dist
+        )
+        -- 距离地图出生点(安全区中心)的距离
+        local toSafeZone = math.sqrt(candidate.x * candidate.x + candidate.z * candidate.z)
+        if toSafeZone >= safeRadius then
+            spawnPos = candidate
+            break
+        end
+    end
+    -- 兜底：若多次尝试都落在安全区内（玩家在安全区中心附近），直接放到安全区边缘外
+    if not spawnPos then
+        local angle = math.random() * math.pi * 2
+        spawnPos = Vector3(math.cos(angle) * (safeRadius + 4), 0, math.sin(angle) * (safeRadius + 4))
     end
 
     -- 创建敌人节点
@@ -762,6 +773,15 @@ function Combat.UpdateEnemies(dt, playerNode, player)
             end
 
         elseif e.state == "chase" then
+            -- 安全区保护：玩家在安全区内时，怪物停止追击并返回巡逻
+            local safeRadius = MapZone.GetSafeZoneRadius(currentMapId)
+            local playerSafeDist = math.sqrt(playerPos.x * playerPos.x + playerPos.z * playerPos.z)
+            if playerSafeDist < safeRadius then
+                e.state = "patrol"
+                if eBody then eBody:SetLinearVelocity(Vector3.ZERO) end
+                goto continue
+            end
+
             -- 追击玩家或神兽（谁近追谁）
             local chaseBeastPos = DivineBeast.GetPosition()
             local chaseBeastDist = chaseBeastPos and (chaseBeastPos - pos):Length() or 9999

@@ -2723,17 +2723,20 @@ function GameUI.ShowNPCPanel(title, rows)
 
     local rowChildren = {}
     for _, r in ipairs(rows) do
-        table.insert(rowChildren, UI.Panel {
-            flexDirection = "row", alignItems = "center", justifyContent = "space-between",
+        table.insert(rowChildren, UI.Button {
+            text = "",
             width = "100%",
-            paddingHorizontal = 10, paddingVertical = 8,
-            backgroundColor = {24, 22, 18, 200},
+            minHeight = 52,
+            flexShrink = 0,
+            paddingHorizontal = 12, paddingVertical = 10,
+            backgroundColor = {24, 22, 18, 220},
             borderRadius = 6, borderWidth = 1,
-            borderColor = {70, 66, 56, 120},
-            onPointerUp = r.onTap,
+            borderColor = {70, 66, 56, 130},
+            alignItems = "flex-start",
+            onClick = r.onTap,
             children = {
-                UI.Label { text = r.text, fontSize = 13, fontColor = {222, 217, 200, 240} },
-                UI.Label { text = r.hint or "", fontSize = 11, fontColor = {255, 210, 120, 210} },
+                UI.Label { text = r.text, fontSize = 14, fontColor = {230, 226, 210, 255}, textAlign = "left" },
+                UI.Label { text = r.hint or "", fontSize = 11, fontColor = {255, 210, 120, 215}, marginTop = 2, textAlign = "left" },
             },
         })
     end
@@ -2745,17 +2748,25 @@ function GameUI.ShowNPCPanel(title, rows)
         justifyContent = "center", alignItems = "center",
         children = {
             UI.Panel {
-                width = 300,
-                backgroundColor = {16, 12, 10, 248},
-                borderRadius = 10, borderWidth = 2,
-                borderColor = {124, 126, 130, 198},
+                width = "86%",
+                maxWidth = 420,
+                maxHeight = "72%",
+                backgroundColor = {16, 12, 10, 250},
+                borderRadius = 12, borderWidth = 2,
+                borderColor = {124, 126, 130, 200},
                 padding = 16, alignItems = "center",
                 children = {
                     UI.Label { text = title, fontSize = 18, fontColor = {234, 236, 234, 255}, fontWeight = "bold", marginBottom = 12 },
-                    UI.Panel { width = "100%", gap = 6, children = rowChildren },
+                    UI.Panel {
+                        width = "100%",
+                        flexShrink = 1,
+                        overflow = "scroll",
+                        gap = 8,
+                        children = rowChildren,
+                    },
                     UI.Button {
                         text = "离开", variant = "outline",
-                        width = 120, height = 36, marginTop = 14,
+                        width = 140, height = 40, marginTop = 14,
                         onClick = function() GameUI.HideNPCPanel() end,
                     },
                 },

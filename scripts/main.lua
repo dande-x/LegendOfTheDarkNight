@@ -202,6 +202,36 @@ function CreateFloor(groundColor)
     floorModel:SetMaterial(darkSoilMat)
     floorModel.castShadows = false
 
+    -- 安全区视觉：半透明金色圆盘 + 边界圆环（出生点周围，怪物不进）
+    local safeRadius = MapZone.GetSafeZoneRadius(MapZone.GetCurrentMapId())
+    local safeZoneMat = Material:new()
+    safeZoneMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+    safeZoneMat:SetShaderParameter("MatDiffColor", Variant(Color(0.9, 0.8, 0.4, 0.18)))
+    local safeZone = scene_:CreateChild("SafeZone")
+    safeZone.position = Vector3(0, 0.02, 0)
+    safeZone.scale = Vector3(safeRadius, 0.06, safeRadius)
+    local safeModel = safeZone:CreateComponent("StaticModel")
+    safeModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+    safeModel:SetMaterial(safeZoneMat)
+    safeModel.castShadows = false
+
+    -- 边界圆环（用多个小方块围成一圈）
+    local ringMat = Material:new()
+    ringMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
+    ringMat:SetShaderParameter("MatDiffColor", Variant(Color(0.95, 0.85, 0.45, 1.0)))
+    ringMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.4, 0.3, 0.05, 1.0)))
+    for i = 0, 31 do
+        local ang = (i / 32) * math.pi * 2
+        local ringNode = scene_:CreateChild("SafeZoneRing_" .. i)
+        ringNode.position = Vector3(math.cos(ang) * safeRadius, 0.04, math.sin(ang) * safeRadius)
+        ringNode.scale = Vector3(0.5, 0.04, 0.5)
+        ringNode.rotation = Quaternion(math.deg(ang), Vector3.UP)
+        local ringModel = ringNode:CreateComponent("StaticModel")
+        ringModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
+        ringModel:SetMaterial(ringMat)
+        ringModel.castShadows = false
+    end
+
     -- 破碎主路：按路径点生成石板段。
     local path = {
         Vector3(-43, 0, -31), Vector3(-34, 0, -23), Vector3(-24, 0, -16),
@@ -1198,6 +1228,7 @@ local DECOR_PREFIXES = {
     "Coral_", "PierPost_", "Lighthouse",
     "Pillar_", "Altar", "Brazier_",
     "LavaPool_", "LavaRock_",
+    "SafeZone", "SafeZoneRing_",
 }
 
 --- 清理所有装饰节点（切图时调用）
