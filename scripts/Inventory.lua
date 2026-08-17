@@ -513,6 +513,16 @@ function Inventory.AddGold(amount)
     playerData.gold = playerData.gold + amount
 end
 
+--- 扣金币，不足返回 false
+---@param amount number
+---@return boolean
+function Inventory.SpendGold(amount)
+    if not amount or amount < 0 then return false end
+    if playerData.gold < amount then return false end
+    playerData.gold = playerData.gold - amount
+    return true
+end
+
 -- ============================================================================
 -- 拾取物品（自动装备或放入背包）
 -- ============================================================================

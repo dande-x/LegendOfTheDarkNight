@@ -467,7 +467,8 @@ function Combat.SpawnEnemy(scene, playerPos, playerLevel, forceDef, mapId)
     local scaledDEF = math.floor((def.def + levelDiff * LEVEL_SCALE.def_per_level) * tierMult.def)
     local scaledEXP = math.floor((def.exp + levelDiff * LEVEL_SCALE.exp_per_level) * tierMult.exp)
 
-    -- 在玩家周围 15-25 米随机位置生成
+    -- 在玩家周围 15-25 米随机位置生成（避开安全区：出生点附近安全半径内不刷）
+    local safeRadius = MapZone.GetSafeZoneRadius(currentMapId)
     local angle = math.random() * math.pi * 2
     local dist = 15 + math.random() * 10
     local spawnPos = Vector3(
@@ -475,6 +476,12 @@ function Combat.SpawnEnemy(scene, playerPos, playerLevel, forceDef, mapId)
         0,
         playerPos.z + math.sin(angle) * dist
     )
+    -- 若落在安全区内，则推向安全区外
+    local flatDist = math.sqrt(spawnPos.x * spawnPos.x + spawnPos.z * spawnPos.z)
+    if flatDist < safeRadius then
+        local scale = safeRadius / math.max(flatDist, 0.001)
+        spawnPos = Vector3(spawnPos.x * scale, 0, spawnPos.z * scale)
+    end
 
     -- 创建敌人节点
     local enemyNode = scene:CreateChild("Enemy_" .. def.monsterType)

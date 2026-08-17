@@ -115,6 +115,9 @@ local uiState = {
     systemPanelRoot = nil,
     teleportPanelOpen = false,
     teleportPanelRoot = nil,
+    npcPanelOpen = false,
+    npcPanelRoot = nil,
+    npcInteractBtn = nil,  -- HUD 上的 NPC 交互按钮（靠近时显示）
     dialogueActive = false,
     dialogueLines = nil,      -- 待播放的对话行列表
     dialogueIndex = 0,
@@ -849,7 +852,7 @@ end
 --- 内部：根据面板状态同步 scene.timeScale（真正全局暂停）
 local function _SyncPauseState()
     if not sceneRef then return end
-    if mapState.fullMapOpen or uiState.charPanelOpen or uiState.systemPanelOpen or uiState.teleportPanelOpen then
+    if mapState.fullMapOpen or uiState.charPanelOpen or uiState.systemPanelOpen or uiState.teleportPanelOpen or uiState.npcPanelOpen then
         sceneRef.timeScale = 0
     else
         sceneRef.timeScale = 1
@@ -903,7 +906,7 @@ end
 
 --- 判断游戏是否应暂停（任何面板打开时暂停）
 function GameUI.IsGamePaused()
-    return mapState.fullMapOpen or uiState.charPanelOpen or uiState.systemPanelOpen or uiState.teleportPanelOpen or uiState.dialogueActive
+    return mapState.fullMapOpen or uiState.charPanelOpen or uiState.systemPanelOpen or uiState.teleportPanelOpen or uiState.dialogueActive or uiState.npcPanelOpen
 end
 
 -- ============================================================================
@@ -2528,6 +2531,14 @@ function GameUI.UpdateQuestTracker(quest, progress, count)
         }
     else
         local done = progress >= count
+        -- 根据章节推导目标地图名（用于引导玩家）
+        local chapterMapNames = {
+            ["第一幕 · 边城烽火"] = "比奇省",
+            ["第二幕 · 黄沙盟重"] = "盟重土城",
+            ["第三幕 · 怒海寻踪"] = "水上城市",
+            ["终章 · 屠龙之战"] = "祖玛寺庙",
+        }
+        local mapName = chapterMapNames[quest.chapter] or ""
         content = UI.Panel {
             flexDirection = "column",
             backgroundColor = {16, 14, 12, 215},
@@ -2554,6 +2565,12 @@ function GameUI.UpdateQuestTracker(quest, progress, count)
                     fontColor = done and {140, 220, 140, 255} or {210, 200, 180, 230},
                     marginTop = 3,
                 },
+                (mapName ~= "") and UI.Label {
+                    text = "📍 " .. mapName,
+                    fontSize = 10,
+                    fontColor = {140, 190, 220, 200},
+                    marginTop = 2,
+                } or nil,
             },
         }
     end
@@ -2656,6 +2673,111 @@ end
 
 function GameUI.IsTeleportPanelOpen()
     return uiState.teleportPanelOpen
+end
+
+-- ============================================================================
+-- NPC 交互面板（管家传送 / 商人商店）
+-- ============================================================================
+
+--- 显示/隐藏 HUD 上的 NPC 交互按钮
+---@param show boolean
+---@param label string|nil 按钮文案
+---@param onTap function|nil 点击回调
+function GameUI.SetNPCInteract(show, label, onTap)
+    if uiState.npcInteractBtn then
+        uiState.npcInteractBtn:Remove()
+        uiState.npcInteractBtn = nil
+    end
+    if not show or not uiState.hudRoot then return end
+
+    uiState.npcInteractBtn = UI.Panel {
+        position = "absolute",
+        left = 0, right = 0, bottom = "42%",
+        alignItems = "center",
+        pointerEvents = "box-none",
+        children = {
+            UI.Button {
+                text = label or "交谈",
+                fontSize = 15, fontWeight = "bold",
+                width = 140, height = 44,
+                backgroundColor = {34, 30, 20, 235},
+                borderRadius = 8, borderWidth = 1.5,
+                borderColor = {170, 140, 70, 220},
+                fontColor = {240, 230, 190, 255},
+                onClick = function()
+                    if onTap then onTap() end
+                end,
+            },
+        },
+    }
+    uiState.hudRoot:AddChild(uiState.npcInteractBtn)
+end
+
+--- 打开 NPC 面板（管家传送 / 商人商店）
+---@param title string 标题
+---@param rows table[] {text, hint, cost, onTap} 选项列表
+function GameUI.ShowNPCPanel(title, rows)
+    GameUI.HideNPCPanel()
+    uiState.npcPanelOpen = true
+    _SyncPauseState()
+
+    local rowChildren = {}
+    for _, r in ipairs(rows) do
+        table.insert(rowChildren, UI.Panel {
+            flexDirection = "row", alignItems = "center", justifyContent = "space-between",
+            width = "100%",
+            paddingHorizontal = 10, paddingVertical = 8,
+            backgroundColor = {24, 22, 18, 200},
+            borderRadius = 6, borderWidth = 1,
+            borderColor = {70, 66, 56, 120},
+            onPointerUp = r.onTap,
+            children = {
+                UI.Label { text = r.text, fontSize = 13, fontColor = {222, 217, 200, 240} },
+                UI.Label { text = r.hint or "", fontSize = 11, fontColor = {255, 210, 120, 210} },
+            },
+        })
+    end
+
+    uiState.npcPanelRoot = UI.Panel {
+        id = "npcPanelOverlay",
+        width = "100%", height = "100%",
+        backgroundColor = {0, 0, 0, 170},
+        justifyContent = "center", alignItems = "center",
+        children = {
+            UI.Panel {
+                width = 300,
+                backgroundColor = {16, 12, 10, 248},
+                borderRadius = 10, borderWidth = 2,
+                borderColor = {124, 126, 130, 198},
+                padding = 16, alignItems = "center",
+                children = {
+                    UI.Label { text = title, fontSize = 18, fontColor = {234, 236, 234, 255}, fontWeight = "bold", marginBottom = 12 },
+                    UI.Panel { width = "100%", gap = 6, children = rowChildren },
+                    UI.Button {
+                        text = "离开", variant = "outline",
+                        width = 120, height = 36, marginTop = 14,
+                        onClick = function() GameUI.HideNPCPanel() end,
+                    },
+                },
+            },
+        },
+    }
+    UI.SetRoot(uiState.npcPanelRoot)
+end
+
+function GameUI.HideNPCPanel()
+    if not uiState.npcPanelOpen then return end
+    uiState.npcPanelOpen = false
+    _SyncPauseState()
+    uiState.npcPanelRoot = nil
+    if uiState.hudRoot then
+        UI.SetRoot(uiState.hudRoot)
+    end
+    GameUI._ResetJoystickState()
+end
+
+function GameUI.IsNPCPanelOpen()
+    return uiState.npcPanelOpen
 end
 
 -- ============================================================================
@@ -3146,12 +3268,6 @@ function GameUI._CreateMiniMapArea(player)
                 {34, 35, 37, 214},
                 {118, 122, 126, 170},
                 function() if GameUI.onCharacterPanelToggle then GameUI.onCharacterPanelToggle() end end
-            ),
-            makeBtn("传送",
-                {140, 200, 255, 240},
-                {22, 32, 44, 200},
-                {90, 130, 170, 140},
-                function() if GameUI.onTeleportToggle then GameUI.onTeleportToggle() end end
             ),
             makeBtn("系统",
                 {180, 175, 165, 240},

@@ -13,6 +13,7 @@ local PlayerAnim = require("scripts.PlayerAnim")
 local SaveSystem = require("scripts.SaveSystem")
 local Quest = require("scripts.Quest")
 local MapZone = require("scripts.MapZone")
+local NPC = require("scripts.NPC")
 require "urhox-libs.UI.GameHUD"
 
 -- ============================================================================
@@ -1144,6 +1145,8 @@ function LoadFromSave(saveData)
         CreateSceneDecorations(mapId)
         local zone = scene_:GetComponent("Zone", true)
         if zone then zone.fogColor = mapDef.fogColor end
+        -- 生成安全区 NPC
+        NPC.SpawnForMap(scene_, mapId, mapDef.spawnPos)
     end
 
     -- 创建角色节点并进入游戏
@@ -1247,6 +1250,9 @@ function SwitchMap(mapId)
     if playerNode_ then
         playerNode_.position = mapDef.spawnPos
     end
+
+    -- 生成安全区 NPC（管家 + 商人）
+    NPC.SpawnForMap(scene_, mapId, mapDef.spawnPos)
 
     -- 初始刷怪（按新地图怪物池）
     for i = 1, 24 do
@@ -1467,31 +1473,83 @@ function SetupGameCallbacks()
         end
     end
 
-    -- 传送面板回调
-    GameUI.onTeleportToggle = function()
-        if GameUI.IsTeleportPanelOpen() then
-            GameUI.HideTeleportPanel()
-            return
-        end
-        -- 构建地图列表（标注当前地图 + 等级门槛）
-        local maps = {}
-        for _, mapId in ipairs(MAP_ORDER) do
-            local def = MapZone.GetDef(mapId)
-            if def then
-                table.insert(maps, {
-                    id = mapId,
-                    name = def.name,
-                    minLevel = def.minLevel,
-                    maxLevel = def.maxLevel,
-                    current = (Combat.currentMapId == mapId),
-                })
-            end
-        end
-        GameUI.ShowTeleportPanel(maps)
-    end
+    -- 传送面板回调（已改为 NPC 管家对话传送，此回调保留用于兼容但不再由按钮触发）
+    GameUI.onTeleportToggle = nil
 
     GameUI.onTeleportSelected = function(mapId)
         SwitchMap(mapId)
+    end
+
+    -- 与管家交互：打开传送面板（花费金币）
+    local function openStewardPanel(currentMapId)
+        local cost = MapZone.GetTeleportCost(currentMapId)
+        local options = NPC.GetTeleportOptions(currentMapId)
+        local rows = {}
+        for _, opt in ipairs(options) do
+            local optCopy = opt
+            table.insert(rows, {
+                text = opt.name,
+                hint = (cost > 0) and ("💰" .. cost .. "  Lv." .. opt.minLevel .. "+") or ("免费  Lv." .. opt.minLevel .. "+"),
+                onTap = function()
+                    if cost > 0 then
+                        if not Inventory.SpendGold(cost) then
+                            GameUI.ShowToast("金币不足，需要 " .. cost .. " 金币")
+                            return
+                        end
+                    end
+                    GameUI.HideNPCPanel()
+                    GameUI.SetNPCInteract(false)
+                    SwitchMap(optCopy.id)
+                end,
+            })
+        end
+        GameUI.ShowNPCPanel("管家 · 传送", rows)
+    end
+
+    -- 与商人交互：打开商店（买药水）
+    local function openMerchantPanel()
+        local rows = {
+            {
+                text = "血药（恢复 35% 生命）",
+                hint = "💰40  拥有 " .. Inventory.GetPotionCount("hp") .. "/" .. Inventory.POTION_CONFIG.hp.max,
+                onTap = function()
+                    local ok, msg = Inventory.BuyPotion("hp")
+                    if ok then
+                        GameUI.UpdatePotionCount("hp", Inventory.GetPotionCount("hp"))
+                        GameUI.ShowToast("购买成功：血药 +1")
+                    else
+                        GameUI.ShowToast(msg or "购买失败")
+                    end
+                    GameUI.HideNPCPanel()
+                    openMerchantPanel()
+                end,
+            },
+            {
+                text = "蓝药（恢复 45% 法力）",
+                hint = "💰60  拥有 " .. Inventory.GetPotionCount("mp") .. "/" .. Inventory.POTION_CONFIG.mp.max,
+                onTap = function()
+                    local ok, msg = Inventory.BuyPotion("mp")
+                    if ok then
+                        GameUI.UpdatePotionCount("mp", Inventory.GetPotionCount("mp"))
+                        GameUI.ShowToast("购买成功：蓝药 +1")
+                    else
+                        GameUI.ShowToast(msg or "购买失败")
+                    end
+                    GameUI.HideNPCPanel()
+                    openMerchantPanel()
+                end,
+            },
+        }
+        GameUI.ShowNPCPanel("商人 · 药水商店", rows)
+    end
+
+    -- NPC 交互回调（由 HandleUpdate 每帧检测后触发）
+    GameUI.onNPCInteract = function(kind, mapId)
+        if kind == "steward" then
+            openStewardPanel(mapId)
+        elseif kind == "merchant" then
+            openMerchantPanel()
+        end
     end
 
     GameUI.onCharacterPanelClosed = function()
@@ -1599,6 +1657,24 @@ function SetupGameCallbacks()
     end
 
     Quest.onQuestStart = function(quest)
+        -- Boss 任务：自动传送到对应章节地图（确保守关 Boss 可刷出）
+        if quest.type == "boss" then
+            local chapterMap = {
+                ["第一幕 · 边城烽火"] = "map_bq",
+                ["第二幕 · 黄沙盟重"] = "map_mz",
+                ["第三幕 · 怒海寻踪"] = "map_sc",
+                ["终章 · 屠龙之战"] = "map_wm",
+            }
+            -- 终章后两个 Boss（火龙王/牛魔王）在祖玛
+            local targetMap = chapterMap[quest.chapter] or "map_wm"
+            if quest.target == "火龙王" or quest.target == "牛魔王" then
+                targetMap = "map_zm"
+            end
+            if Combat.currentMapId ~= targetMap then
+                SwitchMap(targetMap)
+            end
+        end
+
         -- 播放剧情对话（若有）
         if quest.dialogues and #quest.dialogues > 0 then
             GameUI.PlayDialogue(quest.dialogues, function()
@@ -1918,6 +1994,22 @@ function HandleUpdate(eventType, eventData)
     player_.def = classDef.baseDEF + g.def * (player_.level - 1) + inv.bonusDef
     player_.maxHP = classDef.baseHP + g.hp * (player_.level - 1) + inv.bonusHP
     if player_.hp > player_.maxHP then player_.hp = player_.maxHP end
+
+    -- NPC 交互检测：玩家靠近安全区 NPC 时显示交互按钮
+    local npcKind, npcMapId = NPC.FindNearby(playerNode_.position, 3.0)
+    if npcKind and not GameUI.IsNPCPanelOpen() then
+        local label = (npcKind == "steward") and "与管家交谈（传送）" or "与商人交谈（商店）"
+        GameUI.SetNPCInteract(true, label, function()
+            GameUI.SetNPCInteract(false)
+            if GameUI.onNPCInteract then
+                GameUI.onNPCInteract(npcKind, npcMapId)
+            end
+        end)
+    else
+        if not GameUI.IsNPCPanelOpen() then
+            GameUI.SetNPCInteract(false)
+        end
+    end
 
     -- 战斗系统更新
     Combat.Update(scene_, dt, playerNode_, player_)

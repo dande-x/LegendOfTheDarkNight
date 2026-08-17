@@ -18,6 +18,8 @@ MapZone.DEFS = {
         spawnPool = { "稻草人", "蛤蟆", "多钩猫", "钉耙猫", "鹿", "幽灵", "骷髅" },
         boss = "半兽勇士",
         spawnPos = Vector3.ZERO,
+        safeZoneRadius = 8,     -- 安全区半径（不刷怪）
+        teleportCost = 0,        -- 从本图传送出去的费用（新手图免费）
     },
     map_mz = {
         name = "盟重土城",
@@ -28,6 +30,8 @@ MapZone.DEFS = {
         spawnPool = { "狼", "半兽人", "石魔", "毒蜘蛛", "骷髅" },
         boss = "白野猪",
         spawnPos = Vector3.ZERO,
+        safeZoneRadius = 8,
+        teleportCost = 100,
     },
     map_sc = {
         name = "水上城市",
@@ -38,6 +42,8 @@ MapZone.DEFS = {
         spawnPool = { "石像鬼", "海妖", "巨蜥" },
         boss = "蚁后",
         spawnPos = Vector3.ZERO,
+        safeZoneRadius = 8,
+        teleportCost = 300,
     },
     map_wm = {
         name = "沃玛寺庙",
@@ -48,6 +54,8 @@ MapZone.DEFS = {
         spawnPool = { "岩甲兽", "黑鳞蟒", "深渊恶鬼" },
         boss = "沃玛教主",
         spawnPos = Vector3.ZERO,
+        safeZoneRadius = 8,
+        teleportCost = 600,
     },
     map_zm = {
         name = "祖玛寺庙",
@@ -58,6 +66,8 @@ MapZone.DEFS = {
         spawnPool = { "熔岩巨兽", "魔龙幼崽" },
         boss = { "牛魔王", "火龙王" },
         spawnPos = Vector3.ZERO,
+        safeZoneRadius = 8,
+        teleportCost = 1000,
     },
 }
 
@@ -96,6 +106,22 @@ function MapZone.HasBoss(mapId, bossName)
         if name == bossName then return true end
     end
     return false
+end
+
+--- 安全区半径（安全区内不刷怪）
+---@param mapId string
+---@return number
+function MapZone.GetSafeZoneRadius(mapId)
+    local mapDef = MapZone.GetDef(mapId)
+    return mapDef and (mapDef.safeZoneRadius or 8) or 8
+end
+
+--- 从指定地图传送出去的费用
+---@param mapId string
+---@return number
+function MapZone.GetTeleportCost(mapId)
+    local mapDef = MapZone.GetDef(mapId)
+    return mapDef and (mapDef.teleportCost or 0) or 0
 end
 
 ---@param mapId string
