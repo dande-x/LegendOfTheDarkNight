@@ -11,6 +11,7 @@ local Combat = require("scripts.Combat")
 local Inventory = require("scripts.Inventory")
 local PlayerAnim = require("scripts.PlayerAnim")
 local SaveSystem = require("scripts.SaveSystem")
+local Quest = require("scripts.Quest")
 require "urhox-libs.UI.GameHUD"
 
 -- ============================================================================
@@ -966,11 +967,19 @@ function LoadFromSave(saveData)
     -- 恢复击杀数
     Combat.killCount = saveData.killCount or 0
 
+    -- 恢复主线任务进度
+    Quest.Restore(saveData.quest)
+
     -- 创建角色节点并进入游戏
     CreatePlayerNode(saveData.classId, player_.modelStyle, player_.gender)
     GameUI.SetPlayerNode(playerNode_)
     GameUI.ShowGameHUD(player_)
     SetupGameCallbacks()
+
+    -- 刷新任务追踪条
+    local cur = Quest.GetCurrent()
+    local p, c = Quest.GetProgress()
+    GameUI.UpdateQuestTracker(cur, p, c)
 
     -- 初始刷怪
     for i = 1, 28 do
@@ -1236,6 +1245,8 @@ function SetupGameCallbacks()
             GameUI.UpdatePotionCount("hp", Inventory.GetPotionCount("hp"))
             GameUI.UpdatePotionCount("mp", Inventory.GetPotionCount("mp"))
         end
+        -- 主线任务击杀计数
+        Quest.OnKill(enemyName)
     end
 
     -- 金币磁吸拾取回调
@@ -1263,6 +1274,41 @@ function SetupGameCallbacks()
         GameUI.RefreshSkillButtons(player_)
     end
 
+    -- 主线任务回调
+    Quest.onQuestComplete = function(quest)
+        -- 发放奖励
+        if player_ then
+            player_.exp = player_.exp + (quest.rewardExp or 0)
+            -- 处理升级（复用击杀经验升级逻辑，简化：直接调用升满）
+            while player_.exp >= player_.expToNext do
+                player_.exp = player_.exp - player_.expToNext
+                local newSkills = CharacterClass.LevelUp(player_)
+                if newSkills and Combat.onSkillUnlocked then
+                    for _, name in ipairs(newSkills) do
+                        Combat.onSkillUnlocked(name)
+                    end
+                end
+            end
+            GameUI.RefreshSkillButtons(player_)
+        end
+        Inventory.AddGold(quest.rewardGold or 0)
+
+        GameUI.ShowToast("任务完成：【" .. quest.name .. "】")
+        GameUI.AddFloatingText("任务完成 +" .. (quest.rewardExp or 0) .. "经验", playerNode_.position, {255, 215, 0, 255})
+
+        -- 刷新任务追踪条
+        local cur = Quest.GetCurrent()
+        local p, c = Quest.GetProgress()
+        GameUI.UpdateQuestTracker(cur, p, c)
+
+        -- 立即存档（任务进度落盘）
+        SaveCurrentGame()
+    end
+
+    Quest.onProgressUpdate = function(quest, progress, count)
+        GameUI.UpdateQuestTracker(quest, progress, count)
+    end
+
     print("[main] Game callbacks bound")
 end
 
@@ -1276,6 +1322,7 @@ function OnClassSelected(classId, modelStyle, gender)
 
     -- 只创建角色存档，不立即进入游戏；用户需要回到槽位页点击“开始游戏”。
     Inventory.Init()
+    Quest.Reset()
     local newPlayer = CharacterClass.CreatePlayer(classId, 1, modelStyle, gender)
 
     if currentSlotIndex then

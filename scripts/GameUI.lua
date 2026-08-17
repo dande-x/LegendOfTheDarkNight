@@ -2334,6 +2334,7 @@ function GameUI.ShowGameHUD(player)
         height = "100%",
         pointerEvents = "box-none",
         children = {
+            GameUI._CreateQuestTracker(),
             GameUI._CreateSkillBar(player),
             GameUI._CreatePotions(player),
             GameUI._CreateMiniMapArea(player),
@@ -2355,6 +2356,86 @@ function GameUI.ShowGameHUD(player)
     uiState.hudRevealed = false
 
     print("[GameUI] Game HUD shown for " .. player.className)
+end
+
+-- ============================================================================
+-- 主线任务追踪条（HUD 左上角）
+-- ============================================================================
+function GameUI._CreateQuestTracker()
+    uiState.refs.questTrackerRoot = UI.Panel {
+        id = "questTracker",
+        position = "absolute",
+        top = 10, left = 10,
+        width = 240,
+        pointerEvents = "none",
+        backgroundColor = {0, 0, 0, 0},
+    }
+    return uiState.refs.questTrackerRoot
+end
+
+--- 刷新任务追踪条（由 main.lua 在 Quest.onProgressUpdate / 完成时调用）
+---@param quest table|nil 当前任务
+---@param progress number 当前进度
+---@param count number 目标数
+function GameUI.UpdateQuestTracker(quest, progress, count)
+    local root = uiState.refs.questTrackerRoot
+    if not root then return end
+
+    -- 清除旧子元素
+    if uiState.refs.questTrackerInner then
+        uiState.refs.questTrackerInner:Remove()
+        uiState.refs.questTrackerInner = nil
+    end
+
+    local content
+    if not quest then
+        -- 主线已完成
+        content = UI.Panel {
+            flexDirection = "column",
+            backgroundColor = {16, 14, 12, 215},
+            borderRadius = 8,
+            borderWidth = 1,
+            borderColor = {140, 130, 90, 150},
+            padding = 10,
+            children = {
+                UI.Label { text = "主线 · 已完结", fontSize = 13, fontColor = {255, 210, 90, 255}, fontWeight = "bold" },
+                UI.Label { text = "你已是玛法大陆的传说", fontSize = 11, fontColor = {200, 195, 180, 200}, marginTop = 3 },
+            },
+        }
+    else
+        local done = progress >= count
+        content = UI.Panel {
+            flexDirection = "column",
+            backgroundColor = {16, 14, 12, 215},
+            borderRadius = 8,
+            borderWidth = 1,
+            borderColor = done and {140, 130, 90, 180} or {100, 90, 70, 150},
+            padding = 10,
+            children = {
+                UI.Label {
+                    text = quest.chapter or "主线",
+                    fontSize = 10,
+                    fontColor = {190, 180, 155, 190},
+                },
+                UI.Label {
+                    text = quest.name,
+                    fontSize = 14,
+                    fontColor = {238, 232, 220, 255},
+                    fontWeight = "bold",
+                    marginTop = 2,
+                },
+                UI.Label {
+                    text = (done and "✓ 已完成" or ("目标：" .. quest.target .. " " .. progress .. "/" .. count)),
+                    fontSize = 11,
+                    fontColor = done and {140, 220, 140, 255} or {210, 200, 180, 230},
+                    marginTop = 3,
+                },
+            },
+        }
+    end
+
+    uiState.refs.questTrackerInner = content
+    root:AddChild(content)
 end
 
 -- ============================================================================

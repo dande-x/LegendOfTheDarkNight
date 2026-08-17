@@ -5,6 +5,8 @@
 
 local SaveSystem = {}
 
+local Quest = require("scripts.Quest")
+
 -- ============================================================================
 -- 常量
 -- ============================================================================
@@ -97,6 +99,9 @@ function SaveSystem.CreateSnapshot(player, inventoryData, killCount)
 
         -- 统计
         killCount  = killCount or 0,
+
+        -- 主线任务进度
+        quest      = Quest.GetState(),
     }
 end
 
