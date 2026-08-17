@@ -113,6 +113,8 @@ local uiState = {
     charPanelRoot = nil,
     systemPanelOpen = false,
     systemPanelRoot = nil,
+    teleportPanelOpen = false,
+    teleportPanelRoot = nil,
 }
 
 GameUI.state = uiState
@@ -842,7 +844,7 @@ end
 --- 内部：根据面板状态同步 scene.timeScale（真正全局暂停）
 local function _SyncPauseState()
     if not sceneRef then return end
-    if mapState.fullMapOpen or uiState.charPanelOpen or uiState.systemPanelOpen then
+    if mapState.fullMapOpen or uiState.charPanelOpen or uiState.systemPanelOpen or uiState.teleportPanelOpen then
         sceneRef.timeScale = 0
     else
         sceneRef.timeScale = 1
@@ -896,7 +898,7 @@ end
 
 --- 判断游戏是否应暂停（任何面板打开时暂停）
 function GameUI.IsGamePaused()
-    return mapState.fullMapOpen or uiState.charPanelOpen or uiState.systemPanelOpen
+    return mapState.fullMapOpen or uiState.charPanelOpen or uiState.systemPanelOpen or uiState.teleportPanelOpen
 end
 
 -- ============================================================================
@@ -2447,6 +2449,94 @@ function GameUI._CreateTopButtons()
 end
 
 -- ============================================================================
+-- 传送面板（地图选择）
+-- ============================================================================
+
+--- 打开传送面板（列出 5 张地图供选择）
+---@param maps table[] {id, name, minLevel, maxLevel, current}
+function GameUI.ShowTeleportPanel(maps)
+    if uiState.teleportPanelOpen then return end
+    uiState.teleportPanelOpen = true
+    _SyncPauseState()
+
+    local rows = {}
+    for _, m in ipairs(maps) do
+        local isCurrent = m.current
+        table.insert(rows, UI.Panel {
+            flexDirection = "row", alignItems = "center", justifyContent = "space-between",
+            width = "100%",
+            paddingHorizontal = 10, paddingVertical = 8,
+            backgroundColor = isCurrent and {40, 50, 40, 210} or {24, 22, 18, 200},
+            borderRadius = 6,
+            borderWidth = 1,
+            borderColor = isCurrent and {140, 200, 140, 170} or {70, 66, 56, 120},
+            onPointerUp = isCurrent and nil or function()
+                GameUI.HideTeleportPanel()
+                if GameUI.onTeleportSelected then
+                    GameUI.onTeleportSelected(m.id)
+                end
+            end,
+            children = {
+                UI.Label {
+                    text = m.name .. (isCurrent and "（当前）" or ""),
+                    fontSize = 14, fontColor = isCurrent and {180, 230, 180, 255} or {220, 215, 200, 240},
+                    fontWeight = isCurrent and "bold" or "normal",
+                },
+                UI.Label {
+                    text = "Lv." .. m.minLevel .. "-" .. m.maxLevel,
+                    fontSize = 11, fontColor = {160, 155, 140, 180},
+                },
+            },
+        })
+    end
+
+    uiState.teleportPanelRoot = UI.Panel {
+        id = "teleportPanelOverlay",
+        width = "100%", height = "100%",
+        backgroundColor = {0, 0, 0, 170},
+        justifyContent = "center", alignItems = "center",
+        children = {
+            UI.Panel {
+                width = 280,
+                backgroundColor = {16, 12, 10, 248},
+                borderRadius = 10, borderWidth = 2,
+                borderColor = {124, 126, 130, 198},
+                padding = 16, alignItems = "center",
+                children = {
+                    UI.Label { text = "传送阵 · 选择地图", fontSize = 18, fontColor = {234, 236, 234, 255}, fontWeight = "bold", marginBottom = 4 },
+                    UI.Label { text = "低等级地图可越级进入，量力而行", fontSize = 10, fontColor = {150, 150, 145, 160}, marginBottom = 12 },
+                    UI.Panel { width = "100%", gap = 6, children = rows },
+                    UI.Button {
+                        text = "取消", variant = "outline",
+                        width = 120, height = 36, marginTop = 14,
+                        onClick = function() GameUI.HideTeleportPanel() end,
+                    },
+                },
+            },
+        },
+    }
+
+    UI.SetRoot(uiState.teleportPanelRoot)
+    print("[GameUI] Teleport panel opened")
+end
+
+function GameUI.HideTeleportPanel()
+    if not uiState.teleportPanelOpen then return end
+    uiState.teleportPanelOpen = false
+    _SyncPauseState()
+    uiState.teleportPanelRoot = nil
+    if uiState.hudRoot then
+        UI.SetRoot(uiState.hudRoot)
+    end
+    GameUI._ResetJoystickState()
+    print("[GameUI] Teleport panel closed")
+end
+
+function GameUI.IsTeleportPanelOpen()
+    return uiState.teleportPanelOpen
+end
+
+-- ============================================================================
 -- 右下角 - 技能栏
 -- ============================================================================
 -- 技能栏图标映射（全局复用）
@@ -2934,6 +3024,12 @@ function GameUI._CreateMiniMapArea(player)
                 {34, 35, 37, 214},
                 {118, 122, 126, 170},
                 function() if GameUI.onCharacterPanelToggle then GameUI.onCharacterPanelToggle() end end
+            ),
+            makeBtn("传送",
+                {140, 200, 255, 240},
+                {22, 32, 44, 200},
+                {90, 130, 170, 140},
+                function() if GameUI.onTeleportToggle then GameUI.onTeleportToggle() end end
             ),
             makeBtn("系统",
                 {180, 175, 165, 240},

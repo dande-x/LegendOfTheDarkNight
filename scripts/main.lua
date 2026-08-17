@@ -1271,6 +1271,33 @@ function SetupGameCallbacks()
         end
     end
 
+    -- 传送面板回调
+    GameUI.onTeleportToggle = function()
+        if GameUI.IsTeleportPanelOpen() then
+            GameUI.HideTeleportPanel()
+            return
+        end
+        -- 构建地图列表（标注当前地图）
+        local maps = {}
+        for _, mapId in ipairs(MAP_ORDER) do
+            local def = MapZone.GetDef(mapId)
+            if def then
+                table.insert(maps, {
+                    id = mapId,
+                    name = def.name,
+                    minLevel = def.minLevel,
+                    maxLevel = def.maxLevel,
+                    current = (Combat.currentMapId == mapId),
+                })
+            end
+        end
+        GameUI.ShowTeleportPanel(maps)
+    end
+
+    GameUI.onTeleportSelected = function(mapId)
+        SwitchMap(mapId)
+    end
+
     GameUI.onCharacterPanelClosed = function()
         -- 角色面板关闭后刷新 HUD 技能栏
         GameUI.RefreshSkillButtons(player_)
