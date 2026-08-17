@@ -1983,9 +1983,13 @@ function GameUI.ShowClassSelect(onSelected, overlayMode, overlaySlotIndex)
         taoist  = "万灵召唤\n驱使群兽，碾压一切",
     }
 
-    local selectedModelStyle = "old"
     local selectedGender = "male"
     local classPortraitRefs = {}
+
+    -- 男 → 旧模型，女 → 新模型（不再提供独立的新旧模型选择）
+    local function CurrentModelStyle()
+        return selectedGender == "female" and "new" or "old"
+    end
 
     local function UpdateClassPortraits()
         for classId, portrait in pairs(classPortraitRefs) do
@@ -1997,7 +2001,7 @@ function GameUI.ShowClassSelect(onSelected, overlayMode, overlaySlotIndex)
         uiState.selectedClass = classId
         GameUI.HideClassSelect()
         if uiState.onClassSelected then
-            uiState.onClassSelected(classId, selectedModelStyle, selectedGender)
+            uiState.onClassSelected(classId, CurrentModelStyle(), selectedGender)
         end
     end
 
@@ -2140,15 +2144,7 @@ function GameUI.ShowClassSelect(onSelected, overlayMode, overlaySlotIndex)
                 marginTop = overlayMode and 8 or 20,
                 alignItems = "center",
                 children = {
-                    UI.Label { text = "模型", fontSize = 12, fontColor = {180, 182, 180, 230} },
-                    UI.Toggle {
-                        checked = false,
-                        onChange = function(self, checked)
-                            selectedModelStyle = checked and "new" or "old"
-                        end,
-                    },
-                    UI.Label { text = "旧 / 新", fontSize = 12, fontColor = {180, 182, 180, 230} },
-                    UI.Label { text = "性别", fontSize = 12, fontColor = {180, 182, 180, 230}, marginLeft = 8 },
+                    UI.Label { text = "性别", fontSize = 12, fontColor = {180, 182, 180, 230} },
                     UI.Dropdown {
                         options = {
                             { value = "male", label = "男" },
