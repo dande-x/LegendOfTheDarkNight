@@ -49,13 +49,13 @@ Quest.CHAIN = {
     },
     {
         id = "q_005", name = "蛛穴之影", chapter = "第一幕 · 边城烽火",
-        type = "kill", target = "蜘蛛", count = 15,
+        type = "kill", target = "毒蜘蛛", count = 15,
         desc = "追杀溃逃的兽兵时，你撞进了毒蛛的巢穴。杀出去，别回头。",
         rewardExp = 600, rewardGold = 260,
     },
     {
         id = "q_006", name = "边城守卫战", chapter = "第一幕 · 边城烽火",
-        type = "boss", target = "山岳巨人", count = 1,
+        type = "boss", target = "沃玛教主", count = 1,
         desc = "真相大白——你曾最信任的守卫队长，正是为半兽人打开城门的叛徒。山岳巨人压境，唯有死战。",
         rewardExp = 1500, rewardGold = 800,
     },
@@ -63,7 +63,7 @@ Quest.CHAIN = {
     -- ============ 第二幕「黄沙盟重」（盟重土城，Lv16~30）============
     {
         id = "q_007", name = "野狼出没", chapter = "第二幕 · 黄沙盟重",
-        type = "kill", target = "狼人", count = 20,
+        type = "kill", target = "狼", count = 20,
         desc = "黄沙之城的商路被狼群切断。护送商队穿过荒漠，让土城的血重新流动。",
         rewardExp = 1800, rewardGold = 900,
     },
@@ -75,7 +75,7 @@ Quest.CHAIN = {
     },
     {
         id = "q_009", name = "蛛后巢穴", chapter = "第二幕 · 黄沙盟重",
-        type = "boss", target = "暗影蛛后", count = 1,
+        type = "boss", target = "蚁后", count = 1,
         desc = "城主竟被掉了包！猪洞的骚乱只是调虎离山。杀入蛛后巢穴，夺回城主信物。",
         rewardExp = 3000, rewardGold = 1500,
     },
@@ -115,13 +115,13 @@ Quest.CHAIN = {
     },
     {
         id = "q_015", name = "骨龙之渊", chapter = "终章 · 屠龙之战",
-        type = "boss", target = "九幽骨龙", count = 1,
+        type = "boss", target = "火龙王", count = 1,
         desc = "沃玛寺庙深处，骨龙守护着最后的封印。屠龙宝刀在此觉醒。",
         rewardExp = 12000, rewardGold = 8000,
     },
     {
         id = "q_016", name = "深渊领主", chapter = "终章 · 屠龙之战",
-        type = "boss", target = "炎魔领主", count = 1,
+        type = "boss", target = "牛魔王", count = 1,
         desc = "祖玛封印即将崩解，火龙王即将苏醒。用屠龙宝刀，斩断这场延续百年的战争。",
         rewardExp = 20000, rewardGold = 15000,
     },

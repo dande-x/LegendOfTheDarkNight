@@ -5,6 +5,14 @@
 
 local Inventory = {}
 
+-- 分支模块（武器链 / 怪物数据 / 强化规则）
+local WeaponData = require("scripts.WeaponData")
+local MonsterData = require("scripts.MonsterData")
+local Enhance = require("scripts.Enhance")
+
+Inventory.Enhance = Enhance  -- 暴露强化/分解/锻造纯逻辑，供 UI 调用
+Inventory.MonsterData = MonsterData
+
 -- ============================================================================
 -- 装备槽位（传奇风格: 头盔/盔甲/武器/项链/手镯×2/戒指×2/腰带/鞋子）
 -- ============================================================================
@@ -64,19 +72,25 @@ Inventory.RARITY = RARITY
 -- 物品模板表
 -- ============================================================================
 local ITEM_TEMPLATES = {
-    -- 武器（职业专属）
-    { id = "sword_iron",    name = "铁剑",     slot = SLOT.WEAPON,   itemType = "weapon", rarity = "COMMON",    atk = 8,  def = 0, hp = 0,  classReq = "warrior" },
-    { id = "sword_steel",   name = "精钢剑",   slot = SLOT.WEAPON,   itemType = "weapon", rarity = "UNCOMMON",  atk = 15, def = 0, hp = 0,  classReq = "warrior" },
-    { id = "sword_flame",   name = "烈焰刀",   slot = SLOT.WEAPON,   itemType = "weapon", rarity = "RARE",      atk = 28, def = 0, hp = 0,  classReq = "warrior" },
-    { id = "sword_dragon",  name = "屠龙宝刀", slot = SLOT.WEAPON,   itemType = "weapon", rarity = "EPIC",      atk = 45, def = 2, hp = 50, classReq = "warrior" },
-    { id = "staff_wood",    name = "木杖",     slot = SLOT.WEAPON,   itemType = "weapon", rarity = "COMMON",    atk = 10, def = 0, hp = 0,  classReq = "mage" },
-    { id = "staff_crystal", name = "水晶杖",   slot = SLOT.WEAPON,   itemType = "weapon", rarity = "UNCOMMON",  atk = 18, def = 0, hp = 0,  classReq = "mage" },
-    { id = "staff_thunder", name = "雷霆法杖", slot = SLOT.WEAPON,   itemType = "weapon", rarity = "RARE",      atk = 32, def = 0, hp = 0,  classReq = "mage" },
-    { id = "staff_arcane",  name = "奥术权杖", slot = SLOT.WEAPON,   itemType = "weapon", rarity = "EPIC",      atk = 50, def = 0, hp = 30, classReq = "mage" },
-    { id = "bell_copper",   name = "铜铃",     slot = SLOT.WEAPON,   itemType = "weapon", rarity = "COMMON",    atk = 6,  def = 0, hp = 0,  classReq = "taoist" },
-    { id = "bell_jade",     name = "玉磬",     slot = SLOT.WEAPON,   itemType = "weapon", rarity = "UNCOMMON",  atk = 12, def = 0, hp = 0,  classReq = "taoist" },
-    { id = "bell_soul",     name = "招魂幡",   slot = SLOT.WEAPON,   itemType = "weapon", rarity = "RARE",      atk = 22, def = 2, hp = 20, classReq = "taoist" },
-    { id = "bell_holy",     name = "太虚法器", slot = SLOT.WEAPON,   itemType = "weapon", rarity = "EPIC",      atk = 38, def = 3, hp = 60, classReq = "taoist" },
+    -- 武器（职业专属，传奇经典进阶链：乌木剑→…→屠龙）
+    { id = "sword_iron",   name = "乌木剑",   slot = SLOT.WEAPON, itemType = "weapon", rarity = "COMMON",    atk = 8,  def = 0, hp = 0,  classReq = "warrior" },
+    { id = "sword_steel",  name = "八荒",     slot = SLOT.WEAPON, itemType = "weapon", rarity = "UNCOMMON",  atk = 15, def = 0, hp = 0,  classReq = "warrior" },
+    { id = "sword_flame",  name = "炼狱",     slot = SLOT.WEAPON, itemType = "weapon", rarity = "RARE",      atk = 28, def = 0, hp = 0,  classReq = "warrior" },
+    { id = "sword_jzy",    name = "井中月",   slot = SLOT.WEAPON, itemType = "weapon", rarity = "RARE",      atk = 22, def = 0, hp = 0,  classReq = "warrior" },
+    { id = "sword_cjzz",   name = "裁决之杖", slot = SLOT.WEAPON, itemType = "weapon", rarity = "EPIC",      atk = 45, def = 0, hp = 0,  classReq = "warrior" },
+    { id = "sword_dragon", name = "屠龙",     slot = SLOT.WEAPON, itemType = "weapon", rarity = "LEGENDARY", atk = 58, def = 2, hp = 50, classReq = nil },
+    { id = "staff_wood",    name = "乌木剑",   slot = SLOT.WEAPON, itemType = "weapon", rarity = "COMMON",    atk = 10, def = 0, hp = 0,  classReq = "mage" },
+    { id = "staff_hs",      name = "海魂",     slot = SLOT.WEAPON, itemType = "weapon", rarity = "COMMON",    atk = 12, def = 0, hp = 0,  classReq = "mage" },
+    { id = "staff_crystal", name = "偃月",     slot = SLOT.WEAPON, itemType = "weapon", rarity = "UNCOMMON",  atk = 18, def = 0, hp = 0,  classReq = "mage" },
+    { id = "staff_thunder", name = "魔杖",     slot = SLOT.WEAPON, itemType = "weapon", rarity = "RARE",      atk = 32, def = 0, hp = 0,  classReq = "mage" },
+    { id = "staff_arcane",  name = "骨玉权杖", slot = SLOT.WEAPON, itemType = "weapon", rarity = "EPIC",      atk = 50, def = 0, hp = 30, classReq = "mage" },
+    { id = "staff_shfz",    name = "嗜魂法杖", slot = SLOT.WEAPON, itemType = "weapon", rarity = "LEGENDARY", atk = 62, def = 0, hp = 0,  classReq = "mage" },
+    { id = "bell_wm",     name = "乌木剑",   slot = SLOT.WEAPON, itemType = "weapon", rarity = "COMMON",    atk = 6,  def = 0, hp = 0,  classReq = "taoist" },
+    { id = "bell_copper", name = "半月",     slot = SLOT.WEAPON, itemType = "weapon", rarity = "COMMON",    atk = 8,  def = 0, hp = 0,  classReq = "taoist" },
+    { id = "bell_jade",   name = "降魔",     slot = SLOT.WEAPON, itemType = "weapon", rarity = "UNCOMMON",  atk = 14, def = 0, hp = 0,  classReq = "taoist" },
+    { id = "bell_soul",   name = "无极棍",   slot = SLOT.WEAPON, itemType = "weapon", rarity = "RARE",      atk = 24, def = 2, hp = 20, classReq = "taoist" },
+    { id = "bell_holy",   name = "龙纹剑",   slot = SLOT.WEAPON, itemType = "weapon", rarity = "EPIC",      atk = 40, def = 3, hp = 60, classReq = "taoist" },
+    { id = "bell_xyjs",   name = "逍遥扇",   slot = SLOT.WEAPON, itemType = "weapon", rarity = "LEGENDARY", atk = 55, def = 0, hp = 0,  classReq = "taoist" },
     -- 头盔
     { id = "helm_iron",     name = "铁盔",     slot = SLOT.HELMET,   itemType = "helmet", rarity = "COMMON",    atk = 0,  def = 3,  hp = 15  },
     { id = "helm_bronze",   name = "青铜盔",   slot = SLOT.HELMET,   itemType = "helmet", rarity = "UNCOMMON",  atk = 0,  def = 6,  hp = 30  },
@@ -126,7 +140,7 @@ end
 -- 敌人掉落表
 -- ============================================================================
 local DROP_TABLES = {
-    ["幽灵鹿"] = {
+    ["鹿"] = {
         goldMin = 5, goldMax = 15, dropChance = 0.35,
         items = {
             { id = "sword_iron",    weight = 25 },
@@ -189,7 +203,7 @@ local DROP_TABLES = {
             { id = "boots_leather", weight = 10 },
         },
     },
-    ["蜘蛛"] = {
+    ["毒蜘蛛"] = {
         goldMin = 20, goldMax = 45, dropChance = 0.45,
         items = {
             { id = "armor_leather", weight = 12 },
@@ -237,6 +251,11 @@ local DROP_TABLES = {
         },
     },
 }
+
+-- 合并分支怪物掉落表（经典名 key）
+for k, v in pairs(MonsterData.DROP_TABLES) do
+    DROP_TABLES[k] = v
+end
 
 -- ============================================================================
 -- 玩家背包状态

@@ -7,6 +7,7 @@
 local CharacterClass = require("scripts.CharacterClass")
 local MonsterSkeleton = require("scripts.MonsterSkeleton")
 local DivineBeast = require("scripts.DivineBeast")
+local MonsterData = require("scripts.MonsterData")
 
 local Combat = {}
 
@@ -61,7 +62,7 @@ local dashState = {
 local ENEMY_DEFS = {
     -- === 低级区 1~10 ===
     {
-        name = "幽灵鹿", monsterType = "deer",
+        name = "鹿", monsterType = "deer",
         level = 1,  hp = 90,   atk = 8,  def = 3,
         speed = 3.0, chaseRange = 8, attackRange = 1.5, attackCD = 2.0,
         faceYawOffset = 0,
@@ -86,7 +87,7 @@ local ENEMY_DEFS = {
         exp = 55, scale = 1.08, tier = "normal",
     },
     {
-        name = "蜘蛛",   monsterType = "spider",
+        name = "毒蜘蛛", monsterType = "spider",
         level = 6,  hp = 120,  atk = 16, def = 4,
         speed = 3.5, chaseRange = 12, attackRange = 1.5, attackCD = 1.2,
         exp = 65, scale = 0.85, tier = "normal",
@@ -99,7 +100,7 @@ local ENEMY_DEFS = {
     },
     -- === 中级区 10~25 ===
     {
-        name = "狼人",   monsterType = "orc",
+        name = "狼",   monsterType = "orc",
         level = 10, hp = 260,  atk = 24, def = 10,
         speed = 3.2, chaseRange = 12, attackRange = 1.5, attackCD = 1.5,
         exp = 120, scale = 1.15, tier = "normal",
@@ -111,7 +112,7 @@ local ENEMY_DEFS = {
         exp = 180, scale = 1.6, tier = "normal",
     },
     {
-        name = "暗影蛛后", monsterType = "spider",
+        name = "蚁后", monsterType = "spider",
         level = 18, hp = 320,  atk = 32, def = 10,
         speed = 3.8, chaseRange = 14, attackRange = 1.5, attackCD = 1.0,
         exp = 220, scale = 1.3, tier = "elite",
@@ -149,24 +150,30 @@ local ENEMY_DEFS = {
     },
     -- === Boss 区 (大型压迫感怪物) ===
     {
-        name = "山岳巨人", monsterType = "golem",
+        name = "沃玛教主", monsterType = "golem",
         level = 15, hp = 1600, atk = 35, def = 22,
         speed = 1.2, chaseRange = 10, attackRange = 1.5, attackCD = 3.0,
         exp = 600, scale = 2.5, tier = "boss",
     },
     {
-        name = "九幽骨龙", monsterType = "serpent",
+        name = "火龙王", monsterType = "serpent",
         level = 30, hp = 3200, atk = 60, def = 26,
         speed = 2.2, chaseRange = 16, attackRange = 1.5, attackCD = 2.0,
         exp = 1500, scale = 2.8, tier = "boss",
     },
     {
-        name = "炎魔领主", monsterType = "golem",
+        name = "牛魔王", monsterType = "golem",
         level = 45, hp = 5000, atk = 80, def = 32,
         speed = 1.8, chaseRange = 14, attackRange = 1.5, attackCD = 2.5,
         exp = 3000, scale = 3.0, tier = "boss",
     },
 }
+
+-- 合并分支新增怪物（蛤蟆/多钩猫/钉耙猫/半兽勇士/白野猪）
+for _, def in ipairs(MonsterData.NEW_ENEMIES) do
+    table.insert(ENEMY_DEFS, def)
+end
+
 Combat.ENEMY_DEFS = ENEMY_DEFS
 
 -- ============================================================================
