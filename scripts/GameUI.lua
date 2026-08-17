@@ -2727,66 +2727,111 @@ function GameUI.SetNPCInteract(show, label, onTap)
 end
 
 --- 打开 NPC 面板（管家传送 / 商人商店）
+--- 支持多标签页：tabs = { {label=..., build=function() return rows end}, ... }
 ---@param title string 标题
----@param rows table[] {text, hint, cost, onTap} 选项列表
-function GameUI.ShowNPCPanel(title, rows)
+---@param tabs table[] 标签页列表（每项含 label 和 build 函数返回 rows）
+function GameUI.ShowNPCPanel(title, tabs)
     GameUI.HideNPCPanel()
     uiState.npcPanelOpen = true
     _SyncPauseState()
 
-    local rowChildren = {}
-    for _, r in ipairs(rows) do
-        table.insert(rowChildren, UI.Button {
-            text = "",
-            width = "100%",
-            minHeight = 52,
-            flexShrink = 0,
-            paddingHorizontal = 12, paddingVertical = 10,
-            backgroundColor = {24, 22, 18, 220},
-            borderRadius = 6, borderWidth = 1,
-            borderColor = {70, 66, 56, 130},
-            alignItems = "flex-start",
-            onClick = r.onTap,
-            children = {
-                UI.Label { text = r.text, fontSize = 14, fontColor = {230, 226, 210, 255}, textAlign = "left" },
-                UI.Label { text = r.hint or "", fontSize = 11, fontColor = {255, 210, 120, 215}, marginTop = 2, textAlign = "left" },
-            },
-        })
+    local activeTab = 1
+
+    -- 构建行列表
+    local function buildRows(rows)
+        local rowChildren = {}
+        for _, r in ipairs(rows) do
+            table.insert(rowChildren, UI.Button {
+                text = "",
+                width = "100%",
+                minHeight = 52,
+                flexShrink = 0,
+                paddingHorizontal = 12, paddingVertical = 10,
+                backgroundColor = {24, 22, 18, 220},
+                borderRadius = 6, borderWidth = 1,
+                borderColor = {70, 66, 56, 130},
+                alignItems = "flex-start",
+                onClick = r.onTap,
+                children = {
+                    UI.Label { text = r.text, fontSize = 14, fontColor = {230, 226, 210, 255}, textAlign = "left" },
+                    UI.Label { text = r.hint or "", fontSize = 11, fontColor = {255, 210, 120, 215}, marginTop = 2, textAlign = "left" },
+                },
+            })
+        end
+        return rowChildren
     end
 
-    uiState.npcPanelRoot = UI.Panel {
-        id = "npcPanelOverlay",
-        width = "100%", height = "100%",
-        backgroundColor = {0, 0, 0, 170},
-        justifyContent = "center", alignItems = "center",
-        children = {
-            UI.Panel {
-                width = "86%",
-                maxWidth = 420,
-                maxHeight = "72%",
-                backgroundColor = {16, 12, 10, 250},
-                borderRadius = 12, borderWidth = 2,
-                borderColor = {124, 126, 130, 200},
-                padding = 16, alignItems = "center",
-                children = {
-                    UI.Label { text = title, fontSize = 18, fontColor = {234, 236, 234, 255}, fontWeight = "bold", marginBottom = 12 },
-                    UI.Panel {
-                        width = "100%",
-                        flexShrink = 1,
-                        overflow = "scroll",
-                        gap = 8,
-                        children = rowChildren,
+    local contentRef = {}
+
+    -- 构建整个面板（供 tab 切换时重建）
+    local function buildPanel()
+        local tabChildren = {}
+        if #tabs > 1 then
+            for i, t in ipairs(tabs) do
+                local isActive = (i == activeTab)
+                table.insert(tabChildren, UI.Panel {
+                    flex = 1, height = 34, borderRadius = 6,
+                    backgroundColor = isActive and {62, 64, 68, 245} or {30, 31, 33, 195},
+                    borderWidth = isActive and 1.5 or 0,
+                    borderColor = {126, 130, 134, 180},
+                    justifyContent = "center", alignItems = "center",
+                    onClick = function()
+                        if activeTab ~= i then
+                            activeTab = i
+                            GameUI.HideNPCPanel()
+                            GameUI.ShowNPCPanel(title, tabs)
+                        end
+                    end,
+                    children = {
+                        UI.Label { text = t.label, fontSize = 13, fontColor = isActive and {236, 238, 236, 255} or {176, 178, 180, 200}, fontWeight = isActive and "bold" or "normal" },
                     },
-                    UI.Button {
-                        text = "离开", variant = "outline",
-                        width = 140, height = 40, marginTop = 14,
-                        onClick = function() GameUI.HideNPCPanel() end,
+                })
+            end
+        end
+
+        local rows = tabs[activeTab].build()
+        local rowChildren = buildRows(rows)
+
+        uiState.npcPanelRoot = UI.Panel {
+            id = "npcPanelOverlay",
+            width = "100%", height = "100%",
+            backgroundColor = {0, 0, 0, 170},
+            justifyContent = "center", alignItems = "center",
+            children = {
+                UI.Panel {
+                    width = "86%",
+                    maxWidth = 440,
+                    maxHeight = "76%",
+                    backgroundColor = {16, 12, 10, 250},
+                    borderRadius = 12, borderWidth = 2,
+                    borderColor = {124, 126, 130, 200},
+                    padding = 16, alignItems = "center",
+                    children = {
+                        UI.Label { text = title, fontSize = 18, fontColor = {234, 236, 234, 255}, fontWeight = "bold", marginBottom = 10 },
+                        (#tabs > 1) and UI.Panel {
+                            flexDirection = "row", width = "100%", gap = 6, marginBottom = 10,
+                            children = tabChildren,
+                        } or nil,
+                        UI.Panel {
+                            width = "100%",
+                            flexShrink = 1,
+                            overflow = "scroll",
+                            gap = 8,
+                            children = rowChildren,
+                        },
+                        UI.Button {
+                            text = "离开", variant = "outline",
+                            width = 140, height = 40, marginTop = 12,
+                            onClick = function() GameUI.HideNPCPanel() end,
+                        },
                     },
                 },
             },
-        },
-    }
-    UI.SetRoot(uiState.npcPanelRoot)
+        }
+        UI.SetRoot(uiState.npcPanelRoot)
+    end
+
+    buildPanel()
 end
 
 function GameUI.HideNPCPanel()

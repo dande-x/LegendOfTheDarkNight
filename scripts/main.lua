@@ -1563,89 +1563,131 @@ function SetupGameCallbacks()
                 end,
             })
         end
-        GameUI.ShowNPCPanel("管家 · 传送", rows)
+        GameUI.ShowNPCPanel("管家 · 传送", {
+            { label = "传送", build = function() return rows end },
+        })
     end
 
-    -- 与商人交互：打开商店（买药水 + 装备）
+    -- 与商人交互：打开商店（「购买」标签：药水 + 装备；「出售」标签：卖背包装备）
     local function openMerchantPanel()
-        local rows = {
-            {
-                text = "血药（恢复 35% 生命）",
-                hint = "💰40  拥有 " .. Inventory.GetPotionCount("hp") .. "/" .. Inventory.POTION_CONFIG.hp.max,
-                onTap = function()
-                    local ok, msg = Inventory.BuyPotion("hp")
-                    if ok then
-                        GameUI.UpdatePotionCount("hp", Inventory.GetPotionCount("hp"))
-                        GameUI.ShowToast("购买成功：血药 +1")
-                    else
-                        GameUI.ShowToast(msg or "购买失败")
-                    end
-                    GameUI.HideNPCPanel()
-                    openMerchantPanel()
-                end,
-            },
-            {
-                text = "蓝药（恢复 45% 法力）",
-                hint = "💰60  拥有 " .. Inventory.GetPotionCount("mp") .. "/" .. Inventory.POTION_CONFIG.mp.max,
-                onTap = function()
-                    local ok, msg = Inventory.BuyPotion("mp")
-                    if ok then
-                        GameUI.UpdatePotionCount("mp", Inventory.GetPotionCount("mp"))
-                        GameUI.ShowToast("购买成功：蓝药 +1")
-                    else
-                        GameUI.ShowToast(msg or "购买失败")
-                    end
-                    GameUI.HideNPCPanel()
-                    openMerchantPanel()
-                end,
-            },
-        }
+        -- ============ 购买 tab ============
+        local function buildBuyRows()
+            local rows = {
+                {
+                    text = "血药（恢复 35% 生命）",
+                    hint = "💰40  拥有 " .. Inventory.GetPotionCount("hp") .. "/" .. Inventory.POTION_CONFIG.hp.max,
+                    onTap = function()
+                        local ok, msg = Inventory.BuyPotion("hp")
+                        if ok then
+                            GameUI.UpdatePotionCount("hp", Inventory.GetPotionCount("hp"))
+                            GameUI.ShowToast("购买成功：血药 +1")
+                        else
+                            GameUI.ShowToast(msg or "购买失败")
+                        end
+                        GameUI.HideNPCPanel()
+                        openMerchantPanel()
+                    end,
+                },
+                {
+                    text = "蓝药（恢复 45% 法力）",
+                    hint = "💰60  拥有 " .. Inventory.GetPotionCount("mp") .. "/" .. Inventory.POTION_CONFIG.mp.max,
+                    onTap = function()
+                        local ok, msg = Inventory.BuyPotion("mp")
+                        if ok then
+                            GameUI.UpdatePotionCount("mp", Inventory.GetPotionCount("mp"))
+                            GameUI.ShowToast("购买成功：蓝药 +1")
+                        else
+                            GameUI.ShowToast(msg or "购买失败")
+                        end
+                        GameUI.HideNPCPanel()
+                        openMerchantPanel()
+                    end,
+                },
+            }
 
-        -- 装备售卖：按玩家等级筛选适销装备（4 件），随机排序
-        local allItems = Inventory.GetAllItemTemplates()
-        local suitable = {}
-        for _, tmpl in ipairs(allItems) do
-            -- 仅武器/头盔/盔甲等装备，且非传说（传说留给 Boss/合成）
-            if tmpl.rarity ~= "LEGENDARY" and tmpl.itemType then
-                table.insert(suitable, tmpl)
+            -- 装备售卖：随机抽 4 件（非传说）
+            local allItems = Inventory.GetAllItemTemplates()
+            local suitable = {}
+            for _, tmpl in ipairs(allItems) do
+                if tmpl.rarity ~= "LEGENDARY" and tmpl.itemType then
+                    table.insert(suitable, tmpl)
+                end
             end
-        end
-        -- 随机抽取最多 4 件
-        local shopItems = {}
-        while #shopItems < 4 and #suitable > 0 do
-            local idx = math.random(#suitable)
-            table.insert(shopItems, suitable[idx])
-            table.remove(suitable, idx)
-        end
-        for _, tmpl in ipairs(shopItems) do
-            local price = Inventory.GetItemPrice(tmpl)
-            local rarityName = Inventory.GetRarityName(tmpl.rarity)
-            local itemCopy = tmpl
-            table.insert(rows, {
-                text = "[" .. rarityName .. "] " .. tmpl.name,
-                hint = "💰" .. price,
-                onTap = function()
-                    if not Inventory.SpendGold(price) then
-                        GameUI.ShowToast("金币不足，需要 " .. price .. " 金币")
-                        return
-                    end
-                    -- 克隆装备实例并放入背包（自动装备由玩家决定）
-                    local item = {}
-                    for k, v in pairs(itemCopy) do item[k] = v end
-                    item.enhance = 0
-                    local added = Inventory.AddToBag(item)
-                    if not added then
-                        GameUI.ShowToast("背包已满")
-                    else
-                        GameUI.ShowToast("购买成功：" .. item.name)
-                    end
-                    GameUI.HideNPCPanel()
-                    openMerchantPanel()
-                end,
-            })
+            local shopItems = {}
+            while #shopItems < 4 and #suitable > 0 do
+                local idx = math.random(#suitable)
+                table.insert(shopItems, suitable[idx])
+                table.remove(suitable, idx)
+            end
+            for _, tmpl in ipairs(shopItems) do
+                local price = Inventory.GetItemPrice(tmpl)
+                local rarityName = Inventory.GetRarityName(tmpl.rarity)
+                local itemCopy = tmpl
+                table.insert(rows, {
+                    text = "[" .. rarityName .. "] " .. tmpl.name,
+                    hint = "💰" .. price .. "  点击购买",
+                    onTap = function()
+                        if not Inventory.SpendGold(price) then
+                            GameUI.ShowToast("金币不足，需要 " .. price .. " 金币")
+                            return
+                        end
+                        local item = {}
+                        for k, v in pairs(itemCopy) do item[k] = v end
+                        item.enhance = 0
+                        local added = Inventory.AddToBag(item)
+                        if not added then
+                            Inventory.AddGold(price)  -- 回退金币
+                            GameUI.ShowToast("背包已满")
+                        else
+                            GameUI.ShowToast("购买成功：" .. item.name)
+                        end
+                        GameUI.HideNPCPanel()
+                        openMerchantPanel()
+                    end,
+                })
+            end
+            return rows
         end
 
-        GameUI.ShowNPCPanel("商人 · 商店", rows)
+        -- ============ 出售 tab ============
+        local function buildSellRows()
+            local rows = {}
+            local bag = Inventory.playerData.bag
+            if #bag == 0 then
+                table.insert(rows, {
+                    text = "背包是空的",
+                    hint = "击杀怪物或购买装备后再来出售",
+                    onTap = function() GameUI.ShowToast("背包没有可出售的装备") end,
+                })
+            else
+                for i, item in ipairs(bag) do
+                    local sellPrice = Inventory.GetItemSellPrice(item)
+                    local rarityName = Inventory.GetRarityName(item.rarity)
+                    local enhanceTag = (item.enhance and item.enhance > 0) and (" +" .. item.enhance) or ""
+                    local itemIndex = i  -- 捕获索引
+                    table.insert(rows, {
+                        text = "[" .. rarityName .. "] " .. item.name .. enhanceTag,
+                        hint = "卖出得 💰" .. sellPrice .. "  点击出售",
+                        onTap = function()
+                            local ok, got = Inventory.SellItem(itemIndex)
+                            if ok then
+                                GameUI.ShowToast("出售成功：+" .. got .. " 金币")
+                            else
+                                GameUI.ShowToast(tostring(got))
+                            end
+                            GameUI.HideNPCPanel()
+                            openMerchantPanel()
+                        end,
+                    })
+                end
+            end
+            return rows
+        end
+
+        GameUI.ShowNPCPanel("商人 · 商店", {
+            { label = "购买", build = buildBuyRows },
+            { label = "出售", build = buildSellRows },
+        })
     end
 
     -- NPC 交互回调（由 HandleUpdate 每帧检测后触发）

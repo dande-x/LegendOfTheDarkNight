@@ -762,18 +762,51 @@ end
 Inventory.MAX_BAG_SLOTS = MAX_BAG_SLOTS
 
 -- ============================================================================
--- 商人售卖：装备模板与价格
+-- 装备价值系统（统一：买入价 / 卖出价 / 强化价值加成）
+--
+-- 价值模型：
+--   基础分 = atk*2 + def*1.5 + hp*0.3（沿用 ItemScore）
+--   买入价 = floor(基础分 × 品质倍率 × 8)   —— 商人卖给玩家
+--   卖出价 = floor(基础分 × 品质倍率 × 3) + 强化返还   —— 玩家卖给商人
+--   卖出价约为买入价的 37.5%，防止低买高卖套利；强化装备额外返还投入。
 -- ============================================================================
 
---- 装备售价（商人定价，与回收价区分）
----@param item table 装备模板
----@return number 售价
+--- 装备买入价（商人出售给玩家的价格）
+---@param item table 装备模板/实例
+---@return number
 function Inventory.GetItemPrice(item)
     if not item then return 0 end
     local r = RARITY[item.rarity]
     local mult = r and r.mult or 1.0
     local score = item.atk * 2 + item.def * 1.5 + item.hp * 0.3
     return math.max(10, math.floor(score * mult * 8))
+end
+
+--- 装备卖出价（玩家卖给商人的价格，含强化返还）
+---@param item table 装备实例
+---@return number
+function Inventory.GetItemSellPrice(item)
+    if not item then return 0 end
+    local r = RARITY[item.rarity]
+    local mult = r and r.mult or 1.0
+    local score = item.atk * 2 + item.def * 1.5 + item.hp * 0.3
+    local base = math.floor(score * mult * 3)
+    -- 强化返还：每级 +50 金币（体现强化投入的部分价值）
+    local enhanceBonus = (item.enhance or 0) * 50
+    return base + enhanceBonus
+end
+
+--- 出售背包中的装备（移除 + 加金币）
+---@param bagIndex number 背包索引
+---@return boolean, number|string 成功与否，返回卖出价或错误信息
+function Inventory.SellItem(bagIndex)
+    local item = playerData.bag[bagIndex]
+    if not item then return false, "装备不存在" end
+    local price = Inventory.GetItemSellPrice(item)
+    table.remove(playerData.bag, bagIndex)
+    playerData.gold = playerData.gold + price
+    print(string.format("[Inventory] 出售 %s -> +%d金", item.name or "?", price))
+    return true, price
 end
 
 --- 获取所有装备模板（供商人货架）
