@@ -72,25 +72,7 @@ Inventory.RARITY = RARITY
 -- 物品模板表
 -- ============================================================================
 local ITEM_TEMPLATES = {
-    -- 武器（职业专属，传奇经典进阶链：乌木剑→…→屠龙）
-    { id = "sword_iron",   name = "乌木剑",   slot = SLOT.WEAPON, itemType = "weapon", rarity = "COMMON",    atk = 8,  def = 0, hp = 0,  classReq = "warrior" },
-    { id = "sword_steel",  name = "八荒",     slot = SLOT.WEAPON, itemType = "weapon", rarity = "UNCOMMON",  atk = 15, def = 0, hp = 0,  classReq = "warrior" },
-    { id = "sword_flame",  name = "炼狱",     slot = SLOT.WEAPON, itemType = "weapon", rarity = "RARE",      atk = 28, def = 0, hp = 0,  classReq = "warrior" },
-    { id = "sword_jzy",    name = "井中月",   slot = SLOT.WEAPON, itemType = "weapon", rarity = "RARE",      atk = 22, def = 0, hp = 0,  classReq = "warrior" },
-    { id = "sword_cjzz",   name = "裁决之杖", slot = SLOT.WEAPON, itemType = "weapon", rarity = "EPIC",      atk = 45, def = 0, hp = 0,  classReq = "warrior" },
-    { id = "sword_dragon", name = "屠龙",     slot = SLOT.WEAPON, itemType = "weapon", rarity = "LEGENDARY", atk = 58, def = 2, hp = 50, classReq = nil },
-    { id = "staff_wood",    name = "乌木剑",   slot = SLOT.WEAPON, itemType = "weapon", rarity = "COMMON",    atk = 10, def = 0, hp = 0,  classReq = "mage" },
-    { id = "staff_hs",      name = "海魂",     slot = SLOT.WEAPON, itemType = "weapon", rarity = "COMMON",    atk = 12, def = 0, hp = 0,  classReq = "mage" },
-    { id = "staff_crystal", name = "偃月",     slot = SLOT.WEAPON, itemType = "weapon", rarity = "UNCOMMON",  atk = 18, def = 0, hp = 0,  classReq = "mage" },
-    { id = "staff_thunder", name = "魔杖",     slot = SLOT.WEAPON, itemType = "weapon", rarity = "RARE",      atk = 32, def = 0, hp = 0,  classReq = "mage" },
-    { id = "staff_arcane",  name = "骨玉权杖", slot = SLOT.WEAPON, itemType = "weapon", rarity = "EPIC",      atk = 50, def = 0, hp = 30, classReq = "mage" },
-    { id = "staff_shfz",    name = "嗜魂法杖", slot = SLOT.WEAPON, itemType = "weapon", rarity = "LEGENDARY", atk = 62, def = 0, hp = 0,  classReq = "mage" },
-    { id = "bell_wm",     name = "乌木剑",   slot = SLOT.WEAPON, itemType = "weapon", rarity = "COMMON",    atk = 6,  def = 0, hp = 0,  classReq = "taoist" },
-    { id = "bell_copper", name = "半月",     slot = SLOT.WEAPON, itemType = "weapon", rarity = "COMMON",    atk = 8,  def = 0, hp = 0,  classReq = "taoist" },
-    { id = "bell_jade",   name = "降魔",     slot = SLOT.WEAPON, itemType = "weapon", rarity = "UNCOMMON",  atk = 14, def = 0, hp = 0,  classReq = "taoist" },
-    { id = "bell_soul",   name = "无极棍",   slot = SLOT.WEAPON, itemType = "weapon", rarity = "RARE",      atk = 24, def = 2, hp = 20, classReq = "taoist" },
-    { id = "bell_holy",   name = "龙纹剑",   slot = SLOT.WEAPON, itemType = "weapon", rarity = "EPIC",      atk = 40, def = 3, hp = 60, classReq = "taoist" },
-    { id = "bell_xyjs",   name = "逍遥扇",   slot = SLOT.WEAPON, itemType = "weapon", rarity = "LEGENDARY", atk = 55, def = 0, hp = 0,  classReq = "taoist" },
+    -- 武器由 WeaponData.WEAPONS 在下方循环插入（单一数据源，避免重复维护）
     -- 头盔
     { id = "helm_iron",     name = "铁盔",     slot = SLOT.HELMET,   itemType = "helmet", rarity = "COMMON",    atk = 0,  def = 3,  hp = 15  },
     { id = "helm_bronze",   name = "青铜盔",   slot = SLOT.HELMET,   itemType = "helmet", rarity = "UNCOMMON",  atk = 0,  def = 6,  hp = 30  },
@@ -130,6 +112,11 @@ local ITEM_TEMPLATES = {
     { id = "boots_dragon",  name = "龙鳞靴",   slot = SLOT.BOOTS,    itemType = "boots", rarity = "EPIC",      atk = 3,  def = 16, hp = 70  },
     { id = "boots_wind",    name = "疾风靴",   slot = SLOT.BOOTS,    itemType = "boots", rarity = "LEGENDARY", atk = 5,  def = 20, hp = 100 },
 }
+
+-- 插入三职业传奇武器链（单一数据源 WeaponData.WEAPONS）
+for _, weapon in ipairs(WeaponData.WEAPONS) do
+    table.insert(ITEM_TEMPLATES, weapon)
+end
 
 local ITEM_BY_ID = {}
 for _, tmpl in ipairs(ITEM_TEMPLATES) do
