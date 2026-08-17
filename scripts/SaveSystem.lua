@@ -102,6 +102,9 @@ function SaveSystem.CreateSnapshot(player, inventoryData, killCount)
 
         -- 主线任务进度
         quest      = Quest.GetState(),
+
+        -- 所在地图
+        mapId      = (require("scripts.Combat").currentMapId) or "map_bq",
     }
 end
 

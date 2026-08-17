@@ -12,6 +12,7 @@ local Inventory = require("scripts.Inventory")
 local PlayerAnim = require("scripts.PlayerAnim")
 local SaveSystem = require("scripts.SaveSystem")
 local Quest = require("scripts.Quest")
+local MapZone = require("scripts.MapZone")
 require "urhox-libs.UI.GameHUD"
 
 -- ============================================================================
@@ -970,6 +971,10 @@ function LoadFromSave(saveData)
     -- 恢复主线任务进度
     Quest.Restore(saveData.quest)
 
+    -- 恢复所在地图（默认比奇省）
+    local mapId = saveData.mapId or "map_bq"
+    Combat.SetMap(mapId)
+
     -- 创建角色节点并进入游戏
     CreatePlayerNode(saveData.classId, player_.modelStyle, player_.gender)
     GameUI.SetPlayerNode(playerNode_)
@@ -981,9 +986,9 @@ function LoadFromSave(saveData)
     local p, c = Quest.GetProgress()
     GameUI.UpdateQuestTracker(cur, p, c)
 
-    -- 初始刷怪
+    -- 初始刷怪（按当前地图怪物池）
     for i = 1, 28 do
-        Combat.SpawnEnemy(scene_, playerNode_.position, player_.level)
+        Combat.SpawnEnemy(scene_, playerNode_.position, player_.level, nil, mapId)
     end
 
     GameUI.StartDoorOpen()
@@ -999,6 +1004,51 @@ function SaveCurrentGame()
         print("[main] Auto-saved to slot " .. currentSlotIndex)
     end
     return ok
+end
+
+-- ============================================================================
+-- 地图切换（分支：地图系统）
+-- ============================================================================
+local MAP_ORDER = { "map_bq", "map_mz", "map_sc", "map_wm", "map_zm" }
+
+--- 切换到指定地图（清怪 + 改雾色 + 传送玩家 + 按图刷怪）
+function SwitchMap(mapId)
+    local mapDef = MapZone.GetDef(mapId)
+    if not mapDef then
+        print("[main] SwitchMap: unknown map " .. tostring(mapId))
+        return false
+    end
+
+    -- 清空当前地图战斗实体与地面掉落
+    Combat.Clear()
+
+    -- 设置战斗系统当前地图（决定按图刷怪池）
+    Combat.SetMap(mapId)
+
+    -- 更新 Zone 雾色（主光色保持，仅切雾色体现地域差异）
+    local zone = scene_:GetComponent("Zone", true)
+    if zone then
+        zone.fogColor = mapDef.fogColor
+    end
+
+    -- 玩家传送到该图出生点
+    if playerNode_ then
+        playerNode_.position = mapDef.spawnPos
+    end
+
+    -- 初始刷怪（按新地图怪物池）
+    for i = 1, 24 do
+        Combat.SpawnEnemy(scene_, playerNode_.position, player_.level, nil, mapId)
+    end
+
+    GameUI.ShowToast("进入：" .. mapDef.name)
+    GameUI.AddFloatingText(mapDef.name, playerNode_.position + Vector3(0, 1.2, 0), {255, 215, 0, 255})
+
+    -- 立即存档（地图落盘）
+    SaveCurrentGame()
+
+    print("[main] Switched to map: " .. mapId .. " (" .. mapDef.name .. ")")
+    return true
 end
 
 -- ============================================================================
@@ -1323,6 +1373,7 @@ function OnClassSelected(classId, modelStyle, gender)
     -- 只创建角色存档，不立即进入游戏；用户需要回到槽位页点击“开始游戏”。
     Inventory.Init()
     Quest.Reset()
+    Combat.SetMap("map_bq")  -- 新角色从比奇省开始
     local newPlayer = CharacterClass.CreatePlayer(classId, 1, modelStyle, gender)
 
     if currentSlotIndex then
@@ -1537,6 +1588,16 @@ function HandleUpdate(eventType, eventData)
     if input:GetKeyPress(KEY_F3) then
         GameUI.debugShowDistance = not GameUI.debugShowDistance
         GameUI.ShowToast(GameUI.debugShowDistance and "距离显示：开" or "距离显示：关", 1.5)
+    end
+
+    -- F5 键：循环切换地图（调试用，正式版由传送阵接管）
+    if input:GetKeyPress(KEY_F5) then
+        local curIdx = 1
+        for i, id in ipairs(MAP_ORDER) do
+            if id == (Combat.currentMapId or "map_bq") then curIdx = i; break end
+        end
+        local nextId = MAP_ORDER[(curIdx % #MAP_ORDER) + 1]
+        SwitchMap(nextId)
     end
 
     -- 游戏暂停：打开背包/地图/系统面板时暂停游戏逻辑

@@ -8,6 +8,7 @@ local CharacterClass = require("scripts.CharacterClass")
 local MonsterSkeleton = require("scripts.MonsterSkeleton")
 local DivineBeast = require("scripts.DivineBeast")
 local MonsterData = require("scripts.MonsterData")
+local MapZone = require("scripts.MapZone")
 
 local Combat = {}
 
@@ -189,6 +190,9 @@ local lastPlayerTarget = nil -- 玩家上次主动攻击命中的怪物，用于
 local IsEnemyTargetable, HorizontalDir, NormalizeHorizontal, RememberPlayerTarget, IsLastPlayerTargetValid, FacePlayerToTarget
 local killCount = 0
 local spawnTimer = 0
+local currentMapId = "map_bq"  -- 当前地图，供按图刷怪
+Combat.currentMapId = currentMapId
+
 local SPAWN_INTERVAL = 0.45
 local MAX_ENEMIES = 70
 local ENEMY_MOVE_SPEED = 2.8
@@ -387,23 +391,37 @@ local TIER_MULT = {
 -- ============================================================================
 -- 敌人创建（使用 MonsterSkeleton 骨架系统）
 -- ============================================================================
-function Combat.SpawnEnemy(scene, playerPos, playerLevel, forceDef)
+function Combat.SpawnEnemy(scene, playerPos, playerLevel, forceDef, mapId)
     if #enemies >= MAX_ENEMIES then return end
 
     local def
     if forceDef then
         def = forceDef
     else
-        -- 根据玩家等级选取合适的普通/精英怪（Boss 由专门机制刷新）
+        -- 按当前地图怪物池选取；未指定地图时回退到全表按等级选取
+        local candidateDefs = ENEMY_DEFS
+        local pool = MapZone.GetPool(mapId)
+        if pool and #pool > 0 then
+            local poolSet = {}
+            for _, n in ipairs(pool) do poolSet[n] = true end
+            local mapped = {}
+            for _, d in ipairs(ENEMY_DEFS) do
+                if poolSet[d.name] and d.tier ~= "boss" then
+                    table.insert(mapped, d)
+                end
+            end
+            if #mapped > 0 then candidateDefs = mapped end
+        end
+
         local validDefs = {}
-        for _, d in ipairs(ENEMY_DEFS) do
+        for _, d in ipairs(candidateDefs) do
             if d.tier ~= "boss" and d.level <= playerLevel + 4 and d.level >= playerLevel - 5 then
                 table.insert(validDefs, d)
             end
         end
         -- 如果没有合适的，取最接近玩家等级的非Boss怪
         if #validDefs == 0 then
-            for _, d in ipairs(ENEMY_DEFS) do
+            for _, d in ipairs(candidateDefs) do
                 if d.tier ~= "boss" and d.level <= playerLevel + 8 then
                     table.insert(validDefs, d)
                 end
@@ -2946,7 +2964,7 @@ local BOSS_INTERVAL = 45  -- 每45秒尝试刷一只Boss
 function Combat.UpdateSpawner(scene, dt, playerNode, player)
     if not playerNode or not player then return end
 
-    -- 普通怪刷新（频率随场上怪物数量动态调节）
+    -- 普通怪刷新（频率随场上怪物数量动态调节，按当前地图怪物池）
     spawnTimer = spawnTimer + dt
     local dynamicInterval = SPAWN_INTERVAL
     if #enemies > 55 then
@@ -2957,24 +2975,31 @@ function Combat.UpdateSpawner(scene, dt, playerNode, player)
 
     if spawnTimer >= dynamicInterval then
         spawnTimer = 0
-        Combat.SpawnEnemy(scene, playerNode.position, player.level)
+        Combat.SpawnEnemy(scene, playerNode.position, player.level, nil, currentMapId)
     end
 
-    -- Boss 定时刷新（必须玩家等级达到 Boss 等级-5 才会出现）
+    -- 守关 Boss 刷新：只在当前主线任务目标匹配本图 Boss 时刷出
     bossTimer = bossTimer + dt
     if bossTimer >= BOSS_INTERVAL then
         bossTimer = 0
-        -- 寻找合适的 Boss
-        local validBoss = {}
-        for _, d in ipairs(ENEMY_DEFS) do
-            if d.tier == "boss" and d.level <= player.level + 5 and d.level >= player.level - 10 then
-                table.insert(validBoss, d)
+        local Quest = require("scripts.Quest")
+        local curQuest = Quest.GetCurrent()
+        local mapDef = MapZone.GetDef(currentMapId)
+        if curQuest and mapDef and mapDef.boss and curQuest.type == "boss" then
+            local bossNames = type(mapDef.boss) == "string" and { mapDef.boss } or mapDef.boss
+            for _, bossName in ipairs(bossNames) do
+                if curQuest.target == bossName then
+                    -- 找到该 Boss 定义并强制刷出
+                    for _, d in ipairs(ENEMY_DEFS) do
+                        if d.tier == "boss" and d.name == bossName then
+                            Combat.SpawnEnemy(scene, playerNode.position, player.level, d, currentMapId)
+                            print("[Combat] 守关 Boss spawned: " .. d.name)
+                            break
+                        end
+                    end
+                    break
+                end
             end
-        end
-        if #validBoss > 0 then
-            local bossDef = validBoss[math.random(#validBoss)]
-            Combat.SpawnEnemy(scene, playerNode.position, player.level, bossDef)
-            print("[Combat] Boss spawned: " .. bossDef.name .. " Lv." .. bossDef.level)
         end
     end
 end
@@ -3567,6 +3592,14 @@ function Combat.Update(scene, dt, playerNode, player)
 end
 
 --- 清空所有战斗实体
+-- 设置当前地图（供按图刷怪）
+function Combat.SetMap(mapId)
+    if not MapZone.GetDef(mapId) then return false end
+    currentMapId = mapId
+    Combat.currentMapId = currentMapId
+    return true
+end
+
 function Combat.Clear()
     for _, e in ipairs(enemies) do
         if e.node then e.node:Remove() end
