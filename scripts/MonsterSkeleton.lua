@@ -443,6 +443,96 @@ local BONES_SERPENT = {
 }
 
 -- ============================================================================
+-- 新增独立骨架（解决错误复用问题）
+-- ============================================================================
+
+-- 蛤蟆：低矮两栖蛙类，宽扁身体 + 鼓眼 + 长后腿
+local BONES_TOAD = {
+    body     = { parent = nil,       pos = {0, 0.30, 0},    meshScale = {0.42, 0.22, 0.46}, model = "Sphere" },
+    head     = { parent = "body",    pos = {0, 0.08, 0.18}, meshScale = {0.28, 0.16, 0.22}, model = "Sphere" },
+    eyeL     = { parent = "head",    pos = {-0.10, 0.08, 0.08}, meshScale = {0.08, 0.08, 0.08}, model = "Sphere", colorOverride = Color(0.9, 0.7, 0.2, 1.0) },
+    eyeR     = { parent = "head",    pos = {0.10, 0.08, 0.08},  meshScale = {0.08, 0.08, 0.08}, model = "Sphere", colorOverride = Color(0.9, 0.7, 0.2, 1.0) },
+    lFrontUp = { parent = "body",    pos = {-0.16, -0.06, 0.14}, meshScale = {0.07, 0.16, 0.07}, model = "Cylinder", meshOffset = {0, -0.08, 0} },
+    rFrontUp = { parent = "body",    pos = {0.16, -0.06, 0.14},  meshScale = {0.07, 0.16, 0.07}, model = "Cylinder", meshOffset = {0, -0.08, 0} },
+    lBackUp  = { parent = "body",    pos = {-0.20, -0.08, -0.16}, meshScale = {0.09, 0.20, 0.09}, model = "Cylinder", meshOffset = {0, -0.10, 0} },
+    rBackUp  = { parent = "body",    pos = {0.20, -0.08, -0.16},  meshScale = {0.09, 0.20, 0.09}, model = "Cylinder", meshOffset = {0, -0.10, 0} },
+}
+
+-- 猫科（多钩猫/钉耙猫共用）：四足猫形，尖耳 + 长尾
+local BONES_CAT = {
+    body     = { parent = nil,       pos = {0, 0.40, 0},    meshScale = {0.22, 0.20, 0.48}, model = "Cylinder" },
+    head     = { parent = "body",    pos = {0, 0.10, 0.24}, meshScale = {0.22, 0.20, 0.22}, model = "Sphere" },
+    earL     = { parent = "head",    pos = {-0.09, 0.13, 0},   meshScale = {0.06, 0.12, 0.05}, model = "Cylinder" },
+    earR     = { parent = "head",    pos = {0.09, 0.13, 0},    meshScale = {0.06, 0.12, 0.05}, model = "Cylinder" },
+    eyeL     = { parent = "head",    pos = {-0.08, 0.02, 0.09}, meshScale = {0.04, 0.04, 0.03}, model = "Sphere", colorOverride = Color(0.95, 0.8, 0.2, 1.0) },
+    eyeR     = { parent = "head",    pos = {0.08, 0.02, 0.09},  meshScale = {0.04, 0.04, 0.03}, model = "Sphere", colorOverride = Color(0.95, 0.8, 0.2, 1.0) },
+    tail     = { parent = "body",    pos = {0, 0.06, -0.24}, meshScale = {0.04, 0.04, 0.22}, model = "Cylinder" },
+    lFrontUp = { parent = "body",    pos = {-0.10, -0.08, 0.18}, meshScale = {0.05, 0.18, 0.05}, model = "Cylinder", meshOffset = {0, -0.09, 0} },
+    lFrontLo = { parent = "lFrontUp", pos = {0, -0.18, 0},       meshScale = {0.04, 0.16, 0.04}, model = "Cylinder", meshOffset = {0, -0.08, 0} },
+    rFrontUp = { parent = "body",    pos = {0.10, -0.08, 0.18},  meshScale = {0.05, 0.18, 0.05}, model = "Cylinder", meshOffset = {0, -0.09, 0} },
+    rFrontLo = { parent = "rFrontUp", pos = {0, -0.18, 0},       meshScale = {0.04, 0.16, 0.04}, model = "Cylinder", meshOffset = {0, -0.08, 0} },
+    lBackUp  = { parent = "body",    pos = {-0.10, -0.08, -0.18}, meshScale = {0.05, 0.18, 0.05}, model = "Cylinder", meshOffset = {0, -0.09, 0} },
+    lBackLo  = { parent = "lBackUp", pos = {0, -0.18, 0},         meshScale = {0.04, 0.16, 0.04}, model = "Cylinder", meshOffset = {0, -0.08, 0} },
+    rBackUp  = { parent = "body",    pos = {0.10, -0.08, -0.18},  meshScale = {0.05, 0.18, 0.05}, model = "Cylinder", meshOffset = {0, -0.09, 0} },
+    rBackLo  = { parent = "rBackUp", pos = {0, -0.18, 0},         meshScale = {0.04, 0.16, 0.04}, model = "Cylinder", meshOffset = {0, -0.08, 0} },
+}
+
+-- 狼：四足犬形，尖嘴 + 竖耳 + 垂尾
+local BONES_WOLF = {
+    body     = { parent = nil,       pos = {0, 0.50, 0},    meshScale = {0.26, 0.22, 0.56}, model = "Cylinder" },
+    head     = { parent = "body",    pos = {0, 0.10, 0.30}, meshScale = {0.22, 0.20, 0.28}, model = "Sphere" },
+    snout    = { parent = "head",    pos = {0, -0.02, 0.16}, meshScale = {0.12, 0.10, 0.16}, model = "Cylinder" },
+    earL     = { parent = "head",    pos = {-0.08, 0.14, 0},   meshScale = {0.05, 0.14, 0.05}, model = "Cylinder" },
+    earR     = { parent = "head",    pos = {0.08, 0.14, 0},    meshScale = {0.05, 0.14, 0.05}, model = "Cylinder" },
+    eyeL     = { parent = "head",    pos = {-0.07, 0.03, 0.10}, meshScale = {0.04, 0.04, 0.03}, model = "Sphere", colorOverride = Color(0.9, 0.3, 0.15, 1.0) },
+    eyeR     = { parent = "head",    pos = {0.07, 0.03, 0.10},  meshScale = {0.04, 0.04, 0.03}, model = "Sphere", colorOverride = Color(0.9, 0.3, 0.15, 1.0) },
+    tail     = { parent = "body",    pos = {0, 0.06, -0.28}, meshScale = {0.05, 0.05, 0.26}, model = "Cylinder" },
+    lFrontUp = { parent = "body",    pos = {-0.12, -0.10, 0.20}, meshScale = {0.06, 0.22, 0.06}, model = "Cylinder", meshOffset = {0, -0.11, 0} },
+    lFrontLo = { parent = "lFrontUp", pos = {0, -0.22, 0},       meshScale = {0.05, 0.20, 0.05}, model = "Cylinder", meshOffset = {0, -0.10, 0} },
+    rFrontUp = { parent = "body",    pos = {0.12, -0.10, 0.20},  meshScale = {0.06, 0.22, 0.06}, model = "Cylinder", meshOffset = {0, -0.11, 0} },
+    rFrontLo = { parent = "rFrontUp", pos = {0, -0.22, 0},       meshScale = {0.05, 0.20, 0.05}, model = "Cylinder", meshOffset = {0, -0.10, 0} },
+    lBackUp  = { parent = "body",    pos = {-0.12, -0.10, -0.20}, meshScale = {0.07, 0.22, 0.07}, model = "Cylinder", meshOffset = {0, -0.11, 0} },
+    lBackLo  = { parent = "lBackUp", pos = {0, -0.22, 0},         meshScale = {0.05, 0.20, 0.05}, model = "Cylinder", meshOffset = {0, -0.10, 0} },
+    rBackUp  = { parent = "body",    pos = {0.12, -0.10, -0.20},  meshScale = {0.07, 0.22, 0.07}, model = "Cylinder", meshOffset = {0, -0.11, 0} },
+    rBackLo  = { parent = "rBackUp", pos = {0, -0.22, 0},         meshScale = {0.05, 0.20, 0.05}, model = "Cylinder", meshOffset = {0, -0.10, 0} },
+}
+
+-- 白野猪：粗壮野猪，大鼻 + 獠牙 + 短腿
+local BONES_BOAR = {
+    body     = { parent = nil,       pos = {0, 0.50, 0},    meshScale = {0.48, 0.40, 0.62}, model = "Sphere" },
+    head     = { parent = "body",    pos = {0, 0.05, 0.34}, meshScale = {0.30, 0.26, 0.30}, model = "Sphere" },
+    snout    = { parent = "head",    pos = {0, -0.04, 0.16}, meshScale = {0.16, 0.12, 0.14}, model = "Cylinder" },
+    tuskL    = { parent = "snout",   pos = {-0.06, -0.04, 0.06}, meshScale = {0.03, 0.12, 0.03}, model = "Cylinder", colorOverride = Color(0.9, 0.88, 0.75, 1.0) },
+    tuskR    = { parent = "snout",   pos = {0.06, -0.04, 0.06},  meshScale = {0.03, 0.12, 0.03}, model = "Cylinder", colorOverride = Color(0.9, 0.88, 0.75, 1.0) },
+    eyeL     = { parent = "head",    pos = {-0.09, 0.06, 0.10}, meshScale = {0.04, 0.04, 0.03}, model = "Sphere", colorOverride = Color(0.9, 0.2, 0.2, 1.0) },
+    eyeR     = { parent = "head",    pos = {0.09, 0.06, 0.10},  meshScale = {0.04, 0.04, 0.03}, model = "Sphere", colorOverride = Color(0.9, 0.2, 0.2, 1.0) },
+    tail     = { parent = "body",    pos = {0, 0.10, -0.32}, meshScale = {0.04, 0.04, 0.16}, model = "Cylinder" },
+    lFrontUp = { parent = "body",    pos = {-0.16, -0.14, 0.22}, meshScale = {0.08, 0.18, 0.08}, model = "Cylinder", meshOffset = {0, -0.09, 0} },
+    rFrontUp = { parent = "body",    pos = {0.16, -0.14, 0.22},  meshScale = {0.08, 0.18, 0.08}, model = "Cylinder", meshOffset = {0, -0.09, 0} },
+    lBackUp  = { parent = "body",    pos = {-0.18, -0.14, -0.22}, meshScale = {0.09, 0.18, 0.09}, model = "Cylinder", meshOffset = {0, -0.09, 0} },
+    rBackUp  = { parent = "body",    pos = {0.18, -0.14, -0.22},  meshScale = {0.09, 0.18, 0.09}, model = "Cylinder", meshOffset = {0, -0.09, 0} },
+}
+
+-- 蚁后：大型蚁类，三段式身体（头/胸/腹）+ 触角 + 6腿
+local BONES_ANTQUEEN = {
+    abdomen  = { parent = nil,      pos = {0, 0.35, -0.18}, meshScale = {0.36, 0.30, 0.44}, model = "Sphere" },
+    thorax   = { parent = "abdomen", pos = {0, 0.04, 0.26}, meshScale = {0.22, 0.18, 0.22}, model = "Sphere" },
+    head     = { parent = "thorax",  pos = {0, 0.04, 0.16}, meshScale = {0.18, 0.16, 0.20}, model = "Sphere" },
+    antennaL = { parent = "head",    pos = {-0.05, 0.08, 0.08}, meshScale = {0.02, 0.16, 0.02}, model = "Cylinder" },
+    antennaR = { parent = "head",    pos = {0.05, 0.08, 0.08},  meshScale = {0.02, 0.16, 0.02}, model = "Cylinder" },
+    mandL    = { parent = "head",    pos = {-0.06, -0.02, 0.10}, meshScale = {0.03, 0.08, 0.03}, model = "Cylinder" },
+    mandR    = { parent = "head",    pos = {0.06, -0.02, 0.10},  meshScale = {0.03, 0.08, 0.03}, model = "Cylinder" },
+    eyeL     = { parent = "head",    pos = {-0.06, 0.03, 0.08}, meshScale = {0.03, 0.03, 0.02}, model = "Sphere", colorOverride = Color(0.1, 0.05, 0.02, 1.0) },
+    eyeR     = { parent = "head",    pos = {0.06, 0.03, 0.08},  meshScale = {0.03, 0.03, 0.02}, model = "Sphere", colorOverride = Color(0.1, 0.05, 0.02, 1.0) },
+    leg1L    = { parent = "thorax",  pos = {-0.14, -0.04, 0.10}, meshScale = {0.02, 0.20, 0.02}, model = "Cylinder", meshOffset = {0, -0.10, 0} },
+    leg1R    = { parent = "thorax",  pos = {0.14, -0.04, 0.10},  meshScale = {0.02, 0.20, 0.02}, model = "Cylinder", meshOffset = {0, -0.10, 0} },
+    leg2L    = { parent = "thorax",  pos = {-0.14, -0.04, 0.0},  meshScale = {0.02, 0.20, 0.02}, model = "Cylinder", meshOffset = {0, -0.10, 0} },
+    leg2R    = { parent = "thorax",  pos = {0.14, -0.04, 0.0},   meshScale = {0.02, 0.20, 0.02}, model = "Cylinder", meshOffset = {0, -0.10, 0} },
+    leg3L    = { parent = "thorax",  pos = {-0.14, -0.04, -0.10}, meshScale = {0.02, 0.20, 0.02}, model = "Cylinder", meshOffset = {0, -0.10, 0} },
+    leg3R    = { parent = "thorax",  pos = {0.14, -0.04, -0.10},  meshScale = {0.02, 0.20, 0.02}, model = "Cylinder", meshOffset = {0, -0.10, 0} },
+}
+
+-- ============================================================================
 -- 怪物类型注册表
 -- ============================================================================
 MonsterSkeleton.TYPES = {
@@ -490,6 +580,32 @@ MonsterSkeleton.TYPES = {
         name = "幽灵", bones = BONES_GOLEM,
         color = Color(0.32, 0.46, 0.28, 1.0),
         scale = 1.05, heightOffset = 0,
+    },
+    -- 新增独立骨架类型
+    toad = {
+        name = "蛤蟆", bones = BONES_TOAD,
+        color = Color(0.22, 0.42, 0.18, 1.0),  -- 蛙绿
+        scale = 0.9, heightOffset = 0,
+    },
+    cat = {
+        name = "多钩猫", bones = BONES_CAT,
+        color = Color(0.45, 0.38, 0.30, 1.0),  -- 灰褐
+        scale = 0.85, heightOffset = 0,
+    },
+    wolf = {
+        name = "狼", bones = BONES_WOLF,
+        color = Color(0.42, 0.40, 0.38, 1.0),  -- 灰狼
+        scale = 1.05, heightOffset = 0,
+    },
+    boar = {
+        name = "白野猪", bones = BONES_BOAR,
+        color = Color(0.72, 0.68, 0.60, 1.0),  -- 白猪
+        scale = 1.4, heightOffset = 0,
+    },
+    antqueen = {
+        name = "蚁后", bones = BONES_ANTQUEEN,
+        color = Color(0.45, 0.20, 0.15, 1.0),  -- 蚁红棕
+        scale = 1.3, heightOffset = 0,
     },
 }
 
@@ -543,6 +659,13 @@ ANIMS.deer = {
 
 -- 麒麟：四足神兽，复用鹿的对角步态，保持四肢着地移动
 ANIMS.qilin = ANIMS.deer
+-- 新增四足怪复用鹿步态（骨骼命名 lFrontUp/lBackUp 等兼容）
+ANIMS.cat = ANIMS.deer
+ANIMS.wolf = ANIMS.deer
+ANIMS.boar = ANIMS.deer
+-- 蛤蟆 / 蚁后复用蜘蛛（多足爬行）步态
+ANIMS.toad = ANIMS.spider
+ANIMS.antqueen = ANIMS.spider
 
 -- ==================== 稻草人 ====================
 ANIMS.scarecrow = {

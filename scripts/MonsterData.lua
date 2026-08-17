@@ -18,19 +18,19 @@ MonsterData.NAME_MAP = {
 -- 新增怪物定义。字段与 Combat.ENEMY_DEFS 的定义项保持一致。
 MonsterData.NEW_ENEMIES = {
     {
-        name = "蛤蟆", monsterType = "scarecrow",
+        name = "蛤蟆", monsterType = "toad",
         level = 2, hp = 100, atk = 9, def = 3,
         speed = 2.4, chaseRange = 7, attackRange = 1.5, attackCD = 1.8,
         exp = 38, scale = 0.9, tier = "normal",
     },
     {
-        name = "多钩猫", monsterType = "deer",
+        name = "多钩猫", monsterType = "cat",
         level = 3, hp = 115, atk = 11, def = 4,
         speed = 3.0, chaseRange = 8, attackRange = 1.5, attackCD = 1.6,
         exp = 45, scale = 0.95, tier = "normal",
     },
     {
-        name = "钉耙猫", monsterType = "deer",
+        name = "钉耙猫", monsterType = "cat",
         level = 4, hp = 130, atk = 13, def = 5,
         speed = 3.1, chaseRange = 8, attackRange = 1.5, attackCD = 1.5,
         exp = 52, scale = 0.95, tier = "normal",
@@ -42,7 +42,7 @@ MonsterData.NEW_ENEMIES = {
         exp = 110, scale = 1.2, tier = "elite",
     },
     {
-        name = "白野猪", monsterType = "orc",
+        name = "白野猪", monsterType = "boar",
         level = 20, hp = 1800, atk = 40, def = 18,
         speed = 1.5, chaseRange = 12, attackRange = 1.8, attackCD = 2.8,
         exp = 900, scale = 2.2, tier = "boss",

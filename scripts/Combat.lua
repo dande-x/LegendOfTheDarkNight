@@ -101,7 +101,7 @@ local ENEMY_DEFS = {
     },
     -- === 中级区 10~25 ===
     {
-        name = "狼",   monsterType = "orc",
+        name = "狼",   monsterType = "wolf",
         level = 10, hp = 260,  atk = 24, def = 10,
         speed = 3.2, chaseRange = 12, attackRange = 1.5, attackCD = 1.5,
         exp = 120, scale = 1.15, tier = "normal",
@@ -113,7 +113,7 @@ local ENEMY_DEFS = {
         exp = 180, scale = 1.6, tier = "normal",
     },
     {
-        name = "蚁后", monsterType = "spider",
+        name = "蚁后", monsterType = "antqueen",
         level = 18, hp = 320,  atk = 32, def = 10,
         speed = 3.8, chaseRange = 14, attackRange = 1.5, attackCD = 1.0,
         exp = 220, scale = 1.3, tier = "elite",
