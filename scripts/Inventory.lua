@@ -267,6 +267,7 @@ local playerData = {
     bonusAtk = 0,
     bonusDef = 0,
     bonusHP  = 0,
+    enhanceStones = 0,  -- 强化石数量（经济系统）
 }
 
 Inventory.playerData = playerData
@@ -300,6 +301,7 @@ function Inventory.Init()
     playerData.bonusAtk = 0
     playerData.bonusDef = 0
     playerData.bonusHP  = 0
+    playerData.enhanceStones = 0
     ---@type table<string, number>
     playerData.potions = { hp = 5, mp = 3 }
     print("[Inventory] Initialized")
@@ -369,9 +371,11 @@ function Inventory.RecalcBonus()
     local atk, def, hp = 0, 0, 0
     for _, item in pairs(playerData.equipped) do
         if item then
-            atk = atk + item.atk
-            def = def + item.def
-            hp  = hp  + item.hp
+            local enhanceLevel = item.enhance or 0
+            local bonus = Enhance.ApplyEnhanceStats(item, enhanceLevel)
+            atk = atk + item.atk + bonus.atk
+            def = def + item.def + bonus.def
+            hp  = hp  + item.hp  + bonus.hp
         end
     end
     playerData.bonusAtk = atk
@@ -553,6 +557,7 @@ function Inventory.RollDrop(enemyName)
                     for k, v in pairs(tmpl) do
                         droppedItem[k] = v
                     end
+                    droppedItem.enhance = 0
                 end
                 break
             end
@@ -642,6 +647,87 @@ end
 function Inventory.GetRarityName(rarityKey)
     local r = RARITY[rarityKey]
     return r and r.name or "普通"
+end
+
+-- ============================================================================
+-- 经济系统宿主 API（分解 / 锻造 / 精炼）—— 封装 Enhance 纯逻辑 + playerData 状态
+-- ============================================================================
+
+--- 获取强化石数量
+function Inventory.GetEnhanceStones()
+    return playerData.enhanceStones or 0
+end
+
+--- 分解装备（回收）：金币 + 强化石入账
+---@param item table 被分解的装备
+---@return boolean, table 成功与否 + {gold, stones}
+function Inventory.RecycleItem(item)
+    if not item then return false, { gold = 0, stones = 0 } end
+    local result = Enhance.Recycle(item)
+    playerData.gold = playerData.gold + result.gold
+    playerData.enhanceStones = (playerData.enhanceStones or 0) + result.stones
+    print(string.format("[Inventory] 分解 %s -> +%d金 +%d强化石", item.name or "?", result.gold, result.stones))
+    return true, result
+end
+
+--- 锻造（三合一）：校验 + 扣金币 + 移除三件，返回目标品质
+---@param items3 table[] 三件材料
+---@return boolean, string, string|nil 成功/原因/目标品质 key
+function Inventory.ForgeItems(items3)
+    local pick = Enhance.ForgePick(items3)
+    if not pick.ok then return false, pick.reason, nil end
+
+    local cost = Enhance.ForgeCost(pick.targetRarity)
+    if playerData.gold < cost then return false, "金币不足", nil end
+
+    -- 从背包移除三件材料
+    for _, mat in ipairs(items3) do
+        for i, bagItem in ipairs(playerData.bag) do
+            if bagItem == mat then
+                table.remove(playerData.bag, i)
+                break
+            end
+        end
+    end
+
+    playerData.gold = playerData.gold - cost
+    print(string.format("[Inventory] 锻造成功 -> %s (花费%d金)", pick.targetRarity, cost))
+    return true, "", pick.targetRarity
+end
+
+--- 精炼（强化）：消耗资源，按成功率判定，失败可能掉级
+---@param item table 待强化装备
+---@param useProtect boolean 是否使用保护石（失败不掉级）
+---@return boolean, string, number 成功/原因/最终强化等级
+function Inventory.EnhanceItem(item, useProtect)
+    if not item then return false, "无装备", 0 end
+    local cur = item.enhance or 0
+    if cur >= 12 then return false, "已达最高强化", cur end
+
+    local nextLevel = cur + 1
+    local cost = Enhance.EnhanceCost(nextLevel)
+    if (playerData.enhanceStones or 0) < cost.stones then return false, "强化石不足", cur end
+    if playerData.gold < cost.gold then return false, "金币不足", cur end
+
+    -- 扣资源
+    playerData.enhanceStones = playerData.enhanceStones - cost.stones
+    playerData.gold = playerData.gold - cost.gold
+
+    -- 成功率判定
+    if math.random() < cost.successRate then
+        item.enhance = nextLevel
+        Inventory.RecalcBonus()
+        return true, "", nextLevel
+    end
+
+    -- 失败：掉级（保护石/掉级保护钳制）
+    if cost.dropOnFail and not useProtect then
+        local dropTo = cur - 1
+        if cur >= 9 then dropTo = math.max(8, dropTo) end  -- +9 以上失败下限钳制到 +8
+        item.enhance = math.max(0, dropTo)
+    end
+    Inventory.RecalcBonus()
+    return false, "强化失败", item.enhance or cur
 end
 
 Inventory.MAX_BAG_SLOTS = MAX_BAG_SLOTS

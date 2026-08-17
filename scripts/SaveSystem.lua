@@ -37,6 +37,7 @@ local function SerializeItem(item)
         def      = item.def,
         hp       = item.hp,
         classReq = item.classReq,
+        enhance  = item.enhance or 0,
     }
 end
 
@@ -92,6 +93,7 @@ function SaveSystem.CreateSnapshot(player, inventoryData, killCount)
         equipped   = SerializeEquipped(inventoryData.equipped),
         bag        = SerializeBag(inventoryData.bag),
         gold       = inventoryData.gold or 0,
+        enhanceStones = inventoryData.enhanceStones or 0,
         potions    = inventoryData.potions and {
             hp = inventoryData.potions.hp or 0,
             mp = inventoryData.potions.mp or 0,
@@ -284,6 +286,9 @@ function SaveSystem.RestoreInventory(saveData, inventoryData)
     -- 恢复金币
     inventoryData.gold = saveData.gold or 0
 
+    -- 恢复强化石
+    inventoryData.enhanceStones = saveData.enhanceStones or 0
+
     -- 恢复药水
     inventoryData.potions = saveData.potions or { hp = 5, mp = 3 }
 
@@ -292,6 +297,7 @@ function SaveSystem.RestoreInventory(saveData, inventoryData)
     if saveData.equipped then
         for slotKey, item in pairs(saveData.equipped) do
             if item and type(item) == "table" and item.id then
+                item.enhance = item.enhance or 0
                 inventoryData.equipped[slotKey] = item
             end
         end
@@ -302,6 +308,7 @@ function SaveSystem.RestoreInventory(saveData, inventoryData)
     if saveData.bag then
         for i, item in ipairs(saveData.bag) do
             if item and type(item) == "table" and item.id then
+                item.enhance = item.enhance or 0
                 table.insert(inventoryData.bag, item)
             end
         end
@@ -312,6 +319,7 @@ function SaveSystem.RestoreInventory(saveData, inventoryData)
     Inventory.RecalcBonus()
 
     print("[SaveSystem] Inventory restored: gold=" .. inventoryData.gold
+        .. " stones=" .. (inventoryData.enhanceStones or 0)
         .. " bag=" .. #inventoryData.bag .. " items")
 end
 
