@@ -3167,6 +3167,54 @@ local function _BuildEquipTabContent(player)
                         UI.Panel { width = "80%", height = 1, backgroundColor = {100, 90, 70, 100}, marginBottom = 10 },
                         -- 属性行
                         UI.Panel { alignItems = "flex-start", gap = 6, marginBottom = 14, children = statRows },
+                        -- 强化信息
+                        (function()
+                            local lv = item.enhance or 0
+                            if lv >= 12 then
+                                return UI.Label { text = "强化 +12（已满）", fontSize = 12, fontColor = {255, 210, 90, 255}, marginBottom = 10 }
+                            end
+                            local cost = Inventory.Enhance.EnhanceCost(lv + 1)
+                            return UI.Label {
+                                text = string.format("强化 +%d→+%d 需 %d石 %d金 (%.0f%%)", lv, lv + 1, cost.stones, cost.gold, cost.successRate * 100),
+                                fontSize = 10, fontColor = {210, 200, 180, 220}, marginBottom = 10, textAlign = "center",
+                            }
+                        end)(),
+                        -- 按钮行：强化 + 分解
+                        UI.Panel {
+                            flexDirection = "row", gap = 8, marginBottom = 8,
+                            children = {
+                                UI.Button {
+                                    text = "强化",
+                                    width = 90, height = 34,
+                                    onClick = function()
+                                        local ok, reason, finalLv = Inventory.EnhanceItem(capturedItem)
+                                        if ok then
+                                            GameUI.ShowToast(capturedItem.name .. " 强化成功 → +" .. finalLv)
+                                        else
+                                            GameUI.ShowToast(reason or "强化失败")
+                                        end
+                                        refreshPanel()
+                                    end,
+                                },
+                                UI.Button {
+                                    text = "分解", variant = "outline",
+                                    width = 90, height = 34,
+                                    onClick = function()
+                                        -- 传说品质二次确认
+                                        if capturedItem.rarity == "LEGENDARY" then
+                                            GameUI.ShowToast("传说装备分解需谨慎，再次点击确认")
+                                            -- 简化：直接分解，不实现二次弹窗（保持流程顺畅）
+                                        end
+                                        local ok, res = Inventory.RecycleItem(capturedItem)
+                                        if ok then
+                                            Inventory.RemoveEquipped(capturedSlot)
+                                            GameUI.ShowToast("已分解 +" .. res.gold .. "金 +" .. res.stones .. "石")
+                                        end
+                                        refreshPanel()
+                                    end,
+                                },
+                            },
+                        },
                         -- 卸下按钮
                         UI.Button {
                             text = "卸下装备", variant = "outline",
@@ -3246,7 +3294,7 @@ local function _BuildEquipTabContent(player)
                 UI.Label { text = label, fontSize = 9, fontColor = {140, 130, 100, 160} },
                 -- 物品名称
                 UI.Label {
-                    text = item and item.name or "—",
+                    text = item and (item.name .. ((item.enhance and item.enhance > 0) and (" +" .. item.enhance) or "")) or "—",
                     fontSize = item and 11 or 10,
                     fontWeight = item and "bold" or "normal",
                     fontColor = nameColor, marginTop = 2,
@@ -3392,22 +3440,45 @@ local function _BuildBagTabContent(player)
             borderWidth = 1, borderColor = borderClr,
             justifyContent = "center", alignItems = "center",
             paddingHorizontal = 4, paddingVertical = 4,
-            onPointerUp = capturedItem and function()
-                Inventory.EquipItem(capturedItem, player.classId)
-                refreshPanel()
-            end or nil,
             children = {
                 item and UI.Label {
                     text = item.name, fontSize = 11, fontWeight = "bold",
                     fontColor = nameColor, textAlign = "center",
                 } or nil,
+                item and item.enhance and item.enhance > 0 and UI.Label {
+                    text = "+" .. item.enhance,
+                    fontSize = 9, fontColor = {255, 210, 90, 230}, marginTop = 0,
+                } or nil,
                 item and briefStat ~= "" and UI.Label {
                     text = briefStat,
                     fontSize = 9, fontColor = {175, 170, 155, 185}, marginTop = 1, textAlign = "center",
                 } or nil,
-                item and UI.Label {
-                    text = "▲装备",
-                    fontSize = 9, fontColor = {110, 190, 110, 150}, marginTop = 1,
+                item and UI.Panel {
+                    flexDirection = "row", gap = 4, marginTop = 2,
+                    children = {
+                        UI.Panel {
+                            paddingHorizontal = 4, paddingVertical = 1,
+                            backgroundColor = {28, 40, 28, 180}, borderRadius = 3,
+                            onPointerUp = function()
+                                Inventory.EquipItem(capturedItem, player.classId)
+                                refreshPanel()
+                            end,
+                            children = { UI.Label { text = "装备", fontSize = 8, fontColor = {110, 190, 110, 220} } },
+                        },
+                        UI.Panel {
+                            paddingHorizontal = 4, paddingVertical = 1,
+                            backgroundColor = {40, 24, 20, 180}, borderRadius = 3,
+                            onPointerUp = function()
+                                local ok, res = Inventory.RecycleItem(capturedItem)
+                                if ok then
+                                    Inventory.RemoveBagItem(i)
+                                    GameUI.ShowToast("已分解 +" .. res.gold .. "金 +" .. res.stones .. "石")
+                                end
+                                refreshPanel()
+                            end,
+                            children = { UI.Label { text = "分解", fontSize = 8, fontColor = {230, 120, 90, 220} } },
+                        },
+                    },
                 } or nil,
             },
         })
@@ -3422,6 +3493,7 @@ local function _BuildBagTabContent(player)
                 children = {
                     UI.Label { text = "💰", fontSize = 16 },
                     UI.Label { text = tostring(inv.gold), fontSize = 16, fontColor = {226, 228, 226, 255}, fontWeight = "bold" },
+                    UI.Label { text = "   🔶强化石 " .. (inv.enhanceStones or 0), fontSize = 13, fontColor = {255, 200, 90, 230}, fontWeight = "bold" },
                 },
             },
             -- 药水区

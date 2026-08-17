@@ -670,6 +670,25 @@ function Inventory.RecycleItem(item)
     return true, result
 end
 
+--- 从装备槽直接销毁（分解用，不回包）
+---@param slotKey string
+---@return boolean
+function Inventory.RemoveEquipped(slotKey)
+    if not playerData.equipped[slotKey] then return false end
+    playerData.equipped[slotKey] = nil
+    Inventory.RecalcBonus()
+    return true
+end
+
+--- 从背包直接移除（分解用）
+---@param bagIndex number
+---@return boolean
+function Inventory.RemoveBagItem(bagIndex)
+    if not playerData.bag[bagIndex] then return false end
+    table.remove(playerData.bag, bagIndex)
+    return true
+end
+
 --- 锻造（三合一）：校验 + 扣金币 + 移除三件，返回目标品质
 ---@param items3 table[] 三件材料
 ---@return boolean, string, string|nil 成功/原因/目标品质 key
