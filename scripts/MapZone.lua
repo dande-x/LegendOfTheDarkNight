@@ -8,6 +8,10 @@
 
 local MapZone = {}
 
+-- 所有地图共用 120m × 120m 的可玩区域。场景地面、刷怪边界与地图 UI
+-- 统一读取这里，避免视觉地图与实际可走范围逐渐漂移。
+MapZone.ARENA_SIZE = 120
+
 MapZone.DEFS = {
     map_bq = {
         name = "比奇省 · 银杏山谷",
@@ -15,11 +19,18 @@ MapZone.DEFS = {
         maxLevel = 9,
         groundColor = Color(0.16, 0.24, 0.14, 1.0),
         fogColor = Color(0.26, 0.29, 0.34, 1.0),
-        spawnPool = { "稻草人", "蛤蟆", "多钩猫", "钉耙猫", "鹿", "幽灵", "骷髅" },
+        -- 第一幕普通任务目标（半兽人/毒蜘蛛）也必须在本图候选池中。
+        spawnPool = { "稻草人", "蛤蟆", "多钩猫", "钉耙猫", "鹿", "幽灵", "骷髅", "半兽人", "毒蜘蛛" },
         boss = "半兽勇士",
         spawnPos = Vector3.ZERO,
-        safeZoneRadius = 8,     -- 安全区半径（不刷怪）
-        teleportCost = 0,        -- 从本图传送出去的费用（新手图免费）
+        safeZoneRadius = 8,     -- 方形安全区半边长（不刷怪）
+        teleportCost = 100,      -- 管家传送统一收取 100 金
+        mapColor = { 40, 70, 42, 245 },
+        landmarks = {
+            { name = "荒村废墟", x = -30, z = -22 },
+            { name = "毒蛛巢", x = 28, z = 22 },
+            { name = "断桥", x = 15, z = 12 },
+        },
     },
     map_mz = {
         name = "盟重土城",
@@ -27,11 +38,19 @@ MapZone.DEFS = {
         maxLevel = 24,
         groundColor = Color(0.38, 0.29, 0.16, 1.0),
         fogColor = Color(0.46, 0.39, 0.24, 1.0),
-        spawnPool = { "狼", "半兽人", "石魔", "毒蜘蛛", "骷髅" },
+        -- 普通刷怪只放本区间的常规怪；剧情目标由 Combat 按任务路由
+        -- 临时补入，避免把低级回流怪伪装成盟重常驻生态。
+        spawnPool = { "狼", "石魔", "红野猪", "黑野猪" },
         boss = "白野猪",
         spawnPos = Vector3.ZERO,
         safeZoneRadius = 8,
         teleportCost = 100,
+        mapColor = { 105, 76, 42, 245 },
+        landmarks = {
+            { name = "北城残垣", x = 0, z = 40 },
+            { name = "石墓入口", x = 30, z = 20 },
+            { name = "黄沙商路", x = -34, z = -9 },
+        },
     },
     map_sc = {
         name = "水上城市",
@@ -39,11 +58,19 @@ MapZone.DEFS = {
         maxLevel = 34,
         groundColor = Color(0.06, 0.17, 0.31, 1.0),
         fogColor = Color(0.12, 0.42, 0.46, 1.0),
+        -- 普通生态维持 25~34 级；骷髅将军/赤焰魔/巨蟒等剧情目标
+        -- 由 Combat 在任务激活时按 QUEST_MAPS 补入，不污染常规池。
         spawnPool = { "石像鬼", "海妖", "巨蜥" },
         boss = "蚁后",
         spawnPos = Vector3.ZERO,
         safeZoneRadius = 8,
         teleportCost = 100,
+        mapColor = { 20, 70, 88, 245 },
+        landmarks = {
+            { name = "灯塔", x = 0, z = 38 },
+            { name = "西水道", x = -30, z = 0 },
+            { name = "蚁穴入口", x = 30, z = -26 },
+        },
     },
     map_wm = {
         name = "沃玛寺庙",
@@ -51,11 +78,18 @@ MapZone.DEFS = {
         maxLevel = 44,
         groundColor = Color(0.18, 0.22, 0.28, 1.0),
         fogColor = Color(0.31, 0.35, 0.40, 1.0),
+        -- 终章前的常规生态；噬魂兽/麒麟是当前任务目标时才生成。
         spawnPool = { "岩甲兽", "黑鳞蟒", "深渊恶鬼" },
         boss = "沃玛教主",
         spawnPos = Vector3.ZERO,
         safeZoneRadius = 8,
         teleportCost = 100,
+        mapColor = { 58, 62, 72, 245 },
+        landmarks = {
+            { name = "封印祭坛", x = 0, z = 18 },
+            { name = "石柱廊", x = -12, z = -22 },
+            { name = "教主殿", x = 30, z = -28 },
+        },
     },
     map_zm = {
         name = "祖玛寺庙",
@@ -63,11 +97,18 @@ MapZone.DEFS = {
         maxLevel = 50,
         groundColor = Color(0.22, 0.08, 0.04, 1.0),
         fogColor = Color(0.18, 0.08, 0.22, 1.0),
-        spawnPool = { "熔岩巨兽", "魔龙幼崽" },
+        -- 祖玛卫士保留精英身份，由 Combat 以较低权重混入常规生态。
+        spawnPool = { "熔岩巨兽", "魔龙幼崽", "祖玛卫士" },
         boss = { "牛魔王", "火龙王" },
         spawnPos = Vector3.ZERO,
         safeZoneRadius = 8,
         teleportCost = 100,
+        mapColor = { 82, 30, 24, 245 },
+        landmarks = {
+            { name = "熔岩池", x = -26, z = 22 },
+            { name = "屠龙台", x = 0, z = -32 },
+            { name = "深渊王座", x = 30, z = 26 },
+        },
     },
 }
 
@@ -91,6 +132,36 @@ function MapZone.GetCurrentMapId()
     return currentMapId
 end
 
+--- 设置当前地图。地图状态由 Combat.SetMap 与该辅助函数共同维护，避免
+--- CreateFloor/安全区、刷怪和存档各自读取到不同地图。
+---@param mapId string
+---@return boolean
+function MapZone.SetCurrentMap(mapId)
+    if not MapZone.GetDef(mapId) then return false end
+    currentMapId = mapId
+    return true
+end
+
+--- 判断角色是否达到地图进入等级。NPC 手动传送据此锁定地图；
+--- 剧情自动传送由宿主直接切图，不经过该门槛。
+---@param mapId string
+---@param playerLevel number|nil
+---@return boolean
+function MapZone.IsLevelAllowed(mapId, playerLevel)
+    local mapDef = MapZone.GetDef(mapId)
+    if not mapDef then return false end
+    if playerLevel == nil then return true end
+    return (tonumber(playerLevel) or 1) >= (mapDef.minLevel or 1)
+end
+
+---@param mapId string
+---@return string
+function MapZone.GetLevelRequirement(mapId)
+    local mapDef = MapZone.GetDef(mapId)
+    if not mapDef or not mapDef.minLevel then return "" end
+    return "需要 Lv." .. tostring(mapDef.minLevel)
+end
+
 ---@param mapId string
 ---@param bossName string
 ---@return boolean
@@ -108,12 +179,34 @@ function MapZone.HasBoss(mapId, bossName)
     return false
 end
 
---- 安全区半径（安全区内不刷怪）
+--- 方形安全区半边长（沿 X/Z 轴；安全区内不刷怪）
 ---@param mapId string
 ---@return number
 function MapZone.GetSafeZoneRadius(mapId)
     local mapDef = MapZone.GetDef(mapId)
     return mapDef and (mapDef.safeZoneRadius or 8) or 8
+end
+
+--- 判断世界坐标是否位于地图可玩边界内。
+---@param position Vector3|nil
+---@param padding number|nil 与地面边缘保留的内缩距离
+---@return boolean
+function MapZone.IsInsideArena(position, padding)
+    if not position then return false end
+    local half = math.max(0, MapZone.ARENA_SIZE * 0.5 - (padding or 0))
+    return math.abs(position.x) <= half and math.abs(position.z) <= half
+end
+
+--- 将世界坐标限制在地图可玩边界内。
+---@param position Vector3|nil
+---@param padding number|nil 与地面边缘保留的内缩距离
+---@return Vector3|nil, boolean 是否发生了限制
+function MapZone.ClampToArena(position, padding)
+    if not position then return nil, false end
+    local half = math.max(0, MapZone.ARENA_SIZE * 0.5 - (padding or 0))
+    local x = math.max(-half, math.min(half, position.x))
+    local z = math.max(-half, math.min(half, position.z))
+    return Vector3(x, position.y, z), x ~= position.x or z ~= position.z
 end
 
 --- 从指定地图传送出去的费用
@@ -134,7 +227,7 @@ function MapZone.SwitchTo(mapId, scene, playerNode)
         return false, "Unknown map id: " .. tostring(mapId)
     end
 
-    currentMapId = mapId
+    MapZone.SetCurrentMap(mapId)
 
     -- Host integration step 1: call Combat.Clear() before this helper to remove
     -- monsters and ground loot belonging to the previous map.

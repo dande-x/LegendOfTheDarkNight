@@ -4,6 +4,7 @@
 -- ============================================================================
 
 local Inventory = {}
+local MAX_RESOURCE = 1000000000
 
 -- 分支模块（武器链 / 怪物数据 / 强化规则）
 local WeaponData = require("scripts.WeaponData")
@@ -121,6 +122,132 @@ end
 local ITEM_BY_ID = {}
 for _, tmpl in ipairs(ITEM_TEMPLATES) do
     ITEM_BY_ID[tmpl.id] = tmpl
+end
+
+-- ============================================================================
+-- 物品模板/存档边界
+-- ============================================================================
+-- 存档中的装备属性不是可信数据：旧版本允许直接把 JSON table 放入背包，
+-- 这会让改过的 atk/def/hp、slot 或 classReq 穿透到运行时。所有从存档恢复
+-- 的实例都必须以本地模板为唯一数据源，只保留可控的强化等级。
+local function CloneItemTemplate(template)
+    if not template then return nil end
+    local item = {}
+    for key, value in pairs(template) do
+        item[key] = value
+    end
+    item.enhance = 0
+    return item
+end
+
+local function IsFiniteNumber(value)
+    return type(value) == "number"
+        and value == value
+        and value ~= math.huge
+        and value ~= -math.huge
+end
+
+local function ClampInteger(value, minValue, maxValue, fallback)
+    local number = tonumber(value)
+    if not number or number ~= number or number == math.huge or number == -math.huge then
+        return fallback
+    end
+    -- 先限制到可接受区间再 floor，避免极大浮点数在 Lua 5.4 中触发
+    -- "number has no integer representation"。
+    number = math.max(minValue, math.min(maxValue, number))
+    return math.floor(number)
+end
+
+local function IsCanonicalItem(item, playerClassId)
+    if type(item) ~= "table" or type(item.id) ~= "string" then return false end
+    local template = ITEM_BY_ID[item.id]
+    if not template then return false end
+    if template.classReq and playerClassId and template.classReq ~= playerClassId then
+        return false
+    end
+    local fields = { "name", "slot", "itemType", "rarity", "atk", "def", "hp", "classReq" }
+    for _, key in ipairs(fields) do
+        if item[key] ~= template[key] then return false end
+    end
+    return type(item.enhance) == "number"
+        and IsFiniteNumber(item.enhance)
+        and item.enhance % 1 == 0
+        and item.enhance >= 0
+        and item.enhance <= 12
+end
+
+--- 获取只读物品模板（供存档校验/商人等边界使用）。
+---@param itemId string
+---@return table|nil
+function Inventory.GetItemTemplate(itemId)
+    if type(itemId) ~= "string" then return nil end
+    return ITEM_BY_ID[itemId]
+end
+
+--- 根据模板创建一个新的运行时物品实例。
+---@param itemId string
+---@param enhance number|nil
+---@return table|nil
+function Inventory.CreateItem(itemId, enhance)
+    local template = Inventory.GetItemTemplate(itemId)
+    if not template then return nil end
+    local item = CloneItemTemplate(template)
+    item.enhance = ClampInteger(enhance, 0, 12, 0)
+    return item
+end
+
+--- 将外部/存档物品重建为合法实例。
+--- 只接受已知模板 ID；名称、属性、部位、职业要求均以模板覆盖。
+---@param savedItem table
+---@param expectedSlot string|nil 装备栏恢复时的目标槽位
+---@param playerClassId string|nil 当前角色职业
+---@return table|nil, string|nil
+function Inventory.CreateItemFromSave(savedItem, expectedSlot, playerClassId)
+    if type(savedItem) ~= "table" or type(savedItem.id) ~= "string" then
+        return nil, "物品数据无效"
+    end
+
+    local template = Inventory.GetItemTemplate(savedItem.id)
+    if not template then
+        return nil, "未知物品"
+    end
+
+    if expectedSlot ~= nil then
+        if type(expectedSlot) ~= "string" or not SLOT_NAMES[expectedSlot] then
+            return nil, "装备槽位无效"
+        end
+        local templateType = template.itemType or template.slot
+        local validSlots = TYPE_TO_SLOTS[templateType]
+        local slotAllowed = false
+        if validSlots then
+            for _, slotKey in ipairs(validSlots) do
+                if slotKey == expectedSlot then
+                    slotAllowed = true
+                    break
+                end
+            end
+        elseif template.slot == expectedSlot then
+            slotAllowed = true
+        end
+        if not slotAllowed then
+            return nil, "物品与装备槽位不匹配"
+        end
+    end
+
+    if template.classReq and playerClassId and template.classReq ~= playerClassId then
+        return nil, "职业不匹配"
+    end
+
+    local item = CloneItemTemplate(template)
+    item.enhance = ClampInteger(savedItem.enhance, 0, 12, 0)
+    return item
+end
+
+--- 判断值是否为有限数（供需要严格拒绝 NaN/Inf 的调用方）。
+---@param value any
+---@return boolean
+function Inventory.IsFiniteNumber(value)
+    return IsFiniteNumber(value)
 end
 
 -- ============================================================================
@@ -268,6 +395,7 @@ local playerData = {
     bonusDef = 0,
     bonusHP  = 0,
     enhanceStones = 0,  -- 强化石数量（经济系统）
+    protectStones = 0,  -- 保护石数量（强化失败不掉级）
 }
 
 Inventory.playerData = playerData
@@ -279,6 +407,17 @@ Inventory.POTION_CONFIG = {
     hp = { max = 10, price = 40, healRatio = 0.35, dropChance = 0.15, label = "血药" },
     mp = { max = 8,  price = 60, healRatio = 0.45, dropChance = 0.10, label = "蓝药" },
 }
+
+local function EnsurePotions()
+    if type(playerData.potions) ~= "table" then
+        playerData.potions = { hp = 5, mp = 3 }
+    end
+    playerData.potions.hp = ClampInteger(
+        playerData.potions.hp, 0, Inventory.POTION_CONFIG.hp.max, 0)
+    playerData.potions.mp = ClampInteger(
+        playerData.potions.mp, 0, Inventory.POTION_CONFIG.mp.max, 0)
+    return playerData.potions
+end
 
 -- ============================================================================
 -- 初始化
@@ -302,6 +441,7 @@ function Inventory.Init()
     playerData.bonusDef = 0
     playerData.bonusHP  = 0
     playerData.enhanceStones = 0
+    playerData.protectStones = 0
     ---@type table<string, number>
     playerData.potions = { hp = 5, mp = 3 }
     print("[Inventory] Initialized")
@@ -315,9 +455,9 @@ end
 ---@param kind "hp"|"mp"
 ---@return boolean
 function Inventory.UsePotion(kind)
-    if not playerData.potions then playerData.potions = { hp = 5, mp = 3 } --[[@as table<string,number>]] end
-    if (playerData.potions[kind] or 0) <= 0 then return false end
-    playerData.potions[kind] = playerData.potions[kind] - 1
+    local potions = EnsurePotions()
+    if not Inventory.POTION_CONFIG[kind] or potions[kind] <= 0 then return false end
+    potions[kind] = potions[kind] - 1
     return true
 end
 
@@ -325,8 +465,8 @@ end
 ---@param kind "hp"|"mp"
 ---@return number
 function Inventory.GetPotionCount(kind)
-    if not playerData.potions then playerData.potions = { hp = 5, mp = 3 } --[[@as table<string,number>]] end
-    return playerData.potions[kind] or 0
+    local potions = EnsurePotions()
+    return potions[kind] or 0
 end
 
 --- 购买药水，扣金币，返回 true 表示成功
@@ -335,21 +475,20 @@ end
 function Inventory.BuyPotion(kind)
     local cfg = Inventory.POTION_CONFIG[kind]
     if not cfg then return false, "无效类型" end
-    if not playerData.potions then playerData.potions = { hp = 5, mp = 3 } --[[@as table<string,number>]] end
-    if playerData.potions[kind] >= cfg.max then return false, "已满" end
-    if playerData.gold < cfg.price then return false, "金币不足" end
-    playerData.gold = playerData.gold - cfg.price
-    playerData.potions[kind] = playerData.potions[kind] + 1
+    local potions = EnsurePotions()
+    if potions[kind] >= cfg.max then return false, "已满" end
+    if not Inventory.SpendGold(cfg.price) then return false, "金币不足" end
+    potions[kind] = potions[kind] + 1
     return true, ""
 end
 
 --- 击杀掉落药水判定（在 RollDrop 之后额外调用）
 function Inventory.RollPotionDrop()
-    if not playerData.potions then playerData.potions = { hp = 5, mp = 3 } --[[@as table<string,number>]] end
+    local potions = EnsurePotions()
     local dropped = {}
     for kind, cfg in pairs(Inventory.POTION_CONFIG) do
-        if math.random() < cfg.dropChance and playerData.potions[kind] < cfg.max then
-            playerData.potions[kind] = playerData.potions[kind] + 1
+        if math.random() < cfg.dropChance and potions[kind] < cfg.max then
+            potions[kind] = potions[kind] + 1
             table.insert(dropped, cfg.label)
         end
     end
@@ -360,9 +499,19 @@ end
 -- 装备评分
 -- ============================================================================
 local function ItemScore(item)
-    if not item then return -1 end
-    return item.atk * 2 + item.def * 1.5 + item.hp * 0.3
+    if type(item) ~= "table" then return -1 end
+    local atk, def, hp = tonumber(item.atk), tonumber(item.def), tonumber(item.hp)
+    if not IsFiniteNumber(atk) or not IsFiniteNumber(def) or not IsFiniteNumber(hp)
+        or atk < 0 or def < 0 or hp < 0 then
+        return -1
+    end
+    local score = atk * 2 + def * 1.5 + hp * 0.3
+    if not IsFiniteNumber(score) then return -1 end
+    return math.min(MAX_RESOURCE, score)
 end
+
+-- 前向声明：装备、分解、强化都需要验证实例仍归属于当前角色。
+local FindOwnedItem
 
 -- ============================================================================
 -- 重新计算装备加成
@@ -370,7 +519,7 @@ end
 function Inventory.RecalcBonus()
     local atk, def, hp = 0, 0, 0
     for _, item in pairs(playerData.equipped) do
-        if item then
+        if item and IsCanonicalItem(item, nil) then
             local enhanceLevel = item.enhance or 0
             local bonus = Enhance.ApplyEnhanceStats(item, enhanceLevel)
             atk = atk + item.atk + bonus.atk
@@ -420,29 +569,58 @@ end
 -- 装备物品到指定槽位（可指定 targetSlot，不指定则自动选择）
 -- ============================================================================
 function Inventory.EquipItem(item, playerClassId, targetSlot)
-    if not item then return false end
-    if item.classReq and item.classReq ~= playerClassId then
-        return false
+    if type(item) ~= "table" then return false end
+    local ownedType, ownedKey = FindOwnedItem(item)
+    if ownedType then
+        -- 当前角色已经持有的实例必须仍与本地模板一致；异常运行时数据
+        -- 不得借装备动作把伪造属性带入加成计算。
+        if not IsCanonicalItem(item, playerClassId) then return false end
+    else
+        -- 地面掉落等尚未入包的实例先按模板重建，只保留合法强化等级。
+        local normalized = Inventory.CreateItemFromSave(item, nil, playerClassId)
+        if not normalized then return false end
+        item = normalized
     end
 
     local slot = targetSlot or FindBestSlot(item)
     if not slot then return false end
+    if item.itemType and not Inventory.CanEquipToSlot(item, slot) then
+        return false
+    end
 
+    if ownedType == "equipped" and ownedKey ~= slot then
+        return false
+    end
+    -- 同一实例已经在目标槽位时是幂等操作。不能继续走交换分支，
+    -- 否则 old == item 会把同一个引用再次塞进背包，形成复制装备。
+    if ownedType == "equipped" and ownedKey == slot then
+        return true
+    end
     local old = playerData.equipped[slot]
 
-    if old then
-        if #playerData.bag < MAX_BAG_SLOTS then
-            table.insert(playerData.bag, old)
+    -- 先定位待装备实例，替换装备时执行原子交换：背包已满也不会
+    -- 无声丢弃旧装备；若物品本来就在背包中，则用旧装备占据原槽位。
+    local bagIndex = nil
+    for i, bagItem in ipairs(playerData.bag) do
+        if bagItem == item then
+            bagIndex = i
+            break
         end
+    end
+    if old and not bagIndex and #playerData.bag >= MAX_BAG_SLOTS then
+        print("[Inventory] Bag full, cannot replace equipped item")
+        return false
     end
 
     playerData.equipped[slot] = item
-
-    for i, bagItem in ipairs(playerData.bag) do
-        if bagItem == item then
-            table.remove(playerData.bag, i)
-            break
+    if old then
+        if bagIndex then
+            playerData.bag[bagIndex] = old
+        else
+            table.insert(playerData.bag, old)
         end
+    elseif bagIndex then
+        table.remove(playerData.bag, bagIndex)
     end
 
     Inventory.RecalcBonus()
@@ -454,9 +632,14 @@ end
 -- 尝试自动装备（双槽位：有空槽直接装，否则与最弱的比较）
 -- ============================================================================
 function Inventory.TryAutoEquip(item, playerClassId)
-    if not item then return false end
-    if item.classReq and item.classReq ~= playerClassId then
-        return false
+    if type(item) ~= "table" then return false end
+    local ownedType = FindOwnedItem(item)
+    if ownedType then
+        if not IsCanonicalItem(item, playerClassId) then return false end
+    else
+        local normalized = Inventory.CreateItemFromSave(item, nil, playerClassId)
+        if not normalized then return false end
+        item = normalized
     end
 
     local itemType = item.itemType or "weapon"
@@ -498,44 +681,118 @@ end
 -- 添加物品到背包
 -- ============================================================================
 function Inventory.AddToBag(item)
+    if type(item) ~= "table" then return false end
+    if FindOwnedItem(item) then return false end
     if #playerData.bag >= MAX_BAG_SLOTS then
-        print("[Inventory] Bag full, discarding " .. item.name)
+        print("[Inventory] Bag full, discarding " .. tostring(item.name or "unknown"))
         return false
     end
-    table.insert(playerData.bag, item)
-    return true
+    local normalized = Inventory.CreateItemFromSave(item, nil, nil)
+    if not normalized then return false end
+    table.insert(playerData.bag, normalized)
+    return true, normalized
 end
 
 -- ============================================================================
 -- 添加金币
 -- ============================================================================
 function Inventory.AddGold(amount)
-    playerData.gold = playerData.gold + amount
+    if type(amount) ~= "number" or not IsFiniteNumber(amount)
+        or amount <= 0 or amount > MAX_RESOURCE or amount % 1 ~= 0 then
+        return false
+    end
+    local current = ClampInteger(playerData.gold, 0, MAX_RESOURCE, 0)
+    if current >= MAX_RESOURCE then return false end
+    playerData.gold = math.min(MAX_RESOURCE, current + amount)
+    return true
 end
 
 --- 扣金币，不足返回 false
 ---@param amount number
 ---@return boolean
 function Inventory.SpendGold(amount)
-    if not amount or amount < 0 then return false end
-    if playerData.gold < amount then return false end
-    playerData.gold = playerData.gold - amount
+    if type(amount) ~= "number" or not IsFiniteNumber(amount)
+        or amount < 0 or amount > MAX_RESOURCE or amount % 1 ~= 0 then
+        return false
+    end
+    local current = ClampInteger(playerData.gold, 0, MAX_RESOURCE, 0)
+    playerData.gold = current
+    if current < amount then return false end
+    playerData.gold = current - amount
     return true
+end
+
+--- 从商人原子购买一件模板装备。所有校验通过后才同时扣款与入包，
+--- 避免“金币已扣但背包写入失败”。价格始终由本地模板计算。
+---@param itemId string
+---@return boolean, string, table|nil, number
+function Inventory.BuyItem(itemId)
+    local item = Inventory.CreateItem(itemId, 0)
+    if not item then return false, "商品不存在", nil, 0 end
+    if #playerData.bag >= MAX_BAG_SLOTS then
+        return false, "背包已满", nil, 0
+    end
+    local price = Inventory.GetItemPrice(item)
+    if price <= 0 then return false, "商品价格异常", nil, 0 end
+
+    local currentGold = ClampInteger(playerData.gold, 0, MAX_RESOURCE, 0)
+    playerData.gold = currentGold
+    if currentGold < price then
+        return false, "金币不足，需要 " .. price .. " 金币", nil, price
+    end
+
+    -- 单线程状态下在同一函数内完成两次写入；前面不再有可失败步骤。
+    playerData.gold = currentGold - price
+    table.insert(playerData.bag, item)
+    return true, "", item, price
 end
 
 -- ============================================================================
 -- 拾取物品（自动装备或放入背包）
 -- ============================================================================
 function Inventory.PickupItem(item, playerClassId)
-    if not item then return false, "无物品" end
-    local equipped = Inventory.TryAutoEquip(item, playerClassId)
+    if type(item) ~= "table" then return false, "无物品" end
+    -- 地面掉落允许收入其它职业装备，之后可出售、分解或参与锻造；
+    -- 只有自动装备阶段才校验当前职业。此前在重建实例时就传入
+    -- playerClassId，会让高阶共享掉落池中的异职业武器永远无法拾取。
+    local normalized, reason = Inventory.CreateItemFromSave(item, nil, nil)
+    if not normalized then return false, reason or "物品数据无效" end
+    local canAutoEquip = not normalized.classReq or normalized.classReq == playerClassId
+    local equipped = canAutoEquip and Inventory.TryAutoEquip(normalized, playerClassId) or false
     if not equipped then
-        local added = Inventory.AddToBag(item)
+        local added = Inventory.AddToBag(normalized)
         if not added then
             return false, "背包已满"
         end
     end
     return true, ""
+end
+
+-- 查找运行时物品实例的归属。装备/分解/强化必须只接受当前背包或装备栏
+-- 中的对象，避免旧 UI 闭包或外部构造的同形 table 直接修改玩家经济状态。
+---@param item table|nil
+---@return string|nil, number|string|nil locationType/locationKey
+FindOwnedItem = function(item)
+    if type(item) ~= "table" then return nil, nil end
+    for index, bagItem in ipairs(playerData.bag) do
+        if bagItem == item then
+            return "bag", index
+        end
+    end
+    for slotKey, equippedItem in pairs(playerData.equipped) do
+        if equippedItem == item then
+            return "equipped", slotKey
+        end
+    end
+    return nil, nil
+end
+
+--- 判断物品是否仍在当前玩家的背包或装备栏。
+---@param item table|nil
+---@return boolean
+function Inventory.IsOwnedItem(item)
+    local locationType = FindOwnedItem(item)
+    return locationType ~= nil
 end
 
 -- ============================================================================
@@ -563,11 +820,7 @@ function Inventory.RollDrop(enemyName)
             if roll <= acc then
                 local tmpl = ITEM_BY_ID[entry.id]
                 if tmpl then
-                    droppedItem = {}
-                    for k, v in pairs(tmpl) do
-                        droppedItem[k] = v
-                    end
-                    droppedItem.enhance = 0
+                    droppedItem = Inventory.CreateItem(tmpl.id, 0)
                 end
                 break
             end
@@ -607,11 +860,12 @@ end
 -- 卸下装备到背包
 -- ============================================================================
 function Inventory.UnequipSlot(slotKey)
+    if not SLOT_NAMES[slotKey] then return false, "装备槽位无效" end
     local item = playerData.equipped[slotKey]
-    if not item then return false end
+    if not item then return false, "该槽位没有装备" end
     if #playerData.bag >= MAX_BAG_SLOTS then
         print("[Inventory] Bag full, cannot unequip")
-        return false
+        return false, "背包已满"
     end
     table.insert(playerData.bag, item)
     playerData.equipped[slotKey] = nil
@@ -637,6 +891,10 @@ end
 -- 从背包直接装备到指定槽位
 -- ============================================================================
 function Inventory.EquipFromBag(bagIndex, slotKey, playerClassId)
+    if type(bagIndex) ~= "number" or not IsFiniteNumber(bagIndex)
+        or bagIndex % 1 ~= 0 or bagIndex < 1 or bagIndex > #playerData.bag then
+        return false
+    end
     local item = playerData.bag[bagIndex]
     if not item then return false end
     if not Inventory.CanEquipToSlot(item, slotKey) then return false end
@@ -665,25 +923,51 @@ end
 
 --- 获取强化石数量
 function Inventory.GetEnhanceStones()
-    return playerData.enhanceStones or 0
+    playerData.enhanceStones = ClampInteger(playerData.enhanceStones, 0, MAX_RESOURCE, 0)
+    return playerData.enhanceStones
 end
 
 --- 分解装备（回收）：金币 + 强化石入账
 ---@param item table 被分解的装备
 ---@return boolean, table 成功与否 + {gold, stones}
 function Inventory.RecycleItem(item)
-    if not item then return false, { gold = 0, stones = 0 } end
-    local result = Enhance.Recycle(item)
-    playerData.gold = playerData.gold + result.gold
-    playerData.enhanceStones = (playerData.enhanceStones or 0) + result.stones
+    if not item then return false, { gold = 0, stones = 0 }, "无装备" end
+    local locationType, locationKey = FindOwnedItem(item)
+    if not locationType then
+        return false, { gold = 0, stones = 0 }, "装备已不存在或不属于当前角色"
+    end
+    if not IsCanonicalItem(item, nil) then
+        return false, { gold = 0, stones = 0 }, "装备数据异常"
+    end
+    local rawResult = Enhance.Recycle(item)
+    local result = {
+        gold = ClampInteger(rawResult and rawResult.gold, 0, MAX_RESOURCE, 0),
+        stones = ClampInteger(rawResult and rawResult.stones, 0, MAX_RESOURCE, 0),
+    }
+    if result.gold <= 0 and result.stones <= 0 then
+        return false, { gold = 0, stones = 0 }, "该物品无法分解"
+    end
+
+    -- 先移除实例，再发放收益；这样同一个旧引用无法重复结算。
+    if locationType == "bag" then
+        table.remove(playerData.bag, locationKey)
+    else
+        playerData.equipped[locationKey] = nil
+        Inventory.RecalcBonus()
+    end
+    local currentGold = ClampInteger(playerData.gold, 0, MAX_RESOURCE, 0)
+    local currentStones = ClampInteger(playerData.enhanceStones, 0, MAX_RESOURCE, 0)
+    playerData.gold = math.min(MAX_RESOURCE, currentGold + result.gold)
+    playerData.enhanceStones = math.min(MAX_RESOURCE, currentStones + result.stones)
     print(string.format("[Inventory] 分解 %s -> +%d金 +%d强化石", item.name or "?", result.gold, result.stones))
-    return true, result
+    return true, result, ""
 end
 
 --- 从装备槽直接销毁（分解用，不回包）
 ---@param slotKey string
 ---@return boolean
 function Inventory.RemoveEquipped(slotKey)
+    if not SLOT_NAMES[slotKey] then return false end
     if not playerData.equipped[slotKey] then return false end
     playerData.equipped[slotKey] = nil
     Inventory.RecalcBonus()
@@ -694,34 +978,111 @@ end
 ---@param bagIndex number
 ---@return boolean
 function Inventory.RemoveBagItem(bagIndex)
+    if type(bagIndex) ~= "number" or not IsFiniteNumber(bagIndex)
+        or bagIndex % 1 ~= 0 or bagIndex < 1 or bagIndex > #playerData.bag then
+        return false
+    end
     if not playerData.bag[bagIndex] then return false end
     table.remove(playerData.bag, bagIndex)
     return true
 end
 
---- 锻造（三合一）：校验 + 扣金币 + 移除三件，返回目标品质
+--- 锻造（三合一）：校验 + 扣金币 + 消耗三件材料，并把产物放回背包。
+--- 产物为同部位的下一品质模板；第四个返回值为产物实例，旧调用只取前三个
+--- 返回值时仍保持兼容。
 ---@param items3 table[] 三件材料
----@return boolean, string, string|nil 成功/原因/目标品质 key
+---@return boolean, string, string|nil, table|nil 成功/原因/目标品质 key/产物
 function Inventory.ForgeItems(items3)
+    if type(items3) ~= "table" or #items3 ~= 3 then
+        return false, "需要三件锻造材料", nil
+    end
+    for _, material in ipairs(items3) do
+        if not IsCanonicalItem(material, nil) then
+            return false, "锻造材料数据异常", nil
+        end
+    end
     local pick = Enhance.ForgePick(items3)
     if not pick.ok then return false, pick.reason, nil end
 
-    local cost = Enhance.ForgeCost(pick.targetRarity)
-    if playerData.gold < cost then return false, "金币不足", nil end
-
-    -- 从背包移除三件材料
-    for _, mat in ipairs(items3) do
-        for i, bagItem in ipairs(playerData.bag) do
-            if bagItem == mat then
-                table.remove(playerData.bag, i)
+    -- 材料必须是背包中三个不同的实例，避免重复传入同一对象只消耗一件
+    -- 却仍判定锻造成功。
+    local materialIndices = {}
+    local usedIndices = {}
+    for _, material in ipairs(items3) do
+        local foundIndex = nil
+        for index, bagItem in ipairs(playerData.bag) do
+            if not usedIndices[index] and bagItem == material then
+                foundIndex = index
                 break
             end
         end
+        if not foundIndex then
+            return false, "锻造材料必须来自背包", nil
+        end
+        usedIndices[foundIndex] = true
+        table.insert(materialIndices, foundIndex)
     end
 
-    playerData.gold = playerData.gold - cost
-    print(string.format("[Inventory] 锻造成功 -> %s (花费%d金)", pick.targetRarity, cost))
-    return true, "", pick.targetRarity
+    local itemType = items3[1].itemType or items3[1].slot
+    local preferredClass = items3[1].classReq
+    for index = 2, 3 do
+        if items3[index].classReq ~= preferredClass then
+            preferredClass = nil
+            break
+        end
+    end
+
+    -- 目标部位没有对应品质模板时明确失败，不生成无法装备或无法出售的“空壳”装备。
+    local candidates = {}
+    for _, template in ipairs(ITEM_TEMPLATES) do
+        if (template.itemType or template.slot) == itemType
+            and template.rarity == pick.targetRarity then
+            if preferredClass == nil or template.classReq == preferredClass then
+                table.insert(candidates, template)
+            end
+        end
+    end
+    -- 混合职业武器材料允许从目标品质的任一职业模板中随机获得。
+    if #candidates == 0 and preferredClass ~= nil then
+        for _, template in ipairs(ITEM_TEMPLATES) do
+            if (template.itemType or template.slot) == itemType
+                and template.rarity == pick.targetRarity then
+                table.insert(candidates, template)
+            end
+        end
+    end
+    if #candidates == 0 then
+        return false, "该部位没有可锻造的目标品质装备", nil
+    end
+
+    local cost = ClampInteger(Enhance.ForgeCost(pick.targetRarity), 0, MAX_RESOURCE, 0)
+    local currentGold = ClampInteger(playerData.gold, 0, MAX_RESOURCE, 0)
+    playerData.gold = currentGold
+    if cost <= 0 then return false, "锻造费用异常", nil end
+    if currentGold < cost then return false, "金币不足", nil end
+
+    local template = candidates[math.random(1, #candidates)]
+    local resultItem = {}
+    for key, value in pairs(template) do
+        resultItem[key] = value
+    end
+    resultItem.enhance = 0
+    -- 方案规定成品有 30% 概率附加 +1~+2，且仍受 +12 上限约束。
+    if math.random() < 0.30 then
+        resultItem.enhance = math.random(1, 2)
+    end
+
+    -- 倒序移除，避免前面材料被移除后导致后续索引漂移。
+    table.sort(materialIndices, function(a, b) return a > b end)
+    for _, index in ipairs(materialIndices) do
+        table.remove(playerData.bag, index)
+    end
+
+    playerData.gold = currentGold - cost
+    table.insert(playerData.bag, resultItem)
+    print(string.format("[Inventory] 锻造成功 -> %s (%s，花费%d金)",
+        pick.targetRarity, resultItem.name or "装备", cost))
+    return true, "", pick.targetRarity, resultItem
 end
 
 --- 精炼（强化）：消耗资源，按成功率判定，失败可能掉级
@@ -730,17 +1091,33 @@ end
 ---@return boolean, string, number 成功/原因/最终强化等级
 function Inventory.EnhanceItem(item, useProtect)
     if not item then return false, "无装备", 0 end
-    local cur = item.enhance or 0
+    if not FindOwnedItem(item) then
+        return false, "装备已不存在或不属于当前角色", 0
+    end
+    if not IsCanonicalItem(item, nil) then return false, "装备数据异常", 0 end
+    local cur = ClampInteger(item.enhance, 0, 12, 0)
+    item.enhance = cur
     if cur >= 12 then return false, "已达最高强化", cur end
 
     local nextLevel = cur + 1
     local cost = Enhance.EnhanceCost(nextLevel)
-    if (playerData.enhanceStones or 0) < cost.stones then return false, "强化石不足", cur end
-    if playerData.gold < cost.gold then return false, "金币不足", cur end
+    local stones = Inventory.GetEnhanceStones()
+    local gold = ClampInteger(playerData.gold, 0, MAX_RESOURCE, 0)
+    playerData.gold = gold
+    if stones < cost.stones then return false, "强化石不足", cur end
+    if gold < cost.gold then return false, "金币不足", cur end
+    useProtect = useProtect == true
+    local protectStones = Inventory.GetProtectStones()
+    if useProtect and protectStones <= 0 then
+        return false, "保护石不足", cur
+    end
 
     -- 扣资源
-    playerData.enhanceStones = playerData.enhanceStones - cost.stones
-    playerData.gold = playerData.gold - cost.gold
+    playerData.enhanceStones = stones - cost.stones
+    playerData.gold = gold - cost.gold
+    if useProtect then
+        playerData.protectStones = protectStones - 1
+    end
 
     -- 成功率判定
     if math.random() < cost.successRate then
@@ -756,7 +1133,7 @@ function Inventory.EnhanceItem(item, useProtect)
         item.enhance = math.max(0, dropTo)
     end
     Inventory.RecalcBonus()
-    return false, "强化失败", item.enhance or cur
+    return false, useProtect and "强化失败（保护石生效）" or "强化失败", item.enhance or cur
 end
 
 Inventory.MAX_BAG_SLOTS = MAX_BAG_SLOTS
@@ -775,36 +1152,96 @@ Inventory.MAX_BAG_SLOTS = MAX_BAG_SLOTS
 ---@param item table 装备模板/实例
 ---@return number
 function Inventory.GetItemPrice(item)
-    if not item then return 0 end
-    local r = RARITY[item.rarity]
+    if type(item) ~= "table" or type(item.id) ~= "string" then return 0 end
+    local template = Inventory.GetItemTemplate(item.id)
+    if not template then return 0 end
+    local r = RARITY[template.rarity]
     local mult = r and r.mult or 1.0
-    local score = item.atk * 2 + item.def * 1.5 + item.hp * 0.3
-    return math.max(10, math.floor(score * mult * 8))
+    local score = ItemScore(template)
+    if score < 0 then return 0 end
+    return math.min(MAX_RESOURCE, math.max(10, math.floor(score * mult * 8)))
+end
+
+Inventory.ENHANCE_STONE_PRICE = 120
+Inventory.PROTECT_STONE_PRICE = 800
+
+--- 获取保护石数量。
+function Inventory.GetProtectStones()
+    playerData.protectStones = ClampInteger(playerData.protectStones, 0, MAX_RESOURCE, 0)
+    return playerData.protectStones
+end
+
+--- 从商人购买一颗强化石。
+---@return boolean, string
+function Inventory.BuyEnhanceStone()
+    if Inventory.GetEnhanceStones() >= MAX_RESOURCE then
+        return false, "强化石已达上限"
+    end
+    if not Inventory.SpendGold(Inventory.ENHANCE_STONE_PRICE) then
+        return false, "金币不足"
+    end
+    playerData.enhanceStones = playerData.enhanceStones + 1
+    return true, ""
+end
+
+--- 从商人购买一颗保护石。
+---@return boolean, string
+function Inventory.BuyProtectStone()
+    if Inventory.GetProtectStones() >= MAX_RESOURCE then
+        return false, "保护石已达上限"
+    end
+    if not Inventory.SpendGold(Inventory.PROTECT_STONE_PRICE) then
+        return false, "金币不足"
+    end
+    playerData.protectStones = playerData.protectStones + 1
+    return true, ""
 end
 
 --- 装备卖出价（玩家卖给商人的价格，含强化返还）
 ---@param item table 装备实例
 ---@return number
 function Inventory.GetItemSellPrice(item)
-    if not item then return 0 end
-    local r = RARITY[item.rarity]
+    if type(item) ~= "table" or not IsCanonicalItem(item, nil) then return 0 end
+    local template = Inventory.GetItemTemplate(item.id)
+    local r = RARITY[template.rarity]
     local mult = r and r.mult or 1.0
-    local score = item.atk * 2 + item.def * 1.5 + item.hp * 0.3
+    local score = ItemScore(template)
+    if score < 0 then return 0 end
     local base = math.floor(score * mult * 3)
     -- 强化返还：每级 +50 金币（体现强化投入的部分价值）
-    local enhanceBonus = (item.enhance or 0) * 50
-    return base + enhanceBonus
+    local enhanceBonus = ClampInteger(item.enhance, 0, 12, 0) * 50
+    return math.min(MAX_RESOURCE, base + enhanceBonus)
 end
 
 --- 出售背包中的装备（移除 + 加金币）
 ---@param bagIndex number 背包索引
 ---@return boolean, number|string 成功与否，返回卖出价或错误信息
-function Inventory.SellItem(bagIndex)
-    local item = playerData.bag[bagIndex]
+function Inventory.SellItem(itemOrIndex)
+    local bagIndex = nil
+    local item = nil
+    if type(itemOrIndex) == "table" then
+        for index, bagItem in ipairs(playerData.bag) do
+            if bagItem == itemOrIndex then
+                bagIndex = index
+                item = bagItem
+                break
+            end
+        end
+        if not bagIndex then return false, "装备已不存在或不属于当前角色" end
+    else
+        if type(itemOrIndex) ~= "number" or not IsFiniteNumber(itemOrIndex)
+            or itemOrIndex % 1 ~= 0 or itemOrIndex < 1 or itemOrIndex > #playerData.bag then
+            return false, "装备索引无效"
+        end
+        bagIndex = itemOrIndex
+        item = playerData.bag[bagIndex]
+    end
     if not item then return false, "装备不存在" end
     local price = Inventory.GetItemSellPrice(item)
+    if price <= 0 then return false, "装备数据异常" end
     table.remove(playerData.bag, bagIndex)
-    playerData.gold = playerData.gold + price
+    local currentGold = ClampInteger(playerData.gold, 0, MAX_RESOURCE, 0)
+    playerData.gold = math.min(MAX_RESOURCE, currentGold + price)
     print(string.format("[Inventory] 出售 %s -> +%d金", item.name or "?", price))
     return true, price
 end
@@ -814,7 +1251,7 @@ end
 function Inventory.GetAllItemTemplates()
     local result = {}
     for _, tmpl in ipairs(ITEM_TEMPLATES) do
-        result[#result + 1] = tmpl
+        result[#result + 1] = CloneItemTemplate(tmpl)
     end
     return result
 end

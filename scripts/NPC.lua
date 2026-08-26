@@ -128,18 +128,24 @@ end
 
 --- 获取所有地图传送选项（供管家对话面板使用）
 ---@param currentMapId string
+---@param playerLevel number|nil 当前角色等级；传入后会标记未达等级的地图
 ---@return table[] {id, name, cost, current}
-function NPC.GetTeleportOptions(currentMapId)
+function NPC.GetTeleportOptions(currentMapId, playerLevel)
     local options = {}
     local currentCost = MapZone.GetTeleportCost(currentMapId)
     for mapId, def in pairs(MapZone.DEFS) do
         if mapId ~= currentMapId then
+            local requiredLevel = def.minLevel or 1
+            local level = tonumber(playerLevel)
+            local locked = level ~= nil and level < requiredLevel
             table.insert(options, {
                 id = mapId,
                 name = def.name,
                 minLevel = def.minLevel,
                 maxLevel = def.maxLevel,
                 cost = currentCost,  -- 从当前图传送出去的费用统一
+                locked = locked,
+                lockReason = locked and ("需要 Lv." .. requiredLevel) or nil,
                 current = false,
             })
         end

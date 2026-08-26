@@ -5,6 +5,21 @@
 
 local CharacterClass = {}
 
+CharacterClass.MAX_LEVEL = 50
+
+local function IsFiniteNumber(value)
+    return type(value) == "number"
+        and value == value
+        and value ~= math.huge
+        and value ~= -math.huge
+end
+
+function CharacterClass.NormalizeLevel(level)
+    local number = tonumber(level)
+    if not IsFiniteNumber(number) then return 1 end
+    return math.max(1, math.min(CharacterClass.MAX_LEVEL, math.floor(number)))
+end
+
 -- ============================================================================
 -- 中国风配色方案
 -- ============================================================================
@@ -49,9 +64,26 @@ local BASE_GROWTH = {
     taoist  = { hp = 30, mp = 18, atk = 5, def = 3, speed = 3.3 },
 }
 
+-- 职业被动运行时参数。此前这些内容只有 UI 描述，没有真正参与数值结算。
+CharacterClass.PASSIVE_MODIFIERS = {
+    warrior = {
+        maxHPMultiplier = 1.20,
+        damageReductionChance = 0.20,
+        damageReductionMultiplier = 0.75,
+    },
+    mage = {
+        spellDamageMultiplier = 1.25,
+        mpRegenMultiplier = 1.15,
+    },
+    taoist = {
+        divineBeastAttackMultiplier = 1.25,
+        experienceMultiplier = 1.20,
+    },
+}
+
 -- 高等级经验曲线：15 级后开始逐渐拉长升级间隔
 function CharacterClass.GetExpToNext(level)
-    level = math.max(1, math.floor(level or 1))
+    level = CharacterClass.NormalizeLevel(level)
     local base = 50 + level * 60
     if level <= 15 then
         return base
@@ -294,6 +326,117 @@ CharacterClass.Classes = {
 }
 
 -- ============================================================================
+-- 职业被动与派生属性
+-- ============================================================================
+
+---@param playerOrClass table|string|nil
+---@return table
+function CharacterClass.GetPassiveModifiers(playerOrClass)
+    local classId = playerOrClass
+    if type(playerOrClass) == "table" then
+        classId = playerOrClass.classId
+    end
+    return CharacterClass.PASSIVE_MODIFIERS[classId] or {}
+end
+
+---@param player table
+---@param skill table|nil
+---@return number
+function CharacterClass.GetSkillDamageMultiplier(player, skill)
+    local modifiers = CharacterClass.GetPassiveModifiers(player)
+    if modifiers.spellDamageMultiplier and skill and skill.type ~= SKILL_TYPE.PASSIVE then
+        return modifiers.spellDamageMultiplier
+    end
+    return 1.0
+end
+
+---@param player table
+---@return number
+function CharacterClass.GetExperienceMultiplier(player)
+    local modifiers = CharacterClass.GetPassiveModifiers(player)
+    return modifiers.experienceMultiplier or 1.0
+end
+
+---@param player table
+---@return number
+function CharacterClass.GetDivineBeastAttackMultiplier(player)
+    local modifiers = CharacterClass.GetPassiveModifiers(player)
+    return modifiers.divineBeastAttackMultiplier or 1.0
+end
+
+---@param player table
+---@return number
+function CharacterClass.GetMPRegenRate(player)
+    local modifiers = CharacterClass.GetPassiveModifiers(player)
+    return 1.25 * (modifiers.mpRegenMultiplier or 1.0)
+end
+
+---@param player table
+---@return number
+function CharacterClass.GetIncomingDamageMultiplier(player)
+    local modifiers = CharacterClass.GetPassiveModifiers(player)
+    return modifiers.damageReductionMultiplier or 1.0
+end
+
+---@param player table
+---@return boolean
+function CharacterClass.RollIncomingDamageReduction(player)
+    local modifiers = CharacterClass.GetPassiveModifiers(player)
+    local chance = modifiers.damageReductionChance or 0
+    return chance > 0 and math.random() < chance
+end
+
+--- 根据等级与装备计算完整派生属性。宿主每帧刷新属性时应复用此函数，
+--- 这样职业被动不会被基础属性重算覆盖。
+---@param player table
+---@param inventoryData table|nil
+---@return table {maxHP:number,maxMP:number,atk:number,def:number,moveSpeed:number}
+function CharacterClass.GetDerivedStats(player, inventoryData)
+    local classDef = CharacterClass.Classes[player.classId]
+    if not classDef then
+        return { maxHP = player.maxHP or 1, maxMP = player.maxMP or 0, atk = player.atk or 0, def = player.def or 0, moveSpeed = player.moveSpeed or 0 }
+    end
+
+    local level = CharacterClass.NormalizeLevel(player.level)
+    local growth = classDef.growth
+    local inv = inventoryData or {}
+    local modifiers = CharacterClass.GetPassiveModifiers(player)
+    local hp = classDef.baseHP + growth.hp * (level - 1) + (tonumber(inv.bonusHP) or 0)
+
+    return {
+        maxHP = math.floor(hp * (modifiers.maxHPMultiplier or 1.0)),
+        maxMP = classDef.baseMP + growth.mp * (level - 1),
+        atk = classDef.baseATK + growth.atk * (level - 1) + (tonumber(inv.bonusAtk) or 0),
+        def = classDef.baseDEF + growth.def * (level - 1) + (tonumber(inv.bonusDef) or 0),
+        moveSpeed = classDef.moveSpeed,
+    }
+end
+
+--- 将派生属性写回玩家对象。
+---@param player table
+---@param inventoryData table|nil
+---@param refill boolean|nil 是否同时将 HP/MP 回满
+---@return table
+function CharacterClass.ApplyDerivedStats(player, inventoryData, refill)
+    local stats = CharacterClass.GetDerivedStats(player, inventoryData)
+    local oldHP = player.hp or stats.maxHP
+    local oldMP = player.mp or stats.maxMP
+    player.maxHP = stats.maxHP
+    player.maxMP = stats.maxMP
+    player.atk = stats.atk
+    player.def = stats.def
+    player.moveSpeed = stats.moveSpeed
+    if refill then
+        player.hp = stats.maxHP
+        player.mp = stats.maxMP
+    else
+        player.hp = math.min(oldHP, stats.maxHP)
+        player.mp = math.min(oldMP, stats.maxMP)
+    end
+    return stats
+end
+
+-- ============================================================================
 -- 工具函数
 -- ============================================================================
 
@@ -350,7 +493,7 @@ function CharacterClass.CreatePlayer(classId, level, modelStyle, gender)
         return nil
     end
 
-    level = level or 1
+    level = CharacterClass.NormalizeLevel(level)
     local g = classDef.growth
 
     local player = {
@@ -386,6 +529,13 @@ function CharacterClass.CreatePlayer(classId, level, modelStyle, gender)
         -- buff/debuff
         buffs = {},
     }
+    -- 先应用职业被动（例如武士铁骨的生命上限），装备加成在宿主
+    -- 初始化 Inventory 后再通过 ApplyDerivedStats 补齐。
+    local initialStats = CharacterClass.GetDerivedStats(player, nil)
+    player.maxHP = initialStats.maxHP
+    player.maxMP = initialStats.maxMP
+    player.atk = initialStats.atk
+    player.def = initialStats.def
     player.hp = player.maxHP
     player.mp = player.maxMP
 
@@ -441,18 +591,19 @@ end
 --- 升级
 --- @return string[]|nil newlyUnlocked 本次升级新解锁的技能名列表
 function CharacterClass.LevelUp(player)
+    if type(player) ~= "table" then return nil end
     local classDef = CharacterClass.Classes[player.classId]
-    local g = classDef.growth
-    local prevLevel = player.level
+    if not classDef then return nil end
+    player.level = CharacterClass.NormalizeLevel(player.level)
+    if player.level >= CharacterClass.MAX_LEVEL then
+        player.level = CharacterClass.MAX_LEVEL
+        player.exp = 0
+        player.expToNext = CharacterClass.GetExpToNext(CharacterClass.MAX_LEVEL)
+        return nil
+    end
     player.level = player.level + 1
-    local Inventory = require("Inventory")
-    local bonusHP = Inventory.playerData.bonusHP or 0
-    player.maxHP = classDef.baseHP + g.hp * (player.level - 1) + bonusHP
-    player.maxMP = classDef.baseMP + g.mp * (player.level - 1)
-    player.atk   = classDef.baseATK + g.atk * (player.level - 1)
-    player.def   = classDef.baseDEF + g.def * (player.level - 1)
-    player.hp = player.maxHP
-    player.mp = player.maxMP
+    local Inventory = require("scripts.Inventory")
+    CharacterClass.ApplyDerivedStats(player, Inventory.playerData, true)
     player.expToNext = CharacterClass.GetExpToNext(player.level)
     print("[CharacterClass] " .. classDef.name .. " upgraded to Lv." .. player.level)
 
@@ -471,6 +622,53 @@ function CharacterClass.LevelUp(player)
     return #newlyUnlocked > 0 and newlyUnlocked or nil
 end
 
+--- 统一处理经验获取、连续升级与 Lv.50 上限，避免击杀和任务奖励维护两套循环。
+---@param player table
+---@param amount number
+---@return string[]|nil newlyUnlocked
+function CharacterClass.AddExperience(player, amount)
+    if type(player) ~= "table" then return nil end
+
+    local gain = tonumber(amount)
+    if not IsFiniteNumber(gain) or gain <= 0 then return nil end
+
+    player.level = CharacterClass.NormalizeLevel(player.level)
+    player.expToNext = tonumber(player.expToNext)
+    if not IsFiniteNumber(player.expToNext) or player.expToNext < 1 then
+        player.expToNext = CharacterClass.GetExpToNext(player.level)
+    end
+
+    if player.level >= CharacterClass.MAX_LEVEL then
+        player.level = CharacterClass.MAX_LEVEL
+        player.exp = 0
+        player.expToNext = CharacterClass.GetExpToNext(CharacterClass.MAX_LEVEL)
+        return nil
+    end
+
+    local currentExp = tonumber(player.exp)
+    if not IsFiniteNumber(currentExp) or currentExp < 0 then currentExp = 0 end
+    player.exp = math.min(1000000000, currentExp + gain)
+
+    local newlyUnlocked = {}
+    while player.level < CharacterClass.MAX_LEVEL and player.exp >= player.expToNext do
+        player.exp = player.exp - player.expToNext
+        local names = CharacterClass.LevelUp(player)
+        if names then
+            for _, name in ipairs(names) do
+                table.insert(newlyUnlocked, name)
+            end
+        end
+    end
+
+    if player.level >= CharacterClass.MAX_LEVEL then
+        player.level = CharacterClass.MAX_LEVEL
+        player.exp = 0
+        player.expToNext = CharacterClass.GetExpToNext(CharacterClass.MAX_LEVEL)
+    end
+
+    return #newlyUnlocked > 0 and newlyUnlocked or nil
+end
+
 --- 更新冷却
 function CharacterClass.UpdateCooldowns(player, dt)
     for id, cd in pairs(player.cooldowns) do
@@ -486,7 +684,7 @@ function CharacterClass.UpdateCooldowns(player, dt)
         end
     end
     -- MP 自然恢复
-    local regenRate = 1.25 -- 每秒恢复，压低中后期续航
+    local regenRate = CharacterClass.GetMPRegenRate(player) -- 法师被动额外 +15%
     player.mp = math.min(player.maxMP, player.mp + regenRate * dt)
 end
 

@@ -7,6 +7,8 @@
 local UI = require("urhox-libs/UI")
 local CharacterClass = require("scripts.CharacterClass")
 local Inventory = require("scripts.Inventory")
+local Quest = require("scripts.Quest")
+local MapZone = require("scripts.MapZone")
 local PlayerAnim = require("scripts.PlayerAnim")
 local DivineBeast = require("scripts.DivineBeast")
 require "urhox-libs.UI.GameHUD"
@@ -18,6 +20,10 @@ local C = CharacterClass.Colors
 
 -- [调试] 显示玩家与敌人的距离开关（由 main.lua 按键切换）
 GameUI.debugShowDistance = false
+-- [调试] 显示相机/模型包围盒信息（正式游戏默认关闭）
+GameUI.debugShowOverlay = false
+-- 调试入口默认不进入正式菜单；本地排错时可由宿主显式设为 true。
+GameUI.debugMode = false
 
 -- ============================================================================
 -- NanoVG 常量
@@ -36,6 +42,16 @@ local NVG_CCW = 2
 -- ============================================================================
 local nvgCtx = nil
 local nvgFontId = -1
+
+-- NanoVG 使用系统逻辑分辨率；UI 库内部会自行处理 DPR。
+-- 统一从 GetWidth/GetHeight 读取，避免高 DPI 设备上混用物理像素和逻辑像素。
+local function _GetScreenMetrics()
+    local physW = graphics:GetWidth()
+    local physH = graphics:GetHeight()
+    local dpr = tonumber(graphics:GetDPR()) or 1
+    if dpr <= 0 then dpr = 1 end
+    return physW, physH, dpr, physW / dpr, physH / dpr
+end
 
 -- ============================================================================
 -- 开门过渡状态
@@ -81,16 +97,7 @@ local sceneRef = nil       -- 场景引用（用于暂停 timeScale）
 -- ============================================================================
 local mapState = {
     fullMapOpen = false,
-    arenaSize = 120,  -- 竞技场边长(米)
-    obstacles = {
-        -- 石头（灰色圆点）
-        { x = 8, z = 12 }, { x = -15, z = 8 }, { x = 20, z = -5 },
-        { x = -10, z = -18 }, { x = 5, z = -25 }, { x = -22, z = 15 },
-        { x = 30, z = 10 }, { x = -5, z = 30 }, { x = 18, z = 22 },
-        -- 柱子（方块标记）
-        { x = 15, z = 15, isPillar = true }, { x = -15, z = 15, isPillar = true },
-        { x = 15, z = -15, isPillar = true }, { x = -15, z = -15, isPillar = true },
-    },
+    arenaSize = MapZone.ARENA_SIZE,
 }
 
 -- ============================================================================
@@ -124,6 +131,10 @@ local uiState = {
     dialogueRoot = nil,
     dialogueOnDone = nil,
 }
+
+-- 锻造页的材料选择跨一次面板重建保留，避免点击一件材料后整页刷新导致
+-- 玩家丢失选择；提交成功或切换角色时再清空。
+local forgeSelection_ = {}
 
 GameUI.state = uiState
 
@@ -476,9 +487,8 @@ end
 -- NanoVG 主渲染
 -- ============================================================================
 function GameUI._RenderNanoVG()
-    local sw = graphics.width
-    local sh = graphics.height
-    nvgBeginFrame(nvgCtx, sw, sh, 1.0)
+    local _, _, dpr, sw, sh = _GetScreenMetrics()
+    nvgBeginFrame(nvgCtx, sw, sh, dpr)
 
     -- 绘制 HP/MP 圆球 + EXP 条 (仅游戏阶段，左下角)
     if uiState.phase == "playing" and uiState.player then
@@ -529,7 +539,7 @@ function GameUI._RenderNanoVG()
     GameUI._DrawToasts(nvgCtx, sw, sh)
 
     -- DEBUG: 屏幕左上角显示相机/角色/worldBBox 实时数据
-    if uiState.phase == "playing" and cameraRef then
+    if GameUI.debugShowOverlay and uiState.phase == "playing" and cameraRef then
         local camNode = cameraRef:GetNode()
         local camPos = camNode.worldPosition
         local PlayerAnim = require("PlayerAnim")
@@ -801,14 +811,16 @@ function GameUI._DrawPotionCD(ctx, sw, sh)
     if not cd then return end
 
     local scale = sh / 720
-    local uiSysScale = UI.GetScale()
+    local _, _, dpr = _GetScreenMetrics()
+    local uiSysScale = math.max(UI.GetScale(), 0.001)
+    local toRaw = uiSysScale / dpr
     -- 药瓶位置与 _CreatePotions 保持一致
-    -- 物理像素 = UI base pixels × uiSysScale = (X * scale / uiSysScale) * uiSysScale = X * scale
-    local btnSize = math.max(30 * uiSysScale, 38 * scale)  -- 匹配 potionSize (含下限)
-    local gap = math.max(4 * uiSysScale, 6 * scale)
-    local baseLeft = (72 + 52 + 10) * scale  -- 物理像素 (匹配 potionLeft)
+    -- UI base pixels → NanoVG logical pixels，需要乘 UI scale / DPR。
+    local btnSize = math.max(30 * toRaw, 38 * scale)  -- 匹配 potionSize (含下限)
+    local gap = math.max(4 * toRaw, 6 * scale)
+    local baseLeft = (72 + 52 + 10) * scale
     -- 球心距底 = 105*scale, 药瓶垂直居中于球心
-    local baseBottom = 105 * scale - btnSize / 2  -- 药瓶底边距屏幕底 (物理像素)
+    local baseBottom = 105 * scale - btnSize / 2
 
     local potions = {
         { ratio = cd.hp, idx = 0 },
@@ -852,7 +864,8 @@ end
 --- 内部：根据面板状态同步 scene.timeScale（真正全局暂停）
 local function _SyncPauseState()
     if not sceneRef then return end
-    if mapState.fullMapOpen or uiState.charPanelOpen or uiState.systemPanelOpen or uiState.teleportPanelOpen or uiState.npcPanelOpen then
+    if mapState.fullMapOpen or uiState.charPanelOpen or uiState.systemPanelOpen
+        or uiState.teleportPanelOpen or uiState.npcPanelOpen or uiState.dialogueActive then
         sceneRef.timeScale = 0
     else
         sceneRef.timeScale = 1
@@ -895,8 +908,17 @@ end
 function GameUI.ToggleFullMap()
     if mapState.fullMapOpen then
         GameUI._CloseFullMap()
+        return true
+    end
+
+    -- 任何其他模态界面打开时，不允许 M 键把全图压到其上方。
+    -- 关闭当前模态后，玩家可以再主动打开全图。
+    if uiState.charPanelOpen or uiState.systemPanelOpen or uiState.teleportPanelOpen
+        or uiState.npcPanelOpen or uiState.dialogueActive then
+        return false
     else
         GameUI._OpenFullMap()
+        return true
     end
 end
 
@@ -921,12 +943,6 @@ function GameUI._DrawEnemyHealthBars(ctx, sw, sh)
     local Combat = require("scripts.Combat")
     local enemies = Combat.enemies
     if not enemies or #enemies == 0 then return end
-
-    -- [DEBUG] 一次性打印确认函数进入
-    if not _hpBarDebugPrinted then
-        _hpBarDebugPrinted = true
-        print("[DEBUG] _DrawEnemyHealthBars: enemies=" .. #enemies .. " fontId=" .. nvgFontId)
-    end
 
     local scale = sh / 720
     local barW = math.floor(80 * scale)
@@ -1249,8 +1265,11 @@ function GameUI.PlayDialogue(lines, onDone)
 
     uiState.dialogueActive = true
     uiState.dialogueLines = lines
-    uiState.dialogueIndex = 0
+    -- 首句已经在下面立即显示，因此索引从 1 开始；否则第一次点击会重复首句。
+    uiState.dialogueIndex = 1
     uiState.dialogueOnDone = onDone
+
+    _SyncPauseState()
 
     GameUI._ShowDialogueLine(lines[1])
 end
@@ -1282,7 +1301,7 @@ function GameUI._ShowDialogueLine(line)
                 borderColor = {150, 120, 70, 180},
                 padding = 18,
                 justifyContent = "flex-start",
-                onPointerUp = function()
+                onClick = function()
                     GameUI._AdvanceDialogue()
                 end,
                 children = {
@@ -1343,6 +1362,7 @@ function GameUI._EndDialogue()
     uiState.dialogueIndex = 0
     local onDone = uiState.dialogueOnDone
     uiState.dialogueOnDone = nil
+    _SyncPauseState()
     if onDone then onDone() end
 end
 
@@ -1964,7 +1984,7 @@ function GameUI.ShowSaveSlots(slots, callbacks)
             } or {
                 { x = 0, y = 5, blur = 12, spread = 0, color = {0, 0, 0, 85} },
             },
-            onPointerUp = function()
+            onClick = function()
                 SelectSlot(index)
             end,
             children = infoChildren,
@@ -2311,6 +2331,9 @@ function GameUI.ShowGameHUD(player)
     uiState.player = player
     uiState.charPanelOpen = false
     uiState.systemPanelOpen = false
+    -- HUD 重建会替换小地图/全图的 widget 实例；旧位置缓存不能复用。
+    uiState.miniMapVisuals = {}
+    uiState.fullMapVisuals = {}
 
     GameHUD.Initialize()
     -- 清除旧的 VirtualControls 组件（防止多次调用 Create 导致摇杆重复注册）
@@ -2323,7 +2346,7 @@ function GameUI.ShowGameHUD(player)
     end
 
     -- ════════════════════════════════════════════════════════════════
-    -- 全屏地图（纯 UI 实现 - 清晰的竞技场俯瞰图）
+    -- 全屏地图（纯 UI 实现 - 当前区域俯瞰图）
     -- ════════════════════════════════════════════════════════════════
 
     -- 玩家标记（大号绿色方块 + 白色边框）
@@ -2340,7 +2363,62 @@ function GameUI.ShowGameHUD(player)
         position = "absolute",
         width = 3, height = 16,
         backgroundColor = {50, 255, 100, 220},
+        transformOrigin = "bottom",
     }
+
+    -- 安全区与 NPC 标记。尺寸/位置在 _UpdateFullMapUI 中按世界坐标换算。
+    local fullMapSafeZone = UI.Panel {
+        position = "absolute",
+        backgroundColor = {45, 125, 220, 48},
+        borderWidth = 1,
+        borderColor = {90, 185, 255, 210},
+        pointerEvents = "none",
+    }
+    local fullMapStewardDot = UI.Panel {
+        position = "absolute", width = 8, height = 8,
+        borderRadius = 4,
+        backgroundColor = {225, 188, 72, 255},
+        borderWidth = 1, borderColor = {255, 240, 180, 230},
+        pointerEvents = "none",
+    }
+    local fullMapMerchantDot = UI.Panel {
+        position = "absolute", width = 8, height = 8,
+        borderRadius = 4,
+        backgroundColor = {70, 145, 235, 255},
+        borderWidth = 1, borderColor = {185, 220, 255, 230},
+        pointerEvents = "none",
+    }
+
+    -- 每张地图目前有三个策划地标；复用固定 widget，切图时只更新文字与坐标，
+    -- 避免像旧 HUD 一样在每帧重建控件。
+    local fullMapLandmarks = {}
+    for i = 1, 3 do
+        local label = UI.Label {
+            position = "absolute",
+            left = 12, top = 0,
+            text = "",
+            fontSize = 10,
+            fontColor = {235, 218, 164, 235},
+            pointerEvents = "none",
+        }
+        local root = UI.Panel {
+            position = "absolute",
+            width = 100, height = 18,
+            pointerEvents = "none",
+            children = {
+                UI.Panel {
+                    position = "absolute", left = 0, top = 5,
+                    width = 8, height = 8,
+                    backgroundColor = {225, 166, 68, 245},
+                    borderWidth = 1,
+                    borderColor = {255, 232, 176, 230},
+                    pointerEvents = "none",
+                },
+                label,
+            },
+        }
+        table.insert(fullMapLandmarks, { root = root, label = label })
+    end
 
     -- 网格线（将竞技场分为 4x4 格）── 水平 3 条 + 垂直 3 条
     local fmGridLines = {}
@@ -2370,13 +2448,16 @@ function GameUI.ShowGameHUD(player)
     end
 
     -- 全图子元素组合
-    local fmChildren = {}
+    local fmChildren = { fullMapSafeZone }
     for _, g in ipairs(fmGridLines) do table.insert(fmChildren, g) end
     for _, c in ipairs(fmCoordLabels) do table.insert(fmChildren, c) end
+    for _, landmark in ipairs(fullMapLandmarks) do table.insert(fmChildren, landmark.root) end
+    table.insert(fmChildren, fullMapStewardDot)
+    table.insert(fmChildren, fullMapMerchantDot)
     table.insert(fmChildren, fullMapPlayerDir)
     table.insert(fmChildren, fullMapPlayerDot)
 
-    -- 全图地图区域（居中正方形，竞技场填充色）
+    -- 全图地图区域（居中正方形，颜色由当前地图配置更新）
     -- 不用 position="absolute"，让父容器 flexbox 居中
     local fullMapArea = UI.Panel {
         id = "fullmap_area",
@@ -2390,7 +2471,7 @@ function GameUI.ShowGameHUD(player)
 
     -- 标题
     local fullMapTitle = UI.Label {
-        text = "竞技场地图 (120m × 120m)",
+        text = "大陆地图 (" .. MapZone.ARENA_SIZE .. "m × " .. MapZone.ARENA_SIZE .. "m)",
         fontSize = 15,
         fontColor = {218, 220, 218, 240},
         fontWeight = "bold",
@@ -2400,7 +2481,7 @@ function GameUI.ShowGameHUD(player)
     -- 图例
     local fullMapLegend = UI.Panel {
         flexDirection = "row",
-        gap = 20,
+        gap = 14,
         marginTop = 6,
         children = {
             UI.Panel {
@@ -2413,8 +2494,15 @@ function GameUI.ShowGameHUD(player)
             UI.Panel {
                 flexDirection = "row", alignItems = "center", gap = 4,
                 children = {
-                    UI.Panel { width = 14, height = 14, backgroundColor = {30, 32, 34, 245}, borderWidth = 2, borderColor = {126, 130, 134, 245} },
-                    UI.Label { text = "竞技场范围", fontSize = 11, fontColor = {200, 200, 190, 220} },
+                    UI.Panel { width = 12, height = 12, backgroundColor = {45, 125, 220, 70}, borderWidth = 1, borderColor = {90, 185, 255, 220} },
+                    UI.Label { text = "安全区 / NPC", fontSize = 11, fontColor = {200, 200, 190, 220} },
+                },
+            },
+            UI.Panel {
+                flexDirection = "row", alignItems = "center", gap = 4,
+                children = {
+                    UI.Panel { width = 9, height = 9, backgroundColor = {225, 166, 68, 245}, borderWidth = 1, borderColor = {255, 232, 176, 230} },
+                    UI.Label { text = "地标", fontSize = 11, fontColor = {200, 200, 190, 220} },
                 },
             },
         },
@@ -2436,7 +2524,7 @@ function GameUI.ShowGameHUD(player)
         justifyContent = "center",
         alignItems = "center",
         visible = false,
-        onPointerUp = function()
+        onClick = function()
             GameUI._CloseFullMap()
         end,
         children = {
@@ -2452,6 +2540,11 @@ function GameUI.ShowGameHUD(player)
     uiState.refs.fullMapArea = fullMapArea
     uiState.refs.fullMapPlayerDot = fullMapPlayerDot
     uiState.refs.fullMapPlayerDir = fullMapPlayerDir
+    uiState.refs.fullMapSafeZone = fullMapSafeZone
+    uiState.refs.fullMapStewardDot = fullMapStewardDot
+    uiState.refs.fullMapMerchantDot = fullMapMerchantDot
+    uiState.refs.fullMapLandmarks = fullMapLandmarks
+    uiState.refs.fullMapTitle = fullMapTitle
     uiState.refs.fullMapGridLines = fmGridLines
     uiState.refs.fullMapCoordLabels = fmCoordLabels
 
@@ -2531,14 +2624,10 @@ function GameUI.UpdateQuestTracker(quest, progress, count)
         }
     else
         local done = progress >= count
-        -- 根据章节推导目标地图名（用于引导玩家）
-        local chapterMapNames = {
-            ["第一幕 · 边城烽火"] = "比奇省",
-            ["第二幕 · 黄沙盟重"] = "盟重土城",
-            ["第三幕 · 怒海寻踪"] = "水上城市",
-            ["终章 · 屠龙之战"] = "祖玛寺庙",
-        }
-        local mapName = chapterMapNames[quest.chapter] or ""
+        -- 使用任务的唯一地图路由，不能按章节硬编码：终章前段仍在沃玛寺庙。
+        local targetMapId = Quest.GetTargetMapId(quest)
+        local targetMap = targetMapId and MapZone.GetDef(targetMapId) or nil
+        local mapName = targetMap and targetMap.name or ""
         content = UI.Panel {
             flexDirection = "column",
             backgroundColor = {16, 14, 12, 215},
@@ -2601,15 +2690,18 @@ function GameUI.ShowTeleportPanel(maps)
     local rows = {}
     for _, m in ipairs(maps) do
         local isCurrent = m.current
+        local locked = m.locked == true
         table.insert(rows, UI.Panel {
             flexDirection = "row", alignItems = "center", justifyContent = "space-between",
             width = "100%",
             paddingHorizontal = 10, paddingVertical = 8,
-            backgroundColor = isCurrent and {40, 50, 40, 210} or {24, 22, 18, 200},
+            backgroundColor = isCurrent and {40, 50, 40, 210}
+                or locked and {28, 25, 24, 190}
+                or {24, 22, 18, 200},
             borderRadius = 6,
             borderWidth = 1,
             borderColor = isCurrent and {140, 200, 140, 170} or {70, 66, 56, 120},
-            onPointerUp = isCurrent and nil or function()
+            onClick = (isCurrent or locked) and nil or function()
                 GameUI.HideTeleportPanel()
                 if GameUI.onTeleportSelected then
                     GameUI.onTeleportSelected(m.id)
@@ -2617,12 +2709,16 @@ function GameUI.ShowTeleportPanel(maps)
             end,
             children = {
                 UI.Label {
-                    text = m.name .. (isCurrent and "（当前）" or ""),
-                    fontSize = 14, fontColor = isCurrent and {180, 230, 180, 255} or {220, 215, 200, 240},
+                    text = m.name .. (isCurrent and "（当前）" or locked and "（未解锁）" or ""),
+                    fontSize = 14,
+                    fontColor = isCurrent and {180, 230, 180, 255}
+                        or locked and {130, 126, 120, 180}
+                        or {220, 215, 200, 240},
                     fontWeight = isCurrent and "bold" or "normal",
                 },
                 UI.Label {
-                    text = "Lv." .. m.minLevel .. "-" .. m.maxLevel,
+                    text = locked and ("需要 Lv." .. m.minLevel)
+                        or ("Lv." .. m.minLevel .. "-" .. m.maxLevel),
                     fontSize = 11, fontColor = {160, 155, 140, 180},
                 },
             },
@@ -2643,7 +2739,7 @@ function GameUI.ShowTeleportPanel(maps)
                 padding = 16, alignItems = "center",
                 children = {
                     UI.Label { text = "传送阵 · 选择地图", fontSize = 18, fontColor = {234, 236, 234, 255}, fontWeight = "bold", marginBottom = 4 },
-                    UI.Label { text = "低等级地图可越级进入，量力而行", fontSize = 10, fontColor = {150, 150, 145, 160}, marginBottom = 12 },
+                    UI.Label { text = "达到地图等级后方可使用管家传送", fontSize = 10, fontColor = {150, 150, 145, 180}, marginBottom = 12 },
                     UI.Panel { width = "100%", gap = 6, children = rows },
                     UI.Button {
                         text = "取消", variant = "outline",
@@ -2730,12 +2826,17 @@ end
 --- 支持多标签页：tabs = { {label=..., build=function() return rows end}, ... }
 ---@param title string 标题
 ---@param tabs table[] 标签页列表（每项含 label 和 build 函数返回 rows）
-function GameUI.ShowNPCPanel(title, tabs)
+function GameUI.ShowNPCPanel(title, tabs, selectedTab)
     GameUI.HideNPCPanel()
+    if type(tabs) ~= "table" or #tabs == 0 then
+        GameUI.ShowToast("暂无可用服务")
+        return
+    end
     uiState.npcPanelOpen = true
     _SyncPauseState()
 
-    local activeTab = 1
+    local requestedTab = math.floor(tonumber(selectedTab) or 1)
+    local activeTab = math.max(1, math.min(#tabs, requestedTab))
 
     -- 构建行列表
     local function buildRows(rows)
@@ -2779,7 +2880,7 @@ function GameUI.ShowNPCPanel(title, tabs)
                         if activeTab ~= i then
                             activeTab = i
                             GameUI.HideNPCPanel()
-                            GameUI.ShowNPCPanel(title, tabs)
+                            GameUI.ShowNPCPanel(title, tabs, activeTab)
                         end
                     end,
                     children = {
@@ -3013,7 +3114,7 @@ function GameUI._CreateSkillBar(player)
                     backgroundColor = {220, 210, 190, 255},
                 } or nil,
             },
-            onPointerUp = function()
+            onClick = function()
                 if not _IsSkillUsable(player, skill) then return end
                 if GameUI.onSkillPressed then
                     GameUI.onSkillPressed(i, skill)
@@ -3046,17 +3147,18 @@ end
 -- 左下角 - 药瓶快捷键（球的右侧偏移）
 -- ============================================================================
 function GameUI._CreatePotions(player)
+    -- 新 HUD 会创建新遮罩实例，清空旧实例的视觉缓存。
+    uiState.potionCooldownVisuals = {}
     local hpCount = Inventory.GetPotionCount("hp")
     local mpCount = Inventory.GetPotionCount("mp")
 
-    -- 正确的坐标转换：NanoVG 设计单位 → UI base pixels
-    -- NanoVG 使用 physScale = graphics.height / 720 (物理像素)
-    -- UI 系统使用 UI.GetScale() 作为内部缩放 (base pixels × scale = 物理像素)
-    -- 转换系数: toUI = physScale / uiSysScale
-    local physH = graphics:GetHeight()
-    local physScale = physH / 720               -- NanoVG 缩放系数
-    local uiSysScale = UI.GetScale()            -- UI 系统缩放系数
-    local toUI = physScale / uiSysScale         -- NanoVG 设计单位 → UI base pixels
+    -- 正确的坐标转换：NanoVG 设计单位 → UI base pixels。
+    -- raw NanoVG 以逻辑像素绘制（每个逻辑像素对应 dpr 个物理像素），
+    -- UI 组件以 UI.GetScale() 放大到物理像素，因此需要补上 dpr。
+    local _, _, dpr, _, logicalH = _GetScreenMetrics()
+    local rawScale = logicalH / 720
+    local uiSysScale = math.max(UI.GetScale(), 0.001)
+    local toUI = rawScale * dpr / uiSysScale
 
     -- 血量球参数 (来自 _DrawOrbs): cx=72, r=52, cy_from_bottom=105 (NanoVG 设计单位)
     -- 药瓶放在球右边缘右侧
@@ -3104,7 +3206,7 @@ function GameUI._CreatePotions(player)
             alignItems = "center",
             justifyContent = "flex-start",
             gap = math.max(1, math.floor(1 * toUI)),
-            onPointerUp = function()
+            onClick = function()
                 if kind == "hp" then
                     if GameUI.onUseHpPotion then GameUI.onUseHpPotion() end
                 else
@@ -3175,7 +3277,7 @@ function GameUI._CreateMiniMapArea(player)
 
     local mapSize = 72  -- 稍大一点，更清晰
     local mapRadius = mapSize / 2
-    -- 竞技场在小地图中的区域：留圆边距后居中放一个正方形
+    -- 当前地图在小地图中的区域：留圆边距后居中放一个正方形
     local arenaPad = 10  -- 圆形外边距
     local arenaDrawSize = mapSize - arenaPad * 2  -- 竞技场方块的像素尺寸
 
@@ -3193,6 +3295,27 @@ function GameUI._CreateMiniMapArea(player)
         position = "absolute",
         width = 2, height = 8,
         backgroundColor = {50, 255, 100, 200},
+        transformOrigin = "bottom",
+    }
+
+    local miniSafeZone = UI.Panel {
+        position = "absolute",
+        backgroundColor = {45, 125, 220, 55},
+        borderWidth = 1,
+        borderColor = {90, 185, 255, 190},
+        pointerEvents = "none",
+    }
+    local miniStewardDot = UI.Panel {
+        position = "absolute", width = 3, height = 3,
+        borderRadius = 2,
+        backgroundColor = {235, 195, 72, 255},
+        pointerEvents = "none",
+    }
+    local miniMerchantDot = UI.Panel {
+        position = "absolute", width = 3, height = 3,
+        borderRadius = 2,
+        backgroundColor = {75, 150, 240, 255},
+        pointerEvents = "none",
     }
 
     -- ── 网格线（将竞技场分为 4 象限）──
@@ -3209,7 +3332,7 @@ function GameUI._CreateMiniMapArea(player)
         backgroundColor = {120, 110, 60, 80},
     }
 
-    -- ── 竞技场区域（实心方块，包含玩家和网格，overflow裁剪）──
+    -- ── 地图区域（实心方块，包含玩家和网格，overflow裁剪）──
     local arenaBlock = UI.Panel {
         position = "absolute",
         left = arenaPad, top = arenaPad,
@@ -3218,7 +3341,7 @@ function GameUI._CreateMiniMapArea(player)
         borderWidth = 2,
         borderColor = {126, 130, 134, 245},  -- 银灰粗边框
         overflow = "hidden",  -- 裁剪超出边界的玩家标记
-        children = { gridH, gridV, playerDir, playerDot },
+        children = { miniSafeZone, gridH, gridV, miniStewardDot, miniMerchantDot, playerDir, playerDot },
     }
 
     -- ── 指北标 "N"（固定在圆形顶部）──
@@ -3243,7 +3366,7 @@ function GameUI._CreateMiniMapArea(player)
         borderWidth = 2,
         borderColor = {126, 130, 134, 225},
         overflow = "hidden",
-        onPointerUp = function()
+        onClick = function()
             GameUI._OpenFullMap()
         end,
         children = mapChildren,
@@ -3253,6 +3376,10 @@ function GameUI._CreateMiniMapArea(player)
     uiState.refs.miniMapContainer = miniMap
     uiState.refs.miniMapPlayerDot = playerDot
     uiState.refs.miniMapPlayerDir = playerDir
+    uiState.refs.miniMapSafeZone = miniSafeZone
+    uiState.refs.miniMapStewardDot = miniStewardDot
+    uiState.refs.miniMapMerchantDot = miniMerchantDot
+    uiState.refs.miniMapArenaBlock = arenaBlock
     uiState.refs.miniMapNorthLabel = northLabel
     uiState.refs.miniMapSize = mapSize
     uiState.refs.miniMapArenaPad = arenaPad
@@ -3314,7 +3441,7 @@ function GameUI._CreateMiniMapArea(player)
             backgroundColor = bgColor,
             borderWidth = 1,
             borderColor = borderColor,
-            onPointerUp = onTap,
+            onClick = onTap,
             children = {
                 UI.Label {
                     text = label,
@@ -3406,7 +3533,7 @@ local function _BuildSkillTabContent(player)
         table.insert(skillRows, UI.Panel {
             width = "100%", flexDirection = "row", alignItems = "center",
             paddingVertical = 8, paddingHorizontal = 6, gap = 10,
-            onPointerUp = not locked and function()
+            onClick = not locked and function()
                 if equippedSlot > 0 then
                     player.equippedSkills[equippedSlot] = nil
                 else
@@ -3494,7 +3621,7 @@ local function _BuildSkillTabContent(player)
     end
 
     return UI.Panel {
-        width = "100%", flex = 1, flexShrink = 1, overflow = "scroll",
+        width = "100%",
         children = skillRows,
     }
 end
@@ -3515,6 +3642,8 @@ local function _BuildEquipTabContent(player)
 
     -- 装备详情弹窗
     local function showItemDetail(item, slotKey)
+        -- 捕获详情对应的实例，避免按钮闭包依赖不存在的外层局部变量。
+        local capturedItem = item
         local rarity = RARITY[item.rarity]
         local rarityClr = rarity and rarity.color or {200, 200, 200}
         local nameColor = {rarityClr[1], rarityClr[2], rarityClr[3], 255}
@@ -3547,7 +3676,7 @@ local function _BuildEquipTabContent(player)
             position = "absolute", width = "100%", height = "100%",
             justifyContent = "center", alignItems = "center",
             backgroundColor = {0, 0, 0, 180},
-            onPointerUp = function()
+            onClick = function()
                 -- 关闭弹窗：刷新面板
                 refreshPanel()
             end,
@@ -3605,12 +3734,25 @@ local function _BuildEquipTabContent(player)
                                     onClick = function()
                                         -- 传说品质二次确认
                                         if capturedItem.rarity == "LEGENDARY" then
-                                            GameUI.ShowToast("传说装备分解需谨慎，再次点击确认")
-                                            -- 简化：直接分解，不实现二次弹窗（保持流程顺畅）
+                                            UI.Modal.Confirm {
+                                                title = "确认分解传说装备",
+                                                message = "【" .. capturedItem.name .. "】将永久消失，确定继续吗？",
+                                                confirmText = "确认分解",
+                                                cancelText = "保留装备",
+                                                onConfirm = function()
+                                                    local ok, res = Inventory.RecycleItem(capturedItem)
+                                                    if ok then
+                                                        GameUI.ShowToast("已分解 +" .. res.gold .. "金 +" .. res.stones .. "石")
+                                                        refreshPanel()
+                                                    else
+                                                        GameUI.ShowToast("分解失败")
+                                                    end
+                                                end,
+                                            }
+                                            return
                                         end
                                         local ok, res = Inventory.RecycleItem(capturedItem)
                                         if ok then
-                                            Inventory.RemoveEquipped(capturedSlot)
                                             GameUI.ShowToast("已分解 +" .. res.gold .. "金 +" .. res.stones .. "石")
                                         end
                                         refreshPanel()
@@ -3670,7 +3812,7 @@ local function _BuildEquipTabContent(player)
                 backgroundColor = {80, 20, 20, 200},
                 borderRadius = 8,
                 justifyContent = "center", alignItems = "center",
-                onPointerUp = function()
+                onClick = function()
                     Inventory.UnequipSlot(capturedSlot)
                     refreshPanel()
                 end,
@@ -3687,7 +3829,7 @@ local function _BuildEquipTabContent(player)
             justifyContent = "center", alignItems = "center",
             paddingHorizontal = 3, paddingVertical = 3,
             -- 点击装备区域 → 弹出详情
-            onPointerUp = capturedItem and function()
+            onClick = capturedItem and function()
                 showItemDetail(capturedItem, capturedSlot)
             end or nil,
             children = {
@@ -3789,7 +3931,7 @@ local function _BuildEquipTabContent(player)
     }
 
     return UI.Panel {
-        width = "100%", flexShrink = 1, overflow = "scroll",
+        width = "100%",
         children = {
             -- 提示
             UI.Label {
@@ -3802,6 +3944,159 @@ local function _BuildEquipTabContent(player)
                 flexDirection = "row", width = "100%",
                 justifyContent = "space-between", alignItems = "flex-start",
                 children = { leftCol, centerCol, rightCol },
+            },
+        },
+    }
+end
+
+--- 构建锻造 Tab 内容
+local function _BuildForgeTabContent(player)
+    local inv = Inventory.playerData
+
+    local function isInBag(item)
+        for _, bagItem in ipairs(inv.bag) do
+            if bagItem == item then return true end
+        end
+        return false
+    end
+
+    -- 清理旧 UI 闭包留下的失效引用，并确保最多只有三件不同实例。
+    local validSelection = {}
+    for _, selected in ipairs(forgeSelection_) do
+        if isInBag(selected) and #validSelection < 3 then
+            local duplicate = false
+            for _, kept in ipairs(validSelection) do
+                if kept == selected then duplicate = true; break end
+            end
+            if not duplicate then table.insert(validSelection, selected) end
+        end
+    end
+    forgeSelection_ = validSelection
+
+    local function refresh()
+        GameUI.HideCharacterPanel()
+        GameUI.ShowCharacterPanel(player, "forge")
+    end
+
+    local function selectionIndex(item)
+        for index, selected in ipairs(forgeSelection_) do
+            if selected == item then return index end
+        end
+        return nil
+    end
+
+    local function toggleMaterial(item)
+        local selectedIndex = selectionIndex(item)
+        if selectedIndex then
+            table.remove(forgeSelection_, selectedIndex)
+        elseif #forgeSelection_ < 3 then
+            table.insert(forgeSelection_, item)
+        else
+            GameUI.ShowToast("最多选择 3 件材料")
+            return
+        end
+        refresh()
+    end
+
+    local pick = (#forgeSelection_ == 3) and Inventory.Enhance.ForgePick(forgeSelection_) or nil
+    local selectionText = "已选 " .. #forgeSelection_ .. "/3"
+    local selectionHint = "选择 3 件同品质、同部位装备"
+    if pick and pick.ok then
+        selectionHint = "可锻造为「" .. Inventory.GetRarityName(pick.targetRarity) .. "」 · 费用 "
+            .. Inventory.Enhance.ForgeCost(pick.targetRarity) .. " 金币"
+    elseif pick and not pick.ok then
+        selectionHint = pick.reason or selectionHint
+    end
+
+    local materialRows = {}
+    for _, item in ipairs(inv.bag) do
+        local selectedIndex = selectionIndex(item)
+        local rarity = Inventory.RARITY[item.rarity]
+        local rarityColor = rarity and rarity.color or {180, 180, 180, 220}
+        local stats = string.format("攻%d 防%d 血%d", item.atk or 0, item.def or 0, item.hp or 0)
+        local enhanceTag = (item.enhance or 0) > 0 and (" +" .. item.enhance) or ""
+        table.insert(materialRows, UI.Button {
+            width = "100%", minHeight = 44, flexShrink = 0,
+            paddingHorizontal = 10, paddingVertical = 6,
+            backgroundColor = selectedIndex and {68, 54, 24, 245} or {26, 23, 19, 225},
+            borderRadius = 6, borderWidth = selectedIndex and 2 or 1,
+            borderColor = selectedIndex and {255, 205, 90, 235} or {72, 68, 58, 145},
+            onClick = function() toggleMaterial(item) end,
+            children = {
+                UI.Label {
+                    text = selectedIndex and ("[" .. selectedIndex .. "] ") or "    ",
+                    width = 24, fontSize = 12, fontWeight = "bold",
+                    fontColor = {255, 215, 100, 255},
+                },
+                UI.Panel {
+                    flex = 1, alignItems = "flex-start",
+                    children = {
+                        UI.Label {
+                            text = "[" .. Inventory.GetRarityName(item.rarity) .. "] " .. item.name .. enhanceTag,
+                            fontSize = 12, fontWeight = "bold",
+                            fontColor = {rarityColor[1], rarityColor[2], rarityColor[3], 245},
+                        },
+                        UI.Label { text = stats, fontSize = 10, fontColor = {175, 170, 155, 190} },
+                    },
+                },
+            },
+        })
+    end
+
+    local forgeButton = UI.Button {
+        text = "开始锻造",
+        width = 130, height = 38,
+        disabled = not (pick and pick.ok),
+        onClick = function()
+            if #forgeSelection_ ~= 3 then
+                GameUI.ShowToast("请先选择 3 件材料")
+                return
+            end
+            local materials = { forgeSelection_[1], forgeSelection_[2], forgeSelection_[3] }
+            local ok, reason, targetRarity, resultItem = Inventory.ForgeItems(materials)
+            if not ok then
+                GameUI.ShowToast(reason or "锻造失败")
+                refresh()
+                return
+            end
+            forgeSelection_ = {}
+            local enhanceTag = resultItem and (resultItem.enhance or 0) > 0 and (" +" .. resultItem.enhance) or ""
+            GameUI.ShowToast("锻造成功：" .. Inventory.GetRarityName(targetRarity)
+                .. " · " .. (resultItem and resultItem.name or "新装备") .. enhanceTag)
+            refresh()
+        end,
+    }
+
+    return UI.Panel {
+        width = "100%",
+        children = {
+            UI.Panel {
+                width = "100%", alignItems = "center", marginBottom = 8,
+                children = {
+                    UI.Label { text = "锻造台", fontSize = 16, fontWeight = "bold", fontColor = {235, 205, 130, 245} },
+                    UI.Label { text = selectionText, fontSize = 13, fontColor = {226, 228, 226, 240}, marginTop = 3 },
+                    UI.Label { text = selectionHint, fontSize = 10, fontColor = {190, 184, 168, 205}, textAlign = "center", marginTop = 3 },
+                },
+            },
+            UI.Panel { width = "100%", height = 1, backgroundColor = {90, 76, 48, 135}, marginBottom = 8 },
+            (#materialRows == 0) and UI.Label {
+                text = "背包中暂无可用装备材料",
+                fontSize = 12, fontColor = {160, 156, 145, 190}, textAlign = "center", marginBottom = 10,
+            } or UI.Panel {
+                width = "100%", gap = 6, children = materialRows,
+            },
+            UI.Panel {
+                flexDirection = "row", justifyContent = "center", gap = 8, marginTop = 10,
+                children = {
+                    forgeButton,
+                    UI.Button {
+                        text = "清空选择", variant = "outline", width = 100, height = 38,
+                        onClick = function()
+                            forgeSelection_ = {}
+                            refresh()
+                        end,
+                    },
+                },
             },
         },
     }
@@ -3862,7 +4157,7 @@ local function _BuildBagTabContent(player)
                         UI.Panel {
                             paddingHorizontal = 4, paddingVertical = 1,
                             backgroundColor = {28, 40, 28, 180}, borderRadius = 3,
-                            onPointerUp = function()
+                            onClick = function()
                                 Inventory.EquipItem(capturedItem, player.classId)
                                 refreshPanel()
                             end,
@@ -3871,13 +4166,30 @@ local function _BuildBagTabContent(player)
                         UI.Panel {
                             paddingHorizontal = 4, paddingVertical = 1,
                             backgroundColor = {40, 24, 20, 180}, borderRadius = 3,
-                            onPointerUp = function()
-                                local ok, res = Inventory.RecycleItem(capturedItem)
-                                if ok then
-                                    Inventory.RemoveBagItem(i)
-                                    GameUI.ShowToast("已分解 +" .. res.gold .. "金 +" .. res.stones .. "石")
+                            onClick = function()
+                                local function recycleCapturedItem()
+                                    local ok, res, reason = Inventory.RecycleItem(capturedItem)
+                                    if ok then
+                                        GameUI.ShowToast("已分解 +" .. res.gold .. "金 +" .. res.stones .. "石")
+                                    else
+                                        GameUI.ShowToast(reason or "分解失败")
+                                    end
+                                    refreshPanel()
                                 end
-                                refreshPanel()
+
+                                -- 背包格子必须和装备详情页遵守同一条不可逆操作规则，
+                                -- 否则玩家可从这里绕过传说装备二次确认。
+                                if capturedItem.rarity == "LEGENDARY" then
+                                    UI.Modal.Confirm {
+                                        title = "确认分解传说装备",
+                                        message = "【" .. capturedItem.name .. "】分解后无法恢复，确定继续吗？",
+                                        confirmText = "确认分解",
+                                        cancelText = "保留装备",
+                                        onConfirm = recycleCapturedItem,
+                                    }
+                                else
+                                    recycleCapturedItem()
+                                end
                             end,
                             children = { UI.Label { text = "分解", fontSize = 8, fontColor = {230, 120, 90, 220} } },
                         },
@@ -3888,7 +4200,7 @@ local function _BuildBagTabContent(player)
     end
 
     return UI.Panel {
-        width = "100%", flexShrink = 1, overflow = "scroll",
+        width = "100%",
         children = {
             -- 金币行
             UI.Panel {
@@ -3910,7 +4222,7 @@ local function _BuildBagTabContent(player)
                         paddingHorizontal = 8, paddingVertical = 5,
                         backgroundColor = {60, 18, 18, 180}, borderRadius = 8,
                         borderWidth = 1, borderColor = {160, 60, 50, 150},
-                        onPointerUp = function()
+                        onClick = function()
                             local ok, msg = Inventory.BuyPotion("hp")
                             if ok then
                                 GameUI.UpdatePotionCount("hp", Inventory.GetPotionCount("hp"))
@@ -3929,7 +4241,7 @@ local function _BuildBagTabContent(player)
                         paddingHorizontal = 8, paddingVertical = 5,
                         backgroundColor = {18, 18, 60, 180}, borderRadius = 8,
                         borderWidth = 1, borderColor = {55, 100, 170, 150},
-                        onPointerUp = function()
+                        onClick = function()
                             local ok, msg = Inventory.BuyPotion("mp")
                             if ok then
                                 GameUI.UpdatePotionCount("mp", Inventory.GetPotionCount("mp"))
@@ -3976,7 +4288,7 @@ function GameUI.ShowCharacterPanel(player, tab)
             borderWidth = active and 1.5 or 0,
             borderColor = {126, 130, 134, 180},
             justifyContent = "center", alignItems = "center",
-            onPointerUp = function()
+            onClick = function()
                 if activeTab ~= tabId then
                     GameUI.HideCharacterPanel()
                     GameUI.ShowCharacterPanel(player, tabId)
@@ -3999,6 +4311,8 @@ function GameUI.ShowCharacterPanel(player, tab)
         content = _BuildEquipTabContent(player)
     elseif activeTab == "skill" then
         content = _BuildSkillTabContent(player)
+    elseif activeTab == "forge" then
+        content = _BuildForgeTabContent(player)
     else
         content = _BuildBagTabContent(player)
     end
@@ -4010,7 +4324,10 @@ function GameUI.ShowCharacterPanel(player, tab)
         justifyContent = "center", alignItems = "center",
         children = {
             UI.Panel {
-                width = 320, height = 520,
+                -- 项目为横屏。使用确定的百分比高度 + 上限，既能让
+                -- ScrollView 正确分配空间，也避免 360~430 逻辑像素高的手机裁切。
+                width = "92%", maxWidth = 430,
+                height = "90%", maxHeight = 540,
                 backgroundColor = {16, 12, 10, 248},
                 borderRadius = 10, borderWidth = 2,
                 borderColor = {124, 126, 130, 198},
@@ -4032,12 +4349,20 @@ function GameUI.ShowCharacterPanel(player, tab)
                             makeTab("装备", "equip"),
                             makeTab("技能", "skill"),
                             makeTab("背包", "bag"),
+                            makeTab("锻造", "forge"),
                         },
                     },
                     -- 分隔线
                     UI.Panel { width = "100%", height = 1, backgroundColor = {72, 74, 76, 120}, marginBottom = 10 },
-                    -- 内容区
-                    content,
+                    -- 内容区必须使用真正的 ScrollView；Panel 的 overflow="scroll"
+                    -- 不是可滚动容器，之前小屏会直接裁掉装备格和锻造按钮。
+                    UI.ScrollView {
+                        width = "100%",
+                        flexGrow = 1,
+                        flexBasis = 0,
+                        showScrollbar = true,
+                        children = { content },
+                    },
                     -- 关闭按钮
                     UI.Panel {
                         width = "100%", alignItems = "center", marginTop = 12,
@@ -4087,7 +4412,30 @@ end
 --- 刷新技能栏按钮（面板关闭后重建HUD以反映新配置）
 function GameUI.RefreshSkillButtons(player)
     if not player then return end
-    GameUI.ShowGameHUD(player)
+    local hudRoot = uiState.hudRoot
+    if not hudRoot then
+        GameUI.ShowGameHUD(player)
+        return
+    end
+
+    -- 只替换技能栏。过去重建整个 HUD 会清空任务追踪、NPC 交互按钮和摇杆状态。
+    local oldSkillBar = hudRoot:FindById("skillBar")
+    local insertIndex = 1
+    if oldSkillBar then
+        local childCount = hudRoot:GetNumChildren()
+        for i = 1, childCount do
+            if hudRoot:GetChildAt(i) == oldSkillBar then
+                insertIndex = i
+                break
+            end
+        end
+        oldSkillBar:Remove()
+    end
+
+    local newSkillBar = GameUI._CreateSkillBar(player)
+    hudRoot:InsertChild(newSkillBar, insertIndex)
+    newSkillBar:SetVisible(uiState.hudRevealed and not mapState.fullMapOpen)
+    uiState.player = player
     print("[GameUI] Skill buttons refreshed")
 end
 
@@ -4133,10 +4481,10 @@ function GameUI.ShowSystemPanel()
                             if GameUI.onMenuPressed then GameUI.onMenuPressed() end
                         end,
                     },
-                    -- 分隔线
-                    UI.Panel { width = "100%", height = 1, backgroundColor = {70, 72, 74, 90} },
+                    -- 调试入口只在宿主显式开启 debugMode 时显示，避免正式版出现等级作弊。
+                    GameUI.debugMode and UI.Panel { width = "100%", height = 1, backgroundColor = {70, 72, 74, 90} } or nil,
                     -- DBG 区域
-                    UI.Panel {
+                    GameUI.debugMode and UI.Panel {
                         width = "100%",
                         backgroundColor = {18, 19, 20, 172},
                         borderRadius = 6, borderWidth = 1,
@@ -4153,7 +4501,7 @@ function GameUI.ShowSystemPanel()
                                         width = 60, height = 36, borderRadius = 6,
                                         backgroundColor = {58, 60, 64, 220},
                                         justifyContent = "center", alignItems = "center",
-                                        onPointerUp = function()
+                                        onClick = function()
                                             if GameUI.onDebugLevelChange then GameUI.onDebugLevelChange(1) end
                                             GameUI.HideSystemPanel()
                                             GameUI.ShowSystemPanel()
@@ -4175,7 +4523,7 @@ function GameUI.ShowSystemPanel()
                                         width = 60, height = 36, borderRadius = 6,
                                         backgroundColor = {70, 58, 58, 220},
                                         justifyContent = "center", alignItems = "center",
-                                        onPointerUp = function()
+                                        onClick = function()
                                             if GameUI.onDebugLevelChange then GameUI.onDebugLevelChange(-1) end
                                             GameUI.HideSystemPanel()
                                             GameUI.ShowSystemPanel()
@@ -4192,7 +4540,7 @@ function GameUI.ShowSystemPanel()
                                 backgroundColor = {66, 68, 72, 220},
                                 justifyContent = "center", alignItems = "center",
                                 marginTop = 4,
-                                onPointerUp = function()
+                                onClick = function()
                                     if GameUI.onDebugMaxLevel then GameUI.onDebugMaxLevel() end
                                     GameUI.HideSystemPanel()
                                     GameUI.ShowSystemPanel()
@@ -4202,7 +4550,7 @@ function GameUI.ShowSystemPanel()
                                 },
                             },
                         },
-                    },
+                    } or nil,
                     -- 关闭按钮
                     UI.Button {
                         text = "关闭",
@@ -4272,22 +4620,32 @@ function GameUI.UpdateHUD(player, dt)
             local usable = _IsSkillUsable(player, sb.skill)
             local cdPanel = uiState.refs["skill_" .. i .. "_cd"]
             local cdText  = uiState.refs["skill_" .. i .. "_cdText"]
+            local overlayAlpha = 0
+            local cooldownText = ""
             if cd > 0 then
-                if cdPanel then cdPanel:SetStyle({ backgroundColor = {0, 0, 0, 140} }) end
-                if cdText then cdText:SetText(string.format("%.0f", math.ceil(cd))) end
-            else
-                if cdPanel then cdPanel:SetStyle({ backgroundColor = {0, 0, 0, 0} }) end
-                if cdText then cdText:SetText("") end
+                overlayAlpha = 140
+                cooldownText = string.format("%.0f", math.ceil(cd))
+            elseif not usable then
+                overlayAlpha = 135
             end
-            if sb.panel then
-                sb.panel:SetStyle({ backgroundColor = usable and {25, 22, 18, 210} or {18, 18, 18, 210} })
+
+            -- SetStyle 会标记全局 Yoga 布局为脏；只有视觉状态变化时才调用。
+            if cdPanel and sb.lastCooldownOverlayAlpha ~= overlayAlpha then
+                cdPanel:SetStyle({ backgroundColor = {0, 0, 0, overlayAlpha} })
+                sb.lastCooldownOverlayAlpha = overlayAlpha
             end
-            if sb.icon then
-                sb.icon:SetStyle({ opacity = usable and 1.0 or 0.35 })
+            if cdText and sb.lastCooldownText ~= cooldownText then
+                cdText:SetText(cooldownText)
+                sb.lastCooldownText = cooldownText
             end
-            if not usable and cd <= 0 then
-                if cdPanel then cdPanel:SetStyle({ backgroundColor = {0, 0, 0, 135} }) end
-                if cdText then cdText:SetText("") end
+            if sb.lastUsable ~= usable then
+                if sb.panel then
+                    sb.panel:SetStyle({ backgroundColor = usable and {25, 22, 18, 210} or {18, 18, 18, 210} })
+                end
+                if sb.icon then
+                    sb.icon:SetStyle({ opacity = usable and 1.0 or 0.35 })
+                end
+                sb.lastUsable = usable
             end
         end
     end
@@ -4345,17 +4703,28 @@ function GameUI._UpdatePotionCDOverlay()
     if not cd then return end
 
     local kinds = {"hp", "mp"}
+    local visuals = uiState.potionCooldownVisuals or {}
+    uiState.potionCooldownVisuals = visuals
     for _, kind in ipairs(kinds) do
         local overlay = uiState.refs["potion_" .. kind .. "_cd"]
         if overlay then
             local ratio = cd[kind] or 0
+            local previous = visuals[kind]
             if ratio > 0.01 then
-                overlay:SetVisible(true)
+                if not previous or not previous.visible then
+                    overlay:SetVisible(true)
+                end
                 -- 更新透明度随 CD 比例变化（CD 越满越暗）
                 local alpha = math.floor(120 + 60 * ratio)
-                overlay:SetStyle({ backgroundColor = {0, 0, 0, alpha} })
+                if not previous or previous.alpha ~= alpha then
+                    overlay:SetStyle({ backgroundColor = {0, 0, 0, alpha} })
+                end
+                visuals[kind] = { visible = true, alpha = alpha }
             else
-                overlay:SetVisible(false)
+                if not previous or previous.visible then
+                    overlay:SetVisible(false)
+                end
+                visuals[kind] = { visible = false }
             end
         end
     end
@@ -4368,11 +4737,49 @@ function GameUI._UpdateMiniMapUI()
     if not playerNodeRef then return end
     local playerDot = uiState.refs.miniMapPlayerDot
     local playerDir = uiState.refs.miniMapPlayerDir
+    local arenaBlock = uiState.refs.miniMapArenaBlock
+    local safeZone = uiState.refs.miniMapSafeZone
+    local stewardDot = uiState.refs.miniMapStewardDot
+    local merchantDot = uiState.refs.miniMapMerchantDot
     local arenaDrawSize = uiState.refs.miniMapArenaDrawSize
     if not arenaDrawSize then return end
 
     local halfArena = mapState.arenaSize / 2  -- 60m
     local playerPos = playerNodeRef.worldPosition
+    local visuals = uiState.miniMapVisuals or {}
+    uiState.miniMapVisuals = visuals
+
+    local mapId = MapZone.GetCurrentMapId()
+    local mapDef = MapZone.GetDef(mapId)
+    if mapDef and visuals.mapId ~= mapId then
+        local mapColor = mapDef.mapColor or {30, 32, 34, 220}
+        if arenaBlock then
+            arenaBlock:SetStyle({ backgroundColor = {mapColor[1], mapColor[2], mapColor[3], 220} })
+        end
+
+        local function worldToMini(x, z)
+            return (x + halfArena) / (halfArena * 2) * arenaDrawSize,
+                (halfArena - z) / (halfArena * 2) * arenaDrawSize
+        end
+
+        local spawn = mapDef.spawnPos or Vector3.ZERO
+        local safeHalf = MapZone.GetSafeZoneRadius(mapId)
+        local safePixels = math.max(5, math.floor((safeHalf * 2 / mapState.arenaSize) * arenaDrawSize))
+        local safeX, safeY = worldToMini(spawn.x, spawn.z)
+        if safeZone then
+            safeZone:SetStyle({
+                left = math.floor(safeX - safePixels / 2),
+                top = math.floor(safeY - safePixels / 2),
+                width = safePixels, height = safePixels,
+            })
+        end
+
+        local stewardX, stewardY = worldToMini(spawn.x + 2.5, spawn.z + 2.5)
+        local merchantX, merchantY = worldToMini(spawn.x - 2.5, spawn.z + 2.5)
+        if stewardDot then stewardDot:SetStyle({ left = math.floor(stewardX - 1), top = math.floor(stewardY - 1) }) end
+        if merchantDot then merchantDot:SetStyle({ left = math.floor(merchantX - 1), top = math.floor(merchantY - 1) }) end
+        visuals.mapId = mapId
+    end
 
     -- 玩家世界坐标 → arenaBlock 内部像素坐标（相对于 arenaBlock content area）
     -- 世界 (-60, +60) → 像素 (0, 0)  左上角=西北
@@ -4385,22 +4792,24 @@ function GameUI._UpdateMiniMapUI()
     local dotY = normZ * arenaDrawSize
 
     -- 更新玩家标记位置（相对于 arenaBlock 内部）
-    if playerDot then
-        playerDot:SetStyle({ left = math.floor(dotX - 4), top = math.floor(dotY - 4) })
+    local dotLeft = math.floor(dotX - 4)
+    local dotTop = math.floor(dotY - 4)
+    if playerDot and (visuals.dotLeft ~= dotLeft or visuals.dotTop ~= dotTop) then
+        playerDot:SetStyle({ left = dotLeft, top = dotTop })
+        visuals.dotLeft, visuals.dotTop = dotLeft, dotTop
     end
 
-    -- 更新朝向指示线
+    -- 更新朝向指示线。线段底端固定在玩家中心，rotate 直接使用角色 yaw；
+    -- 旧实现读取固定相机 yaw 且只移动竖线位置，视觉上从未真正旋转。
     if playerDir then
-        local camNode = cameraRef and cameraRef:GetNode() or nil
-        local camYaw = 0
-        if camNode then camYaw = camNode.worldRotation:YawAngle() end
-        local yawRad = math.rad(camYaw)
-        -- 从玩家点向前方延伸 6px
-        local endX = dotX + math.sin(yawRad) * 6
-        local endY = dotY - math.cos(yawRad) * 6
-        local midX = (dotX + endX) / 2
-        local midY = (dotY + endY) / 2
-        playerDir:SetStyle({ left = math.floor(midX - 1), top = math.floor(midY - 4) })
+        local yaw = playerNodeRef.worldRotation:YawAngle()
+        local dirLeft = math.floor(dotX - 1)
+        local dirTop = math.floor(dotY - 8)
+        local dirYaw = math.floor(yaw * 10 + 0.5) / 10
+        if visuals.dirLeft ~= dirLeft or visuals.dirTop ~= dirTop or visuals.dirYaw ~= dirYaw then
+            playerDir:SetStyle({ left = dirLeft, top = dirTop, rotate = dirYaw, transformOrigin = "bottom" })
+            visuals.dirLeft, visuals.dirTop, visuals.dirYaw = dirLeft, dirTop, dirYaw
+        end
     end
 end
 
@@ -4413,25 +4822,69 @@ function GameUI._UpdateFullMapUI()
     local fullMapArea = uiState.refs.fullMapArea
     local playerDot = uiState.refs.fullMapPlayerDot
     local playerDir = uiState.refs.fullMapPlayerDir
+    local safeZone = uiState.refs.fullMapSafeZone
+    local stewardDot = uiState.refs.fullMapStewardDot
+    local merchantDot = uiState.refs.fullMapMerchantDot
+    local landmarkRefs = uiState.refs.fullMapLandmarks
+    local title = uiState.refs.fullMapTitle
     local gridLines = uiState.refs.fullMapGridLines
     local coordLabels = uiState.refs.fullMapCoordLabels
     if not fullMapArea or not playerDot then return end
 
-    -- 使用屏幕尺寸的 55% 作为地图正方形尺寸
-    local sw = graphics.width / UI.GetScale()
-    local sh = graphics.height / UI.GetScale()
+    -- 使用 UI base viewport 的 55% 作为地图正方形尺寸。
+    -- 读取物理分辨率时使用引擎方法，避免高 DPI 下访问旧字段造成模式混用。
+    local physW, physH = graphics:GetWidth(), graphics:GetHeight()
+    local uiScale = math.max(UI.GetScale(), 0.001)
+    local sw = physW / uiScale
+    local sh = physH / uiScale
     local mapSize = math.floor(math.min(sw, sh) * 0.55)
     local halfArena = mapState.arenaSize / 2  -- 60m
 
+    local visuals = uiState.fullMapVisuals or {}
+    uiState.fullMapVisuals = visuals
+    local mapId = MapZone.GetCurrentMapId()
+    local mapDef = MapZone.GetDef(mapId)
+    local mapChanged = visuals.mapId ~= mapId
+
     -- 设置地图区域尺寸（居中由 flexbox 处理，此处只设宽高）
-    fullMapArea:SetStyle({ width = mapSize, height = mapSize })
+    local layoutChanged = visuals.mapSize ~= mapSize
+    if layoutChanged then
+        fullMapArea:SetStyle({ width = mapSize, height = mapSize })
+        visuals.mapSize = mapSize
+    end
+    if mapDef and mapChanged then
+        local mapColor = mapDef.mapColor or {25, 38, 25, 245}
+        fullMapArea:SetStyle({
+            width = mapSize, height = mapSize,
+            backgroundColor = {mapColor[1], mapColor[2], mapColor[3], mapColor[4] or 245},
+        })
+        if title then
+            title:SetText(mapDef.name .. " · Lv." .. tostring(mapDef.minLevel or 1)
+                .. "–" .. tostring(mapDef.maxLevel or 50) .. " (" .. MapZone.ARENA_SIZE
+                .. "m × " .. MapZone.ARENA_SIZE .. "m)")
+        end
+        if landmarkRefs then
+            for i, ref in ipairs(landmarkRefs) do
+                local landmark = mapDef.landmarks and mapDef.landmarks[i] or nil
+                ref.root:SetVisible(landmark ~= nil)
+                if landmark then ref.label:SetText(landmark.name or "地标") end
+            end
+        end
+        visuals.mapId = mapId
+    end
 
     -- 地图内边距（边框内）
     local pad = math.floor(mapSize * 0.04)
     local innerSize = mapSize - pad * 2
 
+    local function worldToFullMap(x, z)
+        local nx = math.max(0, math.min(1, (x + halfArena) / (halfArena * 2)))
+        local nz = math.max(0, math.min(1, (halfArena - z) / (halfArena * 2)))
+        return pad + nx * innerSize, pad + nz * innerSize
+    end
+
     -- 更新网格线位置（3 水平 + 3 垂直，分为 4x4 格）
-    if gridLines then
+    if layoutChanged and gridLines then
         for i = 1, 3 do
             -- 水平线
             local yPos = pad + math.floor(innerSize * i / 4)
@@ -4445,7 +4898,7 @@ function GameUI._UpdateFullMapUI()
     end
 
     -- 更新坐标标签位置（NW, NE, SW, SE, 中心）
-    if coordLabels then
+    if layoutChanged and coordLabels then
         local offset = 4
         coordLabels[1]:SetStyle({ left = pad + offset, top = pad + offset })           -- NW
         coordLabels[2]:SetStyle({ left = pad + innerSize - 18, top = pad + offset })   -- NE
@@ -4454,30 +4907,57 @@ function GameUI._UpdateFullMapUI()
         coordLabels[5]:SetStyle({ left = pad + math.floor(innerSize / 2) - 10, top = pad + math.floor(innerSize / 2) - 6 }) -- 中心
     end
 
+    if mapDef and (layoutChanged or mapChanged) then
+        local spawn = mapDef.spawnPos or Vector3.ZERO
+        local safeHalf = MapZone.GetSafeZoneRadius(mapId)
+        local safePixels = math.max(8, math.floor((safeHalf * 2 / mapState.arenaSize) * innerSize))
+        local safeX, safeY = worldToFullMap(spawn.x, spawn.z)
+        if safeZone then
+            safeZone:SetStyle({
+                left = math.floor(safeX - safePixels / 2),
+                top = math.floor(safeY - safePixels / 2),
+                width = safePixels, height = safePixels,
+            })
+        end
+
+        local stewardX, stewardY = worldToFullMap(spawn.x + 2.5, spawn.z + 2.5)
+        local merchantX, merchantY = worldToFullMap(spawn.x - 2.5, spawn.z + 2.5)
+        if stewardDot then stewardDot:SetStyle({ left = math.floor(stewardX - 4), top = math.floor(stewardY - 4) }) end
+        if merchantDot then merchantDot:SetStyle({ left = math.floor(merchantX - 4), top = math.floor(merchantY - 4) }) end
+
+        if landmarkRefs and mapDef.landmarks then
+            for i, landmark in ipairs(mapDef.landmarks) do
+                local ref = landmarkRefs[i]
+                if ref then
+                    local landmarkX, landmarkY = worldToFullMap(landmark.x or 0, landmark.z or 0)
+                    ref.root:SetStyle({ left = math.floor(landmarkX - 4), top = math.floor(landmarkY - 9) })
+                end
+            end
+        end
+    end
+
     -- 坐标转换：世界坐标 → 全图像素
     local playerPos = playerNodeRef.worldPosition
-    local normX = (playerPos.x + halfArena) / (halfArena * 2)  -- 0~1
-    local normZ = (halfArena - playerPos.z) / (halfArena * 2)  -- 0~1
-    normX = math.max(0, math.min(1, normX))
-    normZ = math.max(0, math.min(1, normZ))
-
-    local dotX = pad + normX * innerSize
-    local dotY = pad + normZ * innerSize
+    local dotX, dotY = worldToFullMap(playerPos.x, playerPos.z)
 
     -- 更新玩家标记
-    playerDot:SetStyle({ left = math.floor(dotX - 7), top = math.floor(dotY - 7) })
+    local dotLeft = math.floor(dotX - 7)
+    local dotTop = math.floor(dotY - 7)
+    if visuals.dotLeft ~= dotLeft or visuals.dotTop ~= dotTop then
+        playerDot:SetStyle({ left = dotLeft, top = dotTop })
+        visuals.dotLeft, visuals.dotTop = dotLeft, dotTop
+    end
 
-    -- 更新朝向指示线
+    -- 更新朝向指示线（底端锚定玩家，随角色而非相机旋转）。
     if playerDir then
-        local camNode = cameraRef and cameraRef:GetNode() or nil
-        local camYaw = 0
-        if camNode then camYaw = camNode.worldRotation:YawAngle() end
-        local yawRad = math.rad(camYaw)
-        local endX = dotX + math.sin(yawRad) * 12
-        local endY = dotY - math.cos(yawRad) * 12
-        local midX = (dotX + endX) / 2
-        local midY = (dotY + endY) / 2
-        playerDir:SetStyle({ left = math.floor(midX - 1), top = math.floor(midY - 8) })
+        local yaw = playerNodeRef.worldRotation:YawAngle()
+        local dirLeft = math.floor(dotX - 1.5)
+        local dirTop = math.floor(dotY - 16)
+        local dirYaw = math.floor(yaw * 10 + 0.5) / 10
+        if visuals.dirLeft ~= dirLeft or visuals.dirTop ~= dirTop or visuals.dirYaw ~= dirYaw then
+            playerDir:SetStyle({ left = dirLeft, top = dirTop, rotate = dirYaw, transformOrigin = "bottom" })
+            visuals.dirLeft, visuals.dirTop, visuals.dirYaw = dirLeft, dirTop, dirYaw
+        end
     end
 end
 

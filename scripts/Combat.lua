@@ -9,6 +9,7 @@ local MonsterSkeleton = require("scripts.MonsterSkeleton")
 local DivineBeast = require("scripts.DivineBeast")
 local MonsterData = require("scripts.MonsterData")
 local MapZone = require("scripts.MapZone")
+local Quest = require("scripts.Quest")
 
 local Combat = {}
 
@@ -114,13 +115,17 @@ local ENEMY_DEFS = {
     },
     {
         name = "蚁后", monsterType = "antqueen",
-        level = 18, hp = 320,  atk = 32, def = 10,
+        -- 水上城市守关 Boss。字段为未乘 TIER_MULT.boss 的基础值，
+        -- 实际 HP 约 4500，衔接白野猪与沃玛教主。
+        level = 34, hp = 900,  atk = 38, def = 16,
         speed = 3.8, chaseRange = 14, attackRange = 1.5, attackCD = 1.0,
-        exp = 220, scale = 1.3, tier = "elite",
+        exp = 480, scale = 1.8, tier = "boss",
     },
     {
         name = "骷髅将军", monsterType = "skeleton",
-        level = 22, hp = 500,  atk = 38, def = 14,
+        -- 第三幕位于 Lv25~34 水上城市；旧值 Lv22 会被任务补池绕过地图
+        -- 等级带，造成 UI 标注与实际怪物数据冲突。
+        level = 26, hp = 500,  atk = 38, def = 14,
         speed = 2.4, chaseRange = 12, attackRange = 1.5, attackCD = 1.8,
         exp = 300, scale = 1.3, tier = "elite",
     },
@@ -152,25 +157,25 @@ local ENEMY_DEFS = {
     -- === Boss 区 (大型压迫感怪物) ===
     {
         name = "沃玛教主", monsterType = "golem",
-        level = 15, hp = 1600, atk = 35, def = 22,
+        level = 35, hp = 1200, atk = 41, def = 18,
         speed = 1.2, chaseRange = 10, attackRange = 1.5, attackCD = 3.0,
-        exp = 600, scale = 2.5, tier = "boss",
+        exp = 700, scale = 2.5, tier = "boss",
     },
     {
         name = "火龙王", monsterType = "serpent",
-        level = 30, hp = 3200, atk = 60, def = 26,
+        level = 48, hp = 1700, atk = 48, def = 20,
         speed = 2.2, chaseRange = 16, attackRange = 1.5, attackCD = 2.0,
-        exp = 1500, scale = 2.8, tier = "boss",
+        exp = 1000, scale = 2.8, tier = "boss",
     },
     {
         name = "牛魔王", monsterType = "golem",
-        level = 45, hp = 5000, atk = 80, def = 32,
+        level = 50, hp = 2200, atk = 54, def = 23,
         speed = 1.8, chaseRange = 14, attackRange = 1.5, attackCD = 2.5,
-        exp = 3000, scale = 3.0, tier = "boss",
+        exp = 1300, scale = 3.0, tier = "boss",
     },
 }
 
--- 合并分支新增怪物（蛤蟆/多钩猫/钉耙猫/半兽勇士/白野猪）
+-- 合并 MonsterData 中的经典怪与高级地图生态。
 for _, def in ipairs(MonsterData.NEW_ENEMIES) do
     table.insert(ENEMY_DEFS, def)
 end
@@ -188,21 +193,131 @@ local groundItems = {}   -- 地面掉落物 {node, type="gold"/"item", amount, i
 ---@type table|nil
 local lastPlayerTarget = nil -- 玩家上次主动攻击命中的怪物，用于无正前方目标时保持目标连续性
 local IsEnemyTargetable, HorizontalDir, NormalizeHorizontal, RememberPlayerTarget, IsLastPlayerTargetValid, FacePlayerToTarget
+local GetCurrentQuest
 local killCount = 0
 local spawnTimer = 0
 local currentMapId = "map_bq"  -- 当前地图，供按图刷怪
+local playerWasInSafeZone = false
 Combat.currentMapId = currentMapId
 
-local SPAWN_INTERVAL = 0.45
-local MAX_ENEMIES = 70
+local function IsFiniteNumber(value)
+    return type(value) == "number"
+        and value == value
+        and value ~= math.huge
+        and value ~= -math.huge
+end
+
+local function SafeInteger(value, fallback, minValue, maxValue)
+    local number = tonumber(value)
+    if not IsFiniteNumber(number) then return fallback end
+    if minValue then number = math.max(minValue, number) end
+    if maxValue then number = math.min(maxValue, number) end
+    return math.floor(number)
+end
+
+local MAX_COMBAT_VALUE = 1000000000
+
+local function IsHostileSkill(skill)
+    if type(skill) ~= "table" then return false end
+    return skill.type == SKILL_TYPE.MELEE
+        or skill.type == SKILL_TYPE.RANGED
+        or skill.type == SKILL_TYPE.AOE
+        or skill.type == SKILL_TYPE.DOT
+        or skill.type == SKILL_TYPE.DASH
+end
+
+Combat.IsHostileSkill = IsHostileSkill
+
+local function GetSafeZoneCenter(mapId)
+    local mapDef = MapZone.GetDef(mapId or currentMapId)
+    return (mapDef and mapDef.spawnPos) or Vector3.ZERO
+end
+
+local function IsInSafeZone(position, mapId)
+    if not position then return false end
+    local activeMapId = mapId or currentMapId
+    local center = GetSafeZoneCenter(activeMapId)
+    local halfExtent = tonumber(MapZone.GetSafeZoneRadius(activeMapId)) or 8
+    if not IsFiniteNumber(halfExtent) then halfExtent = 8 end
+    halfExtent = math.max(0, halfExtent)
+    local dx = position.x - center.x
+    local dz = position.z - center.z
+    -- CreateFloor 绘制的是轴对齐方形边界，因此逻辑也必须覆盖四角；
+    -- 否则玩家视觉上站在线内，实际却仍会被追击和攻击。
+    return math.abs(dx) <= halfExtent and math.abs(dz) <= halfExtent
+end
+
+-- 将异常进入安全区的实体推到边界外。正常刷怪不会命中这里，主要防止
+-- 物理碰撞、旧存档或跨地图切换把实体留在安全区内。
+local function MoveOutsideSafeZone(position, mapId, margin)
+    if not position then return nil end
+    local activeMapId = mapId or currentMapId
+    local center = GetSafeZoneCenter(activeMapId)
+    local halfExtent = tonumber(MapZone.GetSafeZoneRadius(activeMapId)) or 8
+    if not IsFiniteNumber(halfExtent) then halfExtent = 8 end
+    halfExtent = math.max(0, halfExtent)
+    local dx = position.x - center.x
+    local dz = position.z - center.z
+    local absX = math.abs(dx)
+    local absZ = math.abs(dz)
+    if absX > halfExtent or absZ > halfExtent then return position end
+
+    -- 沿最近的一条边推出，避免圆形径向推出在方形角落仍留在线内。
+    local edge = halfExtent + (tonumber(margin) or 0.75)
+    local x = position.x
+    local z = position.z
+    local distanceToXEdge = halfExtent - absX
+    local distanceToZEdge = halfExtent - absZ
+    if distanceToXEdge < distanceToZEdge then
+        local signX = dx < 0 and -1 or 1
+        x = center.x + signX * edge
+    else
+        local signZ = dz < 0 and -1 or 1
+        z = center.z + signZ * edge
+    end
+    return Vector3(x, position.y, z)
+end
+
+Combat.IsInSafeZone = IsInSafeZone
+
+-- 程序化怪物由多个节点和材质组成；70 只并以每秒 6 只补充会同时损害
+-- 手机帧率、战斗可读性和掉落拾取体验。保留 ARPG 群怪感，但把峰值和
+-- 低密度补怪速度收敛到可测试的移动端基线。
+local SPAWN_INTERVAL = 0.72
+local MAX_ENEMIES = 42
 local ENEMY_MOVE_SPEED = 2.8
+
+-- 将技能倍率集中在一个入口，避免职业被动只停留在 CharacterClass 数据描述里。
+local function GetSkillDamage(player, skill)
+    local base = (player and player.atk or 0) * ((skill and skill.damage or 0) / 100)
+    if CharacterClass.GetSkillDamageMultiplier then
+        base = base * CharacterClass.GetSkillDamageMultiplier(player, skill)
+    end
+    return base
+end
+
+local function GetExperienceMultiplier(player)
+    if CharacterClass.GetExperienceMultiplier then
+        return CharacterClass.GetExperienceMultiplier(player)
+    end
+    return 1.0
+end
+
+local function GetBeastAttackMultiplier(player)
+    if CharacterClass.GetDivineBeastAttackMultiplier then
+        return CharacterClass.GetDivineBeastAttackMultiplier(player)
+    end
+    return 1.0
+end
 
 Combat.enemies = enemies
 Combat.projectiles = projectiles
 Combat.killCount = 0
 
 IsEnemyTargetable = function(enemy)
-    return enemy and enemy.node and enemy.state ~= "dead" and enemy.state ~= "dying" and enemy.hp and enemy.hp > 0
+    return enemy and enemy.node and enemy.state ~= "dead" and enemy.state ~= "dying"
+        and IsFiniteNumber(enemy.hp) and enemy.hp > 0
+        and not IsInSafeZone(enemy.node.position)
 end
 
 HorizontalDir = function(fromPos, toPos)
@@ -370,6 +485,43 @@ local function RemovePoisonTint(enemy)
     enemy.poisonFlashAccum = nil
 end
 
+-- 安全区代表完整脱战：玩家进入后，之前已经释放的敌对效果也必须立即失效，
+-- 不能只禁止新技能。召唤兽与永久神兽实体继续保留，但各自的 Update 会暂停索敌。
+function Combat.CancelPlayerHostileEffects()
+    for _, projectile in ipairs(projectiles) do
+        if projectile.node then projectile.node:Remove() end
+    end
+    projectiles = {}
+    Combat.projectiles = projectiles
+
+    for _, zone in ipairs(aoeZones) do
+        if zone.visualNode then zone.visualNode:Remove() end
+    end
+    aoeZones = {}
+
+    for _, enemy in ipairs(enemies) do
+        if enemy then
+            local hadPoison = (enemy.dotTimer or 0) > 0 or enemy.poisonTinted
+            enemy.dotDamage = 0
+            enemy.dotTimer = 0
+            enemy.dotTickAccum = 0
+            enemy.defReduction = 0
+            enemy.defReductionTimer = 0
+            enemy.trapCenter = nil
+            enemy.trapRadius = nil
+            enemy.trapTimer = nil
+            enemy.trapDefReduced = nil
+            if hadPoison then RemovePoisonTint(enemy) end
+        end
+    end
+
+    lastPlayerTarget = nil
+    dashState.active = false
+    dashState.dir = nil
+    dashState.remaining = 0
+    dashState.pushed = {}
+end
+
 -- ============================================================================
 -- 等级缩放系数：怪物属性随等级线性增长
 -- 设计目标：玩家用普攻需要 4~6 下杀同级普通怪, 技能 2~3 下
@@ -392,51 +544,133 @@ local TIER_MULT = {
 -- 敌人创建（使用 MonsterSkeleton 骨架系统）
 -- ============================================================================
 function Combat.SpawnEnemy(scene, playerPos, playerLevel, forceDef, mapId)
-    if #enemies >= MAX_ENEMIES then return end
+    if #enemies >= MAX_ENEMIES then return nil end
+    if not scene or not playerPos then return nil end
+
+    -- 传入地图优先；未传入时使用战斗系统当前地图。不要让一个临时的
+    -- mapId 参数影响另一套状态（例如读档/切图的安全区半径）。
+    local spawnMapId = mapId or currentMapId
+    local safePlayerLevel = SafeInteger(playerLevel, 1, 1, 50)
+    local mapDef = MapZone.GetDef(spawnMapId)
+    local mapMinLevel = mapDef and tonumber(mapDef.minLevel) or nil
+    local mapMaxLevel = mapDef and tonumber(mapDef.maxLevel) or nil
+    local hasUsableMapPool = false
 
     local def
     if forceDef then
         def = forceDef
     else
-        -- 按当前地图怪物池选取；未指定地图时回退到全表按等级选取
-        local candidateDefs = ENEMY_DEFS
-        local pool = MapZone.GetPool(mapId)
+        -- 按当前地图怪物池选取；未指定地图时回退到全表按等级选取。
+        -- candidateDefs 一旦来自地图池，后续所有兜底都必须继续留在该池内，
+        -- 否则低等级越级进入祖玛寺庙时会刷出“鹿”等跨图怪物。
+        -- 始终使用独立候选数组。任务兜底可能向候选池补入目标，绝不能
+        -- 因地图池缺失或损坏而把补项写回全局 ENEMY_DEFS。
+        local candidateDefs = {}
+        for _, enemyDef in ipairs(ENEMY_DEFS) do
+            table.insert(candidateDefs, enemyDef)
+        end
+        local pool = MapZone.GetPool(spawnMapId)
         if pool and #pool > 0 then
             local poolSet = {}
             for _, n in ipairs(pool) do poolSet[n] = true end
             local mapped = {}
             for _, d in ipairs(ENEMY_DEFS) do
-                if poolSet[d.name] and d.tier ~= "boss" then
+                if poolSet[d.name] then
                     table.insert(mapped, d)
                 end
             end
             if #mapped > 0 then candidateDefs = mapped end
+            hasUsableMapPool = #mapped > 0
         end
 
         local validDefs = {}
+        local questTarget = nil
+        local currentQuest = GetCurrentQuest and GetCurrentQuest() or nil
+        if currentQuest and currentQuest.type == "kill" then
+            questTarget = currentQuest.target
+        end
+
+        -- 任务路由是进度的最后保障：如果地图配置漏写了当前任务目标，
+        -- 仍将该目标补入候选（仅限 Quest 声明的目标地图），避免任务软卡死。
+        if questTarget and currentQuest and Quest.GetTargetMapId
+            and Quest.GetTargetMapId(currentQuest) == spawnMapId then
+            local foundTarget = false
+            for _, d in ipairs(candidateDefs) do
+                if d.name == questTarget then
+                    foundTarget = true
+                    break
+                end
+            end
+            if not foundTarget then
+                for _, d in ipairs(ENEMY_DEFS) do
+                    if d.name == questTarget then
+                        table.insert(candidateDefs, d)
+                        break
+                    end
+                end
+            end
+        end
+
+        local function IsWithinMapBand(definition)
+            if not mapMinLevel or not mapMaxLevel then return true end
+            return (tonumber(definition.level) or 0) >= mapMinLevel
+                and (tonumber(definition.level) or 0) <= mapMaxLevel
+        end
+
         for _, d in ipairs(candidateDefs) do
-            if d.tier ~= "boss" and d.level <= playerLevel + 4 and d.level >= playerLevel - 5 then
+            -- 当前任务目标即使与玩家等级相差较大也必须保留，否则部分章节任务
+            -- 会因为目标不在随机候选中而永远无法推进。
+            -- 普通怪按等级带生成；显式写进地图池的精英允许低权重出现，
+            -- 但全表兜底不会把其它精英误当作常规杂兵。
+            if d.tier ~= "boss" and (d.name == questTarget
+                or ((d.tier == "normal" or (d.tier == "elite" and hasUsableMapPool))
+                    and IsWithinMapBand(d)
+                    and d.level <= safePlayerLevel + 4
+                    and d.level >= safePlayerLevel - 5)) then
                 table.insert(validDefs, d)
             end
         end
         -- 如果没有合适的，取最接近玩家等级的非Boss怪
         if #validDefs == 0 then
             for _, d in ipairs(candidateDefs) do
-                if d.tier ~= "boss" and d.level <= playerLevel + 8 then
+                if d.tier == "normal" and IsWithinMapBand(d)
+                    and d.level <= safePlayerLevel + 8 then
                     table.insert(validDefs, d)
                 end
             end
         end
-        if #validDefs == 0 then validDefs = {ENEMY_DEFS[1]} end
+        -- 软门槛允许玩家越级进入任意地图，因此极低等级时可能没有“接近
+        -- 玩家等级”的候选；仍从该地图的普通池兜底，绝不能回退到全表第一只怪。
+        if #validDefs == 0 then
+            for _, d in ipairs(candidateDefs) do
+                if d.tier == "normal" and IsWithinMapBand(d) then
+                    table.insert(validDefs, d)
+                end
+            end
+        end
+        -- 仅当地图池不存在/配置损坏时才回退全表，避免静默跨地图刷怪。
+        if #validDefs == 0 and not hasUsableMapPool then
+            for _, d in ipairs(ENEMY_DEFS) do
+                if d.tier == "normal" then
+                    table.insert(validDefs, d)
+                end
+            end
+        end
+        if #validDefs == 0 then return end
 
         -- 加权随机：等级越接近玩家越容易出现
         local weights = {}
         local totalWeight = 0
         for i, d in ipairs(validDefs) do
-            local diff = math.abs(d.level - playerLevel)
+            local diff = math.abs(d.level - safePlayerLevel)
             local w = math.max(1, 10 - diff)  -- 等级差越小权重越高
-            -- 精英怪权重降低（出现概率较低）
-            if d.tier == "elite" then w = w * 0.3 end
+            if d.name == questTarget then
+                -- 精英任务目标此前先乘 0.25 再乘 3，实际仍远低于普通怪，
+                -- 20~25 只目标会演变成大量无关刷怪。任务目标保持明显但非独占。
+                w = math.max(16, w * 3.0)
+            elseif d.tier == "elite" then
+                w = w * 0.25
+            end
             weights[i] = w
             totalWeight = totalWeight + w
         end
@@ -456,24 +690,30 @@ function Combat.SpawnEnemy(scene, playerPos, playerLevel, forceDef, mapId)
     local actualLevel = def.level
     if def.tier == "normal" then
         actualLevel = math.max(1, def.level + math.random(-2, 2))
-        -- 让怪物等级接近玩家等级
-        actualLevel = math.max(1, math.min(actualLevel, playerLevel + 3))
+        if hasUsableMapPool and mapMinLevel and mapMaxLevel then
+            -- 有效地图池代表固定等级生态。越级进入高危地图时必须面对该地图
+            -- 的真实强度，不能把 Lv.46 怪物压成 Lv.4 后伪装成“软门槛”。
+            actualLevel = math.max(mapMinLevel, math.min(actualLevel, mapMaxLevel))
+        else
+            -- 只有地图配置缺失/损坏而回退全表时，才按玩家等级做保守适配。
+            actualLevel = math.max(1, math.min(actualLevel, safePlayerLevel + 3))
+        end
     end
 
     local tierMult = TIER_MULT[def.tier or "normal"] or TIER_MULT.normal
     local levelDiff = actualLevel - def.level
-    local scaledHP  = math.floor((def.hp + levelDiff * LEVEL_SCALE.hp_per_level) * tierMult.hp)
-    local scaledATK = math.floor((def.atk + levelDiff * LEVEL_SCALE.atk_per_level) * tierMult.atk)
-    local scaledDEF = math.floor((def.def + levelDiff * LEVEL_SCALE.def_per_level) * tierMult.def)
-    local scaledEXP = math.floor((def.exp + levelDiff * LEVEL_SCALE.exp_per_level) * tierMult.exp)
+    local scaledHP  = math.max(1, math.floor((def.hp + levelDiff * LEVEL_SCALE.hp_per_level) * tierMult.hp))
+    local scaledATK = math.max(1, math.floor((def.atk + levelDiff * LEVEL_SCALE.atk_per_level) * tierMult.atk))
+    local scaledDEF = math.max(0, math.floor((def.def + levelDiff * LEVEL_SCALE.def_per_level) * tierMult.def))
+    local scaledEXP = math.max(1, math.floor((def.exp + levelDiff * LEVEL_SCALE.exp_per_level) * tierMult.exp))
 
     -- 在玩家周围随机位置生成（避开安全区 + 保证最小距离）
-    -- 安全区以地图出生点(0,0)为圆心，半径 safeRadius；怪物不得生成在安全区内
-    local safeRadius = MapZone.GetSafeZoneRadius(currentMapId)
+    -- 安全区以地图出生点为中心、safeRadius 为方形半边长；怪物不得生成在线内。
+    local safeRadius = MapZone.GetSafeZoneRadius(spawnMapId)
     local minSpawnDist = 12   -- 怪物距玩家最小距离
     local maxSpawnDist = 28   -- 怪物距玩家最大距离
     local spawnPos = nil
-    for attempt = 1, 10 do
+    for attempt = 1, 16 do
         local angle = math.random() * math.pi * 2
         local dist = minSpawnDist + math.random() * (maxSpawnDist - minSpawnDist)
         local candidate = Vector3(
@@ -482,8 +722,7 @@ function Combat.SpawnEnemy(scene, playerPos, playerLevel, forceDef, mapId)
             playerPos.z + math.sin(angle) * dist
         )
         -- 距离地图出生点(安全区中心)的距离
-        local toSafeZone = math.sqrt(candidate.x * candidate.x + candidate.z * candidate.z)
-        if toSafeZone >= safeRadius then
+        if MapZone.IsInsideArena(candidate, 1.0) and not IsInSafeZone(candidate, spawnMapId) then
             spawnPos = candidate
             break
         end
@@ -491,7 +730,12 @@ function Combat.SpawnEnemy(scene, playerPos, playerLevel, forceDef, mapId)
     -- 兜底：若多次尝试都落在安全区内（玩家在安全区中心附近），直接放到安全区边缘外
     if not spawnPos then
         local angle = math.random() * math.pi * 2
-        spawnPos = Vector3(math.cos(angle) * (safeRadius + 4), 0, math.sin(angle) * (safeRadius + 4))
+        local safeCenter = GetSafeZoneCenter(spawnMapId)
+        spawnPos = Vector3(
+            safeCenter.x + math.cos(angle) * (safeRadius + 4),
+            0,
+            safeCenter.z + math.sin(angle) * (safeRadius + 4))
+        spawnPos = MapZone.ClampToArena(spawnPos, 1.0) or spawnPos
     end
 
     -- 创建敌人节点
@@ -589,25 +833,26 @@ function Combat.TriggerDeath(enemy, player)
     if enemy.animData then
         MonsterSkeleton.PlayAnim(enemy.animData, "death", nil)
     end
-    -- 立即触发掉落和经验
+    -- 立即触发掉落和经验。读取公开字段是为了兼容读档时直接写入
+    -- Combat.killCount 的旧调用；之后始终保持私有/公开状态同步。
+    if type(Combat.killCount) == "number" and Combat.killCount ~= killCount then
+        killCount = Combat.killCount
+    end
     killCount = killCount + 1
     Combat.killCount = killCount
     if player then
-        player.exp = player.exp + enemy.exp
-        while player.exp >= player.expToNext do
-            player.exp = player.exp - player.expToNext
-            local newSkills = CharacterClass.LevelUp(player)
-            if newSkills and Combat.onSkillUnlocked then
-                for _, name in ipairs(newSkills) do
-                    Combat.onSkillUnlocked(name)
-                end
+        local expGain = enemy.exp * GetExperienceMultiplier(player)
+        local newSkills = CharacterClass.AddExperience(player, expGain)
+        if newSkills and Combat.onSkillUnlocked then
+            for _, name in ipairs(newSkills) do
+                Combat.onSkillUnlocked(name)
             end
         end
     end
     -- 神兽也获得经验
     DivineBeast.AddExp(enemy.exp)
     if Combat.onEnemyDeath then
-        Combat.onEnemyDeath(enemy.name, enemy.node.position, enemy.exp)
+        Combat.onEnemyDeath(enemy.name, enemy.node.position, enemy.exp, deathDur)
     end
 end
 
@@ -636,11 +881,25 @@ end
 -- 敌人 AI 更新
 -- ============================================================================
 function Combat.UpdateEnemies(dt, playerNode, player)
-    if not playerNode then return end
+    if not playerNode or type(player) ~= "table" then return end
     local playerPos = playerNode.position
+    local playerInSafeZone = IsInSafeZone(playerPos)
+    if playerInSafeZone and not playerWasInSafeZone then
+        -- 必须早于 DOT tick 和其它战斗系统更新执行，确保进入安全区的同一帧
+        -- 就清掉毒、火墙、困魔、弹道与冲刺，不留下“最后一跳”伤害。
+        Combat.CancelPlayerHostileEffects()
+    end
+    playerWasInSafeZone = playerInSafeZone
 
     for i = #enemies, 1, -1 do
+        -- 将单次迭代放进独立作用域。Lua 5.4 禁止 goto 跳入后续 local
+        -- 的作用域；continue 标签留在作用域外，所有提前跳转都只会退出本轮。
+        do
         local e = enemies[i]
+        if not e or not e.node then
+            table.remove(enemies, i)
+            goto continue
+        end
         if e.state == "dead" then goto continue end
 
         -- 死亡动画播放中
@@ -659,19 +918,50 @@ function Combat.UpdateEnemies(dt, playerNode, player)
         end
 
         local pos = e.node.position
+        local boundedPos, hitBoundary = MapZone.ClampToArena(pos, 0.75)
+        if hitBoundary and boundedPos then
+            e.node.position = boundedPos
+            pos = boundedPos
+            local boundaryBody = e.node:GetComponent("RigidBody")
+            if boundaryBody then boundaryBody:SetLinearVelocity(Vector3.ZERO) end
+            e.patrolTarget = nil
+        end
+        -- 物理挤压、击退或旧状态可能把怪物送进安全区。先把实体推出边界，
+        -- 再执行 DOT 与 AI，确保安全区内不会发生任何一帧的伤害结算。
+        if IsInSafeZone(pos) then
+            local outside = MoveOutsideSafeZone(pos, currentMapId, 0.85)
+            if outside then
+                e.node.position = outside
+                pos = outside
+            end
+            e.state = "patrol"
+            e.patrolTarget = nil
+            e.attackTimer = math.max(e.attackTimer or 0, 0.25)
+            e.trapCenter = nil
+            e.trapRadius = nil
+            e.trapTimer = nil
+            e.trapDefReduced = nil
+        end
         local toPlayer = playerPos - pos
         toPlayer.y = 0
         local dist = toPlayer:Length()
+        local eBody = e.node:GetComponent("RigidBody")
 
         -- DOT 伤害 (施毒术)：每 0.5 秒结算一次
-        if e.dotTimer > 0 then
+        if (e.dotTimer or 0) > 0 then
             e.dotTimer = e.dotTimer - dt
             e.dotTickAccum = (e.dotTickAccum or 0) + dt
             local tickInterval = e.dotTickInterval or 0.5
             while e.dotTickAccum >= tickInterval and e.dotTimer > 0 do
                 e.dotTickAccum = e.dotTickAccum - tickInterval
-                e.hp = e.hp - e.dotDamage * tickInterval
-                e.hitFlashTimer = 0.1
+                local dealt = Combat.DealDamage(e, (e.dotDamage or 0) * tickInterval, player, {
+                    ignoreDefense = true,
+                    canCrit = false,
+                    hitStun = false,
+                })
+                if dealt <= 0 or e.state == "dying" or e.state == "dead" then
+                    break
+                end
             end
             if e.dotTimer <= 0 then
                 e.dotDamage = 0
@@ -682,7 +972,7 @@ function Combat.UpdateEnemies(dt, playerNode, player)
         end
 
         -- 减防衰减
-        if e.defReductionTimer > 0 then
+        if (e.defReductionTimer or 0) > 0 then
             e.defReductionTimer = e.defReductionTimer - dt
             if e.defReductionTimer <= 0 then
                 e.defReduction = 0
@@ -690,7 +980,7 @@ function Combat.UpdateEnemies(dt, playerNode, player)
         end
 
         -- 受击闪烁
-        if e.hitFlashTimer > 0 then
+        if (e.hitFlashTimer or 0) > 0 then
             e.hitFlashTimer = e.hitFlashTimer - dt
         end
 
@@ -711,10 +1001,22 @@ function Combat.UpdateEnemies(dt, playerNode, player)
             goto continue
         end
 
+        -- 安全区是完整的战斗隔离区：怪物进入 attack 状态后，玩家再退回
+        -- 安全区也必须立即停止伤害，不能只在 chase 分支拦截追击。
+        -- 同时清掉速度和攻击状态，避免离开安全区后一帧继续沿用旧攻击窗口。
+        if playerInSafeZone then
+            if e.state == "chase" or e.state == "attack" then
+                e.state = "patrol"
+                e.patrolTarget = nil
+                e.attackTimer = math.max(e.attackTimer or 0, 0.25)
+            end
+            if eBody then eBody:SetLinearVelocity(Vector3.ZERO) end
+            goto continue
+        end
+
         -- 状态机
         e.attackTimer = math.max(0, e.attackTimer - dt)
 
-        local eBody = e.node:GetComponent("RigidBody")
         local isMoving = false
         local moveAnimName = "run"
 
@@ -746,6 +1048,7 @@ function Combat.UpdateEnemies(dt, playerNode, player)
         if e.state == "patrol" then
             -- 巡逻：发现玩家或神兽时追击
             local beastPos = DivineBeast.GetPosition()
+            if beastPos and IsInSafeZone(beastPos) then beastPos = nil end
             local beastDist = beastPos and (beastPos - pos):Length() or 9999
             if dist < e.chaseRange or beastDist < e.chaseRange then
                 e.state = "chase"
@@ -753,7 +1056,8 @@ function Combat.UpdateEnemies(dt, playerNode, player)
                 if not e.patrolTarget or e.patrolWait <= 0 then
                     local rx = pos.x + (math.random() - 0.5) * 8
                     local rz = pos.z + (math.random() - 0.5) * 8
-                    e.patrolTarget = Vector3(rx, 0, rz)
+                    local patrolTarget = MoveOutsideSafeZone(Vector3(rx, 0, rz), currentMapId, 0.85)
+                    e.patrolTarget = MapZone.ClampToArena(patrolTarget, 0.75) or patrolTarget
                     e.patrolWait = 3 + math.random() * 3
                 end
                 e.patrolWait = e.patrolWait - dt
@@ -774,9 +1078,7 @@ function Combat.UpdateEnemies(dt, playerNode, player)
 
         elseif e.state == "chase" then
             -- 安全区保护：玩家在安全区内时，怪物停止追击并返回巡逻
-            local safeRadius = MapZone.GetSafeZoneRadius(currentMapId)
-            local playerSafeDist = math.sqrt(playerPos.x * playerPos.x + playerPos.z * playerPos.z)
-            if playerSafeDist < safeRadius then
+            if playerInSafeZone then
                 e.state = "patrol"
                 if eBody then eBody:SetLinearVelocity(Vector3.ZERO) end
                 goto continue
@@ -784,6 +1086,7 @@ function Combat.UpdateEnemies(dt, playerNode, player)
 
             -- 追击玩家或神兽（谁近追谁）
             local chaseBeastPos = DivineBeast.GetPosition()
+            if chaseBeastPos and IsInSafeZone(chaseBeastPos) then chaseBeastPos = nil end
             local chaseBeastDist = chaseBeastPos and (chaseBeastPos - pos):Length() or 9999
             local chaseTargetPos = playerPos
             local chaseTargetDist = dist
@@ -819,6 +1122,7 @@ function Combat.UpdateEnemies(dt, playerNode, player)
             local attackTarget = "player"
             local attackDist = dist
             local beastPos = DivineBeast.GetPosition()
+            if beastPos and IsInSafeZone(beastPos) then beastPos = nil end
             if beastPos then
                 local toBeast = (beastPos - pos):Length()
                 if toBeast < attackDist then
@@ -832,6 +1136,12 @@ function Combat.UpdateEnemies(dt, playerNode, player)
             else
                 -- 面向目标
                 local targetPos = attackTarget == "beast" and beastPos or playerPos
+                if not targetPos or IsInSafeZone(targetPos) then
+                    e.state = "patrol"
+                    e.patrolTarget = nil
+                    e.attackTimer = math.max(e.attackTimer or 0, 0.25)
+                    goto continue
+                end
                 FaceEnemyTarget(e, targetPos)
 
                 if e.attackTimer <= 0 then
@@ -848,6 +1158,10 @@ function Combat.UpdateEnemies(dt, playerNode, player)
                     else
                         -- 攻击玩家
                         local dmg = math.max(1, e.atk - player.def * 0.5)
+                        if CharacterClass.RollIncomingDamageReduction
+                            and CharacterClass.RollIncomingDamageReduction(player) then
+                            dmg = math.max(1, math.floor(dmg * CharacterClass.GetIncomingDamageMultiplier(player)))
+                        end
                         -- 护盾吸收
                         if player.shieldHP > 0 then
                             local absorbed = math.min(player.shieldHP, dmg)
@@ -876,7 +1190,7 @@ function Combat.UpdateEnemies(dt, playerNode, player)
                 local clampDir = toCenter:Normalized()
                 local clampedPos = e.trapCenter + clampDir * (e.trapRadius * 0.85)
                 clampedPos.y = ePos.y
-                e.node.position = clampedPos
+                e.node.position = MoveOutsideSafeZone(clampedPos, currentMapId, 0.85) or clampedPos
                 -- 清除速度防止继续外移
                 local eBody = e.node:GetComponent("RigidBody")
                 if eBody then eBody:SetLinearVelocity(Vector3.ZERO) end
@@ -888,6 +1202,7 @@ function Combat.UpdateEnemies(dt, playerNode, player)
             MonsterSkeleton.UpdateAnimation(e.animData, dt, isMoving, moveAnimName)
         end
 
+        end
         ::continue::
     end
 end
@@ -896,8 +1211,20 @@ end
 -- 技能释放
 -- ============================================================================
 function Combat.CastSkill(scene, player, playerNode, skillSlot)
-    local skill = player.equippedSkills[skillSlot]
+    if not scene or type(player) ~= "table" or not playerNode
+        or type(player.equippedSkills) ~= "table" then
+        return false, "角色状态异常"
+    end
+    local slot = SafeInteger(skillSlot, nil, 1, 20)
+    if not slot then return false, "技能槽位无效" end
+    local skill = player.equippedSkills[slot]
     if not skill then return false, "无技能" end
+
+    -- 最终施法入口必须再次检查安全区。主界面按键检查只能覆盖按下按钮
+    -- 的瞬间，带前摇技能仍可能在结算前进入安全区。
+    if IsHostileSkill(skill) and IsInSafeZone(playerNode.position) then
+        return false, "安全区内无法攻击"
+    end
 
     local canCast, reason = CharacterClass.CanCastSkill(player, skill)
     if not canCast then return false, reason end
@@ -919,7 +1246,7 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
 
     if skill.type == SKILL_TYPE.MELEE then
         -- 近战：ATK × 倍率百分比
-        local dmg = player.atk * (skill.damage / 100)
+        local dmg = GetSkillDamage(player, skill)
         local hitCount = 0
         if skill.aoeAngle then
             for _, e in ipairs(enemies) do
@@ -936,16 +1263,18 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
                         local dot = fwd:DotProduct(toEnemy)
                         local angleToEnemy = math.deg(math.acos(math.max(-1, math.min(1, dot))))
                         if angleToEnemy <= skill.aoeAngle * 0.5 then
-                            Combat.DealDamage(e, dmg, player)
-                            hitCount = hitCount + 1
+                            local dealt = Combat.DealDamage(e, dmg, player)
+                            if dealt > 0 then hitCount = hitCount + 1 end
                         end
                     end
                 end
             end
         elseif target then
-            Combat.DealDamage(target, dmg, player)
-            RememberPlayerTarget(target)
-            hitCount = 1
+            local dealt = Combat.DealDamage(target, dmg, player)
+            if dealt > 0 then
+                RememberPlayerTarget(target)
+                hitCount = 1
+            end
         end
 
         -- 【刺杀剑术·被动】基本剑术近身落空时，凌空斩出白色剑气，补击"隔一身位"之敌
@@ -958,7 +1287,7 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
                 -- 在隔身位区间内、身前锥形内，挑最近的一个目标
                 local bestE, bestD = nil, ASSASSIN_REACH + 0.001
                 for _, e in ipairs(enemies) do
-                    if e.state ~= "dead" and e.state ~= "dying" then
+                    if IsEnemyTargetable(e) then
                         local toE = e.node.position - playerPos
                         toE.y = 0
                         local d = toE:Length()
@@ -978,8 +1307,8 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
                     playerNode.rotation = Quaternion(math.deg(math.atan2(sdir.x, sdir.z)), Vector3.UP)
                     -- 攻击力略微增强 + 大幅穿透防御
                     local procDmg = player.atk * (thrust.damage / 100) * ASSASSIN_ATK_BONUS
-                    Combat.DealDamage(bestE, procDmg, player, { armorPen = ASSASSIN_ARMOR_PEN })
-                    RememberPlayerTarget(bestE)
+                    local dealt = Combat.DealDamage(bestE, procDmg, player, { armorPen = ASSASSIN_ARMOR_PEN })
+                    if dealt > 0 then RememberPlayerTarget(bestE) end
                     -- 白色剑气特效（沿挥砍方向延伸到隔身位距离）
                     Combat.SpawnAssassinSlashVisual(scene, playerPos, sdir, ASSASSIN_REACH)
                 end
@@ -1001,7 +1330,7 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
 
     elseif skill.type == SKILL_TYPE.RANGED then
         -- 远程：ATK × 倍率百分比
-        local dmg = player.atk * (skill.damage / 100)
+        local dmg = GetSkillDamage(player, skill)
 
         local dir = playerDir
         if target then
@@ -1019,17 +1348,17 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
             local strikePos
             if target then
                 strikePos = target.node.position
-                Combat.DealDamage(target, dmg, player)
-                RememberPlayerTarget(target)
+                local dealt = Combat.DealDamage(target, dmg, player)
+                if dealt > 0 then RememberPlayerTarget(target) end
             else
                 strikePos = playerPos + dir * (skill.range or 6)
                 -- 对落点范围内的敌人造成伤害
                 for _, e in ipairs(enemies) do
-                    if e.state ~= "dead" and e.state ~= "dying" then
+                    if IsEnemyTargetable(e) then
                         local d = (e.node.position - strikePos):Length()
                         if d <= 1.5 then
-                            Combat.DealDamage(e, dmg, player)
-                            RememberPlayerTarget(e)
+                            local dealt = Combat.DealDamage(e, dmg, player)
+                            if dealt > 0 then RememberPlayerTarget(e) end
                         end
                     end
                 end
@@ -1047,7 +1376,7 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
             local kbSpeed = skill.knockbackSpeed or 14
             local kbDur = skill.knockbackDuration or 0.4
             for _, e in ipairs(enemies) do
-                if e.state ~= "dead" and e.state ~= "dying" then
+                if IsEnemyTargetable(e) then
                     local toE = e.node.position - playerPos
                     toE.y = 0
                     local d = toE:Length()
@@ -1072,7 +1401,7 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
         end
 
         -- 范围：ATK × 倍率百分比
-        local dmg = player.atk * (skill.damage / 100)
+        local dmg = GetSkillDamage(player, skill)
         local radius = skill.aoeRadius or skill.range
 
         -- 如果有目标，以目标为中心；否则以玩家前方为中心
@@ -1103,7 +1432,7 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
             })
             -- 立即困住区域内的怪物并施加减防
             for _, e in ipairs(enemies) do
-                if e.state ~= "dead" and e.state ~= "dying" then
+                if IsEnemyTargetable(e) then
                     local toE = e.node.position - center
                     toE.y = 0
                     local d = toE:Length()
@@ -1125,7 +1454,7 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
         end
 
         for _, e in ipairs(enemies) do
-            if e.state ~= "dead" and e.state ~= "dying" then
+            if IsEnemyTargetable(e) then
                 local d = (e.node.position - center):Length()
                 if d <= radius then
                     Combat.DealDamage(e, dmg, player)
@@ -1139,7 +1468,7 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
 
     elseif skill.type == SKILL_TYPE.DOT then
         -- 持续伤害 (施毒术 / 火墙)：DPS = ATK × 倍率百分比
-        local dps = player.atk * (skill.damage / 100)
+        local dps = GetSkillDamage(player, skill)
         local dur = skill.duration
 
         if skill.id == "t_poison" then
@@ -1152,7 +1481,7 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
             end
 
             for _, e in ipairs(enemies) do
-                if e.state ~= "dead" and e.state ~= "dying" then
+                if IsEnemyTargetable(e) then
                     local toE = e.node.position - center
                     toE.y = 0
                     local d = toE:Length()
@@ -1281,7 +1610,8 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
 
         if sType == "divineBeast" then
             -- 召唤神兽（永久随从，只能一只）
-            local ok = DivineBeast.Summon(scene, playerPos, player.atk)
+            local ok = DivineBeast.Summon(scene, playerPos,
+                player.atk * GetBeastAttackMultiplier(player))
             if not ok then
                 -- 已存在，返还 MP 和 CD
                 player.mp = player.mp + skill.manaCost
@@ -1291,7 +1621,7 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
             return true, "summon"
         else
             -- 普通召唤兽
-            local summonAtk = player.atk * (skill.damage / 100)
+            local summonAtk = GetSkillDamage(player, skill) * GetBeastAttackMultiplier(player)
             local dur = skill.duration
             local count = skill.summonCount or 1
 
@@ -1309,27 +1639,43 @@ end
 -- ============================================================================
 -- 伤害计算
 -- ============================================================================
---- @param opts table|nil 可选: { armorPen = 0~1 穿透比例 }
+--- @param opts table|nil 可选: { armorPen=0~1, ignoreDefense=false, canCrit=true, hitStun=true }
+---@return number damage 实际结算伤害；0 表示目标无效或处于安全区
+---@return boolean isCrit
 function Combat.DealDamage(enemy, baseDmg, player, opts)
-    if enemy.state == "dying" or enemy.state == "dead" then return end
+    if not IsEnemyTargetable(enemy) then return 0, false end
 
-    local armorPen = (opts and opts.armorPen) or 0  -- 防御穿透比例 0~1
-    local rawDef = math.max(0, enemy.def - enemy.defReduction)
-    local effectiveDef = rawDef * (1 - armorPen)  -- 穿透后剩余防御
+    baseDmg = tonumber(baseDmg)
+    if not IsFiniteNumber(baseDmg) or baseDmg <= 0 then return 0, false end
+    baseDmg = math.min(baseDmg, MAX_COMBAT_VALUE)
+
+    local armorPen = opts and tonumber(opts.armorPen) or 0
+    if not IsFiniteNumber(armorPen) then armorPen = 0 end
+    armorPen = math.max(0, math.min(1, armorPen))
+
+    local enemyDef = tonumber(enemy.def)
+    if not IsFiniteNumber(enemyDef) then enemyDef = 0 end
+    local defReduction = tonumber(enemy.defReduction)
+    if not IsFiniteNumber(defReduction) then defReduction = 0 end
+    local rawDef = math.max(0, math.min(MAX_COMBAT_VALUE, enemyDef - defReduction))
+    local effectiveDef = (opts and opts.ignoreDefense) and 0 or rawDef * (1 - armorPen)
     -- 防御减伤公式: 伤害 = 基础伤害 × (100 / (100 + 防御))
     -- 这样防御永远不会让伤害降到0，且收益递减
     local dmg = baseDmg * (100 / (100 + effectiveDef))
-    dmg = math.max(1, math.floor(dmg))
+    if not IsFiniteNumber(dmg) or dmg <= 0 then return 0, false end
+    dmg = math.max(1, math.min(MAX_COMBAT_VALUE, math.floor(dmg)))
 
     -- 暴击 (10% 概率, 1.5 倍)
-    local isCrit = math.random() < 0.10
-    if isCrit then dmg = math.floor(dmg * 1.5) end
+    local canCrit = not opts or opts.canCrit ~= false
+    local isCrit = canCrit and math.random() < 0.10
+    if isCrit then dmg = math.min(MAX_COMBAT_VALUE, math.floor(dmg * 1.5)) end
 
-    enemy.hp = enemy.hp - dmg
+    enemy.hp = math.max(0, enemy.hp - dmg)
     enemy.hitFlashTimer = 0.15
 
     -- 播放受击动画 + 短暂硬直（不打断攻击动画，hp>0 时才播放）
-    if enemy.hp > 0 and enemy.animData and enemy.animData.state ~= "attack" then
+    local allowHitStun = not opts or opts.hitStun ~= false
+    if allowHitStun and enemy.hp > 0 and enemy.animData and enemy.animData.state ~= "attack" then
         MonsterSkeleton.PlayAnim(enemy.animData, "hit", nil)
         enemy.hitStunTimer = 0.25  -- 受击硬直，停止移动
     end
@@ -1349,12 +1695,17 @@ function Combat.DealDamage(enemy, baseDmg, player, opts)
     if Combat.onDamageDealt then
         Combat.onDamageDealt(dmg, isCrit, enemy.node.position)
     end
+    return dmg, isCrit
 end
 
 -- ============================================================================
 -- 弹道系统（根据技能 ID 分化视觉效果）
 -- ============================================================================
 function Combat.SpawnProjectile(scene, origin, dir, damage, skill, player)
+    if not scene or not origin or not dir or type(skill) ~= "table"
+        or IsInSafeZone(origin) then
+        return nil
+    end
     local projNode = scene:CreateChild("Projectile")
     projNode.position = origin
 
@@ -1466,38 +1817,48 @@ function Combat.SpawnProjectile(scene, origin, dir, damage, skill, player)
         traveled = 0,
         skillId = skillId,
     })
+    return projNode
 end
 
 function Combat.UpdateProjectiles(scene, dt, player)
     for i = #projectiles, 1, -1 do
         local p = projectiles[i]
-        local move = p.dir * p.speed * dt
-        p.node.position = p.node.position + move
-        p.traveled = p.traveled + p.speed * dt
+        if not p or not p.node then
+            table.remove(projectiles, i)
+        else
+            local move = p.dir * p.speed * dt
+            p.node.position = p.node.position + move
+            p.traveled = p.traveled + p.speed * dt
 
-        -- 碰撞检测
-        local hit = false
-        local hitPos = p.node.position
-        for _, e in ipairs(enemies) do
-            if e.state ~= "dead" and e.state ~= "dying" then
-                local d = (e.node.position - p.node.position):Length()
-                if d < 1.0 then
-                    Combat.DealDamage(e, p.damage, player)
-                    RememberPlayerTarget(e)
-                    hit = true
-                    hitPos = e.node.position
-                    break
+            -- 碰撞检测
+            local hit = false
+            local blockedBySafeZone = IsInSafeZone(p.node.position)
+            local hitPos = p.node.position
+            if not blockedBySafeZone then
+                for _, e in ipairs(enemies) do
+                    if IsEnemyTargetable(e) then
+                        local d = (e.node.position - p.node.position):Length()
+                        if d < 1.0 then
+                            local dealt = Combat.DealDamage(e, p.damage, player)
+                            if dealt > 0 then
+                                RememberPlayerTarget(e)
+                                hit = true
+                                hitPos = e.node.position
+                                break
+                            end
+                        end
+                    end
                 end
             end
-        end
 
-        if hit or p.traveled >= p.range then
-            -- 灵魂火符命中时产生小爆炸
-            if hit and p.skillId == "t_talisman" then
-                Combat.SpawnTalismanBurst(scene, hitPos)
+            if blockedBySafeZone or hit or p.traveled >= p.range then
+                -- 灵魂火符命中时产生小爆炸
+                if hit and p.skillId == "t_talisman" then
+                    Combat.SpawnTalismanBurst(scene, hitPos)
+                end
+                p.node:Remove()
+                table.remove(projectiles, i)
             end
-            p.node:Remove()
-            table.remove(projectiles, i)
         end
     end
 end
@@ -2721,7 +3082,7 @@ function Combat.UpdateAOEZones(dt, player)
             if shouldDamage and not zone.isTrapZone then
                 -- 对区域内敌人造成伤害（困魔区域不造成伤害）
                 for _, e in ipairs(enemies) do
-                    if e.state ~= "dead" and e.state ~= "dying" then
+                    if IsEnemyTargetable(e) then
                         local inZone = false
                         if zone.isRect then
                             -- 长方形判定：将敌人坐标转换到火墙本地坐标系
@@ -2741,12 +3102,11 @@ function Combat.UpdateAOEZones(dt, player)
                         if inZone then
                             -- tick式伤害：每次tick造成 dps * tickInterval 的伤害
                             local dmg = zone.tickInterval and (zone.dps * zone.tickInterval) or (zone.dps * dt)
-                            e.hp = e.hp - dmg
-                            e.hitFlashTimer = 0.1
-                            if e.state == "patrol" then e.state = "chase" end
-                            if e.hp <= 0 then
-                                Combat.TriggerDeath(e, player)
-                            end
+                            Combat.DealDamage(e, dmg, player, {
+                                ignoreDefense = true,
+                                canCrit = false,
+                                hitStun = false,
+                            })
                         end
                     end
                 end
@@ -2755,7 +3115,7 @@ function Combat.UpdateAOEZones(dt, player)
             -- 困魔区域：持续捕捉新进入的敌人
             if zone.isTrapZone then
                 for _, e in ipairs(enemies) do
-                    if e.state ~= "dead" and e.state ~= "dying" and not e.trapCenter then
+                    if IsEnemyTargetable(e) and not e.trapCenter then
                         local d = (e.node.position - zone.center):Length()
                         if d <= zone.radius then
                             e.trapCenter = zone.center
@@ -2853,8 +3213,9 @@ function Combat.SpawnSummon(scene, playerPos, atk, duration, isHoly, summonType)
 end
 
 function Combat.UpdateSummons(dt, playerNode, player)
-    if not playerNode then return end
+    if not playerNode or type(player) ~= "table" then return end
     local playerPos = playerNode.position
+    local playerInSafeZone = IsInSafeZone(playerPos)
 
     for i = #summons, 1, -1 do
         local s = summons[i]
@@ -2876,6 +3237,15 @@ function Combat.UpdateSummons(dt, playerNode, player)
 
             local sBody = s.node:GetComponent("RigidBody")
             local sPos = s.node.position
+            -- 玩家已离开安全区而召唤物仍被碰撞留在里面时，将其送到边界外；
+            -- 玩家位于安全区时则允许随从跟随，但保持完全停火。
+            if not playerInSafeZone and IsInSafeZone(sPos) then
+                local outside = MoveOutsideSafeZone(sPos, currentMapId, 0.5)
+                if outside then
+                    s.node.position = outside
+                    sPos = outside
+                end
+            end
             local toPlayer = playerPos - sPos
             toPlayer.y = 0
             local distToPlayer = toPlayer:Length()
@@ -2885,19 +3255,22 @@ function Combat.UpdateSummons(dt, playerNode, player)
 
             -- 攻击最近的敌人（优先级高于跟随）
             local chaseRange = (s.summonType == "wolf") and 6.0 or 4.5
-            if s.attackTimer <= 0 then
+            local canFight = not playerInSafeZone and not IsInSafeZone(sPos)
+            if canFight and s.attackTimer <= 0 then
                 local nearestEnemy, nearDist = Combat.FindNearestEnemy(s.node.position, chaseRange)
                 if nearestEnemy then
                     local dir = nearestEnemy.node.position - s.node.position
                     dir.y = 0
                     local eDist = dir:Length()
-                    dir = dir:Normalized()
-                    local angle = math.atan2(dir.x, dir.z)
-                    s.node.rotation = Quaternion(math.deg(angle), Vector3.UP)
+                    if eDist > 0.001 then
+                        dir = dir:Normalized()
+                        local angle = math.atan2(dir.x, dir.z)
+                        s.node.rotation = Quaternion(math.deg(angle), Vector3.UP)
+                    end
 
                     if eDist <= 2.0 then
-                        Combat.DealDamage(nearestEnemy, s.atk, player)
-                        s.attackTimer = s.attackCD
+                        local dealt = Combat.DealDamage(nearestEnemy, s.atk, player)
+                        if dealt > 0 then s.attackTimer = s.attackCD end
                         if sBody then sBody:SetLinearVelocity(Vector3.ZERO) end
                     else
                         if sBody then sBody:SetLinearVelocity(dir * followSpeed) end
@@ -2987,47 +3360,128 @@ end
 -- ============================================================================
 local bossTimer = 0
 local BOSS_INTERVAL = 45  -- 每45秒尝试刷一只Boss
+local activeBossQuestId = nil
+
+-- Quest 不依赖 Combat，可在模块初始化时直接缓存。此前每帧走 pcall(require)
+-- 会给刷怪/首领检查制造不必要的热路径开销，也会静默吞掉真正的模块加载错误。
+GetCurrentQuest = function()
+    return Quest.GetCurrent()
+end
+
+local function HasLiveEnemyByName(name)
+    if not name then return false end
+    for _, enemy in ipairs(enemies) do
+        if enemy.name == name and IsEnemyTargetable(enemy) then
+            return true
+        end
+    end
+    return false
+end
+
+local function FindEnemyDefByName(name)
+    if not name then return nil end
+    for _, def in ipairs(ENEMY_DEFS) do
+        if def.name == name then return def end
+    end
+    return nil
+end
+
+--- 章节 Boss 开战时清理遗留的小怪与上一场濒死 Boss。
+--- 不发放经验/掉落，防止玩家借切入 Boss 任务重复刷奖励；只用于新 Boss
+--- 任务，避免 70 只普通怪把守关战变成无解的混战或占满刷新上限。
+local function PrepareQuestBossEncounter(targetName)
+    local removed = 0
+    for index = #enemies, 1, -1 do
+        local enemy = enemies[index]
+        -- 同名 Boss 若处于 dying 状态也要清掉；否则 HasLiveEnemyByName
+        -- 会忽略它，而新 Boss 会在死亡动画期间重复生成。
+        if enemy and (enemy.name ~= targetName or enemy.state == "dying" or enemy.state == "dead") then
+            if enemy.node then enemy.node:Remove() end
+            if lastPlayerTarget == enemy then lastPlayerTarget = nil end
+            table.remove(enemies, index)
+            removed = removed + 1
+        end
+    end
+    if removed > 0 then
+        print("[Combat] Cleared " .. removed .. " lingering enemies for Boss: " .. targetName)
+    end
+end
+
+--- 守关任务 Boss：任务开始后立即尝试生成，避免玩家无反馈地等待完整刷新周期。
+--- 同一任务的 Boss 被击杀前若因异常消失，仍保留原有 45 秒重试机制。
+local function TrySpawnQuestBoss(scene, playerNode, player)
+    local quest = GetCurrentQuest()
+    if not quest or quest.type ~= "boss" then
+        activeBossQuestId = nil
+        bossTimer = 0
+        return false
+    end
+
+    local mapDef = MapZone.GetDef(currentMapId)
+    if not mapDef or not MapZone.HasBoss(currentMapId, quest.target) then
+        return false
+    end
+
+    local questKey = quest.id or quest.target
+    local isNewQuest = activeBossQuestId ~= questKey
+    if isNewQuest then
+        activeBossQuestId = questKey
+        bossTimer = 0
+        PrepareQuestBossEncounter(quest.target)
+    end
+
+    -- 已有同名 Boss 时不重复生成。
+    if HasLiveEnemyByName(quest.target) then return false end
+
+    -- 新任务立即生成；后续仅按原定周期重试。
+    if not isNewQuest and bossTimer < BOSS_INTERVAL then return false end
+
+    local def = FindEnemyDefByName(quest.target)
+    if not def or def.tier ~= "boss" then return false end
+    local spawned = Combat.SpawnEnemy(scene, playerNode.position, player.level, def, currentMapId)
+    if spawned then
+        bossTimer = 0
+        print("[Combat] 守关 Boss spawned: " .. def.name)
+        return true
+    end
+    return false
+end
 
 function Combat.UpdateSpawner(scene, dt, playerNode, player)
     if not playerNode or not player then return end
 
+    local quest = GetCurrentQuest()
+    local bossEncounterActive = quest and quest.type == "boss"
+        and MapZone.HasBoss(currentMapId, quest.target)
+
     -- 普通怪刷新（频率随场上怪物数量动态调节，按当前地图怪物池）
-    spawnTimer = spawnTimer + dt
-    local dynamicInterval = SPAWN_INTERVAL
-    if #enemies > 55 then
-        dynamicInterval = SPAWN_INTERVAL * 1.6  -- 场上怪多时放慢
-    elseif #enemies < 30 then
-        dynamicInterval = SPAWN_INTERVAL * 0.35  -- 场上怪少时加快
-    end
-
-    if spawnTimer >= dynamicInterval then
-        spawnTimer = 0
-        Combat.SpawnEnemy(scene, playerNode.position, player.level, nil, currentMapId)
-    end
-
-    -- 守关 Boss 刷新：只在当前主线任务目标匹配本图 Boss 时刷出
-    bossTimer = bossTimer + dt
-    if bossTimer >= BOSS_INTERVAL then
-        bossTimer = 0
-        local Quest = require("scripts.Quest")
-        local curQuest = Quest.GetCurrent()
-        local mapDef = MapZone.GetDef(currentMapId)
-        if curQuest and mapDef and mapDef.boss and curQuest.type == "boss" then
-            local bossNames = type(mapDef.boss) == "string" and { mapDef.boss } or mapDef.boss
-            for _, bossName in ipairs(bossNames) do
-                if curQuest.target == bossName then
-                    -- 找到该 Boss 定义并强制刷出
-                    for _, d in ipairs(ENEMY_DEFS) do
-                        if d.tier == "boss" and d.name == bossName then
-                            Combat.SpawnEnemy(scene, playerNode.position, player.level, d, currentMapId)
-                            print("[Combat] 守关 Boss spawned: " .. d.name)
-                            break
-                        end
-                    end
-                    break
-                end
-            end
+    -- 守关 Boss 任务期间不再补充普通怪：开战时已清理遗留敌人，继续按
+    -- 普通频率堆怪会重新占满上限、遮挡 Boss，并可能让 Boss 重试失败。
+    if not bossEncounterActive then
+        spawnTimer = spawnTimer + dt
+        local dynamicInterval = SPAWN_INTERVAL
+        if #enemies > 34 then
+            dynamicInterval = SPAWN_INTERVAL * 1.6  -- 场上怪多时放慢
+        elseif #enemies < 18 then
+            dynamicInterval = SPAWN_INTERVAL * 0.60  -- 场上怪少时温和补充
         end
+
+        if spawnTimer >= dynamicInterval then
+            spawnTimer = 0
+            Combat.SpawnEnemy(scene, playerNode.position, player.level, nil, currentMapId)
+        end
+    else
+        -- 离开 Boss 任务后重新从零计时，避免在回到普通任务的第一帧突刷。
+        spawnTimer = 0
+    end
+
+    -- 守关 Boss：新任务立即刷出，避免 45 秒空等；异常消失后周期重试。
+    if quest and quest.type == "boss" then
+        bossTimer = bossTimer + dt
+        TrySpawnQuestBoss(scene, playerNode, player)
+    else
+        activeBossQuestId = nil
+        bossTimer = 0
     end
 end
 
@@ -3384,6 +3838,7 @@ function Combat.SpawnGroundItem(scene, pos, item)
         fallSpeed = 2.5 + math.random() * 1.5,
         falling = true,
         pickupDelayTimer = 0,
+        pickupRetryTimer = 0,
         rotSpeed = 60 + math.random() * 40,
     })
 end
@@ -3394,6 +3849,9 @@ function Combat.UpdateGroundItems(dt, playerNode)
     local playerPos = playerNode.position
 
     for i = #groundItems, 1, -1 do
+        -- 与敌人更新循环相同：让 continue 标签位于本轮局部变量作用域外，
+        -- 避免 Lua 5.4 将前向 goto 判定为跳入 local 作用域。
+        do
         local g = groundItems[i]
         g.timer = g.timer + dt
 
@@ -3466,16 +3924,26 @@ function Combat.UpdateGroundItems(dt, playerNode)
 
             -- 装备刚掉落的前 2 秒不可拾取，之后必须踩到装备上才触发
             g.pickupDelayTimer = math.min(ITEM_PICKUP_DELAY, (g.pickupDelayTimer or 0) + dt)
-            if not g.falling and g.pickupDelayTimer >= ITEM_PICKUP_DELAY and dist < ITEM_PICKUP_DIST then
+            g.pickupRetryTimer = math.max(0, (g.pickupRetryTimer or 0) - dt)
+            if not g.falling and g.pickupDelayTimer >= ITEM_PICKUP_DELAY
+                and g.pickupRetryTimer <= 0 and dist < ITEM_PICKUP_DIST then
+                -- 回调返回 false 时（例如背包已满）必须保留地面物品；此前
+                -- 无论回调结果都 Remove，导致玩家看到“背包已满”却永久丢装。
+                local pickedUp = true
                 if Combat.onItemPickup then
-                    Combat.onItemPickup(g.item, pos)
+                    pickedUp = Combat.onItemPickup(g.item, pos) ~= false
                 end
-                g.node:Remove()
-                table.remove(groundItems, i)
-                goto continue_ground
+                if pickedUp then
+                    g.node:Remove()
+                    table.remove(groundItems, i)
+                    goto continue_ground
+                end
+                -- 仍站在物品上时不要每帧重复 Toast/飘字；清出背包后会自动再试。
+                g.pickupRetryTimer = 0.6
             end
         end
 
+        end
         ::continue_ground::
     end
 end
@@ -3487,7 +3955,7 @@ function Combat.FindNearestEnemy(pos, maxRange)
     local nearest = nil
     local nearDist = maxRange or 999
     for _, e in ipairs(enemies) do
-        if e.state ~= "dead" and e.state ~= "dying" then
+        if IsEnemyTargetable(e) then
             local d = (e.node.position - pos):Length()
             if d < nearDist then
                 nearDist = d
@@ -3521,12 +3989,13 @@ function Combat.EndDash(playerNode)
     if dir and playerNode then
         local pPos = playerNode.position
         for e, lateral in pairs(dashState.pushed) do
-            if e.state ~= "dead" and e.state ~= "dying" then
+            if e and e.node and e.state ~= "dead" and e.state ~= "dying" then
                 local ey = e.node.position.y
-                e.node.position = Vector3(
+                local ejectPos = Vector3(
                     pPos.x + dir.x * DASH_EJECT_DIST + lateral.x,
                     ey,
                     pPos.z + dir.z * DASH_EJECT_DIST + lateral.z)
+                e.node.position = MoveOutsideSafeZone(ejectPos, currentMapId, 0.85) or ejectPos
                 local eBody = e.node:GetComponent("RigidBody")
                 if eBody then eBody:SetLinearVelocity(Vector3.ZERO) end
                 e.knockbackTimer = 0          -- 清除残留击退，确保硬直立即生效
@@ -3563,9 +4032,16 @@ function Combat.UpdateDash(dt, playerNode)
     local pPos = playerNode.position
     local newPos = Vector3(pPos.x + dir.x * step, 0, pPos.z + dir.z * step)
 
+    -- 位移技能不能作为安全区攻击绕过路径。即将踏入安全区时在边界外
+    -- 结束冲刺，并结算已卷入目标；普通行走仍可自由进入安全区。
+    if IsInSafeZone(newPos) then
+        Combat.EndDash(playerNode)
+        return
+    end
+
     -- 卷入"将要到达位置"前方的怪物（每帧检测，途中遇到的新怪也会被顶）
     for _, e in ipairs(enemies) do
-        if e.state ~= "dead" and e.state ~= "dying" and not dashState.pushed[e] then
+        if IsEnemyTargetable(e) and not dashState.pushed[e] then
             local toE = e.node.position - newPos
             toE.y = 0
             local along = toE:DotProduct(dir)             -- 沿冲刺方向的投影
@@ -3585,12 +4061,13 @@ function Combat.UpdateDash(dt, playerNode)
 
     -- 顶着被卷入的怪物前进（焊在玩家前方 DASH_CONTACT 处）
     for e, lateral in pairs(dashState.pushed) do
-        if e.state ~= "dead" and e.state ~= "dying" then
+        if e and e.node and e.state ~= "dead" and e.state ~= "dying" then
             local ey = e.node.position.y
-            e.node.position = Vector3(
+            local pushedPos = Vector3(
                 newPos.x + dir.x * DASH_CONTACT + lateral.x,
                 ey,
                 newPos.z + dir.z * DASH_CONTACT + lateral.z)
+            e.node.position = MoveOutsideSafeZone(pushedPos, currentMapId, 0.85) or pushedPos
             local eBody = e.node:GetComponent("RigidBody")
             if eBody then eBody:SetLinearVelocity(Vector3.ZERO) end
             -- 顶推期间保持轻硬直，压制怪物自身 AI 移动（次帧 UpdateEnemies 生效）
@@ -3615,19 +4092,45 @@ function Combat.Update(scene, dt, playerNode, player)
     Combat.UpdateVisuals(scene, dt, playerNode)
     Combat.UpdateSpawner(scene, dt, playerNode, player)
     Combat.UpdateGroundItems(dt, playerNode)
-    DivineBeast.Update(dt, scene, playerNode, player, enemies, Combat.DealDamage)
+    DivineBeast.Update(dt, scene, playerNode, player, enemies, Combat.DealDamage, IsInSafeZone)
 end
 
 --- 清空所有战斗实体
 -- 设置当前地图（供按图刷怪）
 function Combat.SetMap(mapId)
     if not MapZone.GetDef(mapId) then return false end
+    local changed = currentMapId ~= mapId
     currentMapId = mapId
     Combat.currentMapId = currentMapId
+    MapZone.SetCurrentMap(mapId)
+    if changed then
+        -- 切图后 Boss 刷新窗口从新地图/新任务重新计时，避免把旧地图
+        -- 的计时器带入新图造成错误的守关 Boss。
+        bossTimer = 0
+        activeBossQuestId = nil
+        playerWasInSafeZone = false
+    end
     return true
 end
 
-function Combat.Clear()
+--- 设置累计击杀数（读档/创建新角色时使用）。
+---@param value number
+function Combat.SetKillCount(value)
+    killCount = SafeInteger(value, 0, 0, MAX_COMBAT_VALUE)
+    Combat.killCount = killCount
+end
+
+---@return number
+function Combat.GetKillCount()
+    return killCount
+end
+
+--- 清空战斗实体。
+--- 默认保留跨地图累计击杀数和道士的永久神兽；返回主菜单等真正结束
+--- 当前角色会话时，再显式传 clearPersistentSummon=true。
+---@param resetKillCount boolean|nil
+---@param clearPersistentSummon boolean|nil
+function Combat.Clear(resetKillCount, clearPersistentSummon)
     for _, e in ipairs(enemies) do
         if e.node then e.node:Remove() end
     end
@@ -3650,20 +4153,30 @@ function Combat.Clear()
     groundItems = {}
     Combat.enemies = enemies
     Combat.projectiles = projectiles
-    killCount = 0
-    Combat.killCount = 0
+    if resetKillCount then
+        Combat.SetKillCount(0)
+    else
+        -- 兼容旧代码直接写 Combat.killCount 的情况。
+        killCount = SafeInteger(Combat.killCount, killCount or 0, 0, MAX_COMBAT_VALUE)
+        Combat.killCount = killCount
+    end
     spawnTimer = 0
+    bossTimer = 0
+    activeBossQuestId = nil
     lastPlayerTarget = nil
+    playerWasInSafeZone = false
     Combat.CancelDash()
-    DivineBeast.Clear()
+    if clearPersistentSummon then
+        DivineBeast.Clear()
+    end
 end
 
 -- 回调（由 main.lua 设置）
 Combat.onDamageDealt = nil   -- function(dmg, isCrit, worldPos)
 Combat.onEnemyAttack = nil   -- function(enemy, dmg, playerPos)
 Combat.onPlayerHeal = nil    -- function(amount, playerPos)
-Combat.onEnemyDeath = nil    -- function(enemyName, deathPos, exp)
+    Combat.onEnemyDeath = nil    -- function(enemyName, deathPos, exp, deathDuration)
 Combat.onGoldPickup = nil    -- function(amount, worldPos)
-Combat.onItemPickup = nil    -- function(item, worldPos)
+Combat.onItemPickup = nil    -- function(item, worldPos) -> boolean|nil（false 时保留地面物品）
 
 return Combat

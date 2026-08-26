@@ -37,15 +37,32 @@ MonsterData.NEW_ENEMIES = {
     },
     {
         name = "半兽勇士", monsterType = "orc",
-        level = 9, hp = 280, atk = 22, def = 9,
+        -- 第一幕守关 Boss。原先标成 elite，Combat 的守关刷怪逻辑只接受
+        -- boss tier，导致 q_006 永远无法生成目标。数值按 boss 倍率后
+        -- 约为 1500 HP，作为第一幕高潮但不拖成持久战。
+        level = 9, hp = 300, atk = 24, def = 10,
         speed = 2.2, chaseRange = 9, attackRange = 1.5, attackCD = 2.0,
-        exp = 110, scale = 1.2, tier = "elite",
+        exp = 120, scale = 1.5, tier = "boss",
     },
     {
         name = "白野猪", monsterType = "boar",
-        level = 20, hp = 1800, atk = 40, def = 18,
+        -- 第二幕 Boss：实际 HP 约 3200。此前 1800 × 5 反而比后续
+        -- 多个 Boss 更耐打，导致第二幕节奏异常陡峭。
+        level = 20, hp = 640, atk = 32, def = 14,
         speed = 1.5, chaseRange = 12, attackRange = 1.8, attackCD = 2.8,
-        exp = 900, scale = 2.2, tier = "boss",
+        exp = 300, scale = 2.2, tier = "boss",
+    },
+    {
+        name = "红野猪", monsterType = "boar",
+        level = 18, hp = 520, atk = 34, def = 15,
+        speed = 2.1, chaseRange = 10, attackRange = 1.6, attackCD = 1.9,
+        exp = 240, scale = 1.35, tier = "normal",
+    },
+    {
+        name = "黑野猪", monsterType = "boar",
+        level = 22, hp = 640, atk = 39, def = 18,
+        speed = 2.2, chaseRange = 11, attackRange = 1.6, attackCD = 1.8,
+        exp = 300, scale = 1.45, tier = "normal",
     },
     -- === 25~50 区间补齐（同类物种进阶变体，合理复用骨架）===
     {
@@ -102,6 +119,50 @@ MonsterData.NEW_ENEMIES = {
         speed = 2.2, chaseRange = 13, attackRange = 1.6, attackCD = 1.5,
         exp = 1400, scale = 1.5, tier = "elite",
     },
+}
+
+-- 各等级带使用共享掉落池。RollDrop 只读这些数组，因此共享引用不会
+-- 产生运行时状态污染，同时避免常规怪复制大段完全相同的装备列表。
+local WATER_CITY_ITEMS = {
+    { id = "sword_flame", weight = 12 }, { id = "staff_thunder", weight = 12 },
+    { id = "bell_soul", weight = 12 }, { id = "armor_chain", weight = 14 },
+    { id = "helm_golden", weight = 10 }, { id = "neck_amber", weight = 10 },
+    { id = "brace_gold", weight = 10 }, { id = "ring_gold", weight = 10 },
+    { id = "belt_chain", weight = 10 }, { id = "boots_iron", weight = 10 },
+    { id = "sword_cjzz", weight = 2 }, { id = "staff_arcane", weight = 2 },
+    { id = "bell_holy", weight = 2 },
+}
+
+local MENGZHONG_ITEMS = {
+    { id = "sword_steel", weight = 12 }, { id = "staff_crystal", weight = 12 },
+    { id = "bell_jade", weight = 12 }, { id = "armor_chain", weight = 14 },
+    { id = "helm_golden", weight = 10 }, { id = "neck_amber", weight = 10 },
+    { id = "brace_gold", weight = 10 }, { id = "ring_gold", weight = 10 },
+    { id = "belt_chain", weight = 10 }, { id = "boots_iron", weight = 10 },
+    { id = "sword_flame", weight = 3 }, { id = "staff_thunder", weight = 3 },
+    { id = "bell_soul", weight = 3 },
+}
+
+local WOMAR_ITEMS = {
+    { id = "sword_cjzz", weight = 12 }, { id = "staff_arcane", weight = 12 },
+    { id = "bell_holy", weight = 12 }, { id = "armor_dragon", weight = 14 },
+    { id = "helm_dragon", weight = 10 }, { id = "neck_dragon", weight = 10 },
+    { id = "brace_dragon", weight = 10 }, { id = "ring_dragon", weight = 10 },
+    { id = "belt_dragon", weight = 10 }, { id = "boots_dragon", weight = 10 },
+    { id = "sword_dragon", weight = 1 }, { id = "staff_shfz", weight = 1 },
+    { id = "bell_xyjs", weight = 1 }, { id = "armor_heaven", weight = 1 },
+    { id = "helm_heaven", weight = 1 }, { id = "boots_wind", weight = 1 },
+}
+
+local ZUMA_ITEMS = {
+    { id = "sword_cjzz", weight = 10 }, { id = "staff_arcane", weight = 10 },
+    { id = "bell_holy", weight = 10 }, { id = "armor_dragon", weight = 12 },
+    { id = "helm_dragon", weight = 10 }, { id = "neck_dragon", weight = 10 },
+    { id = "brace_dragon", weight = 10 }, { id = "ring_dragon", weight = 10 },
+    { id = "belt_dragon", weight = 10 }, { id = "boots_dragon", weight = 10 },
+    { id = "sword_dragon", weight = 3 }, { id = "staff_shfz", weight = 3 },
+    { id = "bell_xyjs", weight = 3 }, { id = "armor_heaven", weight = 3 },
+    { id = "helm_heaven", weight = 3 }, { id = "boots_wind", weight = 3 },
 }
 
 -- 补充掉落表。key 使用 Combat 改名后的经典怪物名。
@@ -183,6 +244,14 @@ MonsterData.DROP_TABLES = {
             { id = "boots_iron", weight = 10 },
         },
     },
+    ["红野猪"] = {
+        goldMin = 90, goldMax = 175, dropChance = 0.58,
+        items = MENGZHONG_ITEMS,
+    },
+    ["黑野猪"] = {
+        goldMin = 115, goldMax = 220, dropChance = 0.61,
+        items = MENGZHONG_ITEMS,
+    },
     ["狼"] = {
         goldMin = 45, goldMax = 100, dropChance = 0.52,
         items = {
@@ -211,6 +280,42 @@ MonsterData.DROP_TABLES = {
             { id = "brace_gold", weight = 10 },
             { id = "boots_iron", weight = 10 },
         },
+    },
+    ["石像鬼"] = {
+        goldMin = 160, goldMax = 280, dropChance = 0.58,
+        items = WATER_CITY_ITEMS,
+    },
+    ["海妖"] = {
+        goldMin = 180, goldMax = 320, dropChance = 0.60,
+        items = WATER_CITY_ITEMS,
+    },
+    ["巨蜥"] = {
+        goldMin = 210, goldMax = 360, dropChance = 0.62,
+        items = WATER_CITY_ITEMS,
+    },
+    ["岩甲兽"] = {
+        goldMin = 260, goldMax = 440, dropChance = 0.65,
+        items = WOMAR_ITEMS,
+    },
+    ["黑鳞蟒"] = {
+        goldMin = 300, goldMax = 500, dropChance = 0.67,
+        items = WOMAR_ITEMS,
+    },
+    ["深渊恶鬼"] = {
+        goldMin = 340, goldMax = 560, dropChance = 0.69,
+        items = WOMAR_ITEMS,
+    },
+    ["熔岩巨兽"] = {
+        goldMin = 420, goldMax = 680, dropChance = 0.72,
+        items = ZUMA_ITEMS,
+    },
+    ["魔龙幼崽"] = {
+        goldMin = 500, goldMax = 820, dropChance = 0.74,
+        items = ZUMA_ITEMS,
+    },
+    ["祖玛卫士"] = {
+        goldMin = 650, goldMax = 1000, dropChance = 0.80,
+        items = ZUMA_ITEMS,
     },
     ["蚁后"] = {
         goldMin = 100, goldMax = 190, dropChance = 0.60,

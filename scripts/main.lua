@@ -14,6 +14,7 @@ local SaveSystem = require("scripts.SaveSystem")
 local Quest = require("scripts.Quest")
 local MapZone = require("scripts.MapZone")
 local NPC = require("scripts.NPC")
+local DivineBeast = require("scripts.DivineBeast")
 require "urhox-libs.UI.GameHUD"
 
 -- ============================================================================
@@ -47,6 +48,27 @@ local isDead = false
 local currentSlotIndex = nil  -- 当前使用的存档槽位 (1 或 2)
 local autoSaveTimer = 0
 local AUTO_SAVE_INTERVAL = 30  -- 每30秒自动保存一次
+local INITIAL_ENEMY_COUNT = 18 -- 移动端基线：保持群怪感，避免切图瞬间创建 24~28 组多节点骨架
+
+-- 商人货架：同一地图/角色会话内保持稳定，避免每次打开面板都随机换货；
+-- 五分钟后自动刷新，也可由玩家付费手动刷新。
+local merchantShopState = {
+    mapId = nil,
+    classId = nil,
+    expiresAt = 0,
+    items = {},
+}
+local MERCHANT_STOCK_SIZE = 6
+local MERCHANT_STOCK_TTL = 300
+local MERCHANT_REFRESH_COST = 100
+
+-- 任务完成回调可能发生在 Combat.Update 的敌人遍历期间。切图会清空战斗表，
+-- 因此任务驱动的切图必须推迟到下一帧的安全边界，不能在死亡回调中直接执行。
+local pendingQuestMapId = nil
+local ProcessPendingQuestMapSwitch = nil
+local pendingQuestPresentation = nil
+local questPresentationDelayHint = 0
+local ProcessPendingQuestPresentation = nil
 
 -- 角色预览系统（存档选择界面用）
 local previewNodes_ = {}         -- [1],[2] 预览角色节点
@@ -166,7 +188,15 @@ function CreateFloor(groundColor)
         3. 路边加入湿泥、苔藓、碎石色块，避免单调平面。
         4. 不生成抬高土台，避免角色和怪物在装饰地块上穿模。
     ]]
-    math.randomseed(7301)
+    local floorMapId = MapZone.GetCurrentMapId()
+    local floorSeeds = {
+        map_bq = 7301,
+        map_mz = 7319,
+        map_sc = 7331,
+        map_wm = 7349,
+        map_zm = 7367,
+    }
+    math.randomseed(floorSeeds[floorMapId] or 7301)
 
     local function MakeMat(color, roughness, metallic, emissive)
         local mat = Material:new()
@@ -187,7 +217,11 @@ function CreateFloor(groundColor)
     end
 
     local soilColor = groundColor or Color(0.20, 0.16, 0.12, 1.0)
-    local darkSoilMat = GetMaterial("uuid://B2-Y8QtOc5NdOQVWAmvW1aQ_", MakeMat(soilColor, 0.94, 0.0))
+    -- 缓存材质必须克隆后再染色：直接返回共享 UUID 材质会让传入的
+    -- groundColor 完全失效，五张地图最终仍显示同一块地表。
+    local sharedSoilMat = cache:GetResource("Material", "uuid://B2-Y8QtOc5NdOQVWAmvW1aQ_")
+    local darkSoilMat = sharedSoilMat and sharedSoilMat:Clone() or MakeMat(soilColor, 0.94, 0.0)
+    darkSoilMat:SetShaderParameter("MatDiffColor", Variant(soilColor))
     local roadMat = GetMaterial("uuid://GSN7IaGGBlvP2Xk_zX9UQyuq", MakeMat(Color(0.32, 0.31, 0.29, 1.0), 0.86, 0.0))
     local wetMudMat = MakeMat(Color(0.10, 0.085, 0.075, 1.0), 0.72, 0.0)
     local mossMat = MakeMat(Color(0.13, 0.18, 0.10, 1.0), 0.90, 0.0)
@@ -196,15 +230,33 @@ function CreateFloor(groundColor)
     -- 主地面：Box 尺寸 1m，缩放后 120m × 120m，顶面位于 y=0。 
     local floorNode = scene_:CreateChild("DarkSoilFloor")
     floorNode.position = Vector3(0, -0.25, 0)
-    floorNode.scale = Vector3(120, 0.5, 120)
+    floorNode.scale = Vector3(MapZone.ARENA_SIZE, 0.5, MapZone.ARENA_SIZE)
     local floorModel = floorNode:CreateComponent("StaticModel")
     floorModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
     floorModel:SetMaterial(darkSoilMat)
     floorModel.castShadows = false
 
-    -- 安全区视觉：仅外围蓝色发光尖锐针状虚线边界（无地面发光）
+    -- 安全区视觉：仅外围蓝色发光针状虚线边界（无地面发光）。中心必须
+    -- 与 Combat 的 spawnPos 判定一致，避免以后地图出生点移动后视觉错位。
+    local currentMapDef = MapZone.GetDef(MapZone.GetCurrentMapId())
+    local safeCenter = (currentMapDef and currentMapDef.spawnPos) or Vector3.ZERO
     local safeRadius = MapZone.GetSafeZoneRadius(MapZone.GetCurrentMapId())
     local half = safeRadius
+
+    local function IsOutsideSafeZone(x, z, padding)
+        local margin = padding or 0
+        return math.abs(x - safeCenter.x) > safeRadius + margin
+            or math.abs(z - safeCenter.z) > safeRadius + margin
+    end
+
+    local function RandomFloorPoint(range, padding)
+        for _ = 1, 32 do
+            local x = (math.random() - 0.5) * range * 2
+            local z = (math.random() - 0.5) * range * 2
+            if IsOutsideSafeZone(x, z, padding) then return x, z end
+        end
+        return safeCenter.x + safeRadius + (padding or 0) + 2.0, safeCenter.z
+    end
 
     -- 蓝色发光尖锐针状虚线边界（方形四边，针尖朝外）
     local needleMat = Material:new()
@@ -220,42 +272,77 @@ function CreateFloor(groundColor)
             local t1 = t0 + segLen
             local cx = (t0 + t1) / 2
             local len = (t1 - t0)
-            local pos = Vector3(0, 0.05, 0)
-            local needleDir = Vector3(1, 0, 0)  -- 针尖朝向
+            local pos = Vector3(safeCenter.x, 0.045, safeCenter.z)
+            local needleDir = Vector3(1, 0, 0)
             if side == 0 then
-                pos = Vector3(cx, 0.05, -half)
+                pos = Vector3(safeCenter.x + cx, 0.045, safeCenter.z - half)
                 needleDir = Vector3(0, 0, -1)
             elseif side == 1 then
-                pos = Vector3(half, 0.05, cx)
+                pos = Vector3(safeCenter.x + half, 0.045, safeCenter.z + cx)
                 needleDir = Vector3(1, 0, 0)
             elseif side == 2 then
-                pos = Vector3(cx, 0.05, half)
+                pos = Vector3(safeCenter.x + cx, 0.045, safeCenter.z + half)
                 needleDir = Vector3(0, 0, 1)
             else
-                pos = Vector3(-half, 0.05, cx)
+                pos = Vector3(safeCenter.x - half, 0.045, safeCenter.z + cx)
                 needleDir = Vector3(-1, 0, 0)
             end
-            -- 针尖朝向：计算朝向的角度
-            local yaw = math.deg(math.atan2(needleDir.x, needleDir.z))
-            local needle = scene_:CreateChild("SafeZoneRing_" .. side .. "_" .. seg)
-            needle.position = pos
-            -- 尖锐针状：细长圆锥（尖端朝外）
-            needle.rotation = Quaternion(yaw, Vector3.UP)
-            -- 用 Cone 作为针尖，尖端朝向 +Z，需要旋转让尖端朝外
-            needle.scale = Vector3(0.12, 0.55, 0.12)
+
+            -- 边线虚线：实际使用 segLen，避免此前算出长度却仍画成竖直小柱。
+            local dash = scene_:CreateChild("SafeZoneDash_" .. side .. "_" .. seg)
+            dash.position = pos
+            if side == 0 or side == 2 then
+                dash.scale = Vector3(len, 0.035, 0.10)
+            else
+                dash.scale = Vector3(0.10, 0.035, len)
+            end
+            local dashModel = dash:CreateComponent("StaticModel")
+            dashModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
+            dashModel:SetMaterial(needleMat)
+            dashModel.castShadows = false
+
+            -- 每段中央向外伸出一根短针，组合成清晰的方形针状警戒线。
+            local needleLength = 0.72
+            local needle = scene_:CreateChild("SafeZoneNeedle_" .. side .. "_" .. seg)
+            needle.position = pos + needleDir * (needleLength * 0.42)
+            if side == 0 or side == 2 then
+                needle.scale = Vector3(0.07, 0.05, needleLength)
+            else
+                needle.scale = Vector3(needleLength, 0.05, 0.07)
+            end
             local needleModel = needle:CreateComponent("StaticModel")
-            needleModel:SetModel(cache:GetResource("Model", "Models/Cone.mdl"))
+            needleModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
             needleModel:SetMaterial(needleMat)
             needleModel.castShadows = false
         end
     end
 
     -- 破碎主路：按路径点生成石板段。
-    local path = {
-        Vector3(-43, 0, -31), Vector3(-34, 0, -23), Vector3(-24, 0, -16),
-        Vector3(-13, 0, -8), Vector3(-3, 0, -2), Vector3(7, 0, 5),
-        Vector3(16, 0, 13), Vector3(27, 0, 21), Vector3(40, 0, 29),
+    local paths = {
+        map_bq = {
+            Vector3(-43, 0, -31), Vector3(-34, 0, -23), Vector3(-24, 0, -16),
+            Vector3(-13, 0, -8), Vector3(-3, 0, -2), Vector3(7, 0, 5),
+            Vector3(16, 0, 13), Vector3(27, 0, 21), Vector3(40, 0, 29),
+        },
+        map_mz = {
+            Vector3(-48, 0, -18), Vector3(-34, 0, -9), Vector3(-18, 0, -4),
+            Vector3(0, 0, 0), Vector3(19, 0, 5), Vector3(35, 0, 13), Vector3(48, 0, 22),
+        },
+        map_sc = {
+            Vector3(-38, 0, 34), Vector3(-24, 0, 20), Vector3(-12, 0, 11),
+            Vector3(0, 0, 0), Vector3(10, 0, -13), Vector3(23, 0, -25), Vector3(38, 0, -36),
+        },
+        map_wm = {
+            Vector3(-4, 0, -50), Vector3(-2, 0, -34), Vector3(0, 0, -18),
+            Vector3(0, 0, 0), Vector3(1, 0, 18), Vector3(3, 0, 34), Vector3(5, 0, 50),
+        },
+        map_zm = {
+            Vector3(-46, 0, 30), Vector3(-31, 0, 17), Vector3(-18, 0, 23),
+            Vector3(-7, 0, 8), Vector3(0, 0, 0), Vector3(14, 0, -9),
+            Vector3(27, 0, -4), Vector3(39, 0, -20), Vector3(48, 0, -34),
+        },
     }
+    local path = paths[floorMapId] or paths.map_bq
     for i = 1, #path - 1 do
         local a, b = path[i], path[i + 1]
         local dx, dz = b.x - a.x, b.z - a.z
@@ -277,11 +364,24 @@ function CreateFloor(groundColor)
         end
     end
 
-    -- 中央焦土 / 泥坑：用多块重叠椭圆替代单个矩形，避免出现突兀方块边缘。
+    -- 焦土 / 泥坑：按地图移到安全区之外，用多块重叠椭圆替代单个矩形。
+    -- 旧实现固定盖在出生点附近，既让五张图同构，也把安全区视觉弄得很脏。
+    local scorchCenters = {
+        map_bq = Vector3(19, 0, -15),
+        map_mz = Vector3(-20, 0, 16),
+        map_sc = Vector3(19, 0, -16),
+        map_wm = Vector3(-20, 0, -3),
+        map_zm = Vector3(18, 0, 18),
+    }
+    local scorchCenter = scorchCenters[floorMapId] or scorchCenters.map_bq
     for i = 1, 7 do
         local t = (i - 4) / 3.0
         local pit = scene_:CreateChild("CentralScorchedPatch_" .. i)
-        pit.position = Vector3(3.0 + t * 4.1 + (math.random() - 0.5) * 0.45, 0.018 + i * 0.001, 3.5 - t * 1.9 + (math.random() - 0.5) * 0.35)
+        pit.position = Vector3(
+            scorchCenter.x + t * 4.1 + (math.random() - 0.5) * 0.45,
+            0.018 + i * 0.001,
+            scorchCenter.z - t * 1.9 + (math.random() - 0.5) * 0.35
+        )
         pit.scale = Vector3(4.0 + math.random() * 2.1, 0.035, 1.35 + math.random() * 0.85)
         pit.rotation = Quaternion(-26 + (math.random() - 0.5) * 24.0, Vector3.UP)
         local pitModel = pit:CreateComponent("StaticModel")
@@ -293,7 +393,11 @@ function CreateFloor(groundColor)
         local edge = scene_:CreateChild("ScorchedEdge_" .. i)
         local side = (i % 2 == 0) and 1 or -1
         local along = (math.random() - 0.5) * 13.5
-        edge.position = Vector3(3.0 + along * 0.9, 0.021 + i * 0.0005, 3.5 + side * (1.4 + math.random() * 1.2) - along * 0.22)
+        edge.position = Vector3(
+            scorchCenter.x + along * 0.9,
+            0.021 + i * 0.0005,
+            scorchCenter.z + side * (1.4 + math.random() * 1.2) - along * 0.22
+        )
         edge.scale = Vector3(1.1 + math.random() * 1.7, 0.026, 0.45 + math.random() * 0.8)
         edge.rotation = Quaternion(-26 + (math.random() - 0.5) * 55.0, Vector3.UP)
         local edgeModel = edge:CreateComponent("StaticModel")
@@ -306,8 +410,7 @@ function CreateFloor(groundColor)
     local patchMats = { wetMudMat, mossMat, ashMat }
     for i = 1, 34 do
         local p = scene_:CreateChild("GroundPatch_" .. i)
-        local x = (math.random() - 0.5) * 92
-        local z = (math.random() - 0.5) * 92
+        local x, z = RandomFloorPoint(46, 0.8)
         p.position = Vector3(x, 0.018 + math.random() * 0.01, z)
         p.scale = Vector3(3.5 + math.random() * 5.5, 0.025, 1.8 + math.random() * 4.2)
         p.rotation = Quaternion(math.random() * 360, Vector3.UP)
@@ -328,7 +431,31 @@ function CreateSceneDecorations(mapId)
         - 石堆、树干、墓碑、桥边柱等作为静态障碍，使用 layer=1。
         - 桥面本身不阻挡，方便玩家通过中央道路。
     ]]
-    math.randomseed(9107)
+    local decorSeeds = {
+        map_bq = 9107,
+        map_mz = 9127,
+        map_sc = 9151,
+        map_wm = 9173,
+        map_zm = 9199,
+    }
+    math.randomseed(decorSeeds[mapId] or 9107)
+    local isBiqi = mapId == nil or mapId == "map_bq"
+    local decorMapDef = MapZone.GetDef(mapId or "map_bq")
+    local decorSafeCenter = (decorMapDef and decorMapDef.spawnPos) or Vector3.ZERO
+    local decorSafeHalf = MapZone.GetSafeZoneRadius(mapId or "map_bq")
+
+    local function RandomDecorPoint(range, padding)
+        local margin = padding or 0
+        for _ = 1, 32 do
+            local x = (math.random() - 0.5) * range * 2
+            local z = (math.random() - 0.5) * range * 2
+            if math.abs(x - decorSafeCenter.x) > decorSafeHalf + margin
+                or math.abs(z - decorSafeCenter.z) > decorSafeHalf + margin then
+                return x, z
+            end
+        end
+        return decorSafeCenter.x + decorSafeHalf + margin + 2.0, decorSafeCenter.z
+    end
 
     local function MakeMat(color, roughness, metallic, emissive)
         local mat = Material:new()
@@ -415,9 +542,10 @@ function CreateSceneDecorations(mapId)
         return node
     end
 
-    -- 桥：跨过中央黑色沟壑，桥面不阻挡角色。
+    if isBiqi then
+    -- 比奇省专属破桥：桥面不阻挡角色，并避开出生安全区。
     local bridgeRoot = scene_:CreateChild("RuinedBridge")
-    bridgeRoot.position = Vector3(3.0, 0.08, 3.5)
+    bridgeRoot.position = Vector3(15.0, 0.08, 12.0)
     bridgeRoot.rotation = Quaternion(64, Vector3.UP)
     for i = -4, 4 do
         local plank = bridgeRoot:CreateChild("BridgePlank_" .. i)
@@ -441,13 +569,33 @@ function CreateSceneDecorations(mapId)
             AddStaticCollision(post, "cylinder")
         end
     end
+    end
 
     -- 岩石群：沿道路边缘和高地脚下成组摆放。
-    local rockClusters = {
-        Vector3(-31, 0, -18), Vector3(-19, 0, -7), Vector3(-8, 0, 7), Vector3(13, 0, -4),
-        Vector3(23, 0, 15), Vector3(34, 0, 22), Vector3(-36, 0, 24), Vector3(31, 0, -26),
-        Vector3(-27, 0, -31), Vector3(38, 0, 32), Vector3(-47, 0, 2), Vector3(45, 0, -9),
+    local rockClustersByMap = {
+        map_bq = {
+            Vector3(-31, 0, -18), Vector3(-19, 0, -7), Vector3(-12, 0, 9), Vector3(13, 0, -4),
+            Vector3(23, 0, 15), Vector3(34, 0, 22), Vector3(-36, 0, 24), Vector3(31, 0, -26),
+            Vector3(-27, 0, -31), Vector3(38, 0, 32), Vector3(-47, 0, 2), Vector3(45, 0, -9),
+        },
+        map_mz = {
+            Vector3(-42, 0, -28), Vector3(-34, 0, 18), Vector3(-20, 0, 34), Vector3(18, 0, -35),
+            Vector3(32, 0, -20), Vector3(44, 0, 12), Vector3(-45, 0, 8), Vector3(30, 0, 34),
+        },
+        map_sc = {
+            Vector3(-46, 0, -34), Vector3(-42, 0, 25), Vector3(-24, 0, -42), Vector3(24, 0, 40),
+            Vector3(43, 0, 18), Vector3(36, 0, -32), Vector3(-35, 0, 38), Vector3(44, 0, -6),
+        },
+        map_wm = {
+            Vector3(-28, 0, -40), Vector3(28, 0, -40), Vector3(-33, 0, -15), Vector3(33, 0, -15),
+            Vector3(-30, 0, 16), Vector3(30, 0, 16), Vector3(-26, 0, 39), Vector3(26, 0, 39),
+        },
+        map_zm = {
+            Vector3(-42, 0, -30), Vector3(-32, 0, 16), Vector3(-20, 0, -38), Vector3(18, 0, 36),
+            Vector3(34, 0, 18), Vector3(42, 0, -22), Vector3(-40, 0, 35), Vector3(28, 0, -42),
+        },
     }
+    local rockClusters = rockClustersByMap[mapId or "map_bq"] or rockClustersByMap.map_bq
     for i, pos in ipairs(rockClusters) do
         local count = 3 + math.random(0, 3)
         for j = 1, count do
@@ -461,7 +609,8 @@ function CreateSceneDecorations(mapId)
         end
     end
 
-    -- 枯树和暗色古树：主干有碰撞，枝条仅视觉。
+    if isBiqi then
+    -- 枯树、墓园和路边火把构成比奇省独有的边城荒野轮廓。
     local deadTreePositions = {
         Vector3(-41, 0, 18), Vector3(-30, 0, 34), Vector3(-18, 0, -32), Vector3(-7, 0, 30),
         Vector3(18, 0, -33), Vector3(30, 0, -16), Vector3(39, 0, 12), Vector3(45, 0, 33),
@@ -523,7 +672,7 @@ function CreateSceneDecorations(mapId)
 
     -- 火把：暖色局部光，形成暗黑场景中最重要的视觉焦点。
     local torchPositions = {
-        Vector3(-9, 0, -5), Vector3(1, 0, 0), Vector3(11, 0, 8), Vector3(21, 0, 16),
+        Vector3(-9, 0, -5), Vector3(4, 0, 11), Vector3(11, 0, 8), Vector3(21, 0, 16),
         Vector3(-17, 0, 22), Vector3(22, 0, -22), Vector3(-35, 0, -23), Vector3(35, 0, 27),
     }
     for i, pos in ipairs(torchPositions) do
@@ -551,8 +700,10 @@ function CreateSceneDecorations(mapId)
         light.brightness = 5.5
         light.castShadows = false
     end
+    end
 
     -- 破败木桩 / 栅栏边界，暗示可探索区域边缘。
+    if isBiqi or mapId == "map_mz" then
     local fences = {
         { pos = Vector3(-46, 0, -3), rot = 8 }, { pos = Vector3(-45, 0, 2), rot = -7 },
         { pos = Vector3(-43, 0, 7), rot = 16 }, { pos = Vector3(44, 0, -14), rot = -15 },
@@ -564,180 +715,364 @@ function CreateSceneDecorations(mapId)
         CreateBox("BrokenFence_" .. i, Vector3(data.pos.x, 0.55, data.pos.z), Vector3(0.14, 1.1, 2.7),
             data.rot, deadBarkMat, true, Vector3(1, 1, 1), Vector3.ZERO)
     end
+    end
 
     -- 暗色灌木/枯草：低矮、无碰撞，增加地面丰富度。
+    if isBiqi or mapId == "map_mz" then
     local scrubMats = {
         MakeMat(Color(0.10, 0.13, 0.065, 1.0), 0.94, 0.0),
         MakeMat(Color(0.14, 0.115, 0.065, 1.0), 0.96, 0.0),
         MakeMat(Color(0.065, 0.09, 0.055, 1.0), 0.92, 0.0),
     }
     for i = 1, 80 do
-        local x = (math.random() - 0.5) * 96
-        local z = (math.random() - 0.5) * 96
+        local x, z = RandomDecorPoint(48, 0.8)
         local h = 0.18 + math.random() * 0.26
         local blade = CreateBox("DarkScrub_" .. i, Vector3(x, h * 0.5, z), Vector3(0.045, h, 0.22 + math.random() * 0.20),
             math.random() * 360, scrubMats[math.random(1, #scrubMats)], false, nil, nil)
         blade.rotation = blade.rotation * Quaternion((math.random() - 0.5) * 18, Vector3.FORWARD)
     end
+    end
 
     math.randomseed(os.time())
 
     -- 地图差异化装饰（按 mapId 分派标志性场景元素）
-    if mapId and mapId ~= "map_bq" then
+    if mapId then
         local mapDef = MapZone.GetDef(mapId)
         if mapDef then
             CreateMapDecorations(mapId, mapDef)
         end
     end
 
-    print("[main] Dark fantasy decorations created: bridge, rocks, dead trees, graves, torches, fences, scrub")
+    print("[main] Map-specific dark fantasy decorations created for " .. tostring(mapId))
 end
 
 --- 为特定地图构建标志性装饰（差异化场景元素）
 function CreateMapDecorations(mapId, mapDef)
-    local function solid(color, roughness)
+    local function solid(color, roughness, emissive, metallic)
         local mat = Material:new()
         mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
         mat:SetShaderParameter("MatDiffColor", Variant(color))
         mat:SetShaderParameter("Roughness", Variant(roughness or 0.85))
-        mat:SetShaderParameter("Metallic", Variant(0.0))
+        mat:SetShaderParameter("Metallic", Variant(metallic or 0.0))
+        if emissive then
+            mat:SetShaderParameter("MatEmissiveColor", Variant(emissive))
+        end
         return mat
     end
 
-    if mapId == "map_mz" then
-        -- 盟重土城：沙丘 + 仙人掌 + 破败城墙
+    local function transparent(color, roughness, emissive)
+        local mat = Material:new()
+        mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+        mat:SetShaderParameter("MatDiffColor", Variant(color))
+        mat:SetShaderParameter("Roughness", Variant(roughness or 0.2))
+        mat:SetShaderParameter("Metallic", Variant(0.0))
+        if emissive then
+            mat:SetShaderParameter("MatEmissiveColor", Variant(emissive))
+        end
+        return mat
+    end
+
+    local safeCenter = mapDef.spawnPos or Vector3.ZERO
+    local safeHalf = MapZone.GetSafeZoneRadius(mapId)
+
+    local function IsOutsideSafeZone(x, z, padding)
+        local margin = padding or 2.0
+        return math.abs(x - safeCenter.x) > safeHalf + margin
+            or math.abs(z - safeCenter.z) > safeHalf + margin
+    end
+
+    local function RandomOutsideSafeZone(range, padding)
+        for _ = 1, 32 do
+            local x = safeCenter.x + (math.random() - 0.5) * range * 2
+            local z = safeCenter.z + (math.random() - 0.5) * range * 2
+            if IsOutsideSafeZone(x, z, padding) then return x, z end
+        end
+        return safeCenter.x + safeHalf + (padding or 2.0) + 3.0, safeCenter.z
+    end
+
+    local function AddMapCollision(node, shapeKind)
+        local body = node:CreateComponent("RigidBody")
+        body.mass = 0
+        body.collisionLayer = 1
+        body.collisionMask = 2 | 4
+        local shape = node:CreateComponent("CollisionShape")
+        if shapeKind == "cylinder" then
+            shape:SetCylinder(1.0, 1.0)
+        elseif shapeKind == "sphere" then
+            shape:SetSphere(1.0)
+        else
+            shape:SetBox(Vector3(1, 1, 1))
+        end
+    end
+
+    local function CreateMapModel(name, modelPath, pos, scale, mat, collisionKind)
+        local node = scene_:CreateChild(name)
+        node.position = pos
+        node.scale = scale
+        local model = node:CreateComponent("StaticModel")
+        model:SetModel(cache:GetResource("Model", modelPath))
+        model:SetMaterial(mat)
+        model.castShadows = true
+        if collisionKind then AddMapCollision(node, collisionKind) end
+        return node
+    end
+
+    if mapId == "map_bq" then
+        -- 比奇省：把任务文本中的荒村与毒蛛巢真正落到场景里。
+        local ruinMat = solid(Color(0.25, 0.22, 0.18, 1.0), 0.94)
+        local charMat = solid(Color(0.07, 0.055, 0.045, 1.0), 0.98)
+        local webMat = transparent(Color(0.50, 0.68, 0.54, 0.42), 0.34,
+            Color(0.10, 0.30, 0.12, 1.0))
+
+        local villageWalls = {
+            { -31.4, -22.0, 0.45, 1.8, 5.2, 10 },
+            { -28.7, -24.0, 4.6, 1.25, 0.42, -8 },
+            { -27.4, -20.6, 0.42, 1.05, 3.2, -18 },
+        }
+        for i, data in ipairs(villageWalls) do
+            local wall = CreateMapModel("VillageRuinWall_" .. i, "Models/Box.mdl",
+                Vector3(data[1], data[4] * 0.5, data[2]), Vector3(data[3], data[4], data[5]),
+                ruinMat, "box")
+            wall.rotation = Quaternion(data[6], Vector3.UP)
+        end
+        local ash = CreateMapModel("VillageAsh", "Models/Sphere.mdl", Vector3(-30, 0.045, -22),
+            Vector3(4.3, 0.08, 3.5), charMat, nil)
+        local ashModel = ash:GetComponent("StaticModel")
+        if ashModel then ashModel.castShadows = false end
+
+        CreateMapModel("SpiderNest", "Models/Sphere.mdl", Vector3(28, 0.55, 22),
+            Vector3(3.3, 1.1, 2.7), charMat, "sphere")
+        local maw = CreateMapModel("SpiderNestMaw", "Models/Sphere.mdl", Vector3(27.05, 0.52, 21.15),
+            Vector3(1.45, 0.62, 0.28), webMat, nil)
+        maw.rotation = Quaternion(48, Vector3.UP)
+        for i = 1, 7 do
+            local angle = (i - 1) / 7 * math.pi * 2
+            local egg = CreateMapModel("SpiderNestEgg_" .. i, "Models/Sphere.mdl",
+                Vector3(28 + math.cos(angle) * 2.1, 0.22 + (i % 2) * 0.08, 22 + math.sin(angle) * 1.7),
+                Vector3(0.34, 0.48, 0.34), webMat, nil)
+            local eggModel = egg:GetComponent("StaticModel")
+            if eggModel then eggModel.castShadows = false end
+        end
+    elseif mapId == "map_mz" then
+        -- 盟重土城：开阔沙丘、带枝仙人掌和围城残墙。
         local sandMat = solid(Color(0.52, 0.42, 0.26, 1.0), 0.9)
         local cactusMat = solid(Color(0.18, 0.35, 0.16, 1.0), 0.8)
         local wallMat = solid(Color(0.44, 0.38, 0.28, 1.0), 0.9)
-        for i = 1, 14 do
-            local x = (math.random() - 0.5) * 80
-            local z = (math.random() - 0.5) * 80
+        for i = 1, 18 do
+            local x, z = RandomOutsideSafeZone(44, 3.0)
             local s = 1.6 + math.random() * 2.4
-            local dune = scene_:CreateChild("Dune_" .. i)
-            dune.position = Vector3(x, 0.12, z)
-            dune.scale = Vector3(s, 0.5, s)
-            local m = dune:CreateComponent("StaticModel")
-            m:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
-            m:SetMaterial(sandMat)
-            m.castShadows = false
+            local dune = CreateMapModel("Dune_" .. i, "Models/Sphere.mdl",
+                Vector3(x, 0.12, z), Vector3(s * 1.5, 0.45, s), sandMat, nil)
+            dune.rotation = Quaternion(math.random() * 360, Vector3.UP)
+            local model = dune:GetComponent("StaticModel")
+            if model then model.castShadows = false end
         end
         for i = 1, 10 do
-            local x = (math.random() - 0.5) * 70
-            local z = (math.random() - 0.5) * 70
+            local x, z = RandomOutsideSafeZone(40, 3.0)
             local h = 1.4 + math.random() * 1.2
-            local c = scene_:CreateChild("Cactus_" .. i)
-            c.position = Vector3(x, h * 0.5, z)
-            c.scale = Vector3(0.22, h, 0.22)
-            local m = c:CreateComponent("StaticModel")
-            m:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
-            m:SetMaterial(cactusMat)
-            m.castShadows = true
+            CreateMapModel("Cactus_" .. i, "Models/Cylinder.mdl",
+                Vector3(x, h * 0.5, z), Vector3(0.24, h, 0.24), cactusMat, "cylinder")
+            for armIndex = 1, 2 do
+                local side = armIndex == 1 and -1 or 1
+                local arm = CreateMapModel("Cactus_" .. i .. "_Arm_" .. armIndex,
+                    "Models/Cylinder.mdl",
+                    Vector3(x + side * 0.30, h * (0.48 + armIndex * 0.10), z),
+                    Vector3(0.11, 0.55, 0.11), cactusMat, nil)
+                -- 下端贴近主干、上端向外抬起，避免旧实现变成向下垂的“枯枝”。
+                arm.rotation = Quaternion(-side * 62, Vector3.FORWARD)
+            end
         end
-        for i = 1, 6 do
-            local x = -46 + math.random() * 92
-            local z = (i % 2 == 0) and 46 or -46
-            local w = scene_:CreateChild("RuinedWall_" .. i)
-            w.position = Vector3(x, 0.8, z)
-            w.scale = Vector3(4.5, 1.6, 0.6)
-            local m = w:CreateComponent("StaticModel")
-            m:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
-            m:SetMaterial(wallMat)
-            m.castShadows = true
+        local wallSegments = {
+            { -34, -40, 8, 1.7, 0.7, 8 }, { -17, -40, 6, 1.3, 0.7, -4 },
+            { 20, -40, 7, 1.6, 0.7, 6 }, { 38, -30, 0.7, 1.5, 8, 0 },
+            { 40, 15, 0.7, 1.8, 7, -3 }, { -40, 25, 0.7, 1.4, 8, 4 },
+            { -27, 40, 8, 1.5, 0.7, -5 }, { 25, 40, 9, 1.7, 0.7, 5 },
+        }
+        for i, data in ipairs(wallSegments) do
+            local wall = CreateMapModel("RuinedWall_" .. i, "Models/Box.mdl",
+                Vector3(data[1], data[4] * 0.5, data[2]), Vector3(data[3], data[4], data[5]),
+                wallMat, "box")
+            wall.rotation = Quaternion(data[6], Vector3.UP)
         end
+        -- 石墓入口：让第二幕“猪洞”不再只存在于对话文本。
+        for _, data in ipairs({
+            { "L", 27.7, 1.6, 20, 1.1, 3.2, 1.1 },
+            { "R", 32.3, 1.6, 20, 1.1, 3.2, 1.1 },
+            { "Top", 30, 3.45, 20, 5.6, 0.75, 1.2 },
+        }) do
+            CreateMapModel("StoneTombGate_" .. data[1], "Models/Box.mdl",
+                Vector3(data[2], data[3], data[4]), Vector3(data[5], data[6], data[7]),
+                wallMat, "box")
+        end
+        CreateMapModel("StoneTombDarkness", "Models/Box.mdl", Vector3(30, 1.35, 20.42),
+            Vector3(2.8, 2.7, 0.08), solid(Color(0.025, 0.02, 0.018, 1.0), 1.0), nil)
     elseif mapId == "map_sc" then
-        -- 水上城市：珊瑚礁 + 栈桥柱 + 灯塔
+        -- 水上城市：可见水道、木栈桥、珊瑚和带灯光的灯塔。
+        local waterMat = transparent(Color(0.04, 0.30, 0.43, 0.72), 0.12, Color(0.02, 0.16, 0.24, 1.0))
         local coralMat = solid(Color(0.65, 0.22, 0.30, 1.0), 0.7)
         local pierMat = solid(Color(0.32, 0.24, 0.16, 1.0), 0.85)
-        local lightMat = solid(Color(0.9, 0.88, 0.7, 1.0), 0.4)
-        for i = 1, 16 do
-            local x = (math.random() - 0.5) * 80
-            local z = (math.random() - 0.5) * 80
-            local c = scene_:CreateChild("Coral_" .. i)
-            c.position = Vector3(x, 0.3, z)
-            c.scale = Vector3(0.5 + math.random() * 0.8, 0.5 + math.random() * 0.8, 0.5 + math.random() * 0.8)
-            local m = c:CreateComponent("StaticModel")
-            m:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
-            m:SetMaterial(coralMat)
-            m.castShadows = false
+        local towerMat = solid(Color(0.62, 0.64, 0.62, 1.0), 0.58)
+        local beaconMat = solid(Color(1.0, 0.88, 0.48, 1.0), 0.18, Color(3.0, 2.2, 0.7, 1.0))
+        local waterChannels = {
+            { 0, -28, 50, 0.035, 13 }, { 0, 28, 50, 0.035, 13 },
+            { -30, 0, 12, 0.035, 30 }, { 30, 0, 12, 0.035, 30 },
+        }
+        for i, data in ipairs(waterChannels) do
+            local water = CreateMapModel("WaterChannel_" .. i, "Models/Box.mdl",
+                Vector3(data[1], 0.018, data[2]), Vector3(data[3], data[4], data[5]), waterMat, nil)
+            local model = water:GetComponent("StaticModel")
+            if model then model.castShadows = false end
         end
         for i = 1, 8 do
-            local x = -40 + math.random() * 80
-            local z = (i % 2 == 0) and 40 or -40
-            local p = scene_:CreateChild("PierPost_" .. i)
-            p.position = Vector3(x, 0.9, z)
-            p.scale = Vector3(0.3, 1.8, 0.3)
-            local m = p:CreateComponent("StaticModel")
-            m:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
-            m:SetMaterial(pierMat)
-            m.castShadows = true
+            local z = 10 + i * 3.3
+            CreateMapModel("DockWalkway_" .. i, "Models/Box.mdl", Vector3(0, 0.055, z),
+                Vector3(4.8, 0.10, 2.8), pierMat, nil)
         end
-        local tower = scene_:CreateChild("Lighthouse")
-        tower.position = Vector3(0, 2.5, 30)
-        tower.scale = Vector3(1.4, 5.0, 1.4)
-        local tm = tower:CreateComponent("StaticModel")
-        tm:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
-        tm:SetMaterial(lightMat)
-        tm.castShadows = true
+        for i = 1, 16 do
+            local x, z = RandomOutsideSafeZone(43, 3.0)
+            local coral = CreateMapModel("Coral_" .. i, "Models/Sphere.mdl", Vector3(x, 0.26, z),
+                Vector3(0.45 + math.random() * 0.8, 0.45 + math.random() * 0.9, 0.45 + math.random() * 0.8),
+                coralMat, nil)
+            coral.rotation = Quaternion(math.random() * 360, Vector3.UP)
+            local model = coral:GetComponent("StaticModel")
+            if model then model.castShadows = false end
+        end
+        for i = 1, 7 do
+            local z = 10 + i * 4.0
+            CreateMapModel("PierPost_L_" .. i, "Models/Cylinder.mdl",
+                Vector3(-2.4, 0.72, z), Vector3(0.22, 1.44, 0.22), pierMat, "cylinder")
+            CreateMapModel("PierPost_R_" .. i, "Models/Cylinder.mdl",
+                Vector3(2.4, 0.72, z), Vector3(0.22, 1.44, 0.22), pierMat, "cylinder")
+        end
+        CreateMapModel("Lighthouse", "Models/Cylinder.mdl", Vector3(0, 2.8, 38),
+            Vector3(1.6, 5.6, 1.6), towerMat, "cylinder")
+        local lamp = CreateMapModel("LighthouseLamp", "Models/Sphere.mdl", Vector3(0, 6.05, 38),
+            Vector3(0.65, 0.65, 0.65), beaconMat, nil)
+        local lampModel = lamp:GetComponent("StaticModel")
+        if lampModel then lampModel.castShadows = false end
+        local lightNode = scene_:CreateChild("LighthouseLight")
+        lightNode.position = Vector3(0, 6.05, 38)
+        local light = lightNode:CreateComponent("Light")
+        light.lightType = LIGHT_POINT
+        light.color = Color(1.0, 0.82, 0.42, 1.0)
+        light.range = 18.0
+        light.brightness = 6.0
+        light.castShadows = false
+        -- 蚁穴入口：与第三幕 Boss 路由和全图地标对应。
+        local nestMat = solid(Color(0.16, 0.11, 0.08, 1.0), 0.96)
+        local nestGlow = solid(Color(0.11, 0.20, 0.09, 1.0), 0.7,
+            Color(0.18, 0.55, 0.12, 1.0))
+        CreateMapModel("AntNest", "Models/Sphere.mdl", Vector3(30, 0.58, -26),
+            Vector3(3.6, 1.16, 3.0), nestMat, "sphere")
+        local antMaw = CreateMapModel("AntNestOpening", "Models/Sphere.mdl", Vector3(29.2, 0.48, -25.25),
+            Vector3(1.35, 0.58, 0.25), nestGlow, nil)
+        antMaw.rotation = Quaternion(46, Vector3.UP)
     elseif mapId == "map_wm" then
-        -- 沃玛寺庙：石柱 + 祭坛 + 火盆
+        -- 沃玛寺庙：对称石柱长廊、出生区外祭坛、发光火盆。
         local pillarMat = solid(Color(0.42, 0.44, 0.48, 1.0), 0.6)
         local altarMat = solid(Color(0.24, 0.26, 0.30, 1.0), 0.7)
-        local brazierMat = solid(Color(0.2, 0.1, 0.05, 1.0), 0.9)
-        for i = 1, 10 do
-            local x = -36 + math.random() * 72
-            local z = -36 + math.random() * 72
-            local p = scene_:CreateChild("Pillar_" .. i)
-            p.position = Vector3(x, 2.2, z)
-            p.scale = Vector3(0.7, 4.4, 0.7)
-            local m = p:CreateComponent("StaticModel")
-            m:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
-            m:SetMaterial(pillarMat)
-            m.castShadows = true
+        local runeMat = solid(Color(0.30, 0.10, 0.08, 1.0), 0.35, Color(1.2, 0.18, 0.08, 1.0))
+        local brazierMat = solid(Color(0.18, 0.12, 0.08, 1.0), 0.62, nil, 0.45)
+        local flameMat = solid(Color(1.0, 0.32, 0.06, 1.0), 0.18, Color(3.0, 0.7, 0.12, 1.0))
+        local pillarZ = { -34, -22, 22, 34 }
+        local pillarIndex = 0
+        for _, z in ipairs(pillarZ) do
+            for _, x in ipairs({ -12, 12 }) do
+                pillarIndex = pillarIndex + 1
+                CreateMapModel("Pillar_" .. pillarIndex, "Models/Cylinder.mdl",
+                    Vector3(x, 2.2, z), Vector3(0.8, 4.4, 0.8), pillarMat, "cylinder")
+            end
         end
-        local altar = scene_:CreateChild("Altar")
-        altar.position = Vector3(0, 0.5, 0)
-        altar.scale = Vector3(3.0, 1.0, 3.0)
-        local am = altar:CreateComponent("StaticModel")
-        am:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
-        am:SetMaterial(altarMat)
-        am.castShadows = true
+        local altarPos = safeCenter + Vector3(0, 0.6, 18)
+        CreateMapModel("Altar", "Models/Box.mdl", altarPos,
+            Vector3(4.6, 1.2, 4.6), altarMat, "box")
         for i = 1, 6 do
-            local x = -20 + math.random() * 40
-            local z = -20 + math.random() * 40
-            local b = scene_:CreateChild("Brazier_" .. i)
-            b.position = Vector3(x, 0.5, z)
-            b.scale = Vector3(0.6, 1.0, 0.6)
-            local m = b:CreateComponent("StaticModel")
-            m:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
-            m:SetMaterial(brazierMat)
-            m.castShadows = true
+            local angle = (i - 1) * math.pi / 3
+            local rune = CreateMapModel("TempleRune_" .. i, "Models/Box.mdl",
+                Vector3(altarPos.x + math.sin(angle) * 4.2, 0.04, altarPos.z + math.cos(angle) * 4.2),
+                Vector3(0.28, 0.035, 1.5), runeMat, nil)
+            rune.rotation = Quaternion(math.deg(angle), Vector3.UP)
+            local model = rune:GetComponent("StaticModel")
+            if model then model.castShadows = false end
         end
+        local brazierPositions = {
+            Vector3(-7, 0, 13), Vector3(7, 0, 13), Vector3(-7, 0, 25), Vector3(7, 0, 25),
+        }
+        for i, pos in ipairs(brazierPositions) do
+            CreateMapModel("Brazier_" .. i, "Models/Cylinder.mdl", Vector3(pos.x, 0.45, pos.z),
+                Vector3(0.62, 0.9, 0.62), brazierMat, "cylinder")
+            local flame = CreateMapModel("BrazierFlame_" .. i, "Models/Sphere.mdl", Vector3(pos.x, 1.12, pos.z),
+                Vector3(0.34, 0.46, 0.34), flameMat, nil)
+            local flameModel = flame:GetComponent("StaticModel")
+            if flameModel then flameModel.castShadows = false end
+            local lightNode = scene_:CreateChild("BrazierLight_" .. i)
+            lightNode.position = Vector3(pos.x, 1.1, pos.z)
+            local light = lightNode:CreateComponent("Light")
+            light.lightType = LIGHT_POINT
+            light.color = Color(1.0, 0.34, 0.08, 1.0)
+            light.range = 8.0
+            light.brightness = 4.0
+            light.castShadows = false
+        end
+        -- 教主殿门：对应全图地标和终章 Boss 战方向。
+        for _, data in ipairs({
+            { "L", 27.4, 2.2, -28, 1.2, 4.4, 1.2 },
+            { "R", 32.6, 2.2, -28, 1.2, 4.4, 1.2 },
+            { "Top", 30, 4.55, -28, 6.4, 0.85, 1.3 },
+        }) do
+            CreateMapModel("WomarGate_" .. data[1], "Models/Box.mdl",
+                Vector3(data[2], data[3], data[4]), Vector3(data[5], data[6], data[7]),
+                altarMat, "box")
+        end
+        CreateMapModel("WomarGateDarkness", "Models/Box.mdl", Vector3(30, 1.65, -27.55),
+            Vector3(3.2, 3.3, 0.08), solid(Color(0.025, 0.02, 0.035, 1.0), 1.0), nil)
     elseif mapId == "map_zm" then
-        -- 祖玛寺庙：岩浆池 + 熔岩石 + 岩浆裂隙
-        local lavaMat = solid(Color(0.85, 0.25, 0.05, 1.0), 0.3)
-        local lavaGlowMat = solid(Color(1.0, 0.4, 0.08, 1.0), 0.2)
+        -- 祖玛寺庙：真正自发光的岩浆池、裂隙和带碰撞的熔岩石。
+        local lavaMat = solid(Color(0.82, 0.16, 0.025, 1.0), 0.26, Color(2.8, 0.46, 0.06, 1.0))
+        local lavaGlowMat = solid(Color(1.0, 0.36, 0.04, 1.0), 0.16, Color(4.0, 0.85, 0.10, 1.0))
         local rockMat = solid(Color(0.16, 0.10, 0.08, 1.0), 0.95)
-        for i = 1, 5 do
-            local x = -30 + math.random() * 60
-            local z = -30 + math.random() * 60
-            local pool = scene_:CreateChild("LavaPool_" .. i)
-            pool.position = Vector3(x, 0.1, z)
-            pool.scale = Vector3(2.5 + math.random() * 2, 0.3, 2.5 + math.random() * 2)
-            local m = pool:CreateComponent("StaticModel")
-            m:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
-            m:SetMaterial(lavaMat)
-            m.castShadows = false
+        for i = 1, 7 do
+            local x, z
+            if i == 1 then
+                x, z = -26, 22
+            else
+                x, z = RandomOutsideSafeZone(38, 4.0)
+            end
+            local pool = CreateMapModel("LavaPool_" .. i, "Models/Sphere.mdl", Vector3(x, 0.055, z),
+                Vector3(2.8 + math.random() * 2.4, 0.10, 2.0 + math.random() * 2.2),
+                (i == 1 or i % 2 == 0) and lavaGlowMat or lavaMat, nil)
+            pool.rotation = Quaternion(math.random() * 360, Vector3.UP)
+            local model = pool:GetComponent("StaticModel")
+            if model then model.castShadows = false end
+        end
+        for i = 1, 18 do
+            local x, z = RandomOutsideSafeZone(42, 3.0)
+            local crack = CreateMapModel("LavaCrack_" .. i, "Models/Box.mdl", Vector3(x, 0.04, z),
+                Vector3(0.10, 0.035, 1.2 + math.random() * 2.2), lavaGlowMat, nil)
+            crack.rotation = Quaternion(math.random() * 360, Vector3.UP)
+            local model = crack:GetComponent("StaticModel")
+            if model then model.castShadows = false end
         end
         for i = 1, 12 do
-            local x = -40 + math.random() * 80
-            local z = -40 + math.random() * 80
-            local r = scene_:CreateChild("LavaRock_" .. i)
-            r.position = Vector3(x, 0.3, z)
-            r.scale = Vector3(0.8 + math.random() * 1.2, 0.5 + math.random() * 0.8, 0.8 + math.random() * 1.2)
-            local m = r:CreateComponent("StaticModel")
-            m:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
-            m:SetMaterial(rockMat)
-            m.castShadows = true
+            local x, z = RandomOutsideSafeZone(44, 3.0)
+            local rock = CreateMapModel("LavaRock_" .. i, "Models/Sphere.mdl", Vector3(x, 0.4, z),
+                Vector3(0.8 + math.random() * 1.2, 0.55 + math.random() * 0.8, 0.8 + math.random() * 1.2),
+                rockMat, "sphere")
+            rock.rotation = Quaternion(math.random() * 360, Vector3.UP)
+        end
+        CreateMapModel("DragonSlayerPlatform", "Models/Box.mdl", Vector3(0, 0.34, -32),
+            Vector3(5.8, 0.68, 5.8), rockMat, "box")
+        CreateMapModel("DragonSlayerPedestal", "Models/Box.mdl", Vector3(0, 0.92, -32),
+            Vector3(1.6, 0.55, 1.6), lavaMat, "box")
+
+        CreateMapModel("AbyssThroneBase", "Models/Box.mdl", Vector3(30, 0.45, 26),
+            Vector3(5.2, 0.9, 4.2), rockMat, "box")
+        CreateMapModel("AbyssThroneBack", "Models/Box.mdl", Vector3(30, 2.25, 27.4),
+            Vector3(3.4, 3.6, 0.8), rockMat, "box")
+        for side = -1, 1, 2 do
+            CreateMapModel("AbyssThroneArm_" .. tostring(side), "Models/Box.mdl",
+                Vector3(30 + side * 2.05, 1.25, 26), Vector3(0.65, 1.6, 3.6),
+                rockMat, "box")
         end
     end
 end
@@ -767,9 +1102,6 @@ function SetupCamera()
     GameUI.SetScene(scene_)
 end
 
--- 诊断计数器
-local diagFrameCount_ = 0
-
 function UpdateCamera(dt)
     if not playerNode_ then return end
 
@@ -787,16 +1119,17 @@ function UpdateCamera(dt)
         end
     end
 
+    -- 地面视觉是 120m × 120m；角色胶囊中心需留出少量边距，避免走出
+    -- 地面后小地图标记消失、怪物继续追到场景外。
+    local boundedPos, hitBoundary = MapZone.ClampToArena(playerNode_.position, 0.75)
+    if hitBoundary and boundedPos then
+        playerNode_.position = boundedPos
+        local body = playerNode_:GetComponent("RigidBody")
+        if body then body:SetLinearVelocity(Vector3.ZERO) end
+    end
+
     local playerPos = playerNode_.worldPosition
     local targetPos = playerPos + CAM_OFFSET
-
-    -- 诊断日志：每 120 帧打印一次关键数据
-    diagFrameCount_ = diagFrameCount_ + 1
-    if diagFrameCount_ % 120 == 1 then
-        print(string.format("[DIAG] playerPos=(%.2f,%.2f,%.2f) camTarget=(%.2f,%.2f,%.2f)",
-            playerPos.x, playerPos.y, playerPos.z,
-            targetPos.x, targetPos.y, targetPos.z))
-    end
 
     -- 打击感屏幕震动
     local shakeOffset = PlayerAnim.GetCameraShakeOffset()
@@ -1135,8 +1468,12 @@ function ShowSaveSlotScreen()
             CleanupPreview()
             currentSlotIndex = slotIndex
             local saveData = SaveSystem.GetSlot(slotIndex)
-            if saveData then
+            if saveData and SaveSystem.IsLoadable(saveData) then
                 LoadFromSave(saveData)
+            elseif saveData then
+                currentSlotIndex = nil
+                GameUI.ShowToast("该存档已损坏，无法载入")
+                print("[main] Refused to load invalid save in slot " .. tostring(slotIndex))
             end
         end,
         onCreate = function(slotIndex)
@@ -1159,29 +1496,71 @@ end
 
 --- 从存档加载游戏
 function LoadFromSave(saveData)
-    print("[main] Loading save: " .. saveData.className .. " Lv." .. saveData.level)
+    if not SaveSystem.IsLoadable(saveData) then
+        print("[main] Refused to load invalid save")
+        return false
+    end
+    local classId = SaveSystem.NormalizeClassId(saveData.classId)
+    local gender = (saveData.gender == "female") and "female" or "male"
+    local modelStyle = (saveData.modelStyle == "new" or saveData.modelStyle == "old")
+        and saveData.modelStyle or (gender == "female" and "new" or "old")
+    print("[main] Loading save: " .. tostring(saveData.className or classId)
+        .. " Lv." .. tostring(saveData.level or 1))
+
+    -- 载入另一个角色时先结束旧会话，避免单例神兽、旧敌人和旧玩家节点
+    -- 泄漏到新角色；随后再从存档恢复击杀数与神兽成长。
+    Combat.Clear(true, true)
+    pendingQuestPresentation = nil
+    questPresentationDelayHint = 0
+    if playerNode_ then
+        playerNode_:Remove()
+        playerNode_ = nil
+    end
+    player_ = nil
 
     -- 先初始化背包系统
     Inventory.Init()
 
-    -- 恢复背包/装备/金币
-    SaveSystem.RestoreInventory(saveData, Inventory.playerData)
+    -- 恢复背包/装备/金币；失败时不要继续创建一个“半恢复”角色。
+    if not SaveSystem.RestoreInventory(saveData, Inventory.playerData) then
+        currentSlotIndex = nil
+        print("[main] ERROR: Failed to restore inventory from save")
+        return false
+    end
 
     -- 创建角色运行时对象
-    player_ = CharacterClass.CreatePlayer(saveData.classId, 1, saveData.modelStyle or "old", saveData.gender or "male")
+    player_ = CharacterClass.CreatePlayer(classId, 1, modelStyle, gender)
+    if not player_ then
+        currentSlotIndex = nil
+        print("[main] ERROR: Failed to create player from save")
+        return false
+    end
 
     -- 恢复角色属性（等级、经验等）
-    SaveSystem.RestorePlayer(saveData, player_)
+    if not SaveSystem.RestorePlayer(saveData, player_) then
+        player_ = nil
+        currentSlotIndex = nil
+        print("[main] ERROR: Failed to restore player from save")
+        return false
+    end
 
-    -- 恢复击杀数
-    Combat.killCount = saveData.killCount or 0
+    -- 恢复击杀数。通过 Combat 的统一入口同步模块内部计数，避免只写
+    -- 公开字段而导致下一次击杀覆盖读档值。
+    Combat.SetKillCount(saveData.killCount or 0)
 
     -- 恢复主线任务进度
     Quest.Restore(saveData.quest)
 
     -- 恢复所在地图（默认比奇省）
-    local mapId = saveData.mapId or "map_bq"
+    local mapId = type(saveData.mapId) == "string" and saveData.mapId or "map_bq"
+    if not MapZone.GetDef(mapId) then
+        print("[main] Unknown saved map " .. tostring(mapId) .. ", fallback to map_bq")
+        mapId = "map_bq"
+    end
     Combat.SetMap(mapId)
+    -- Combat.SetMap 当前也会同步 MapZone；这里保留显式调用作为读档边界
+    -- 的自校验，防止未来替换战斗实现后地图视觉与刷怪状态再次分叉。
+    MapZone.SetCurrentMap(mapId)
 
     -- 按存档地图重铺地面、装饰与雾色
     local mapDef = MapZone.GetDef(mapId)
@@ -1198,8 +1577,11 @@ function LoadFromSave(saveData)
     end
 
     -- 创建角色节点并进入游戏
-    CreatePlayerNode(saveData.classId, player_.modelStyle, player_.gender)
+    CreatePlayerNode(classId, player_.modelStyle, player_.gender)
     GameUI.SetPlayerNode(playerNode_)
+    if player_.classId == "taoist" then
+        DivineBeast.Restore(scene_, playerNode_.position, saveData.divineBeast, player_.atk)
+    end
     GameUI.ShowGameHUD(player_)
     SetupGameCallbacks()
 
@@ -1208,22 +1590,57 @@ function LoadFromSave(saveData)
     local p, c = Quest.GetProgress()
     GameUI.UpdateQuestTracker(cur, p, c)
 
+    -- 任务路由不能依赖“开场对话是否已读”：已读存档不会再次触发
+    -- Quest.onQuestStart，但若玩家此前手动越级切图，仍必须回到当前
+    -- 任务目标地图，否则按图刷怪会让任务永远无法推进。
+    local targetMapId = Quest.GetTargetMapId(cur)
+    if targetMapId and Combat.currentMapId ~= targetMapId then
+        pendingQuestMapId = targetMapId
+    end
+
     -- 触发当前任务剧情对话（读档后首次进入播放）
     Quest.TriggerCurrentStart()
 
-    -- 初始刷怪（按当前地图怪物池）
-    for i = 1, 28 do
-        Combat.SpawnEnemy(scene_, playerNode_.position, player_.level, nil, mapId)
+    -- 最终击杀已落盘、但尾声尚未看完时（例如真机被系统中断），读档后
+    -- 补播一次；播完会写入 endingSeen，之后不再重复。
+    if Quest.IsFinished() and not Quest.IsEndingSeen() then
+        local finalQuest = Quest.CHAIN[#Quest.CHAIN]
+        if finalQuest and finalQuest.completionDialogues then
+            pendingQuestPresentation = {
+                kind = "completion",
+                quest = finalQuest,
+                delay = 0.8,
+            }
+        end
+    end
+
+    -- 读档不在 Combat.Update 中，安全地立即处理任务路由；这样不会先在
+    -- 存档旧地图刷一批无法推进当前任务的怪物。
+    if ProcessPendingQuestMapSwitch then
+        ProcessPendingQuestMapSwitch()
+    end
+
+    -- 如果任务路由已经通过 SwitchMap 刷完首批怪，则不要再叠加一批。
+    if #Combat.enemies == 0 then
+        for i = 1, INITIAL_ENEMY_COUNT do
+            Combat.SpawnEnemy(scene_, playerNode_.position, player_.level, nil, Combat.currentMapId)
+        end
     end
 
     GameUI.StartDoorOpen()
-    print("[main] Game loaded from save: " .. saveData.className .. " Lv." .. saveData.level)
+    print("[main] Game loaded from save: " .. tostring(player_.className)
+        .. " Lv." .. tostring(player_.level))
+    return true
 end
 
 --- 手动保存当前游戏到当前槽位
 function SaveCurrentGame()
     if not player_ or not currentSlotIndex then return false end
     local snapshot = SaveSystem.CreateSnapshot(player_, Inventory.playerData, Combat.killCount)
+    if not snapshot then
+        print("[main] ERROR: Cannot save invalid current player state")
+        return false
+    end
     local ok = SaveSystem.SaveToSlot(currentSlotIndex, snapshot)
     if ok then
         print("[main] Auto-saved to slot " .. currentSlotIndex)
@@ -1241,12 +1658,18 @@ local DECOR_PREFIXES = {
     "BrokenStoneRoad_", "CentralScorchedPatch_", "ScorchedEdge_", "GroundPatch_",
     "RuinedBridge", "BridgePlank_", "BridgePost_",
     "DarkRock_", "DeadTree_", "DeadBranch_", "SickCrown_",
-    "Grave_", "Torch_", "TorchFlame_", "TorchLight_", "BrokenFence_", "DarkScrub_",
+    "Grave_", "Torch_", "TorchPole_", "TorchEmber_", "TorchFlame_", "TorchLight_",
+    "BrokenFence_", "DarkScrub_",
+    "VillageRuin", "VillageAsh", "SpiderNest",
     "Dune_", "Cactus_", "RuinedWall_",
-    "Coral_", "PierPost_", "Lighthouse",
-    "Pillar_", "Altar", "Brazier_",
-    "LavaPool_", "LavaRock_",
-    "SafeZone", "SafeZoneRing_",
+    "StoneTomb",
+    "WaterChannel_", "DockWalkway_", "Coral_", "PierPost_", "Lighthouse",
+    "AntNest",
+    "Pillar_", "Altar", "TempleRune_", "Brazier_", "BrazierFlame_", "BrazierLight_",
+    "WomarGate",
+    "LavaPool_", "LavaCrack_", "LavaRock_",
+    "DragonSlayer", "AbyssThrone",
+    "SafeZone", "SafeZoneDash_", "SafeZoneNeedle_", "SafeZoneRing_",
 }
 
 --- 清理所有装饰节点（切图时调用）
@@ -1275,12 +1698,17 @@ function SwitchMap(mapId)
         print("[main] SwitchMap: unknown map " .. tostring(mapId))
         return false
     end
+    if not scene_ or not player_ or not playerNode_ then
+        print("[main] SwitchMap: game scene/player is not ready")
+        return false
+    end
 
-    -- 清空当前地图战斗实体与地面掉落
+    -- 清空当前地图战斗实体与地面掉落；默认保留累计击杀数和道士的永久神兽。
     Combat.Clear()
 
     -- 设置战斗系统当前地图（决定按图刷怪池）
     Combat.SetMap(mapId)
+    MapZone.SetCurrentMap(mapId)
 
     -- 重铺地面与装饰（按地图主色，移除旧地面/装饰节点）
     ClearDecorations()
@@ -1298,13 +1726,18 @@ function SwitchMap(mapId)
     -- 玩家传送到该图出生点
     if playerNode_ then
         playerNode_.position = mapDef.spawnPos
+        -- 神兽是跨地图持久实体：切图时只保留成长，不把旧地图的
+        -- 喷火、狂暴、攻击计时或物理速度带进新地图。
+        if player_.classId == "taoist" then
+            DivineBeast.OnMapChanged(playerNode_.position)
+        end
     end
 
     -- 生成安全区 NPC（管家 + 商人）
     NPC.SpawnForMap(scene_, mapId, mapDef.spawnPos)
 
     -- 初始刷怪（按新地图怪物池）
-    for i = 1, 24 do
+    for i = 1, INITIAL_ENEMY_COUNT do
         Combat.SpawnEnemy(scene_, playerNode_.position, player_.level, nil, mapId)
     end
 
@@ -1316,6 +1749,82 @@ function SwitchMap(mapId)
 
     print("[main] Switched to map: " .. mapId .. " (" .. mapDef.name .. ")")
     return true
+end
+
+--- 请求由任务触发的地图切换。
+--- 任务完成可能在 Combat.UpdateEnemies 的遍历中发生；这里只记录目标地图，
+--- 由 HandleUpdate 的下一帧安全边界统一执行，避免清空 enemies 后继续索引 nil。
+local function QueueQuestMapSwitch(mapId)
+    if not MapZone.GetDef(mapId) then
+        print("[main] QueueQuestMapSwitch: unknown map " .. tostring(mapId))
+        return false
+    end
+    pendingQuestMapId = mapId
+    return true
+end
+
+ProcessPendingQuestMapSwitch = function()
+    local mapId = pendingQuestMapId
+    pendingQuestMapId = nil
+    if not mapId or Combat.currentMapId == mapId then return false end
+    return SwitchMap(mapId)
+end
+
+local function GetMerchantRequiredLevel(item)
+    local rarityLevels = {
+        COMMON = 1,
+        UNCOMMON = 5,
+        RARE = 12,
+        EPIC = 25,
+        LEGENDARY = 40,
+    }
+    return rarityLevels[item and item.rarity] or 1
+end
+
+local function GenerateMerchantStock(mapId, player)
+    local candidates = {}
+    for _, item in ipairs(Inventory.GetAllItemTemplates()) do
+        local requiredLevel = GetMerchantRequiredLevel(item)
+        local classOk = not item.classReq or item.classReq == player.classId
+        -- 货架只展示当前等级可购买或略高一档的装备；终极传说装备留给
+        -- 终章/Boss，避免商人直接跳过掉落与主线成长。
+        if classOk and item.rarity ~= "LEGENDARY"
+            and requiredLevel <= (player.level or 1) + 5 then
+            table.insert(candidates, item)
+        end
+    end
+    if #candidates == 0 then
+        for _, item in ipairs(Inventory.GetAllItemTemplates()) do
+            if not item.classReq or item.classReq == player.classId then
+                table.insert(candidates, item)
+            end
+        end
+    end
+
+    local stock = {}
+    while #stock < MERCHANT_STOCK_SIZE and #candidates > 0 do
+        local index = math.random(1, #candidates)
+        table.insert(stock, candidates[index])
+        table.remove(candidates, index)
+    end
+    merchantShopState.mapId = mapId
+    merchantShopState.classId = player.classId
+    merchantShopState.expiresAt = os.time() + MERCHANT_STOCK_TTL
+    merchantShopState.items = stock
+end
+
+local function EnsureMerchantStock(mapId, player)
+    if merchantShopState.mapId ~= mapId
+        or merchantShopState.classId ~= player.classId
+        or os.time() >= (merchantShopState.expiresAt or 0)
+        or #merchantShopState.items == 0 then
+        GenerateMerchantStock(mapId, player)
+    end
+    return merchantShopState.items
+end
+
+local function RefreshMerchantStock(mapId, player)
+    GenerateMerchantStock(mapId, player)
 end
 
 -- ============================================================================
@@ -1333,19 +1842,16 @@ function SetupGameCallbacks()
         if castState.active then return end  -- 施法中不可再按
         if GameUI.IsCharacterPanelOpen() then return end -- 角色面板打开时不放技能
         if GameUI.IsSystemPanelOpen() then return end -- 系统面板打开时不放技能
-
-        -- 安全区内禁止攻击
-        if playerNode_ then
-            local safeRadius = MapZone.GetSafeZoneRadius(Combat.currentMapId)
-            local pp = playerNode_.position
-            local safeDist = math.sqrt(pp.x * pp.x + pp.z * pp.z)
-            if safeDist < safeRadius then
-                GameUI.AddFloatingText("安全区内无法攻击", playerNode_.position + Vector3(0, 1.0, 0), {160, 200, 255, 255})
-                return
-            end
-        end
-
         if not skill then return end
+
+        -- 安全区只禁止敌对技能；治疗、增益和召唤不属于“攻击”，应允许使用。
+        -- 复用 Combat 的统一判断，避免未来地图出生点不在原点时出现 UI 与
+        -- 最终伤害结算使用两套安全区中心。
+        if playerNode_ and Combat.IsHostileSkill(skill)
+            and Combat.IsInSafeZone(playerNode_.position) then
+            GameUI.AddFloatingText("安全区内无法攻击", playerNode_.position + Vector3(0, 1.0, 0), {160, 200, 255, 255})
+            return
+        end
         local canCast, reason = CharacterClass.CanCastSkill(player_, skill)
         if not canCast then
             print("[main] Skill blocked: " .. reason)
@@ -1370,12 +1876,18 @@ function SetupGameCallbacks()
                 PlayerAnim.TriggerHitFeedback(0.8)
             else
                 print("[main] Instant cast failed: " .. result)
+                if result == "安全区内无法攻击" then
+                    GameUI.AddFloatingText(result, playerNode_.position + Vector3(0, 1.0, 0), {160, 200, 255, 255})
+                end
             end
             return
         end
 
         -- 自动瞄准：正前方最近 → 上次命中目标 → 最近目标
-        local target = Combat.FindPriorityEnemy(playerNode_.position, playerNode_:GetDirection(), skill.range or 5)
+        local target = nil
+        if Combat.IsHostileSkill(skill) then
+            target = Combat.FindPriorityEnemy(playerNode_.position, playerNode_:GetDirection(), skill.range or 5)
+        end
         if target then
             local dir = target.node.position - playerNode_.position
             dir.y = 0
@@ -1476,43 +1988,27 @@ function SetupGameCallbacks()
         if newLevel > 50 then newLevel = 50 end
         if newLevel == player_.level then return end
 
-        local classDef = CharacterClass.Classes[player_.classId]
-        local g = classDef.growth
         player_.level = newLevel
-        player_.maxHP = classDef.baseHP + g.hp * (newLevel - 1)
-        player_.maxMP = classDef.baseMP + g.mp * (newLevel - 1)
-        player_.atk   = classDef.baseATK + g.atk * (newLevel - 1)
-        player_.def   = classDef.baseDEF + g.def * (newLevel - 1)
-        player_.hp = player_.maxHP
-        player_.mp = player_.maxMP
+        CharacterClass.ApplyDerivedStats(player_, Inventory.playerData, true)
         player_.expToNext = CharacterClass.GetExpToNext(newLevel)
         player_.exp = 0
         print("[Debug] Level set to " .. newLevel)
         -- 刷新技能栏（解锁状态可能变化）
-        GameUI.ShowGameHUD(player_)
+        GameUI.RefreshSkillButtons(player_)
     end
 
     -- 一键满级：设为50级 + 填充全部技能栏
     GameUI.onDebugMaxLevel = function()
         if not player_ then return end
         local maxLv = 50
-        local classDef = CharacterClass.Classes[player_.classId]
-        local g = classDef.growth
-        local Inventory = require("scripts.Inventory")
-        local bonusHP = Inventory.playerData.bonusHP or 0
         player_.level = maxLv
-        player_.maxHP = classDef.baseHP + g.hp * (maxLv - 1) + bonusHP
-        player_.maxMP = classDef.baseMP + g.mp * (maxLv - 1)
-        player_.atk   = classDef.baseATK + g.atk * (maxLv - 1)
-        player_.def   = classDef.baseDEF + g.def * (maxLv - 1)
-        player_.hp = player_.maxHP
-        player_.mp = player_.maxMP
+        CharacterClass.ApplyDerivedStats(player_, Inventory.playerData, true)
         player_.expToNext = CharacterClass.GetExpToNext(maxLv)
         player_.exp = 0
         -- 按解锁等级从低到高装备全部主动技能到低位槽
         CharacterClass.RebuildEquippedSkills(player_, true)
         print("[Debug] MAX LEVEL! Lv." .. maxLv .. " all skills equipped")
-        GameUI.ShowGameHUD(player_)
+        GameUI.RefreshSkillButtons(player_)
     end
 
     -- 角色面板切换回调
@@ -1537,20 +2033,32 @@ function SetupGameCallbacks()
     GameUI.onTeleportToggle = nil
 
     GameUI.onTeleportSelected = function(mapId)
+        -- 手动传送执行硬等级门槛；剧情自动切图走 QueueQuestMapSwitch，
+        -- 不会被这里拦截，因此主线仍能按章节安排推进。
+        if not MapZone.IsLevelAllowed(mapId, player_.level) then
+            GameUI.ShowToast("等级不足，" .. MapZone.GetLevelRequirement(mapId), 2.0)
+            return
+        end
         SwitchMap(mapId)
     end
 
     -- 与管家交互：打开传送面板（花费金币）
     local function openStewardPanel(currentMapId)
         local cost = MapZone.GetTeleportCost(currentMapId)
-        local options = NPC.GetTeleportOptions(currentMapId)
+        local options = NPC.GetTeleportOptions(currentMapId, player_.level)
         local rows = {}
         for _, opt in ipairs(options) do
             local optCopy = opt
             table.insert(rows, {
                 text = opt.name,
-                hint = (cost > 0) and ("💰" .. cost .. "  Lv." .. opt.minLevel .. "+") or ("免费  Lv." .. opt.minLevel .. "+"),
+                hint = ((cost > 0) and ("💰" .. cost) or "免费")
+                    .. (optCopy.locked and "  需要 Lv." or "  推荐 Lv.") .. optCopy.minLevel
+                    .. (optCopy.locked and " · 未解锁" or ""),
                 onTap = function()
+                    if optCopy.locked then
+                        GameUI.ShowToast("等级不足，需要 Lv." .. optCopy.minLevel, 1.5)
+                        return
+                    end
                     if cost > 0 then
                         if not Inventory.SpendGold(cost) then
                             GameUI.ShowToast("金币不足，需要 " .. cost .. " 金币")
@@ -1559,7 +2067,13 @@ function SetupGameCallbacks()
                     end
                     GameUI.HideNPCPanel()
                     GameUI.SetNPCInteract(false)
-                    SwitchMap(optCopy.id)
+                    local switched = SwitchMap(optCopy.id)
+                    if not switched and cost > 0 then
+                        -- 场景在切换期间失效时退回传送费，避免一次失败交互
+                        -- 造成不可见的经济损失。
+                        Inventory.AddGold(cost)
+                        GameUI.ShowToast("传送失败，金币已退回")
+                    end
                 end,
             })
         end
@@ -1569,7 +2083,7 @@ function SetupGameCallbacks()
     end
 
     -- 与商人交互：打开商店（「购买」标签：药水 + 装备；「出售」标签：卖背包装备）
-    local function openMerchantPanel()
+    local function openMerchantPanel(selectedTab)
         -- ============ 购买 tab ============
         local function buildBuyRows()
             local rows = {
@@ -1585,7 +2099,7 @@ function SetupGameCallbacks()
                             GameUI.ShowToast(msg or "购买失败")
                         end
                         GameUI.HideNPCPanel()
-                        openMerchantPanel()
+                        openMerchantPanel(1)
                     end,
                 },
                 {
@@ -1600,25 +2114,35 @@ function SetupGameCallbacks()
                             GameUI.ShowToast(msg or "购买失败")
                         end
                         GameUI.HideNPCPanel()
-                        openMerchantPanel()
+                        openMerchantPanel(1)
                     end,
                 },
             }
 
-            -- 装备售卖：随机抽 4 件（非传说）
-            local allItems = Inventory.GetAllItemTemplates()
-            local suitable = {}
-            for _, tmpl in ipairs(allItems) do
-                if tmpl.rarity ~= "LEGENDARY" and tmpl.itemType then
-                    table.insert(suitable, tmpl)
-                end
-            end
-            local shopItems = {}
-            while #shopItems < 4 and #suitable > 0 do
-                local idx = math.random(#suitable)
-                table.insert(shopItems, suitable[idx])
-                table.remove(suitable, idx)
-            end
+            -- 强化材料货架：与装备/药水共用购买页，资源数量在背包页可见。
+            table.insert(rows, {
+                text = "强化石",
+                hint = "💰" .. Inventory.ENHANCE_STONE_PRICE .. "  当前 " .. Inventory.GetEnhanceStones(),
+                onTap = function()
+                    local ok, msg = Inventory.BuyEnhanceStone()
+                    GameUI.ShowToast(ok and "购买成功：强化石 +1" or (msg or "购买失败"))
+                    GameUI.HideNPCPanel()
+                    openMerchantPanel(1)
+                end,
+            })
+            table.insert(rows, {
+                text = "保护石",
+                hint = "💰" .. Inventory.PROTECT_STONE_PRICE .. "  当前 " .. Inventory.GetProtectStones() .. " · 强化失败不掉级",
+                onTap = function()
+                    local ok, msg = Inventory.BuyProtectStone()
+                    GameUI.ShowToast(ok and "购买成功：保护石 +1" or (msg or "购买失败"))
+                    GameUI.HideNPCPanel()
+                    openMerchantPanel(1)
+                end,
+            })
+
+            -- 装备货架：按职业/等级筛选，并在五分钟内保持不变。
+            local shopItems = EnsureMerchantStock(Combat.currentMapId, player_)
             for _, tmpl in ipairs(shopItems) do
                 local price = Inventory.GetItemPrice(tmpl)
                 local rarityName = Inventory.GetRarityName(tmpl.rarity)
@@ -1627,25 +2151,31 @@ function SetupGameCallbacks()
                     text = "[" .. rarityName .. "] " .. tmpl.name,
                     hint = "💰" .. price .. "  点击购买",
                     onTap = function()
-                        if not Inventory.SpendGold(price) then
-                            GameUI.ShowToast("金币不足，需要 " .. price .. " 金币")
+                        local ok, msg, item = Inventory.BuyItem(itemCopy.id)
+                        if not ok then
+                            GameUI.ShowToast(msg or "购买失败")
                             return
                         end
-                        local item = {}
-                        for k, v in pairs(itemCopy) do item[k] = v end
-                        item.enhance = 0
-                        local added = Inventory.AddToBag(item)
-                        if not added then
-                            Inventory.AddGold(price)  -- 回退金币
-                            GameUI.ShowToast("背包已满")
-                        else
-                            GameUI.ShowToast("购买成功：" .. item.name)
-                        end
+                        GameUI.ShowToast("购买成功：" .. item.name)
                         GameUI.HideNPCPanel()
-                        openMerchantPanel()
+                        openMerchantPanel(1)
                     end,
                 })
             end
+            table.insert(rows, {
+                text = "刷新货架",
+                hint = "💰" .. MERCHANT_REFRESH_COST .. " · 当前货架五分钟内保持不变",
+                onTap = function()
+                    if not Inventory.SpendGold(MERCHANT_REFRESH_COST) then
+                        GameUI.ShowToast("金币不足，需要 " .. MERCHANT_REFRESH_COST .. " 金币")
+                        return
+                    end
+                    RefreshMerchantStock(Combat.currentMapId, player_)
+                    GameUI.ShowToast("货架已刷新")
+                    GameUI.HideNPCPanel()
+                    openMerchantPanel(1)
+                end,
+            })
             return rows
         end
 
@@ -1664,19 +2194,32 @@ function SetupGameCallbacks()
                     local sellPrice = Inventory.GetItemSellPrice(item)
                     local rarityName = Inventory.GetRarityName(item.rarity)
                     local enhanceTag = (item.enhance and item.enhance > 0) and (" +" .. item.enhance) or ""
-                    local itemIndex = i  -- 捕获索引
+                    local capturedItem = item  -- 捕获实例，避免售出后索引漂移
                     table.insert(rows, {
                         text = "[" .. rarityName .. "] " .. item.name .. enhanceTag,
                         hint = "卖出得 💰" .. sellPrice .. "  点击出售",
                         onTap = function()
-                            local ok, got = Inventory.SellItem(itemIndex)
-                            if ok then
-                                GameUI.ShowToast("出售成功：+" .. got .. " 金币")
-                            else
-                                GameUI.ShowToast(tostring(got))
+                            local function sellCapturedItem()
+                                local ok, got = Inventory.SellItem(capturedItem)
+                                if ok then
+                                    GameUI.ShowToast("出售成功：+" .. got .. " 金币")
+                                else
+                                    GameUI.ShowToast(tostring(got))
+                                end
+                                GameUI.HideNPCPanel()
+                                openMerchantPanel(2)
                             end
-                            GameUI.HideNPCPanel()
-                            openMerchantPanel()
+                            if capturedItem.rarity == "LEGENDARY" then
+                                UI.Modal.Confirm {
+                                    title = "确认出售传说装备",
+                                    message = "【" .. capturedItem.name .. "】将离开背包，确定出售吗？",
+                                    confirmText = "确认出售",
+                                    cancelText = "保留装备",
+                                    onConfirm = sellCapturedItem,
+                                }
+                            else
+                                sellCapturedItem()
+                            end
                         end,
                     })
                 end
@@ -1687,7 +2230,7 @@ function SetupGameCallbacks()
         GameUI.ShowNPCPanel("商人 · 商店", {
             { label = "购买", build = buildBuyRows },
             { label = "出售", build = buildSellRows },
-        })
+        }, selectedTab or 1)
     end
 
     -- NPC 交互回调（由 HandleUpdate 每帧检测后触发）
@@ -1702,6 +2245,68 @@ function SetupGameCallbacks()
     GameUI.onCharacterPanelClosed = function()
         -- 角色面板关闭后刷新 HUD 技能栏
         GameUI.RefreshSkillButtons(player_)
+    end
+
+    local function PresentQuestStart(quest)
+        if not quest then return end
+
+        -- 普通击杀与 Boss 任务统一按任务目标路由到正确地图。此前只处理
+        -- Boss，导致 q007 之后若玩家停留在旧地图会永远刷不到当前目标。
+        local targetMap = Quest.GetTargetMapId(quest)
+        if targetMap and Combat.currentMapId ~= targetMap then
+            QueueQuestMapSwitch(targetMap)
+        end
+
+        if quest.dialogues and #quest.dialogues > 0 then
+            GameUI.PlayDialogue(quest.dialogues, function()
+                if Quest.MarkDialogueRead(quest.id) then
+                    -- 对话真正播完后立即落盘。此前只依赖定时自动保存，真机在
+                    -- 最后一句后被系统杀掉时会把整段剧情再次播放。
+                    SaveCurrentGame()
+                end
+                local cur = Quest.GetCurrent()
+                local p, c = Quest.GetProgress()
+                GameUI.UpdateQuestTracker(cur, p, c)
+            end)
+        else
+            if Quest.MarkDialogueRead(quest.id) then
+                SaveCurrentGame()
+            end
+        end
+    end
+
+    local function PresentQuestCompletion(quest)
+        if not quest or not quest.completionDialogues or #quest.completionDialogues == 0
+            or Quest.IsEndingSeen() then
+            return
+        end
+        GameUI.PlayDialogue(quest.completionDialogues, function()
+            Quest.MarkEndingSeen()
+            SaveCurrentGame()
+            GameUI.ShowToast("主线通关：【" .. quest.name .. "】")
+        end)
+    end
+
+    -- Boss 击杀后的下一章对话/切图应等死亡动画结束再出现。否则模态对话
+    -- 会暂停 Combat.Update，而切图还会直接删除正在倒下的 Boss。
+    ProcessPendingQuestPresentation = function(dt)
+        local pending = pendingQuestPresentation
+        if not pending then return false end
+        if not player_ then
+            pendingQuestPresentation = nil
+            return false
+        end
+
+        pending.delay = math.max(0, (pending.delay or 0) - math.max(0, dt or 0))
+        if pending.delay > 0 then return false end
+
+        pendingQuestPresentation = nil
+        if pending.kind == "start" then
+            PresentQuestStart(pending.quest)
+        elseif pending.kind == "completion" then
+            PresentQuestCompletion(pending.quest)
+        end
+        return true
     end
 
     -- 战斗回调
@@ -1720,7 +2325,7 @@ function SetupGameCallbacks()
     end
 
     -- 掉落系统（地面掉落模式）
-    Combat.onEnemyDeath = function(enemyName, deathPos, exp)
+    Combat.onEnemyDeath = function(enemyName, deathPos, exp, deathDuration)
         local droppedItem, gold = Inventory.RollDrop(enemyName)
         -- 金币散落到地面
         if gold > 0 then
@@ -1739,8 +2344,18 @@ function SetupGameCallbacks()
             GameUI.UpdatePotionCount("hp", Inventory.GetPotionCount("hp"))
             GameUI.UpdatePotionCount("mp", Inventory.GetPotionCount("mp"))
         end
-        -- 主线任务击杀计数
+        -- 只有完成 Boss 任务时延后下一段演出；普通任务继续即时刷新进度。
+        local activeQuest = Quest.GetCurrent()
+        local progress, count = Quest.GetProgress()
+        local completesBoss = activeQuest and activeQuest.type == "boss"
+            and activeQuest.target == enemyName and progress + 1 >= count
+        questPresentationDelayHint = completesBoss
+            and math.max(0, tonumber(deathDuration) or 0) + 0.12 or 0
+
+        -- 主线任务击杀计数。Quest 回调在本函数内同步执行，因此上面的
+        -- delay hint 能被 onQuestStart/onQuestComplete 精确消费。
         Quest.OnKill(enemyName)
+        questPresentationDelayHint = 0
     end
 
     -- 金币磁吸拾取回调
@@ -1759,6 +2374,9 @@ function SetupGameCallbacks()
         else
             GameUI.AddFloatingText("背包已满", pos + Vector3(0, 0.5, 0), {255, 100, 100, 255})
         end
+        -- Combat 依据返回值决定是否移除地面掉落；背包满时保留物品以便
+        -- 玩家整理背包后再拾取。
+        return ok
     end
 
     -- 技能解锁提示
@@ -1772,15 +2390,10 @@ function SetupGameCallbacks()
     Quest.onQuestComplete = function(quest)
         -- 发放奖励
         if player_ then
-            player_.exp = player_.exp + (quest.rewardExp or 0)
-            -- 处理升级（复用击杀经验升级逻辑，简化：直接调用升满）
-            while player_.exp >= player_.expToNext do
-                player_.exp = player_.exp - player_.expToNext
-                local newSkills = CharacterClass.LevelUp(player_)
-                if newSkills and Combat.onSkillUnlocked then
-                    for _, name in ipairs(newSkills) do
-                        Combat.onSkillUnlocked(name)
-                    end
+            local newSkills = CharacterClass.AddExperience(player_, quest.rewardExp or 0)
+            if newSkills and Combat.onSkillUnlocked then
+                for _, name in ipairs(newSkills) do
+                    Combat.onSkillUnlocked(name)
                 end
             end
             GameUI.RefreshSkillButtons(player_)
@@ -1797,6 +2410,15 @@ function SetupGameCallbacks()
 
         -- 立即存档（任务进度落盘）
         SaveCurrentGame()
+
+        if Quest.IsFinished() and quest.completionDialogues
+            and #quest.completionDialogues > 0 and not Quest.IsEndingSeen() then
+            pendingQuestPresentation = {
+                kind = "completion",
+                quest = quest,
+                delay = questPresentationDelayHint,
+            }
+        end
     end
 
     Quest.onProgressUpdate = function(quest, progress, count)
@@ -1804,32 +2426,14 @@ function SetupGameCallbacks()
     end
 
     Quest.onQuestStart = function(quest)
-        -- Boss 任务：自动传送到对应章节地图（确保守关 Boss 可刷出）
-        if quest.type == "boss" then
-            local chapterMap = {
-                ["第一幕 · 边城烽火"] = "map_bq",
-                ["第二幕 · 黄沙盟重"] = "map_mz",
-                ["第三幕 · 怒海寻踪"] = "map_sc",
-                ["终章 · 屠龙之战"] = "map_wm",
+        if questPresentationDelayHint > 0 then
+            pendingQuestPresentation = {
+                kind = "start",
+                quest = quest,
+                delay = questPresentationDelayHint,
             }
-            -- 终章后两个 Boss（火龙王/牛魔王）在祖玛
-            local targetMap = chapterMap[quest.chapter] or "map_wm"
-            if quest.target == "火龙王" or quest.target == "牛魔王" then
-                targetMap = "map_zm"
-            end
-            if Combat.currentMapId ~= targetMap then
-                SwitchMap(targetMap)
-            end
-        end
-
-        -- 播放剧情对话（若有）
-        if quest.dialogues and #quest.dialogues > 0 then
-            GameUI.PlayDialogue(quest.dialogues, function()
-                -- 对话结束，刷新任务追踪条
-                local cur = Quest.GetCurrent()
-                local p, c = Quest.GetProgress()
-                GameUI.UpdateQuestTracker(cur, p, c)
-            end)
+        else
+            PresentQuestStart(quest)
         end
     end
 
@@ -1848,6 +2452,11 @@ function OnClassSelected(classId, modelStyle, gender)
     Inventory.Init()
     Quest.Reset()
     Combat.SetMap("map_bq")  -- 新角色从比奇省开始
+    Combat.SetKillCount(0)
+    MapZone.SetCurrentMap("map_bq")
+    pendingQuestMapId = nil
+    pendingQuestPresentation = nil
+    questPresentationDelayHint = 0
     local newPlayer = CharacterClass.CreatePlayer(classId, 1, modelStyle, gender)
 
     if currentSlotIndex then
@@ -1884,8 +2493,8 @@ function ReturnToMainMenu()
         GameUI.HideSystemPanel()
     end
 
-    -- 清理战斗实体
-    Combat.Clear()
+    -- 真正离开角色会话时才清除道士的永久神兽，并重置本次会话的击杀统计。
+    Combat.Clear(true, true)
 
     -- 移除玩家节点
     if playerNode_ then
@@ -1901,6 +2510,9 @@ function ReturnToMainMenu()
     mpPotionCD = 0
     currentSlotIndex = nil
     autoSaveTimer = 0
+    pendingQuestMapId = nil
+    pendingQuestPresentation = nil
+    questPresentationDelayHint = 0
 
     -- 返回存档槽位选择界面
     ShowSaveSlotScreen()
@@ -1975,6 +2587,9 @@ function UpdateCastState(dt)
                 PlayerAnim.TriggerHitFeedback(intensity)
             else
                 print("[main] Cast failed after windup: " .. result)
+                if result == "安全区内无法攻击" then
+                    GameUI.AddFloatingText(result, playerNode_.position + Vector3(0, 1.0, 0), {160, 200, 255, 255})
+                end
             end
 
             -- 进入后摇
@@ -2042,6 +2657,17 @@ function HandleUpdate(eventType, eventData)
 
     if not player_ then return end
 
+    -- Boss 死亡演出完成后才呈现下一任务，再于同一安全边界执行任务切图。
+    if ProcessPendingQuestPresentation then
+        ProcessPendingQuestPresentation(dt)
+    end
+
+    -- 任务切图在战斗回调或延迟演出中排队后，于这里安全执行。
+    -- 放在暂停判断前，保证任务对话打开时也能完成章节路由。
+    if ProcessPendingQuestMapSwitch then
+        ProcessPendingQuestMapSwitch()
+    end
+
     -- 自动保存计时
     if currentSlotIndex then
         autoSaveTimer = autoSaveTimer + dt
@@ -2051,27 +2677,11 @@ function HandleUpdate(eventType, eventData)
         end
     end
 
-    -- M 键切换全图 / ESC 键关闭全图
-    if input:GetKeyPress(KEY_M) then
+    -- 全图是唯一允许在暂停期间消费的快捷键：否则玩家按 ESC 无法关闭
+    -- 全图。其它模态面板仍会挡住 M/F3/F5，避免演出或交易被切断。
+    if GameUI.IsFullMapOpen() and input:GetKeyPress(KEY_ESCAPE) then
         GameUI.ToggleFullMap()
-    elseif GameUI.IsFullMapOpen() and input:GetKeyPress(KEY_ESCAPE) then
-        GameUI.ToggleFullMap()
-    end
-
-    -- F3 键：切换"显示距离"调试开关（敌人头顶显示与玩家的距离/身位区间）
-    if input:GetKeyPress(KEY_F3) then
-        GameUI.debugShowDistance = not GameUI.debugShowDistance
-        GameUI.ShowToast(GameUI.debugShowDistance and "距离显示：开" or "距离显示：关", 1.5)
-    end
-
-    -- F5 键：循环切换地图（调试用，正式版由传送阵接管）
-    if input:GetKeyPress(KEY_F5) then
-        local curIdx = 1
-        for i, id in ipairs(MAP_ORDER) do
-            if id == (Combat.currentMapId or "map_bq") then curIdx = i; break end
-        end
-        local nextId = MAP_ORDER[(curIdx % #MAP_ORDER) + 1]
-        SwitchMap(nextId)
+        return
     end
 
     -- 游戏暂停：打开背包/地图/系统面板时暂停游戏逻辑
@@ -2079,6 +2689,29 @@ function HandleUpdate(eventType, eventData)
         UpdateCamera(dt)
         GameUI.UpdateHUD(player_, dt)
         return
+    end
+
+    -- 只有在没有模态界面时才消费全局快捷键。否则打开对话、商店或角色
+    -- 面板时仍可切图，既会打断演出，也会让当前 UI 持有过期的地图/NPC 引用。
+    -- M 键切换全图
+    if input:GetKeyPress(KEY_M) then
+        GameUI.ToggleFullMap()
+    end
+
+    -- F3 键：切换"显示距离"调试开关（敌人头顶显示与玩家的距离/身位区间）
+    if GameUI.debugMode and input:GetKeyPress(KEY_F3) then
+        GameUI.debugShowDistance = not GameUI.debugShowDistance
+        GameUI.ShowToast(GameUI.debugShowDistance and "距离显示：开" or "距离显示：关", 1.5)
+    end
+
+    -- F5 键：循环切换地图（调试用，正式版由传送阵接管）
+    if GameUI.debugMode and input:GetKeyPress(KEY_F5) then
+        local curIdx = 1
+        for i, id in ipairs(MAP_ORDER) do
+            if id == (Combat.currentMapId or "map_bq") then curIdx = i; break end
+        end
+        local nextId = MAP_ORDER[(curIdx % #MAP_ORDER) + 1]
+        SwitchMap(nextId)
     end
 
     -- 死亡状态
@@ -2133,14 +2766,9 @@ function HandleUpdate(eventType, eventData)
         mp = mpPotionCD / MP_POTION_CD,
     }
 
-    -- 装备加成应用
-    local inv = Inventory.playerData
-    local classDef = CharacterClass.Classes[player_.classId]
-    local g = classDef.growth
-    player_.atk = classDef.baseATK + g.atk * (player_.level - 1) + inv.bonusAtk
-    player_.def = classDef.baseDEF + g.def * (player_.level - 1) + inv.bonusDef
-    player_.maxHP = classDef.baseHP + g.hp * (player_.level - 1) + inv.bonusHP
-    if player_.hp > player_.maxHP then player_.hp = player_.maxHP end
+    -- 统一通过职业模块重算派生属性，保留职业被动与装备加成。
+    -- refill=false 只在属性上限变化时钳制当前 HP/MP，不会每帧回满。
+    CharacterClass.ApplyDerivedStats(player_, Inventory.playerData, false)
 
     -- NPC 交互检测：玩家靠近安全区 NPC 时显示交互按钮
     local npcKind, npcMapId = NPC.FindNearby(playerNode_.position, 3.0)
@@ -2176,7 +2804,7 @@ function HandleUpdate(eventType, eventData)
     -- UI 更新
     GameUI.UpdateHUD(player_, dt)
     GameUI.UpdateKillCount(Combat.killCount)
-    GameUI.UpdateGold(inv.gold)
+    GameUI.UpdateGold(Inventory.playerData.gold)
 end
 
 -- ============================================================================

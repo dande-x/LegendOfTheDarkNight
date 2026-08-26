@@ -22,7 +22,7 @@ local Quest = {}
 -- 主线任务链（按策划案三幕 + 终章）
 -- ============================================================================
 Quest.CHAIN = {
-    -- ============ 第一幕「边城烽火」（比奇省·银杏山谷，Lv1~15）============
+    -- ============ 第一幕「边城烽火」（比奇省·银杏山谷，Lv1~9）============
     {
         id = "q_001", name = "初入荒原", chapter = "第一幕 · 边城烽火",
         type = "kill", target = "稻草人", count = 5,
@@ -90,7 +90,7 @@ Quest.CHAIN = {
         },
     },
 
-    -- ============ 第二幕「黄沙盟重」（盟重土城，Lv16~30）============
+    -- ============ 第二幕「黄沙盟重」（盟重土城，Lv10~24）============
     {
         id = "q_007", name = "野狼出没", chapter = "第二幕 · 黄沙盟重",
         type = "kill", target = "狼", count = 20,
@@ -124,7 +124,7 @@ Quest.CHAIN = {
         },
     },
 
-    -- ============ 第三幕「怒海寻踪」（水上城市，Lv31~44）============
+    -- ============ 第三幕「怒海寻踪」（水上城市，Lv25~34）============
     {
         id = "q_010", name = "将军之骨", chapter = "第三幕 · 怒海寻踪",
         type = "kill", target = "骷髅将军", count = 20,
@@ -141,8 +141,8 @@ Quest.CHAIN = {
         desc = "水城的航路被熔火封锁。有东西在海底烧灼着整片海域。",
         rewardExp = 4800, rewardGold = 2400,
         dialogues = {
-            { speaker = "旁白", text = "蚁后不是元凶，它只是被沃玛教主的黑暗力量驱使。" },
-            { speaker = "你", text = "原来我复仇的对象，从一开始就错了。" },
+            { speaker = "旁白", text = "海底的熔火并非自然异变，焦黑岩壁上残留着熟悉的黑暗符文。" },
+            { speaker = "你", text = "这股力量和师父封印中的一模一样。真正的幕后之物，就在前方。" },
         },
     },
     {
@@ -167,7 +167,7 @@ Quest.CHAIN = {
         },
     },
 
-    -- ============ 终章「屠龙之战」（沃玛寺庙 → 祖玛寺庙，Lv45~50）============
+    -- ============ 终章「屠龙之战」（沃玛 Lv35~44 → 祖玛 Lv45~50）============
     {
         id = "q_013", name = "噬魂之潮", chapter = "终章 · 屠龙之战",
         type = "kill", target = "噬魂兽", count = 25,
@@ -212,14 +212,46 @@ Quest.CHAIN = {
     {
         id = "q_016", name = "深渊领主", chapter = "终章 · 屠龙之战",
         type = "boss", target = "牛魔王", count = 1,
-        desc = "祖玛封印即将崩解，火龙王即将苏醒。",
+        desc = "火龙王已倒下，祖玛封印却仍在崩解。牛魔王正从深渊王座踏入人间。",
         rewardExp = 20000, rewardGold = 15000,
         dialogues = {
             { speaker = "旁白", text = "祖玛寺庙最深处，牛魔王挡住了你的去路。" },
             { speaker = "牛魔王", text = "渺小的凡人，也敢踏足祖玛圣地！" },
             { speaker = "旁白", text = "用屠龙宝刀，斩断这场延续百年的战争。让玛法大陆，重归和平。" },
         },
+        completionDialogues = {
+            { speaker = "旁白", text = "屠龙划过深渊，牛魔王的怒吼终于沉入熔岩之下。" },
+            { speaker = "师父", text = "你没有替我复仇。你替这片大陆，结束了仇恨。" },
+            { speaker = "你", text = "天亮了。该回比奇看看了。" },
+            { speaker = "旁白", text = "百年长夜就此落幕，而玛法大陆的新传奇，才刚刚开始。" },
+        },
     },
+}
+
+-- 任务目标与地图的唯一映射入口。
+--
+-- 任务链中的部分怪物会跨地图出现（例如“半兽人”“骷髅”），因此不能
+-- 只按 target 名称推断地图；按 quest id 映射可以保证剧情任务始终被
+-- 路由到策划指定的章节地图，同时保留 target 名称用于击杀计数。
+local QUEST_MAPS = {
+    q_001 = "map_bq",
+    q_002 = "map_bq",
+    q_003 = "map_bq",
+    q_004 = "map_bq",
+    q_005 = "map_bq",
+    q_006 = "map_bq",
+    q_007 = "map_mz",
+    q_008 = "map_mz",
+    q_009 = "map_mz",
+    q_010 = "map_sc",
+    q_011 = "map_sc",
+    q_012 = "map_sc",
+    q_012b = "map_sc",
+    q_013 = "map_wm",
+    q_014 = "map_wm",
+    q_014b = "map_wm",
+    q_015 = "map_zm",
+    q_016 = "map_zm",
 }
 
 -- ============================================================================
@@ -229,6 +261,8 @@ local state = {
     questIndex = 1,   -- 当前任务在 CHAIN 中的下标（1 起始）
     progress = 0,     -- 当前任务击杀进度
     finished = false, -- 是否已通关全部主线
+    dialogueRead = {}, -- 已看过的任务开场对话，避免读档重复播放
+    endingSeen = false, -- 最终 Boss 尾声是否完整播放
 }
 
 -- 外部回调（由 main.lua 注册）
@@ -258,30 +292,78 @@ function Quest.GetProgress()
     return state.progress, q.count
 end
 
+--- 获取任务目标所在地图。
+--- 由宿主在任务开始时调用，用于普通击杀任务与 Boss 任务的统一路由。
+---@param quest table|string|nil 任务对象或任务 id
+---@return string|nil mapId
+function Quest.GetTargetMapId(quest)
+    if not quest then return nil end
+    local questId = type(quest) == "table" and quest.id or quest
+    return QUEST_MAPS[questId]
+end
+
 --- 任务总进度（用于存档/展示）
 function Quest.GetState()
+    local dialogueRead = {}
+    for questId, read in pairs(state.dialogueRead) do
+        if read == true then dialogueRead[questId] = true end
+    end
     return {
         questIndex = state.questIndex,
         progress = state.progress,
         finished = state.finished,
+        dialogueRead = dialogueRead,
+        endingSeen = state.endingSeen,
     }
 end
 
 --- 恢复任务状态（读档时调用）
 function Quest.Restore(saved)
-    if not saved then
+    if type(saved) ~= "table" then
         state.questIndex = 1
         state.progress = 0
         state.finished = false
+        state.dialogueRead = {}
+        state.endingSeen = false
         return
     end
-    state.questIndex = saved.questIndex or 1
-    state.progress = saved.progress or 0
-    state.finished = saved.finished or false
-    -- 越界保护
+
+    local questIndex = tonumber(saved.questIndex)
+    if not questIndex or questIndex ~= questIndex or questIndex == math.huge
+        or questIndex == -math.huge then
+        questIndex = 1
+    end
+    questIndex = math.max(1, math.min(#Quest.CHAIN + 1, questIndex))
+    questIndex = math.floor(questIndex)
+
+    state.questIndex = questIndex
+    state.finished = saved.finished == true or questIndex > #Quest.CHAIN
+    if state.finished then
+        state.questIndex = #Quest.CHAIN + 1
+        state.progress = 0
+    else
+        local current = Quest.CHAIN[state.questIndex]
+        local progress = tonumber(saved.progress)
+        if not progress or progress ~= progress or progress == math.huge or progress == -math.huge then
+            progress = 0
+        end
+        progress = math.max(0, math.min(current.count, progress))
+        state.progress = math.floor(progress)
+    end
+
+    state.dialogueRead = {}
+    if type(saved.dialogueRead) == "table" then
+        for _, quest in ipairs(Quest.CHAIN) do
+            if saved.dialogueRead[quest.id] == true then
+                state.dialogueRead[quest.id] = true
+            end
+        end
+    end
+    -- 旧存档没有 dialogueRead 时保持兼容：当前任务仍会播放一次。
     if state.questIndex > #Quest.CHAIN then
         state.finished = true
     end
+    state.endingSeen = state.finished and saved.endingSeen == true
 end
 
 --- 重置（新建角色时调用）
@@ -289,6 +371,8 @@ function Quest.Reset()
     state.questIndex = 1
     state.progress = 0
     state.finished = false
+    state.dialogueRead = {}
+    state.endingSeen = false
 end
 
 -- ============================================================================
@@ -299,6 +383,7 @@ end
 --- 只统计当前任务目标怪，其他击杀不打断当前任务
 function Quest.OnKill(enemyName)
     if state.finished then return end
+    if type(enemyName) ~= "string" then return end
     local q = Quest.CHAIN[state.questIndex]
     if not q then
         state.finished = true
@@ -337,15 +422,54 @@ function Quest._CompleteCurrent()
     local next = Quest.GetCurrent()
     if next and Quest.onQuestStart then
         Quest.onQuestStart(next)
+        if not next.dialogues or #next.dialogues == 0 then
+            state.dialogueRead[next.id] = true
+        end
     end
 end
 
 --- 手动触发当前任务的开始（进入游戏/读档后调用，播放当前任务对话）
 function Quest.TriggerCurrentStart()
     local q = Quest.GetCurrent()
-    if q and Quest.onQuestStart then
+    if not q or not Quest.onQuestStart then return false end
+    if state.dialogueRead[q.id] == true then return false end
+    if q.dialogues and #q.dialogues > 0 then
         Quest.onQuestStart(q)
+    else
+        state.dialogueRead[q.id] = true
     end
+    return true
+end
+
+--- 标记任务开场对话已读；由宿主在 UI 对话真正播放完后调用。
+---@param questId string|nil
+function Quest.MarkDialogueRead(questId)
+    if type(questId) ~= "string" then return false end
+    for _, quest in ipairs(Quest.CHAIN) do
+        if quest.id == questId then
+            state.dialogueRead[questId] = true
+            return true
+        end
+    end
+    return false
+end
+
+---@param quest table|string|nil
+---@return boolean
+function Quest.IsDialogueRead(quest)
+    local questId = type(quest) == "table" and quest.id or quest
+    return type(questId) == "string" and state.dialogueRead[questId] == true
+end
+
+---@return boolean
+function Quest.IsEndingSeen()
+    return state.endingSeen == true
+end
+
+function Quest.MarkEndingSeen()
+    if not state.finished then return false end
+    state.endingSeen = true
+    return true
 end
 
 return Quest
