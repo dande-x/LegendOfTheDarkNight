@@ -115,9 +115,12 @@ local uiState = {
     hudRoot = nil,
     saveSlotRoot = nil,
     selectRoot = nil,
+    classSelectOverlayMode = false,
+    onClassSelectCancelled = nil,
     refs = {},
     charPanelOpen = false,
     charPanelRoot = nil,
+    itemDetailRoot = nil,
     systemPanelOpen = false,
     systemPanelRoot = nil,
     teleportPanelOpen = false,
@@ -137,6 +140,56 @@ local uiState = {
 local forgeSelection_ = {}
 
 GameUI.state = uiState
+
+-- 游戏内浮层统一使用固定标题栏，确保返回入口不会被长列表挤出屏幕。
+-- 保持在用户代码中实现；urhox-libs/UI 参考副本只读，不能修改。
+local function _CreateOverlayHeader(title, onBack, options)
+    options = options or {}
+    local headingChildren = {
+        UI.Label {
+            text = title,
+            fontSize = options.titleFontSize or 18,
+            fontColor = options.titleColor or {234, 236, 234, 255},
+            fontWeight = "bold",
+        },
+    }
+    if options.subtitle then
+        table.insert(headingChildren, UI.Label {
+            text = options.subtitle,
+            fontSize = options.subtitleFontSize or 11,
+            fontColor = options.subtitleColor or {164, 164, 158, 205},
+            marginTop = 2,
+        })
+    end
+
+    return UI.Panel {
+        width = "100%",
+        minHeight = 38,
+        flexShrink = 0,
+        flexDirection = "row",
+        justifyContent = "space-between",
+        alignItems = "center",
+        gap = 10,
+        marginBottom = options.marginBottom or 10,
+        children = {
+            UI.Panel {
+                flexGrow = 1,
+                flexShrink = 1,
+                alignItems = "flex-start",
+                children = headingChildren,
+            },
+            UI.Button {
+                text = options.backText or "← 返回",
+                width = options.backWidth or 82,
+                height = 34,
+                flexShrink = 0,
+                variant = "outline",
+                fontSize = 13,
+                onClick = onBack,
+            },
+        },
+    }
+end
 
 -- ============================================================================
 -- 初始化 UI 系统
@@ -931,6 +984,53 @@ function GameUI.IsGamePaused()
     return mapState.fullMapOpen or uiState.charPanelOpen or uiState.systemPanelOpen or uiState.teleportPanelOpen or uiState.dialogueActive or uiState.npcPanelOpen
 end
 
+--- 统一处理键盘 ESC / Android 返回键。
+--- 每次只关闭最上层界面；主线对话不在这里跳过，仍由玩家点击逐句推进。
+---@return boolean handled 是否消费了本次返回操作
+function GameUI.HandleBackAction()
+    -- 删除、出售、分解确认等 UI.Modal 必须先于宿主面板关闭，
+    -- 避免一次返回同时退出确认框和商店/角色面板。
+    ---@type any
+    local topOverlay = UI.GetTopOverlay and UI.GetTopOverlay() or nil
+    if topOverlay then
+        if type(topOverlay.Close) == "function" then
+            topOverlay:Close()
+        end
+        return true
+    end
+
+    if GameUI.IsItemDetailOpen and GameUI.IsItemDetailOpen() then
+        GameUI.HideItemDetail()
+        return true
+    end
+    if uiState.npcPanelOpen then
+        GameUI.HideNPCPanel()
+        return true
+    end
+    if uiState.teleportPanelOpen then
+        GameUI.HideTeleportPanel()
+        return true
+    end
+    if uiState.systemPanelOpen then
+        GameUI.HideSystemPanel()
+        return true
+    end
+    if uiState.charPanelOpen then
+        GameUI.CloseCharacterPanel()
+        return true
+    end
+    if mapState.fullMapOpen then
+        GameUI._CloseFullMap()
+        return true
+    end
+    if uiState.selectRoot and uiState.classSelectOverlayMode then
+        GameUI.CancelClassSelect()
+        return true
+    end
+
+    return false
+end
+
 -- ============================================================================
 -- 伤害飘字 NanoVG 渲染（物理弹跳动画）
 -- ============================================================================
@@ -1660,7 +1760,13 @@ end
 ---@param callbacks table { onSelect(idx), onContinue(idx), onCreate(idx), onDelete(idx, onDone) }
 function GameUI.ShowSaveSlots(slots, callbacks)
     local overlayMode = false
+    if uiState.selectRoot then
+        GameUI.HideClassSelect()
+    end
     uiState.phase = "select"
+    uiState.classSelectOverlayMode = false
+    uiState.onClassSelected = nil
+    uiState.onClassSelectCancelled = nil
     uiState.charPanelOpen = false
     uiState.charPanelRoot = nil
     uiState.systemPanelOpen = false
@@ -2102,11 +2208,17 @@ end
 -- ============================================================================
 -- 角色选择界面 (暗黑地牢风格)
 -- ============================================================================
-function GameUI.ShowClassSelect(onSelected, overlayMode, overlaySlotIndex)
+---@param onSelected function
+---@param overlayMode boolean|nil
+---@param overlaySlotIndex integer|nil
+---@param onCancelled function|nil
+function GameUI.ShowClassSelect(onSelected, overlayMode, overlaySlotIndex, onCancelled)
     overlayMode = overlayMode == true
     overlaySlotIndex = overlaySlotIndex or 1
     uiState.phase = "select"
     uiState.onClassSelected = onSelected
+    uiState.onClassSelectCancelled = onCancelled
+    uiState.classSelectOverlayMode = overlayMode
     uiState.charPanelOpen = false
     uiState.charPanelRoot = nil
     uiState.systemPanelOpen = false
@@ -2146,9 +2258,12 @@ function GameUI.ShowClassSelect(onSelected, overlayMode, overlaySlotIndex)
 
     local function ChooseClass(classId)
         uiState.selectedClass = classId
+        local onClassSelected = uiState.onClassSelected
+        local modelStyle = CurrentModelStyle()
+        local gender = selectedGender
         GameUI.HideClassSelect()
-        if uiState.onClassSelected then
-            uiState.onClassSelected(classId, CurrentModelStyle(), selectedGender)
+        if onClassSelected then
+            onClassSelected(classId, modelStyle, gender)
         end
     end
 
@@ -2268,6 +2383,17 @@ function GameUI.ShowClassSelect(onSelected, overlayMode, overlaySlotIndex)
         justifyContent = "center",
         alignItems = "center",
         children = {
+            overlayMode and UI.Button {
+                text = "← 返回",
+                position = "absolute",
+                left = 8, top = 8,
+                width = 76, height = 32,
+                variant = "outline",
+                fontSize = 12,
+                onClick = function()
+                    GameUI.CancelClassSelect()
+                end,
+            } or nil,
             UI.Label {
                 text = "暗夜传奇",
                 fontSize = overlayMode and 18 or 36,
@@ -2321,6 +2447,21 @@ function GameUI.HideClassSelect()
         uiState.selectRoot:Remove()
         uiState.selectRoot = nil
     end
+    uiState.classSelectOverlayMode = false
+    uiState.onClassSelected = nil
+    uiState.onClassSelectCancelled = nil
+end
+
+--- 取消存档页上的职业选择，保留存档槽位页面。
+---@return boolean cancelled
+function GameUI.CancelClassSelect()
+    if not uiState.selectRoot or not uiState.classSelectOverlayMode then
+        return false
+    end
+    local onCancelled = uiState.onClassSelectCancelled
+    GameUI.HideClassSelect()
+    if onCancelled then onCancelled() end
+    return true
 end
 
 -- ============================================================================
@@ -2510,7 +2651,7 @@ function GameUI.ShowGameHUD(player)
 
     -- 关闭提示
     local fullMapHint = UI.Label {
-        text = "点击任意位置关闭 | M键切换",
+        text = "点击空白处关闭 | M / ESC 返回",
         fontSize = 11,
         fontColor = {180, 175, 160, 150},
         marginTop = 4,
@@ -2528,6 +2669,17 @@ function GameUI.ShowGameHUD(player)
             GameUI._CloseFullMap()
         end,
         children = {
+            UI.Button {
+                text = "← 返回",
+                position = "absolute",
+                left = 16, top = 16,
+                width = 86, height = 36,
+                variant = "outline",
+                fontSize = 13,
+                onClick = function()
+                    GameUI._CloseFullMap()
+                end,
+            },
             fullMapTitle,
             fullMapArea,
             fullMapLegend,
@@ -2730,21 +2882,34 @@ function GameUI.ShowTeleportPanel(maps)
         width = "100%", height = "100%",
         backgroundColor = {0, 0, 0, 170},
         justifyContent = "center", alignItems = "center",
+        onClick = function() GameUI.HideTeleportPanel() end,
         children = {
             UI.Panel {
-                width = 280,
+                width = "88%", maxWidth = 360,
+                height = "86%", maxHeight = 500,
                 backgroundColor = {16, 12, 10, 248},
                 borderRadius = 10, borderWidth = 2,
                 borderColor = {124, 126, 130, 198},
                 padding = 16, alignItems = "center",
+                overflow = "hidden",
+                onClick = function() end,
                 children = {
-                    UI.Label { text = "传送阵 · 选择地图", fontSize = 18, fontColor = {234, 236, 234, 255}, fontWeight = "bold", marginBottom = 4 },
+                    _CreateOverlayHeader("传送阵 · 选择地图", function()
+                        GameUI.HideTeleportPanel()
+                    end),
                     UI.Label { text = "达到地图等级后方可使用管家传送", fontSize = 10, fontColor = {150, 150, 145, 180}, marginBottom = 12 },
-                    UI.Panel { width = "100%", gap = 6, children = rows },
-                    UI.Button {
-                        text = "取消", variant = "outline",
-                        width = 120, height = 36, marginTop = 14,
-                        onClick = function() GameUI.HideTeleportPanel() end,
+                    UI.ScrollView {
+                        width = "100%",
+                        flexGrow = 1,
+                        flexBasis = 0,
+                        showScrollbar = true,
+                        children = {
+                            UI.Panel {
+                                width = "100%",
+                                gap = 6,
+                                children = rows,
+                            },
+                        },
                     },
                 },
             },
@@ -2898,32 +3063,40 @@ function GameUI.ShowNPCPanel(title, tabs, selectedTab)
             width = "100%", height = "100%",
             backgroundColor = {0, 0, 0, 170},
             justifyContent = "center", alignItems = "center",
+            onClick = function() GameUI.HideNPCPanel() end,
             children = {
                 UI.Panel {
-                    width = "86%",
-                    maxWidth = 440,
-                    maxHeight = "76%",
+                    width = "90%",
+                    maxWidth = 500,
+                    height = "84%",
+                    maxHeight = 540,
                     backgroundColor = {16, 12, 10, 250},
                     borderRadius = 12, borderWidth = 2,
                     borderColor = {124, 126, 130, 200},
                     padding = 16, alignItems = "center",
+                    overflow = "hidden",
+                    onClick = function() end,
                     children = {
-                        UI.Label { text = title, fontSize = 18, fontColor = {234, 236, 234, 255}, fontWeight = "bold", marginBottom = 10 },
+                        _CreateOverlayHeader(title, function()
+                            GameUI.HideNPCPanel()
+                        end),
                         (#tabs > 1) and UI.Panel {
-                            flexDirection = "row", width = "100%", gap = 6, marginBottom = 10,
+                            flexDirection = "row", width = "100%", gap = 6,
+                            marginBottom = 10, flexShrink = 0,
                             children = tabChildren,
                         } or nil,
-                        UI.Panel {
+                        UI.ScrollView {
                             width = "100%",
-                            flexShrink = 1,
-                            overflow = "scroll",
-                            gap = 8,
-                            children = rowChildren,
-                        },
-                        UI.Button {
-                            text = "离开", variant = "outline",
-                            width = 140, height = 40, marginTop = 12,
-                            onClick = function() GameUI.HideNPCPanel() end,
+                            flexGrow = 1,
+                            flexBasis = 0,
+                            showScrollbar = true,
+                            children = {
+                                UI.Panel {
+                                    width = "100%",
+                                    gap = 8,
+                                    children = rowChildren,
+                                },
+                            },
                         },
                     },
                 },
@@ -3629,6 +3802,17 @@ end
 -- ============================================================================
 -- 装备面板 Tab（传奇风格：人物轮廓 + 10槽位环绕）
 -- ============================================================================
+function GameUI.HideItemDetail()
+    local detailRoot = uiState.itemDetailRoot
+    if not detailRoot then return end
+    uiState.itemDetailRoot = nil
+    detailRoot:Remove()
+end
+
+function GameUI.IsItemDetailOpen()
+    return uiState.itemDetailRoot ~= nil
+end
+
 local function _BuildEquipTabContent(player)
     local inv = Inventory.playerData
     local SLOT = Inventory.SLOT
@@ -3672,13 +3856,13 @@ local function _BuildEquipTabContent(player)
         end
 
         local capturedSlot = slotKey
+        GameUI.HideItemDetail()
         local detailPanel = UI.Panel {
             position = "absolute", width = "100%", height = "100%",
             justifyContent = "center", alignItems = "center",
             backgroundColor = {0, 0, 0, 180},
             onClick = function()
-                -- 关闭弹窗：刷新面板
-                refreshPanel()
+                GameUI.HideItemDetail()
             end,
             children = {
                 UI.Panel {
@@ -3688,7 +3872,13 @@ local function _BuildEquipTabContent(player)
                     borderColor = {rarityClr[1], rarityClr[2], rarityClr[3], 200},
                     paddingHorizontal = 16, paddingVertical = 14,
                     alignItems = "center",
+                    onClick = function() end,
                     children = {
+                        _CreateOverlayHeader("装备详情", GameUI.HideItemDetail, {
+                            titleFontSize = 15,
+                            backWidth = 76,
+                            marginBottom = 6,
+                        }),
                         -- 品质标签
                         UI.Label { text = "[" .. rarityName .. "]", fontSize = 11, fontColor = nameColor, marginBottom = 4 },
                         -- 物品名称
@@ -3775,6 +3965,7 @@ local function _BuildEquipTabContent(player)
         }
         -- 将详情弹窗附加到面板上层
         if uiState.charPanelRoot then
+            uiState.itemDetailRoot = detailPanel
             uiState.charPanelRoot:AddChild(detailPanel)
         end
     end
@@ -4265,13 +4456,24 @@ local function _BuildBagTabContent(player)
     }
 end
 
+--- 玩家主动关闭角色面板时走此入口；Tab 切换仍使用 HideCharacterPanel，
+--- 避免每次重建内容都触发 HUD 技能栏刷新。
+---@return boolean closed
+function GameUI.CloseCharacterPanel()
+    if not uiState.charPanelOpen then return false end
+    GameUI.HideCharacterPanel()
+    if GameUI.onCharacterPanelClosed then
+        GameUI.onCharacterPanelClosed()
+    end
+    return true
+end
+
 function GameUI.ShowCharacterPanel(player, tab)
     -- 关闭系统面板（互斥）
     if uiState.systemPanelOpen then GameUI.HideSystemPanel() end
     if uiState.charPanelOpen then
         -- 已打开则先关再开（用于 Tab 切换）
-        uiState.charPanelOpen = false
-        uiState.charPanelRoot = nil
+        GameUI.HideCharacterPanel()
     end
     uiState.charPanelOpen = true
     _SyncPauseState()
@@ -4322,6 +4524,7 @@ function GameUI.ShowCharacterPanel(player, tab)
         width = "100%", height = "100%",
         backgroundColor = {0, 0, 0, 170},
         justifyContent = "center", alignItems = "center",
+        onClick = function() GameUI.CloseCharacterPanel() end,
         children = {
             UI.Panel {
                 -- 项目为横屏。使用确定的百分比高度 + 上限，既能让
@@ -4332,16 +4535,12 @@ function GameUI.ShowCharacterPanel(player, tab)
                 borderRadius = 10, borderWidth = 2,
                 borderColor = {124, 126, 130, 198},
                 padding = 14, overflow = "hidden",
+                onClick = function() end,
                 children = {
                     -- 标题栏
-                    UI.Panel {
-                        flexDirection = "row", justifyContent = "space-between", alignItems = "center",
-                        width = "100%", marginBottom = 10,
-                        children = {
-                            UI.Label { text = "角色 — " .. classDef.name, fontSize = 18, fontColor = {234, 236, 234, 255}, fontWeight = "bold" },
-                            UI.Label { text = "Lv." .. player.level, fontSize = 15, fontColor = {200, 190, 170, 220} },
-                        },
-                    },
+                    _CreateOverlayHeader("角色 — " .. classDef.name, GameUI.CloseCharacterPanel, {
+                        subtitle = "Lv." .. player.level,
+                    }),
                     -- Tab 栏
                     UI.Panel {
                         flexDirection = "row", width = "100%", gap = 8, marginBottom = 12,
@@ -4363,26 +4562,6 @@ function GameUI.ShowCharacterPanel(player, tab)
                         showScrollbar = true,
                         children = { content },
                     },
-                    -- 关闭按钮
-                    UI.Panel {
-                        width = "100%", alignItems = "center", marginTop = 12,
-                        children = {
-                            UI.Button {
-                                text = "关闭",
-                                width = 120, height = 38,
-                                backgroundColor = {48, 49, 50, 244},
-                                borderRadius = 6, borderWidth = 1,
-                                borderColor = {126, 130, 134, 205},
-                                fontSize = 15, fontColor = {222, 224, 222, 255},
-                                onClick = function()
-                                    GameUI.HideCharacterPanel()
-                                    if GameUI.onCharacterPanelClosed then
-                                        GameUI.onCharacterPanelClosed()
-                                    end
-                                end,
-                            },
-                        },
-                    },
                 },
             },
         },
@@ -4394,6 +4573,7 @@ end
 
 function GameUI.HideCharacterPanel()
     if not uiState.charPanelOpen then return end
+    GameUI.HideItemDetail()
     uiState.charPanelOpen = false
     _SyncPauseState()
     uiState.charPanelRoot = nil
@@ -4449,119 +4629,133 @@ function GameUI.ShowSystemPanel()
     uiState.systemPanelOpen = true
     _SyncPauseState()
 
+    local systemContent = {
+        UI.Panel {
+            width = "100%", height = 1,
+            backgroundColor = {72, 74, 76, 110},
+        },
+        UI.Button {
+            text = "退出游戏",
+            width = 180, height = 40,
+            backgroundColor = {60, 25, 20, 240},
+            borderRadius = 6, borderWidth = 1,
+            borderColor = {160, 60, 45, 180},
+            fontSize = 14, fontColor = {220, 100, 80, 255},
+            onClick = function()
+                GameUI.HideSystemPanel()
+                if GameUI.onMenuPressed then GameUI.onMenuPressed() end
+            end,
+        },
+    }
+
+    if GameUI.debugMode then
+        table.insert(systemContent, UI.Panel {
+            width = "100%", height = 1,
+            backgroundColor = {70, 72, 74, 90},
+        })
+        table.insert(systemContent, UI.Panel {
+            width = "100%",
+            backgroundColor = {18, 19, 20, 172},
+            borderRadius = 6, borderWidth = 1,
+            borderColor = {86, 90, 94, 118},
+            padding = 8,
+            alignItems = "center",
+            gap = 6,
+            children = {
+                UI.Label { text = "调试", fontSize = 10, fontColor = {146, 150, 154, 165} },
+                UI.Panel {
+                    flexDirection = "row", gap = 10, alignItems = "center",
+                    children = {
+                        UI.Panel {
+                            width = 60, height = 36, borderRadius = 6,
+                            backgroundColor = {58, 60, 64, 220},
+                            justifyContent = "center", alignItems = "center",
+                            onClick = function()
+                                if GameUI.onDebugLevelChange then GameUI.onDebugLevelChange(1) end
+                                GameUI.HideSystemPanel()
+                                GameUI.ShowSystemPanel()
+                            end,
+                            children = {
+                                UI.Label { text = "Lv+", fontSize = 13, fontColor = {232, 234, 232, 255} },
+                            },
+                        },
+                        (function()
+                            local lbl = UI.Label {
+                                text = "Lv." .. (uiState.player and uiState.player.level or 1),
+                                fontSize = 14,
+                                fontColor = {214, 216, 214, 240},
+                            }
+                            uiState.debugLevelLabel = lbl
+                            return lbl
+                        end)(),
+                        UI.Panel {
+                            width = 60, height = 36, borderRadius = 6,
+                            backgroundColor = {70, 58, 58, 220},
+                            justifyContent = "center", alignItems = "center",
+                            onClick = function()
+                                if GameUI.onDebugLevelChange then GameUI.onDebugLevelChange(-1) end
+                                GameUI.HideSystemPanel()
+                                GameUI.ShowSystemPanel()
+                            end,
+                            children = {
+                                UI.Label { text = "Lv-", fontSize = 13, fontColor = {236, 200, 200, 255} },
+                            },
+                        },
+                    },
+                },
+                UI.Panel {
+                    width = 140, height = 36, borderRadius = 6,
+                    backgroundColor = {66, 68, 72, 220},
+                    justifyContent = "center", alignItems = "center",
+                    marginTop = 4,
+                    onClick = function()
+                        if GameUI.onDebugMaxLevel then GameUI.onDebugMaxLevel() end
+                        GameUI.HideSystemPanel()
+                        GameUI.ShowSystemPanel()
+                    end,
+                    children = {
+                        UI.Label { text = "一键满级", fontSize = 13, fontColor = {236, 238, 236, 255} },
+                    },
+                },
+            },
+        })
+    end
+
     uiState.systemPanelRoot = UI.Panel {
         id = "systemPanelOverlay",
         width = "100%", height = "100%",
         backgroundColor = {0, 0, 0, 170},
         justifyContent = "center", alignItems = "center",
+        onClick = function() GameUI.HideSystemPanel() end,
         children = {
             UI.Panel {
-                width = 260,
+                width = "88%", maxWidth = 320,
+                height = GameUI.debugMode and "86%" or "58%",
+                maxHeight = GameUI.debugMode and 480 or 250,
                 backgroundColor = {16, 12, 10, 248},
                 borderRadius = 8, borderWidth = 2,
                 borderColor = {124, 126, 130, 198},
-                padding = 20,
+                padding = 16,
                 alignItems = "center",
-                gap = 10,
+                overflow = "hidden",
+                onClick = function() end,
                 children = {
-                    -- 标题
-                    UI.Label { text = "系统", fontSize = 18, fontColor = {228, 230, 228, 240} },
-                    -- 分隔线
-                    UI.Panel { width = "100%", height = 1, backgroundColor = {72, 74, 76, 110} },
-                    -- 退出游戏按钮
-                    UI.Button {
-                        text = "退出游戏",
-                        width = 180, height = 40,
-                        backgroundColor = {60, 25, 20, 240},
-                        borderRadius = 6, borderWidth = 1,
-                        borderColor = {160, 60, 45, 180},
-                        fontSize = 14, fontColor = {220, 100, 80, 255},
-                        onClick = function()
-                            GameUI.HideSystemPanel()
-                            if GameUI.onMenuPressed then GameUI.onMenuPressed() end
-                        end,
-                    },
-                    -- 调试入口只在宿主显式开启 debugMode 时显示，避免正式版出现等级作弊。
-                    GameUI.debugMode and UI.Panel { width = "100%", height = 1, backgroundColor = {70, 72, 74, 90} } or nil,
-                    -- DBG 区域
-                    GameUI.debugMode and UI.Panel {
+                    _CreateOverlayHeader("系统", function()
+                        GameUI.HideSystemPanel()
+                    end),
+                    UI.ScrollView {
                         width = "100%",
-                        backgroundColor = {18, 19, 20, 172},
-                        borderRadius = 6, borderWidth = 1,
-                        borderColor = {86, 90, 94, 118},
-                        padding = 8,
-                        alignItems = "center",
-                        gap = 6,
+                        flexGrow = 1,
+                        flexBasis = 0,
+                        showScrollbar = GameUI.debugMode,
                         children = {
-                            UI.Label { text = "调试", fontSize = 10, fontColor = {146, 150, 154, 165} },
                             UI.Panel {
-                                flexDirection = "row", gap = 10, alignItems = "center",
-                                children = {
-                                    UI.Panel {
-                                        width = 60, height = 36, borderRadius = 6,
-                                        backgroundColor = {58, 60, 64, 220},
-                                        justifyContent = "center", alignItems = "center",
-                                        onClick = function()
-                                            if GameUI.onDebugLevelChange then GameUI.onDebugLevelChange(1) end
-                                            GameUI.HideSystemPanel()
-                                            GameUI.ShowSystemPanel()
-                                        end,
-                                        children = {
-                                            UI.Label { text = "Lv+", fontSize = 13, fontColor = {232, 234, 232, 255} },
-                                        },
-                                    },
-                                    (function()
-                                        local lbl = UI.Label {
-                                            text = "Lv." .. (uiState.player and uiState.player.level or 1),
-                                            fontSize = 14,
-                                            fontColor = {214, 216, 214, 240},
-                                        }
-                                        uiState.debugLevelLabel = lbl
-                                        return lbl
-                                    end)(),
-                                    UI.Panel {
-                                        width = 60, height = 36, borderRadius = 6,
-                                        backgroundColor = {70, 58, 58, 220},
-                                        justifyContent = "center", alignItems = "center",
-                                        onClick = function()
-                                            if GameUI.onDebugLevelChange then GameUI.onDebugLevelChange(-1) end
-                                            GameUI.HideSystemPanel()
-                                            GameUI.ShowSystemPanel()
-                                        end,
-                                        children = {
-                                            UI.Label { text = "Lv-", fontSize = 13, fontColor = {236, 200, 200, 255} },
-                                        },
-                                    },
-                                },
-                            },
-                            -- 一键满级+技能全开
-                            UI.Panel {
-                                width = 140, height = 36, borderRadius = 6,
-                                backgroundColor = {66, 68, 72, 220},
-                                justifyContent = "center", alignItems = "center",
-                                marginTop = 4,
-                                onClick = function()
-                                    if GameUI.onDebugMaxLevel then GameUI.onDebugMaxLevel() end
-                                    GameUI.HideSystemPanel()
-                                    GameUI.ShowSystemPanel()
-                                end,
-                                children = {
-                                    UI.Label { text = "一键满级", fontSize = 13, fontColor = {236, 238, 236, 255} },
-                                },
+                                width = "100%",
+                                alignItems = "center",
+                                gap = 10,
+                                children = systemContent,
                             },
                         },
-                    } or nil,
-                    -- 关闭按钮
-                    UI.Button {
-                        text = "关闭",
-                        width = 130, height = 40,
-                        backgroundColor = {36, 36, 38, 240},
-                        borderRadius = 6, borderWidth = 1,
-                        borderColor = {124, 126, 130, 180},
-                        fontSize = 15, fontColor = {220, 222, 220, 240},
-                        onClick = function()
-                            GameUI.HideSystemPanel()
-                        end,
                     },
                 },
             },
@@ -5059,6 +5253,9 @@ GameUI.onMenuPressed = nil
 GameUI.onCharacterPanelToggle = nil
 GameUI.onSystemPanelToggle = nil
 GameUI.onCharacterPanelClosed = nil
+GameUI.onTeleportToggle = nil
+GameUI.onTeleportSelected = nil
+GameUI.onNPCInteract = nil
 GameUI.onDebugLevelChange = nil  -- function(delta) : +1 升级, -1 降级
 GameUI.onDebugMaxLevel = nil     -- function() : 一键满级+技能栏填充
 

@@ -1481,7 +1481,9 @@ function ShowSaveSlotScreen()
             currentSlotIndex = slotIndex
             GameUI.ShowClassSelect(function(classId, modelStyle, gender)
                 OnClassSelected(classId, modelStyle, gender)
-            end, true, slotIndex)
+            end, true, slotIndex, function()
+                currentSlotIndex = nil
+            end)
         end,
         onDelete = function(slotIndex, onDone)
             -- 删除角色
@@ -2014,7 +2016,7 @@ function SetupGameCallbacks()
     -- 角色面板切换回调
     GameUI.onCharacterPanelToggle = function()
         if GameUI.IsCharacterPanelOpen() then
-            GameUI.HideCharacterPanel()
+            GameUI.CloseCharacterPanel()
         else
             GameUI.ShowCharacterPanel(player_, "equip")
         end
@@ -2649,6 +2651,13 @@ function HandleUpdate(eventType, eventData)
         return
     end
 
+    -- 返回键必须在预览模式、空角色和全局暂停的提前 return 之前处理。
+    -- 这样删除确认、职业选择、传送、商店、角色、系统和全图都不会出现
+    -- “能打开但无法退出”的状态。
+    if input:GetKeyPress(KEY_ESCAPE) and GameUI.HandleBackAction() then
+        return
+    end
+
     -- 预览模式：只更新预览动画，不运行游戏逻辑
     if previewActive_ then
         UpdatePreviewAnimations(dt, GameUI.GetPreviewClassIds())
@@ -2675,13 +2684,6 @@ function HandleUpdate(eventType, eventData)
             autoSaveTimer = 0
             SaveCurrentGame()
         end
-    end
-
-    -- 全图是唯一允许在暂停期间消费的快捷键：否则玩家按 ESC 无法关闭
-    -- 全图。其它模态面板仍会挡住 M/F3/F5，避免演出或交易被切断。
-    if GameUI.IsFullMapOpen() and input:GetKeyPress(KEY_ESCAPE) then
-        GameUI.ToggleFullMap()
-        return
     end
 
     -- 游戏暂停：打开背包/地图/系统面板时暂停游戏逻辑
