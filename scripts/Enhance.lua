@@ -84,6 +84,14 @@ function Enhance.ForgeCost(targetRarityKey)
     return rarity.tier * 100
 end
 
+--- Return the next rarity in the forge chain, or nil when already capped.
+---@param sourceRarityKey string
+---@return string|nil
+function Enhance.GetNextRarity(sourceRarityKey)
+    local rarity = RARITY[sourceRarityKey]
+    return rarity and rarity.next or nil
+end
+
 --- Validate three forge materials and determine their next rarity.
 ---@param items3 table[]
 ---@return { ok: boolean, reason: string, targetRarity: string|nil }
@@ -101,6 +109,7 @@ function Enhance.ForgePick(items3)
     if not itemType then
         return { ok = false, reason = "装备部位无效", targetRarity = nil }
     end
+    local classReq = first.classReq
 
     for index = 2, 3 do
         local item = items3[index]
@@ -113,9 +122,15 @@ function Enhance.ForgePick(items3)
         if (item.itemType or item.slot) ~= itemType then
             return { ok = false, reason = "装备部位必须相同", targetRarity = nil }
         end
+        if item.classReq ~= classReq then
+            local reason = itemType == "weapon"
+                and "不同职业武器不能混合锻造"
+                or "装备职业要求必须相同"
+            return { ok = false, reason = reason, targetRarity = nil }
+        end
     end
 
-    local targetRarity = RARITY[first.rarity].next
+    local targetRarity = Enhance.GetNextRarity(first.rarity)
     if not targetRarity then
         return { ok = false, reason = "品质已封顶", targetRarity = nil }
     end

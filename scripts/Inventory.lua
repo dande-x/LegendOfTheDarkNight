@@ -69,6 +69,35 @@ local RARITY = {
 }
 Inventory.RARITY = RARITY
 
+local ITEM_TYPE_NAMES = {
+    helmet = "头盔",
+    armor = "盔甲",
+    weapon = "武器",
+    necklace = "项链",
+    bracelet = "手镯",
+    ring = "戒指",
+    belt = "腰带",
+    boots = "鞋子",
+}
+local ITEM_TYPE_SORT_ORDER = {
+    weapon = 1,
+    armor = 2,
+    helmet = 3,
+    necklace = 4,
+    bracelet = 5,
+    ring = 6,
+    belt = 7,
+    boots = 8,
+}
+local RARITY_SORT_ORDER = {
+    COMMON = 1,
+    UNCOMMON = 2,
+    RARE = 3,
+    EPIC = 4,
+    LEGENDARY = 5,
+}
+Inventory.ITEM_TYPE_NAMES = ITEM_TYPE_NAMES
+
 -- ============================================================================
 -- 物品模板表
 -- ============================================================================
@@ -174,6 +203,61 @@ local function IsCanonicalItem(item, playerClassId)
         and item.enhance % 1 == 0
         and item.enhance >= 0
         and item.enhance <= 12
+end
+
+local function GetItemType(item)
+    if type(item) ~= "table" then return nil end
+    return item.itemType or item.slot
+end
+
+-- 查找合法的锻造产物模板。职业专属装备优先保持同职业；只有没有同职业
+-- 目标时才允许落到无职业限制的通用模板，绝不随机到其它职业。
+local function FindForgeTargetTemplates(itemType, targetRarity, classReq)
+    local exactClass = {}
+    local universal = {}
+    for _, template in ipairs(ITEM_TEMPLATES) do
+        if GetItemType(template) == itemType and template.rarity == targetRarity then
+            if classReq ~= nil then
+                if template.classReq == classReq then
+                    table.insert(exactClass, template)
+                elseif template.classReq == nil then
+                    table.insert(universal, template)
+                end
+            elseif template.classReq == nil then
+                table.insert(universal, template)
+            end
+        end
+    end
+    if #exactClass > 0 then return exactClass end
+    return universal
+end
+
+local function ForgeMaterialScore(item)
+    return (tonumber(item.atk) or 0) * 2
+        + (tonumber(item.def) or 0) * 1.5
+        + (tonumber(item.hp) or 0) * 0.3
+end
+
+local function SortForgeEntries(a, b)
+    local enhanceA = ClampInteger(a.item.enhance, 0, 12, 0)
+    local enhanceB = ClampInteger(b.item.enhance, 0, 12, 0)
+    if enhanceA ~= enhanceB then return enhanceA < enhanceB end
+
+    local scoreA = ForgeMaterialScore(a.item)
+    local scoreB = ForgeMaterialScore(b.item)
+    if scoreA ~= scoreB then return scoreA < scoreB end
+
+    local idA = tostring(a.item.id or "")
+    local idB = tostring(b.item.id or "")
+    if idA ~= idB then return idA < idB end
+    return a.bagIndex < b.bagIndex
+end
+
+--- 获取装备类型显示名。
+---@param itemType string
+---@return string
+function Inventory.GetItemTypeName(itemType)
+    return ITEM_TYPE_NAMES[itemType] or "装备"
 end
 
 --- 获取只读物品模板（供存档校验/商人等边界使用）。
@@ -987,6 +1071,122 @@ function Inventory.RemoveBagItem(bagIndex)
     return true
 end
 
+--- 返回当前背包的锻造配方进度。材料按品质、部位和职业自动分组，
+--- 每组优先选择未强化、属性较低的三件，避免玩家手动配错材料。
+---@return table[]
+function Inventory.GetForgeRecipes()
+    local groups = {}
+    local currentGold = ClampInteger(playerData.gold, 0, MAX_RESOURCE, 0)
+    playerData.gold = currentGold
+
+    for bagIndex, item in ipairs(playerData.bag) do
+        if IsCanonicalItem(item, nil) then
+            local itemType = GetItemType(item)
+            local targetRarity = Enhance.GetNextRarity(item.rarity)
+            if itemType and targetRarity then
+                local classKey = item.classReq or "_"
+                local key = item.rarity .. "|" .. itemType .. "|" .. classKey
+                local group = groups[key]
+                if not group then
+                    group = {
+                        key = key,
+                        sourceRarity = item.rarity,
+                        targetRarity = targetRarity,
+                        itemType = itemType,
+                        classReq = item.classReq,
+                        entries = {},
+                    }
+                    groups[key] = group
+                end
+                table.insert(group.entries, { item = item, bagIndex = bagIndex })
+            end
+        end
+    end
+
+    local recipes = {}
+    for _, group in pairs(groups) do
+        table.sort(group.entries, SortForgeEntries)
+
+        local targets = FindForgeTargetTemplates(
+            group.itemType, group.targetRarity, group.classReq)
+        local targetNames = {}
+        local seenTargetNames = {}
+        for _, template in ipairs(targets) do
+            if not seenTargetNames[template.name] then
+                seenTargetNames[template.name] = true
+                table.insert(targetNames, template.name)
+            end
+        end
+        table.sort(targetNames)
+
+        local materials = {}
+        local containsEnhanced = false
+        for index = 1, math.min(3, #group.entries) do
+            local material = group.entries[index].item
+            table.insert(materials, material)
+            if ClampInteger(material.enhance, 0, 12, 0) > 0 then
+                containsEnhanced = true
+            end
+        end
+
+        local count = #group.entries
+        local cost = ClampInteger(
+            Enhance.ForgeCost(group.targetRarity), 0, MAX_RESOURCE, 0)
+        local targetAvailable = #targets > 0
+        local hasMaterials = count >= 3
+        local hasGold = currentGold >= cost
+        local canForge = targetAvailable and hasMaterials and hasGold and cost > 0
+        local reason = ""
+        if not targetAvailable then
+            reason = "该部位暂无" .. Inventory.GetRarityName(group.targetRarity) .. "配方"
+        elseif not hasMaterials then
+            reason = "还差 " .. (3 - count) .. " 件同组装备"
+        elseif cost <= 0 then
+            reason = "锻造费用异常"
+        elseif not hasGold then
+            reason = "金币不足，还差 " .. (cost - currentGold) .. " 金"
+        end
+
+        table.insert(recipes, {
+            key = group.key,
+            sourceRarity = group.sourceRarity,
+            targetRarity = group.targetRarity,
+            itemType = group.itemType,
+            classReq = group.classReq,
+            count = count,
+            required = 3,
+            availableCrafts = math.floor(count / 3),
+            cost = cost,
+            targetAvailable = targetAvailable,
+            hasMaterials = hasMaterials,
+            hasGold = hasGold,
+            canForge = canForge,
+            reason = reason,
+            targetNames = targetNames,
+            materials = materials,
+            containsEnhanced = containsEnhanced,
+        })
+    end
+
+    table.sort(recipes, function(a, b)
+        local readyA = a.targetAvailable and a.hasMaterials
+        local readyB = b.targetAvailable and b.hasMaterials
+        if readyA ~= readyB then return readyA end
+        if a.canForge ~= b.canForge then return a.canForge end
+
+        local rarityA = RARITY_SORT_ORDER[a.sourceRarity] or 0
+        local rarityB = RARITY_SORT_ORDER[b.sourceRarity] or 0
+        if rarityA ~= rarityB then return rarityA > rarityB end
+
+        local typeA = ITEM_TYPE_SORT_ORDER[a.itemType] or 99
+        local typeB = ITEM_TYPE_SORT_ORDER[b.itemType] or 99
+        if typeA ~= typeB then return typeA < typeB end
+        return tostring(a.classReq or "") < tostring(b.classReq or "")
+    end)
+
+    return recipes
+end
+
 --- 锻造（三合一）：校验 + 扣金币 + 消耗三件材料，并把产物放回背包。
 --- 产物为同部位的下一品质模板；第四个返回值为产物实例，旧调用只取前三个
 --- 返回值时仍保持兼容。
@@ -1025,32 +1225,9 @@ function Inventory.ForgeItems(items3)
 
     local itemType = items3[1].itemType or items3[1].slot
     local preferredClass = items3[1].classReq
-    for index = 2, 3 do
-        if items3[index].classReq ~= preferredClass then
-            preferredClass = nil
-            break
-        end
-    end
 
     -- 目标部位没有对应品质模板时明确失败，不生成无法装备或无法出售的“空壳”装备。
-    local candidates = {}
-    for _, template in ipairs(ITEM_TEMPLATES) do
-        if (template.itemType or template.slot) == itemType
-            and template.rarity == pick.targetRarity then
-            if preferredClass == nil or template.classReq == preferredClass then
-                table.insert(candidates, template)
-            end
-        end
-    end
-    -- 混合职业武器材料允许从目标品质的任一职业模板中随机获得。
-    if #candidates == 0 and preferredClass ~= nil then
-        for _, template in ipairs(ITEM_TEMPLATES) do
-            if (template.itemType or template.slot) == itemType
-                and template.rarity == pick.targetRarity then
-                table.insert(candidates, template)
-            end
-        end
-    end
+    local candidates = FindForgeTargetTemplates(itemType, pick.targetRarity, preferredClass)
     if #candidates == 0 then
         return false, "该部位没有可锻造的目标品质装备", nil
     end
@@ -1083,6 +1260,45 @@ function Inventory.ForgeItems(items3)
     print(string.format("[Inventory] 锻造成功 -> %s (%s，花费%d金)",
         pick.targetRarity, resultItem.name or "装备", cost))
     return true, "", pick.targetRarity, resultItem
+end
+
+--- 按配方描述自动选择三件合法材料并锻造。调用时会重新读取背包，
+--- 因此 UI 刷新前留下的旧配方不会误消耗其它类别装备。
+---@param recipe table GetForgeRecipes 返回的配方描述
+---@return boolean, string, string|nil, table|nil
+function Inventory.ForgeRecipe(recipe)
+    if type(recipe) ~= "table" then
+        return false, "锻造配方无效", nil, nil
+    end
+
+    local itemType = recipe.itemType
+    local sourceRarity = recipe.sourceRarity
+    local classReq = recipe.classReq
+    if type(itemType) ~= "string" or type(sourceRarity) ~= "string"
+        or not RARITY[sourceRarity] or not Enhance.GetNextRarity(sourceRarity) then
+        return false, "锻造配方无效", nil, nil
+    end
+
+    local entries = {}
+    for bagIndex, item in ipairs(playerData.bag) do
+        if IsCanonicalItem(item, nil)
+            and GetItemType(item) == itemType
+            and item.rarity == sourceRarity
+            and item.classReq == classReq then
+            table.insert(entries, { item = item, bagIndex = bagIndex })
+        end
+    end
+    table.sort(entries, SortForgeEntries)
+
+    if #entries < 3 then
+        return false, "材料数量不足，请刷新后重试", nil, nil
+    end
+
+    return Inventory.ForgeItems({
+        entries[1].item,
+        entries[2].item,
+        entries[3].item,
+    })
 end
 
 --- 精炼（强化）：消耗资源，按成功率判定，失败可能掉级

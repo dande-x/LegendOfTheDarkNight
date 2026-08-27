@@ -7,6 +7,7 @@
 local UI = require("urhox-libs/UI")
 local CharacterClass = require("scripts.CharacterClass")
 local Inventory = require("scripts.Inventory")
+local ForgePanel = require("scripts.ForgePanel")
 local Quest = require("scripts.Quest")
 local MapZone = require("scripts.MapZone")
 local PlayerAnim = require("scripts.PlayerAnim")
@@ -134,10 +135,6 @@ local uiState = {
     dialogueRoot = nil,
     dialogueOnDone = nil,
 }
-
--- 锻造页的材料选择跨一次面板重建保留，避免点击一件材料后整页刷新导致
--- 玩家丢失选择；提交成功或切换角色时再清空。
-local forgeSelection_ = {}
 
 GameUI.state = uiState
 
@@ -4142,154 +4139,12 @@ end
 
 --- 构建锻造 Tab 内容
 local function _BuildForgeTabContent(player)
-    local inv = Inventory.playerData
-
-    local function isInBag(item)
-        for _, bagItem in ipairs(inv.bag) do
-            if bagItem == item then return true end
-        end
-        return false
-    end
-
-    -- 清理旧 UI 闭包留下的失效引用，并确保最多只有三件不同实例。
-    local validSelection = {}
-    for _, selected in ipairs(forgeSelection_) do
-        if isInBag(selected) and #validSelection < 3 then
-            local duplicate = false
-            for _, kept in ipairs(validSelection) do
-                if kept == selected then duplicate = true; break end
-            end
-            if not duplicate then table.insert(validSelection, selected) end
-        end
-    end
-    forgeSelection_ = validSelection
-
-    local function refresh()
-        GameUI.HideCharacterPanel()
-        GameUI.ShowCharacterPanel(player, "forge")
-    end
-
-    local function selectionIndex(item)
-        for index, selected in ipairs(forgeSelection_) do
-            if selected == item then return index end
-        end
-        return nil
-    end
-
-    local function toggleMaterial(item)
-        local selectedIndex = selectionIndex(item)
-        if selectedIndex then
-            table.remove(forgeSelection_, selectedIndex)
-        elseif #forgeSelection_ < 3 then
-            table.insert(forgeSelection_, item)
-        else
-            GameUI.ShowToast("最多选择 3 件材料")
-            return
-        end
-        refresh()
-    end
-
-    local pick = (#forgeSelection_ == 3) and Inventory.Enhance.ForgePick(forgeSelection_) or nil
-    local selectionText = "已选 " .. #forgeSelection_ .. "/3"
-    local selectionHint = "选择 3 件同品质、同部位装备"
-    if pick and pick.ok then
-        selectionHint = "可锻造为「" .. Inventory.GetRarityName(pick.targetRarity) .. "」 · 费用 "
-            .. Inventory.Enhance.ForgeCost(pick.targetRarity) .. " 金币"
-    elseif pick and not pick.ok then
-        selectionHint = pick.reason or selectionHint
-    end
-
-    local materialRows = {}
-    for _, item in ipairs(inv.bag) do
-        local selectedIndex = selectionIndex(item)
-        local rarity = Inventory.RARITY[item.rarity]
-        local rarityColor = rarity and rarity.color or {180, 180, 180, 220}
-        local stats = string.format("攻%d 防%d 血%d", item.atk or 0, item.def or 0, item.hp or 0)
-        local enhanceTag = (item.enhance or 0) > 0 and (" +" .. item.enhance) or ""
-        table.insert(materialRows, UI.Button {
-            width = "100%", minHeight = 44, flexShrink = 0,
-            paddingHorizontal = 10, paddingVertical = 6,
-            backgroundColor = selectedIndex and {68, 54, 24, 245} or {26, 23, 19, 225},
-            borderRadius = 6, borderWidth = selectedIndex and 2 or 1,
-            borderColor = selectedIndex and {255, 205, 90, 235} or {72, 68, 58, 145},
-            onClick = function() toggleMaterial(item) end,
-            children = {
-                UI.Label {
-                    text = selectedIndex and ("[" .. selectedIndex .. "] ") or "    ",
-                    width = 24, fontSize = 12, fontWeight = "bold",
-                    fontColor = {255, 215, 100, 255},
-                },
-                UI.Panel {
-                    flex = 1, alignItems = "flex-start",
-                    children = {
-                        UI.Label {
-                            text = "[" .. Inventory.GetRarityName(item.rarity) .. "] " .. item.name .. enhanceTag,
-                            fontSize = 12, fontWeight = "bold",
-                            fontColor = {rarityColor[1], rarityColor[2], rarityColor[3], 245},
-                        },
-                        UI.Label { text = stats, fontSize = 10, fontColor = {175, 170, 155, 190} },
-                    },
-                },
-            },
-        })
-    end
-
-    local forgeButton = UI.Button {
-        text = "开始锻造",
-        width = 130, height = 38,
-        disabled = not (pick and pick.ok),
-        onClick = function()
-            if #forgeSelection_ ~= 3 then
-                GameUI.ShowToast("请先选择 3 件材料")
-                return
-            end
-            local materials = { forgeSelection_[1], forgeSelection_[2], forgeSelection_[3] }
-            local ok, reason, targetRarity, resultItem = Inventory.ForgeItems(materials)
-            if not ok then
-                GameUI.ShowToast(reason or "锻造失败")
-                refresh()
-                return
-            end
-            forgeSelection_ = {}
-            local enhanceTag = resultItem and (resultItem.enhance or 0) > 0 and (" +" .. resultItem.enhance) or ""
-            GameUI.ShowToast("锻造成功：" .. Inventory.GetRarityName(targetRarity)
-                .. " · " .. (resultItem and resultItem.name or "新装备") .. enhanceTag)
-            refresh()
+    return ForgePanel.Build {
+        showToast = function(message) GameUI.ShowToast(message) end,
+        onRefresh = function()
+            GameUI.HideCharacterPanel()
+            GameUI.ShowCharacterPanel(player, "forge")
         end,
-    }
-
-    return UI.Panel {
-        width = "100%",
-        children = {
-            UI.Panel {
-                width = "100%", alignItems = "center", marginBottom = 8,
-                children = {
-                    UI.Label { text = "锻造台", fontSize = 16, fontWeight = "bold", fontColor = {235, 205, 130, 245} },
-                    UI.Label { text = selectionText, fontSize = 13, fontColor = {226, 228, 226, 240}, marginTop = 3 },
-                    UI.Label { text = selectionHint, fontSize = 10, fontColor = {190, 184, 168, 205}, textAlign = "center", marginTop = 3 },
-                },
-            },
-            UI.Panel { width = "100%", height = 1, backgroundColor = {90, 76, 48, 135}, marginBottom = 8 },
-            (#materialRows == 0) and UI.Label {
-                text = "背包中暂无可用装备材料",
-                fontSize = 12, fontColor = {160, 156, 145, 190}, textAlign = "center", marginBottom = 10,
-            } or UI.Panel {
-                width = "100%", gap = 6, children = materialRows,
-            },
-            UI.Panel {
-                flexDirection = "row", justifyContent = "center", gap = 8, marginTop = 10,
-                children = {
-                    forgeButton,
-                    UI.Button {
-                        text = "清空选择", variant = "outline", width = 100, height = 38,
-                        onClick = function()
-                            forgeSelection_ = {}
-                            refresh()
-                        end,
-                    },
-                },
-            },
-        },
     }
 end
 
