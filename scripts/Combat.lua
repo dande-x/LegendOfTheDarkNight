@@ -403,6 +403,9 @@ local ITEM_PICKUP_DIST = 0.65    -- 装备拾取距离：必须踩到装备上�
 local ITEM_PICKUP_DELAY = 2.0    -- 装备刚掉落后延迟拾取(秒)
 local ITEM_LIFETIME = 60.0       -- 装备存在时间(秒)
 local GOLD_LIFETIME = 30.0       -- 金币存在时间(秒)
+-- 一件装备包含多段模型、透明光效与 Text3D。地面装备无上限时，高频刷怪
+-- 会把单帧渲染 View 推过引擎上限；保留足够的拾取窗口，同时限制峰值。
+local MAX_GROUND_EQUIPMENT = 16
 
 -- ============================================================================
 -- PBR 材质快捷创建
@@ -3656,14 +3659,8 @@ local function CreateGroundItemNameAndGlow(root, item, rarityInfo, rarityColor)
         AddSmallGem(root, "raritySpark" .. i, Vector3(math.cos(a) * d, 0.08 + (i % 2) * 0.08, math.sin(a) * d), Vector3(0.035, 0.035, 0.035), sparkMat)
     end
 
-    local lightNode = root:CreateChild("rarityPointLight")
-    lightNode.position = Vector3(0, 0.62, 0)
-    local light = lightNode:CreateComponent("Light")
-    light.lightType = LIGHT_POINT
-    light.color = rarityColor
-    light.range = 2.0 + power * 2.6
-    light.brightness = 0.7 + power * 1.8
-    light.castShadows = false
+    -- 自发光光环和火花已经能清楚表达稀有度。不要为每件地面装备再创建
+    -- 独立点光源：点光与透明掉落特效组合时会快速放大每帧 View 数量。
 
     local labelNode = root:CreateChild("itemNameLabel")
     labelNode.position = Vector3(0, 1.28, 0)
@@ -3810,8 +3807,33 @@ local function CreateGroundEquipmentModel(root, item, rarityColor)
     end
 end
 
+local function ReserveGroundEquipmentSlot()
+    while true do
+        local equipmentCount = 0
+        local oldestEquipmentIndex = nil
+        for i, groundItem in ipairs(groundItems) do
+            if groundItem.type == "item" then
+                equipmentCount = equipmentCount + 1
+                if not oldestEquipmentIndex then
+                    oldestEquipmentIndex = i
+                end
+            end
+        end
+
+        if equipmentCount < MAX_GROUND_EQUIPMENT or not oldestEquipmentIndex then
+            return
+        end
+
+        local oldest = groundItems[oldestEquipmentIndex]
+        if oldest.node then oldest.node:Remove() end
+        table.remove(groundItems, oldestEquipmentIndex)
+    end
+end
+
 --- 生成装备掉落到地面
 function Combat.SpawnGroundItem(scene, pos, item)
+    ReserveGroundEquipmentSlot()
+
     local Inventory = require("scripts.Inventory")
     local rarity = Inventory.RARITY[item.rarity]
     local rColor = rarity and rarity.color or {200, 200, 200, 255}
