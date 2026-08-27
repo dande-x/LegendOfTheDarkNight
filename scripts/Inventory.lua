@@ -6,10 +6,24 @@
 local Inventory = {}
 local MAX_RESOURCE = 1000000000
 
+-- 经济平衡参数：集中管理商店买卖价，避免掉落装备成为稳定套利来源。
+-- 买入价上调、卖出价下调后，装备的主要价值回到“提升战力”，而不是刷怪卖钱。
+Inventory.ECONOMY = {
+    itemBuyMultiplier = 12,
+    itemSellMultiplier = 1.5,
+    enhanceSellRefundPerLevel = 25,
+    -- 怪物表中的金币是章节基准值，统一折算后再落地，避免
+    -- 高密度刷怪把后期金币产出拉得过快。装备价格不受此倍率影响。
+    goldDropMultiplier = 0.80,
+    -- 主线奖励仍是阶段性补给，但不再一次性覆盖多次强化/购买成本。
+    questGoldMultiplier = 0.75,
+}
+
 -- 分支模块（武器链 / 怪物数据 / 强化规则）
 local WeaponData = require("scripts.WeaponData")
 local MonsterData = require("scripts.MonsterData")
 local Enhance = require("scripts.Enhance")
+local EquipmentStats = require("scripts.EquipmentStats")
 
 Inventory.Enhance = Enhance  -- 暴露强化/分解/锻造纯逻辑，供 UI 调用
 Inventory.MonsterData = MonsterData
@@ -187,6 +201,26 @@ local function ClampInteger(value, minValue, maxValue, fallback)
     return math.floor(number)
 end
 
+-- 经济倍率只允许在 0~1 之间，且对异常配置回退到 1，避免 NaN/Inf
+-- 进入 math.floor 后让掉落回调中断。
+local function NormalizeGoldMultiplier(value)
+    local multiplier = tonumber(value)
+    if not IsFiniteNumber(multiplier) then return 1.0 end
+    return math.max(0, math.min(1.0, multiplier))
+end
+
+local function ScaleGoldAmount(amount, multiplier, minimum)
+    local raw = tonumber(amount)
+    if not IsFiniteNumber(raw) or raw <= 0 then return 0 end
+    raw = math.min(MAX_RESOURCE, raw)
+
+    local scaled = raw * NormalizeGoldMultiplier(multiplier)
+    if not IsFiniteNumber(scaled) then return MAX_RESOURCE end
+    scaled = math.floor(scaled + 0.5)
+    if minimum and scaled < minimum then scaled = minimum end
+    return math.min(MAX_RESOURCE, math.max(0, scaled))
+end
+
 local function IsCanonicalItem(item, playerClassId)
     if type(item) ~= "table" or type(item.id) ~= "string" then return false end
     local template = ITEM_BY_ID[item.id]
@@ -339,7 +373,7 @@ end
 -- ============================================================================
 local DROP_TABLES = {
     ["鹿"] = {
-        goldMin = 5, goldMax = 15, dropChance = 0.35,
+        goldMin = 3, goldMax = 9, dropChance = 0.18,
         items = {
             { id = "sword_iron",    weight = 25 },
             { id = "armor_cloth",   weight = 20 },
@@ -354,7 +388,7 @@ local DROP_TABLES = {
         },
     },
     ["稻草人"] = {
-        goldMin = 8, goldMax = 20, dropChance = 0.40,
+        goldMin = 5, goldMax = 13, dropChance = 0.20,
         items = {
             { id = "armor_cloth",   weight = 15 },
             { id = "armor_leather", weight = 8  },
@@ -371,7 +405,7 @@ local DROP_TABLES = {
         },
     },
     ["幽灵"] = {
-        goldMin = 10, goldMax = 26, dropChance = 0.40,
+        goldMin = 6, goldMax = 16, dropChance = 0.20,
         items = {
             { id = "sword_iron",    weight = 18 },
             { id = "armor_leather", weight = 12 },
@@ -386,7 +420,7 @@ local DROP_TABLES = {
         },
     },
     ["骷髅"] = {
-        goldMin = 15, goldMax = 35, dropChance = 0.40,
+        goldMin = 10, goldMax = 23, dropChance = 0.22,
         items = {
             { id = "sword_steel",   weight = 12 },
             { id = "staff_crystal", weight = 12 },
@@ -402,7 +436,7 @@ local DROP_TABLES = {
         },
     },
     ["毒蜘蛛"] = {
-        goldMin = 20, goldMax = 45, dropChance = 0.45,
+        goldMin = 13, goldMax = 29, dropChance = 0.25,
         items = {
             { id = "armor_leather", weight = 12 },
             { id = "armor_chain",   weight = 6  },
@@ -421,7 +455,7 @@ local DROP_TABLES = {
         },
     },
     ["半兽人"] = {
-        goldMin = 30, goldMax = 70, dropChance = 0.50,
+        goldMin = 20, goldMax = 45, dropChance = 0.28,
         items = {
             { id = "sword_flame",   weight = 10 },
             { id = "staff_thunder", weight = 10 },
@@ -458,7 +492,7 @@ end
 -- ============================================================================
 -- 玩家背包状态
 -- ============================================================================
-local MAX_BAG_SLOTS = 20
+local MAX_BAG_SLOTS = 50
 
 local playerData = {
     gold = 0,
@@ -488,8 +522,8 @@ Inventory.playerData = playerData
 -- 药水配置
 -- ============================================================================
 Inventory.POTION_CONFIG = {
-    hp = { max = 10, price = 40, healRatio = 0.35, dropChance = 0.15, label = "血药" },
-    mp = { max = 8,  price = 60, healRatio = 0.45, dropChance = 0.10, label = "蓝药" },
+    hp = { max = 10, price = 40, healRatio = 0.30, dropChance = 0.12, label = "血药" },
+    mp = { max = 8,  price = 60, healRatio = 0.40, dropChance = 0.08, label = "蓝药" },
 }
 
 local function EnsurePotions()
@@ -579,19 +613,15 @@ function Inventory.RollPotionDrop()
     return dropped
 end
 
--- ============================================================================
--- 装备评分
--- ============================================================================
+--- 获取装备当前实际属性（基础属性 + 强化加成）。
+---@param item table|nil
+---@return table|nil
+function Inventory.GetItemStats(item)
+    return EquipmentStats.Get(item)
+end
+
 local function ItemScore(item)
-    if type(item) ~= "table" then return -1 end
-    local atk, def, hp = tonumber(item.atk), tonumber(item.def), tonumber(item.hp)
-    if not IsFiniteNumber(atk) or not IsFiniteNumber(def) or not IsFiniteNumber(hp)
-        or atk < 0 or def < 0 or hp < 0 then
-        return -1
-    end
-    local score = atk * 2 + def * 1.5 + hp * 0.3
-    if not IsFiniteNumber(score) then return -1 end
-    return math.min(MAX_RESOURCE, score)
+    return EquipmentStats.Score(item)
 end
 
 -- 前向声明：装备、分解、强化都需要验证实例仍归属于当前角色。
@@ -604,11 +634,12 @@ function Inventory.RecalcBonus()
     local atk, def, hp = 0, 0, 0
     for _, item in pairs(playerData.equipped) do
         if item and IsCanonicalItem(item, nil) then
-            local enhanceLevel = item.enhance or 0
-            local bonus = Enhance.ApplyEnhanceStats(item, enhanceLevel)
-            atk = atk + item.atk + bonus.atk
-            def = def + item.def + bonus.def
-            hp  = hp  + item.hp  + bonus.hp
+            local stats = EquipmentStats.Get(item)
+            if stats then
+                atk = atk + stats.atk
+                def = def + stats.def
+                hp = hp + stats.hp
+            end
         end
     end
     playerData.bonusAtk = atk
@@ -649,36 +680,51 @@ local function FindBestSlot(item)
     return emptySlot or worstSlot
 end
 
+--- 获取背包装备默认要穿戴/替换的槽位。双手镯、双戒指优先空槽，
+--- 都已占用时选择强化后实际属性较低的一件。
+---@param item table|nil
+---@return string|nil
+function Inventory.GetSuggestedEquipSlot(item)
+    if not IsCanonicalItem(item, nil) then return nil end
+    return FindBestSlot(item)
+end
+
 -- ============================================================================
 -- 装备物品到指定槽位（可指定 targetSlot，不指定则自动选择）
 -- ============================================================================
 function Inventory.EquipItem(item, playerClassId, targetSlot)
-    if type(item) ~= "table" then return false end
+    if type(item) ~= "table" then return false, "装备无效", nil end
     local ownedType, ownedKey = FindOwnedItem(item)
     if ownedType then
         -- 当前角色已经持有的实例必须仍与本地模板一致；异常运行时数据
         -- 不得借装备动作把伪造属性带入加成计算。
-        if not IsCanonicalItem(item, playerClassId) then return false end
+        if not IsCanonicalItem(item, nil) then
+            return false, "装备数据异常", nil
+        end
     else
         -- 地面掉落等尚未入包的实例先按模板重建，只保留合法强化等级。
-        local normalized = Inventory.CreateItemFromSave(item, nil, playerClassId)
-        if not normalized then return false end
+        local normalized, reason = Inventory.CreateItemFromSave(item, nil, nil)
+        if not normalized then return false, reason or "装备数据异常", nil end
         item = normalized
     end
 
+    if item.classReq and playerClassId and item.classReq ~= playerClassId then
+        return false, "职业不匹配", nil
+    end
+
     local slot = targetSlot or FindBestSlot(item)
-    if not slot then return false end
+    if not slot then return false, "没有可用装备槽位", nil end
     if item.itemType and not Inventory.CanEquipToSlot(item, slot) then
-        return false
+        return false, "装备与目标槽位不匹配", slot
     end
 
     if ownedType == "equipped" and ownedKey ~= slot then
-        return false
+        return false, "装备已穿戴，请先卸下", ownedKey
     end
     -- 同一实例已经在目标槽位时是幂等操作。不能继续走交换分支，
     -- 否则 old == item 会把同一个引用再次塞进背包，形成复制装备。
     if ownedType == "equipped" and ownedKey == slot then
-        return true
+        return true, "", slot
     end
     local old = playerData.equipped[slot]
 
@@ -693,7 +739,7 @@ function Inventory.EquipItem(item, playerClassId, targetSlot)
     end
     if old and not bagIndex and #playerData.bag >= MAX_BAG_SLOTS then
         print("[Inventory] Bag full, cannot replace equipped item")
-        return false
+        return false, "背包已满，无法替换装备", slot
     end
 
     playerData.equipped[slot] = item
@@ -709,7 +755,7 @@ function Inventory.EquipItem(item, playerClassId, targetSlot)
 
     Inventory.RecalcBonus()
     print("[Inventory] Equipped: " .. item.name .. " → " .. (SLOT_NAMES[slot] or slot))
-    return true
+    return true, "", slot
 end
 
 -- ============================================================================
@@ -789,6 +835,20 @@ function Inventory.AddGold(amount)
     if current >= MAX_RESOURCE then return false end
     playerData.gold = math.min(MAX_RESOURCE, current + amount)
     return true
+end
+
+--- 应用于击杀掉落的金币倍率（普通掉落至少保留 1 金）。
+---@param rawGold number
+---@return number
+function Inventory.GetGoldDropAmount(rawGold)
+    return ScaleGoldAmount(rawGold, Inventory.ECONOMY.goldDropMultiplier, 1)
+end
+
+--- 应用于主线任务奖励的金币倍率。
+---@param rawReward number
+---@return number
+function Inventory.GetQuestGoldReward(rawReward)
+    return ScaleGoldAmount(rawReward, Inventory.ECONOMY.questGoldMultiplier, 0)
 end
 
 --- 扣金币，不足返回 false
@@ -886,8 +946,10 @@ function Inventory.RollDrop(enemyName)
     local dropTable = DROP_TABLES[enemyName]
     if not dropTable then return nil, 0 end
 
-    -- 金币必掉
-    local gold = math.random(dropTable.goldMin, dropTable.goldMax)
+    -- 金币必掉，但按统一经济倍率折算；至少保留 1 金，避免低级怪
+    -- 因取整完全没有金币反馈。
+    local rawGold = math.random(dropTable.goldMin, dropTable.goldMax)
+    local gold = Inventory.GetGoldDropAmount(rawGold)
 
     -- 物品掉落判定
     local droppedItem = nil
@@ -955,7 +1017,7 @@ function Inventory.UnequipSlot(slotKey)
     playerData.equipped[slotKey] = nil
     Inventory.RecalcBonus()
     print("[Inventory] Unequipped: " .. item.name .. " from " .. (SLOT_NAMES[slotKey] or slotKey))
-    return true
+    return true, "", item
 end
 
 -- ============================================================================
@@ -977,11 +1039,13 @@ end
 function Inventory.EquipFromBag(bagIndex, slotKey, playerClassId)
     if type(bagIndex) ~= "number" or not IsFiniteNumber(bagIndex)
         or bagIndex % 1 ~= 0 or bagIndex < 1 or bagIndex > #playerData.bag then
-        return false
+        return false, "背包位置无效", nil
     end
     local item = playerData.bag[bagIndex]
-    if not item then return false end
-    if not Inventory.CanEquipToSlot(item, slotKey) then return false end
+    if not item then return false, "装备不存在", nil end
+    if not Inventory.CanEquipToSlot(item, slotKey) then
+        return false, "装备与目标槽位不匹配", slotKey
+    end
     return Inventory.EquipItem(item, playerClassId, slotKey)
 end
 
@@ -1359,9 +1423,9 @@ Inventory.MAX_BAG_SLOTS = MAX_BAG_SLOTS
 --
 -- 价值模型：
 --   基础分 = atk*2 + def*1.5 + hp*0.3（沿用 ItemScore）
---   买入价 = floor(基础分 × 品质倍率 × 8)   —— 商人卖给玩家
---   卖出价 = floor(基础分 × 品质倍率 × 3) + 强化返还   —— 玩家卖给商人
---   卖出价约为买入价的 37.5%，防止低买高卖套利；强化装备额外返还投入。
+--   买入价 = floor(基础分 × 品质倍率 × 12)  —— 商人卖给玩家
+--   卖出价 = floor(基础分 × 品质倍率 × 1.5) + 强化返还 —— 玩家卖给商人
+--   卖出价约为买入价的 12.5%，只保留有限的装备回收价值。
 -- ============================================================================
 
 --- 装备买入价（商人出售给玩家的价格）
@@ -1375,7 +1439,8 @@ function Inventory.GetItemPrice(item)
     local mult = r and r.mult or 1.0
     local score = ItemScore(template)
     if score < 0 then return 0 end
-    return math.min(MAX_RESOURCE, math.max(10, math.floor(score * mult * 8)))
+    return math.min(MAX_RESOURCE, math.max(20, math.floor(
+        score * mult * Inventory.ECONOMY.itemBuyMultiplier)))
 end
 
 Inventory.ENHANCE_STONE_PRICE = 120
@@ -1423,9 +1488,10 @@ function Inventory.GetItemSellPrice(item)
     local mult = r and r.mult or 1.0
     local score = ItemScore(template)
     if score < 0 then return 0 end
-    local base = math.floor(score * mult * 3)
-    -- 强化返还：每级 +50 金币（体现强化投入的部分价值）
-    local enhanceBonus = ClampInteger(item.enhance, 0, 12, 0) * 50
+    local base = math.floor(score * mult * Inventory.ECONOMY.itemSellMultiplier)
+    -- 强化返还：每级只返还少量金币，避免“强化后出售”成为刷钱路线。
+    local enhanceBonus = ClampInteger(item.enhance, 0, 12, 0)
+        * Inventory.ECONOMY.enhanceSellRefundPerLevel
     return math.min(MAX_RESOURCE, base + enhanceBonus)
 end
 

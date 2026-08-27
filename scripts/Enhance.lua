@@ -4,6 +4,10 @@
 
 local Enhance = {}
 
+-- 分解只保留少量回收价值，避免“掉落装备 → 分解 → 无限刷金”成为主收益线。
+-- 商店出售与分解共用相近的低回收倍率，装备本身的战力价值仍高于现金价值。
+Enhance.RECYCLE_GOLD_MULTIPLIER = 1.5
+
 Enhance.ENHANCE_STONE_ID = "enhance_stone"
 
 local RARITY = {
@@ -70,7 +74,7 @@ function Enhance.Recycle(item)
     local returnedStones = math.floor(StonesSpentForLevel(enhanceLevel) * 0.5)
 
     return {
-        gold = math.floor(ItemScore(item) * rarity.mult * 3),
+        gold = math.floor(ItemScore(item) * rarity.mult * Enhance.RECYCLE_GOLD_MULTIPLIER),
         stones = (stoneByRarity[item.rarity] or 0) + returnedStones,
     }
 end

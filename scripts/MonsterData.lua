@@ -15,7 +15,8 @@ MonsterData.NAME_MAP = {
     ["炎魔领主"] = "牛魔王",
 }
 
--- 新增怪物定义。字段与 Combat.ENEMY_DEFS 的定义项保持一致。
+-- 新增怪物定义。运行时战斗属性由 Balance.lua 按 level / tier / monsterType
+-- 派生；旧 hp/atk/def/exp 字段仅作历史数据兼容，不再参与结算。
 MonsterData.NEW_ENEMIES = {
     {
         name = "蛤蟆", monsterType = "toad",
@@ -38,15 +39,15 @@ MonsterData.NEW_ENEMIES = {
     {
         name = "半兽勇士", monsterType = "orc",
         -- 第一幕守关 Boss。原先标成 elite，Combat 的守关刷怪逻辑只接受
-        -- boss tier，导致 q_006 永远无法生成目标。数值按 boss 倍率后
-        -- 约为 1500 HP，作为第一幕高潮但不拖成持久战。
+        -- boss tier，导致 q_006 永远无法生成目标。当前约 2900 HP，
+        -- 作为第一幕高潮但不拖成持久战。
         level = 9, hp = 300, atk = 24, def = 10,
         speed = 2.2, chaseRange = 9, attackRange = 1.5, attackCD = 2.0,
         exp = 120, scale = 1.5, tier = "boss",
     },
     {
         name = "白野猪", monsterType = "boar",
-        -- 第二幕 Boss：实际 HP 约 3200。此前 1800 × 5 反而比后续
+        -- 第二幕 Boss：当前约 6800 HP。此前 1800 × 5 反而比后续
         -- 多个 Boss 更耐打，导致第二幕节奏异常陡峭。
         level = 20, hp = 640, atk = 32, def = 14,
         speed = 1.5, chaseRange = 12, attackRange = 1.8, attackCD = 2.8,
@@ -168,7 +169,7 @@ local ZUMA_ITEMS = {
 -- 补充掉落表。key 使用 Combat 改名后的经典怪物名。
 MonsterData.DROP_TABLES = {
     ["蛤蟆"] = {
-        goldMin = 6, goldMax = 16, dropChance = 0.35,
+        goldMin = 4, goldMax = 10, dropChance = 0.18,
         items = {
             { id = "sword_iron", weight = 14 },
             { id = "staff_wood", weight = 14 },
@@ -183,7 +184,7 @@ MonsterData.DROP_TABLES = {
         },
     },
     ["多钩猫"] = {
-        goldMin = 8, goldMax = 20, dropChance = 0.38,
+        goldMin = 5, goldMax = 13, dropChance = 0.20,
         items = {
             { id = "sword_iron", weight = 14 },
             { id = "staff_wood", weight = 14 },
@@ -198,7 +199,7 @@ MonsterData.DROP_TABLES = {
         },
     },
     ["钉耙猫"] = {
-        goldMin = 10, goldMax = 24, dropChance = 0.40,
+        goldMin = 6, goldMax = 16, dropChance = 0.22,
         items = {
             { id = "sword_iron", weight = 12 },
             { id = "staff_wood", weight = 12 },
@@ -215,7 +216,7 @@ MonsterData.DROP_TABLES = {
         },
     },
     ["半兽勇士"] = {
-        goldMin = 35, goldMax = 80, dropChance = 0.50,
+        goldMin = 23, goldMax = 52, dropChance = 0.35,
         items = {
             { id = "sword_steel", weight = 14 },
             { id = "armor_leather", weight = 16 },
@@ -230,7 +231,7 @@ MonsterData.DROP_TABLES = {
         },
     },
     ["白野猪"] = {
-        goldMin = 140, goldMax = 280, dropChance = 0.70,
+        goldMin = 91, goldMax = 182, dropChance = 0.45,
         items = {
             { id = "sword_flame", weight = 14 },
             { id = "armor_chain", weight = 16 },
@@ -245,15 +246,15 @@ MonsterData.DROP_TABLES = {
         },
     },
     ["红野猪"] = {
-        goldMin = 90, goldMax = 175, dropChance = 0.58,
+        goldMin = 59, goldMax = 114, dropChance = 0.30,
         items = MENGZHONG_ITEMS,
     },
     ["黑野猪"] = {
-        goldMin = 115, goldMax = 220, dropChance = 0.61,
+        goldMin = 75, goldMax = 143, dropChance = 0.32,
         items = MENGZHONG_ITEMS,
     },
     ["狼"] = {
-        goldMin = 45, goldMax = 100, dropChance = 0.52,
+        goldMin = 29, goldMax = 65, dropChance = 0.28,
         items = {
             { id = "sword_steel", weight = 14 },
             { id = "armor_leather", weight = 16 },
@@ -267,7 +268,7 @@ MonsterData.DROP_TABLES = {
         },
     },
     ["石魔"] = {
-        goldMin = 70, goldMax = 145, dropChance = 0.55,
+        goldMin = 46, goldMax = 94, dropChance = 0.30,
         items = {
             { id = "armor_chain", weight = 16 },
             { id = "helm_golden", weight = 14 },
@@ -282,43 +283,43 @@ MonsterData.DROP_TABLES = {
         },
     },
     ["石像鬼"] = {
-        goldMin = 160, goldMax = 280, dropChance = 0.58,
+        goldMin = 104, goldMax = 182, dropChance = 0.31,
         items = WATER_CITY_ITEMS,
     },
     ["海妖"] = {
-        goldMin = 180, goldMax = 320, dropChance = 0.60,
+        goldMin = 117, goldMax = 208, dropChance = 0.33,
         items = WATER_CITY_ITEMS,
     },
     ["巨蜥"] = {
-        goldMin = 210, goldMax = 360, dropChance = 0.62,
+        goldMin = 136, goldMax = 234, dropChance = 0.35,
         items = WATER_CITY_ITEMS,
     },
     ["岩甲兽"] = {
-        goldMin = 260, goldMax = 440, dropChance = 0.65,
+        goldMin = 169, goldMax = 286, dropChance = 0.36,
         items = WOMAR_ITEMS,
     },
     ["黑鳞蟒"] = {
-        goldMin = 300, goldMax = 500, dropChance = 0.67,
+        goldMin = 195, goldMax = 325, dropChance = 0.38,
         items = WOMAR_ITEMS,
     },
     ["深渊恶鬼"] = {
-        goldMin = 340, goldMax = 560, dropChance = 0.69,
+        goldMin = 221, goldMax = 364, dropChance = 0.40,
         items = WOMAR_ITEMS,
     },
     ["熔岩巨兽"] = {
-        goldMin = 420, goldMax = 680, dropChance = 0.72,
+        goldMin = 273, goldMax = 442, dropChance = 0.42,
         items = ZUMA_ITEMS,
     },
     ["魔龙幼崽"] = {
-        goldMin = 500, goldMax = 820, dropChance = 0.74,
+        goldMin = 325, goldMax = 533, dropChance = 0.45,
         items = ZUMA_ITEMS,
     },
     ["祖玛卫士"] = {
-        goldMin = 650, goldMax = 1000, dropChance = 0.80,
+        goldMin = 423, goldMax = 650, dropChance = 0.50,
         items = ZUMA_ITEMS,
     },
     ["蚁后"] = {
-        goldMin = 100, goldMax = 190, dropChance = 0.60,
+        goldMin = 65, goldMax = 123, dropChance = 0.40,
         items = {
             { id = "armor_chain", weight = 16 },
             { id = "neck_amber", weight = 14 },
@@ -333,7 +334,7 @@ MonsterData.DROP_TABLES = {
         },
     },
     ["骷髅将军"] = {
-        goldMin = 135, goldMax = 250, dropChance = 0.65,
+        goldMin = 88, goldMax = 162, dropChance = 0.42,
         items = {
             { id = "sword_flame", weight = 14 },
             { id = "staff_thunder", weight = 14 },
@@ -348,7 +349,7 @@ MonsterData.DROP_TABLES = {
         },
     },
     ["赤焰魔"] = {
-        goldMin = 200, goldMax = 360, dropChance = 0.68,
+        goldMin = 130, goldMax = 234, dropChance = 0.44,
         items = {
             { id = "sword_dragon", weight = 14 },
             { id = "armor_dragon", weight = 16 },
@@ -363,7 +364,7 @@ MonsterData.DROP_TABLES = {
         },
     },
     ["巨蟒"] = {
-        goldMin = 240, goldMax = 420, dropChance = 0.70,
+        goldMin = 156, goldMax = 273, dropChance = 0.46,
         items = {
             { id = "staff_arcane", weight = 14 },
             { id = "bell_holy", weight = 14 },
@@ -378,7 +379,7 @@ MonsterData.DROP_TABLES = {
         },
     },
     ["噬魂兽"] = {
-        goldMin = 300, goldMax = 500, dropChance = 0.72,
+        goldMin = 195, goldMax = 325, dropChance = 0.48,
         items = {
             { id = "ring_dragon", weight = 14 },
             { id = "helm_dragon", weight = 14 },
@@ -393,7 +394,7 @@ MonsterData.DROP_TABLES = {
         },
     },
     ["麒麟"] = {
-        goldMin = 380, goldMax = 650, dropChance = 0.75,
+        goldMin = 247, goldMax = 422, dropChance = 0.50,
         items = {
             { id = "boots_wind", weight = 14 },
             { id = "armor_heaven", weight = 12 },
@@ -408,7 +409,7 @@ MonsterData.DROP_TABLES = {
         },
     },
     ["沃玛教主"] = {
-        goldMin = 450, goldMax = 750, dropChance = 0.78,
+        goldMin = 293, goldMax = 488, dropChance = 0.55,
         items = {
             { id = "armor_heaven", weight = 14 },
             { id = "helm_heaven", weight = 14 },
@@ -423,7 +424,7 @@ MonsterData.DROP_TABLES = {
         },
     },
     ["火龙王"] = {
-        goldMin = 800, goldMax = 1300, dropChance = 0.85,
+        goldMin = 520, goldMax = 845, dropChance = 0.60,
         items = {
             { id = "armor_heaven", weight = 14 },
             { id = "helm_heaven", weight = 14 },
@@ -431,7 +432,7 @@ MonsterData.DROP_TABLES = {
         },
     },
     ["牛魔王"] = {
-        goldMin = 1200, goldMax = 2000, dropChance = 0.90,
+        goldMin = 780, goldMax = 1300, dropChance = 0.65,
         items = {
             { id = "armor_heaven", weight = 14 },
             { id = "helm_heaven", weight = 14 },

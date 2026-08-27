@@ -4,8 +4,9 @@
 -- ============================================================================
 
 local CharacterClass = {}
+local Balance = require("scripts.Balance")
 
-CharacterClass.MAX_LEVEL = 50
+CharacterClass.MAX_LEVEL = Balance.MAX_LEVEL
 
 local function IsFiniteNumber(value)
     return type(value) == "number"
@@ -59,9 +60,9 @@ CharacterClass.SKILL_TYPE = SKILL_TYPE
 -- 设计目标: Lv1 普攻需要 3-5 下杀普通怪, 高级技能 2-3 下杀同级怪
 -- ============================================================================
 local BASE_GROWTH = {
-    warrior = { hp = 40, mp = 8,  atk = 6, def = 4, speed = 3.5 },
-    mage    = { hp = 22, mp = 25, atk = 8, def = 2, speed = 3.2 },
-    taoist  = { hp = 30, mp = 18, atk = 5, def = 3, speed = 3.3 },
+    warrior = { hp = 40, mp = 8,  atk = 6, def = 1.8, speed = 3.5 },
+    mage    = { hp = 22, mp = 25, atk = 8, def = 1.0, speed = 3.2 },
+    taoist  = { hp = 30, mp = 18, atk = 5, def = 1.4, speed = 3.3 },
 }
 
 -- 职业被动运行时参数。此前这些内容只有 UI 描述，没有真正参与数值结算。
@@ -72,24 +73,18 @@ CharacterClass.PASSIVE_MODIFIERS = {
         damageReductionMultiplier = 0.75,
     },
     mage = {
-        spellDamageMultiplier = 1.25,
+        spellDamageMultiplier = 1.20,
         mpRegenMultiplier = 1.15,
     },
     taoist = {
-        divineBeastAttackMultiplier = 1.25,
-        experienceMultiplier = 1.20,
+        divineBeastAttackMultiplier = 1.20,
+        healingMultiplier = 1.10,
     },
 }
 
--- 高等级经验曲线：15 级后开始逐渐拉长升级间隔
+-- 全职业共用统一升级曲线。职业差异只影响战斗，不再让道士提前十多级毕业。
 function CharacterClass.GetExpToNext(level)
-    level = CharacterClass.NormalizeLevel(level)
-    local base = 50 + level * 60
-    if level <= 15 then
-        return base
-    end
-    local extra = level - 15
-    return base + extra * extra * 8
+    return Balance.GetExpToNext(level)
 end
 
 -- ============================================================================
@@ -127,7 +122,7 @@ CharacterClass.Classes = {
                 id = "w_crescent", name = "半月弯刀", type = SKILL_TYPE.MELEE,
                 desc = "斩出新月弧光，横扫面前半月范围群敌",
                 slot = 2, cooldown = 4, manaCost = 25,
-                unlockLevel = 3,
+                unlockLevel = 6,
                 damage = 130,  -- ATK倍率130% (AOE提前解锁，降低单次伤害)
                 range = 3.0, aoeAngle = 270,
             },
@@ -135,7 +130,7 @@ CharacterClass.Classes = {
                 id = "w_thrust", name = "刺杀剑术", type = SKILL_TYPE.PASSIVE,
                 desc = "被动：基本剑术可凌空斩出白色剑气，补击隔一身位之敌，并大幅穿透其防御",
                 slot = 0, cooldown = 0, manaCost = 0,  -- 被动:随基本剑术触发,不占技能栏/不耗蓝
-                unlockLevel = 7,
+                unlockLevel = 12,
                 damage = 200,  -- 补刀ATK倍率200% (增强/穿透系数见 Combat.lua 身位常量)
                 range = 3.0,   -- 触及距离(隔一身位), 与 Combat.ASSASSIN_REACH 对应
             },
@@ -143,24 +138,24 @@ CharacterClass.Classes = {
                 id = "w_charge", name = "野蛮冲撞", type = SKILL_TYPE.DASH,
                 desc = "剑术步法合一，力如奔牛全力冲刺。沿途顶推前方之敌一同推进，于终点将其撞出至刺杀剑术触及之距，敌僵直约一秒难动",
                 slot = 3, cooldown = 6, manaCost = 22,
-                unlockLevel = 10,
+                unlockLevel = 20,
                 range = 5.0,    -- 冲刺距离(米)；本技能无直接伤害，靠顶推+硬直创造刺杀机会
             },
             {
                 id = "w_fire", name = "烈火剑法", type = SKILL_TYPE.MELEE,
                 desc = "内功吸纳天地之火，灌注刀刃，焰如怒龙",
                 slot = 4, cooldown = 8, manaCost = 40,
-                unlockLevel = 14,
+                unlockLevel = 44,
                 damage = 350,  -- ATK倍率350% (大招)
                 range = 2.8, castTime = 0.35,
             },
             {
                 id = "w_shield", name = "真气护盾", type = SKILL_TYPE.BUFF,
                 desc = "运真气凝结护壁，吞噬外来攻击之力",
-                slot = 5, cooldown = 7, manaCost = 45,
-                unlockLevel = 12,
-                shieldPercent = 50,
-                duration = 6,
+                slot = 5, cooldown = 14, manaCost = 45,
+                unlockLevel = 32,
+                shieldPercent = 30,
+                duration = 4,
                 range = 0,
             },
         },
@@ -180,7 +175,7 @@ CharacterClass.Classes = {
 
         passive = {
             name = "灵慧",
-            desc = "法术伤害 +25%，灵力回复 +15%",
+            desc = "法术伤害 +20%，灵力回复 +15%",
         },
 
         skills = {
@@ -189,7 +184,7 @@ CharacterClass.Classes = {
                 desc = "以咒语化内力为火球，万法之基",
                 slot = 1, cooldown = 0, manaCost = 0,
                 unlockLevel = 1,
-                damage = 110,  -- ATK倍率110%
+                damage = 90,  -- 免费普攻保持稳定，耗灵技能再享受法术被动
                 range = 10.0, projectileSpeed = 12, castTime = 0.25,
             },
 
@@ -197,7 +192,7 @@ CharacterClass.Classes = {
                 id = "m_thunder", name = "雷电术", type = SKILL_TYPE.RANGED,
                 desc = "引下天雷，威力巨大但施法较慢",
                 slot = 3, cooldown = 3.5, manaCost = 55,
-                unlockLevel = 11,
+                unlockLevel = 24,
                 damage = 250,  -- ATK倍率250% (单体高伤)
                 range = 7.0, castTime = 0.45,
             },
@@ -205,7 +200,7 @@ CharacterClass.Classes = {
                 id = "m_explosion", name = "抗拒火环", type = SKILL_TYPE.AOE,
                 desc = "周身迸发烈焰火环，将逼近之敌尽数震退（无直接伤害）",
                 slot = 4, cooldown = 4.0, manaCost = 60,
-                unlockLevel = 8,
+                unlockLevel = 15,
                 isKnockback = true,        -- 纯击退技能，无直接伤害
                 knockbackSpeed = 14,       -- 推开速度(米/秒)
                 knockbackDuration = 0.4,   -- 击退持续时间(秒)，推开距离≈speed×duration
@@ -215,7 +210,7 @@ CharacterClass.Classes = {
                 id = "m_firewall", name = "火墙", type = SKILL_TYPE.DOT,
                 desc = "点燃不灭之火，烈焰如怨念般不息",
                 slot = 5, cooldown = 5.0, manaCost = 55,
-                unlockLevel = 5,
+                unlockLevel = 7,
                 damage = 45, -- ATK倍率45%/秒 (DOT持续)
                 duration = 5,
                 range = 6.0, aoeRadius = 2.0, castTime = 0.30,
@@ -224,17 +219,17 @@ CharacterClass.Classes = {
                 id = "m_blizzard", name = "冰咆哮", type = SKILL_TYPE.AOE,
                 desc = "召唤冰雪暴风，刺骨寒意冻裂金铁",
                 slot = 6, cooldown = 5.5, manaCost = 90,
-                unlockLevel = 14,
+                unlockLevel = 44,
                 damage = 320,  -- ATK倍率320% (大招AOE)
                 range = 6.0, aoeRadius = 3.5, castTime = 0.55,
             },
             {
                 id = "m_shield", name = "魔法盾", type = SKILL_TYPE.BUFF,
                 desc = "纯粹魔力凝成护盾，保命之本",
-                slot = 0, cooldown = 5.5, manaCost = 75,
-                unlockLevel = 12,
-                shieldPercent = 40,
-                duration = 5,    -- 接近 CD，护盾节奏更紧凑
+                slot = 0, cooldown = 12, manaCost = 75,
+                unlockLevel = 34,
+                shieldPercent = 25,
+                duration = 4,
                 range = 0,
             },
         },
@@ -254,7 +249,7 @@ CharacterClass.Classes = {
 
         passive = {
             name = "灵兽契约",
-            desc = "神兽攻击力 +25%，经验获取 +20%",
+            desc = "神兽攻击力 +20%，治愈效果 +10%",
         },
 
         skills = {
@@ -283,17 +278,17 @@ CharacterClass.Classes = {
             {
                 id = "t_heal", name = "治愈术", type = SKILL_TYPE.HEAL,
                 desc = "引天地灵气修补自身与神兽，道士自保之术",
-                slot = 3, cooldown = 10, manaCost = 35,
-                unlockLevel = 4,
-                healPercent = 35,
+                slot = 3, cooldown = 12, manaCost = 45,
+                unlockLevel = 8,
+                healPercent = 25,
                 range = 0,
             },
             -- 4. 施毒术 (瞬发群体中毒 — 圆形范围)
             {
                 id = "t_poison", name = "施毒术", type = SKILL_TYPE.DOT,
                 desc = "瞬间释放毒雾，使命中范围内妖魔中毒5秒",
-                slot = 4, cooldown = 5, manaCost = 38,
-                unlockLevel = 6,
+                slot = 4, cooldown = 7, manaCost = 42,
+                unlockLevel = 16,
                 damage = 50, -- ATK倍率50%/秒
                 duration = 5,
                 defReduce = 5,
@@ -303,10 +298,10 @@ CharacterClass.Classes = {
             {
                 id = "t_beastRage", name = "神兽狂暴", type = SKILL_TYPE.BUFF,
                 desc = "激发神兽潜能，攻击力与攻速大幅提升",
-                slot = 5, cooldown = 7, manaCost = 30,
-                unlockLevel = 8,
-                buffMultiplier = 2.0,
-                duration = 10,
+                slot = 5, cooldown = 18, manaCost = 45,
+                unlockLevel = 28,
+                buffMultiplier = 1.6,
+                duration = 7,
                 range = 0,
             },
             -- 6. 困魔咒 (群控困敌 + 减防)
@@ -314,7 +309,7 @@ CharacterClass.Classes = {
                 id = "t_trapDemon", name = "困魔咒", type = SKILL_TYPE.AOE,
                 desc = "布下法阵困锁妖魔，圈内之敌无法逃脱且防御降低30%",
                 slot = 6, cooldown = 12, manaCost = 65,
-                unlockLevel = 12,
+                unlockLevel = 40,
                 damage = 0,  -- 不造成伤害，纯控制
                 range = 8.0, aoeRadius = 3.5, castTime = 0.80,
                 isTrap = true,  -- 标记为困魔类技能
@@ -344,7 +339,8 @@ end
 ---@return number
 function CharacterClass.GetSkillDamageMultiplier(player, skill)
     local modifiers = CharacterClass.GetPassiveModifiers(player)
-    if modifiers.spellDamageMultiplier and skill and skill.type ~= SKILL_TYPE.PASSIVE then
+    if modifiers.spellDamageMultiplier and skill and skill.type ~= SKILL_TYPE.PASSIVE
+        and (tonumber(skill.manaCost) or 0) > 0 then
         return modifiers.spellDamageMultiplier
     end
     return 1.0
@@ -355,6 +351,13 @@ end
 function CharacterClass.GetExperienceMultiplier(player)
     local modifiers = CharacterClass.GetPassiveModifiers(player)
     return modifiers.experienceMultiplier or 1.0
+end
+
+---@param player table
+---@return number
+function CharacterClass.GetHealingMultiplier(player)
+    local modifiers = CharacterClass.GetPassiveModifiers(player)
+    return modifiers.healingMultiplier or 1.0
 end
 
 ---@param player table
@@ -407,7 +410,8 @@ function CharacterClass.GetDerivedStats(player, inventoryData)
         maxHP = math.floor(hp * (modifiers.maxHPMultiplier or 1.0)),
         maxMP = classDef.baseMP + growth.mp * (level - 1),
         atk = classDef.baseATK + growth.atk * (level - 1) + (tonumber(inv.bonusAtk) or 0),
-        def = classDef.baseDEF + growth.def * (level - 1) + (tonumber(inv.bonusDef) or 0),
+        def = math.floor(classDef.baseDEF + growth.def * (level - 1)
+            + (tonumber(inv.bonusDef) or 0)),
         moveSpeed = classDef.moveSpeed,
     }
 end

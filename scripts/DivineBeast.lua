@@ -5,6 +5,7 @@
 -- ============================================================================
 
 local CharacterClass = require("scripts.CharacterClass")
+local Balance = require("scripts.Balance")
 
 local DivineBeast = {}
 
@@ -34,9 +35,9 @@ local LEVEL_EXP = {
 
 -- 神兽每级成长
 local BEAST_GROWTH = {
-    hp_per_level = 80,
+    hp_per_level = 65,
     atk_per_level = 8,
-    def_per_level = 3,
+    def_per_level = 2.5,
 }
 
 -- 存档边界：成长属性由本模块决定，不能被可编辑的 JSON 无限放大。
@@ -123,6 +124,9 @@ local beast = {
     currentAnim = "idle",
     buffFlashAccum = 0,
     isMoving = false,
+    ownerStats = nil,     -- 当前主人面板快照，用于升级/换装后的实时同步
+    summonDamagePercent = 150,
+    ownerPassiveMultiplier = 1.0,
     -- 模型缩放信息
     baseScale = 1.0,
     baseFootOffset = 0.0,
@@ -167,7 +171,6 @@ local function ClearBeastEntity()
     beast.headBoneNode = nil
     beast.mouthNode = nil
     beast.originalMats = {}
-    beast.baseMats = {}
     beast.attackTimer = 0
     beast.fireTimer = 0
     beast.buffTimer = 0
@@ -190,6 +193,9 @@ local function ResetBeastGrowth()
     beast.baseAtk = 18
     beast.atk = 18
     beast.def = 8
+    beast.ownerStats = nil
+    beast.summonDamagePercent = 150
+    beast.ownerPassiveMultiplier = 1.0
 end
 
 local function SafeNonNegativeInteger(value, fallback, maxValue)
@@ -200,6 +206,98 @@ local function SafeNonNegativeInteger(value, fallback, maxValue)
     number = math.max(0, number)
     if maxValue then number = math.min(maxValue, number) end
     return math.floor(number)
+end
+
+local function ReadOwnerSnapshot(player)
+    if type(player) ~= "table" then return nil end
+
+    local summonSkill = CharacterClass.GetSkillById
+        and CharacterClass.GetSkillById(player.classId, "t_divineBeast") or nil
+    return {
+        maxHP = math.max(1, tonumber(player.maxHP) or 1),
+        atk = math.max(0, tonumber(player.atk) or 0),
+        def = math.max(0, tonumber(player.def) or 0),
+        summonDamagePercent = summonSkill and summonSkill.damage or 150,
+        passiveMultiplier = CharacterClass.GetDivineBeastAttackMultiplier
+            and CharacterClass.GetDivineBeastAttackMultiplier(player) or 1.0,
+    }
+end
+
+local function CaptureOwnerStats(player)
+    local snapshot = ReadOwnerSnapshot(player)
+    if not snapshot then return false end
+
+    beast.ownerStats = {
+        maxHP = snapshot.maxHP,
+        atk = snapshot.atk,
+        def = snapshot.def,
+    }
+    beast.summonDamagePercent = snapshot.summonDamagePercent
+    beast.ownerPassiveMultiplier = snapshot.passiveMultiplier
+    return true
+end
+
+local function RecalculateOwnerStats(player, fallbackAttack, refill)
+    local oldMaxHP = math.max(1, tonumber(beast.maxHP) or 1)
+    local oldHP = math.max(0, tonumber(beast.hp) or 0)
+    local stats = nil
+
+    if type(player) == "table" then
+        CaptureOwnerStats(player)
+    elseif fallbackAttack ~= nil then
+        -- 旧调用只提供最终神兽攻击力，不能再套召唤技能或职业被动倍率。
+        -- 生命与防御保留已恢复的安全值；下一次拿到 player 后会切回实时同步。
+        beast.ownerStats = nil
+        stats = {
+            maxHP = math.max(300 + BEAST_GROWTH.hp_per_level * (beast.level - 1),
+                SafeNonNegativeInteger(beast.maxHP, 300, MAX_BEAST_HP)),
+            atk = math.max(1,
+                SafeNonNegativeInteger(fallbackAttack, beast.baseAtk, MAX_BEAST_ATK)),
+            def = math.max(math.floor(8 + BEAST_GROWTH.def_per_level * (beast.level - 1) + 0.5),
+                SafeNonNegativeInteger(beast.def, 8, MAX_BEAST_DEF)),
+        }
+    end
+
+    if not stats then
+        if not beast.ownerStats then return false end
+        stats = Balance.GetDivineBeastStats(
+            beast.ownerStats,
+            beast.level,
+            beast.summonDamagePercent,
+            beast.ownerPassiveMultiplier)
+    end
+    beast.maxHP = stats.maxHP
+    beast.baseAtk = stats.atk
+    beast.atk = math.max(1, math.floor(beast.baseAtk * (beast.buffMult or 1.0)))
+    beast.def = stats.def
+
+    if refill then
+        beast.hp = beast.maxHP
+    elseif oldHP > 0 then
+        local hpRatio = math.max(0, math.min(1, oldHP / oldMaxHP))
+        beast.hp = math.max(1, math.min(beast.maxHP,
+            math.floor(beast.maxHP * hpRatio + 0.5)))
+    end
+    return true
+end
+
+--- 主人升级或换装后同步神兽面板；保持当前生命百分比，防止换装刷血。
+---@param player table
+---@return boolean
+function DivineBeast.SyncOwnerStats(player)
+    local snapshot = ReadOwnerSnapshot(player)
+    if not snapshot then return false end
+
+    local current = beast.ownerStats
+    local unchanged = current
+        and current.maxHP == snapshot.maxHP
+        and current.atk == snapshot.atk
+        and current.def == snapshot.def
+        and beast.summonDamagePercent == snapshot.summonDamagePercent
+        and beast.ownerPassiveMultiplier == snapshot.passiveMultiplier
+    if unchanged then return false end
+
+    return RecalculateOwnerStats(player, nil, false)
 end
 
 -- ============================================================================
@@ -261,11 +359,8 @@ local function CreateBeastModel(parentNode, scene)
     -- 保留模型自带的贴图材质（不覆盖），记录原始材质用于受击闪烁恢复
     local numGeom = beast.animModel:GetNumGeometries()
     beast.originalMats = {}
-    beast.baseMats = {}
     for i = 0, numGeom - 1 do
-        local material = beast.animModel:GetMaterial(i)
-        beast.baseMats[i] = material
-        beast.originalMats[i] = material
+        beast.originalMats[i] = beast.animModel:GetMaterial(i)
     end
 
     -- 获取头部骨骼节点（用于定位嘴巴喷火）
@@ -303,6 +398,18 @@ local function CreateBeastModel(parentNode, scene)
     return true
 end
 
+-- 恢复神兽模型自带的贴图材质。等级颜色只用于名字 UI，不能写入模型材质。
+local function RestoreOriginalMaterials()
+    if not beast.animModel then return end
+
+    local numGeom = beast.animModel:GetNumGeometries()
+    for i = 0, numGeom - 1 do
+        if beast.originalMats[i] then
+            beast.animModel:SetMaterial(i, beast.originalMats[i])
+        end
+    end
+end
+
 -- ============================================================================
 -- 动画控制
 -- ============================================================================
@@ -324,7 +431,7 @@ end
 -- ============================================================================
 -- 创建/召唤神兽
 -- ============================================================================
-function DivineBeast.Summon(scene, playerPos, playerAtk)
+function DivineBeast.Summon(scene, playerPos, playerAtk, player)
     if not scene or not playerPos then
         print("[DivineBeast] ERROR: Cannot summon without scene and player position")
         return false
@@ -343,13 +450,11 @@ function DivineBeast.Summon(scene, playerPos, playerAtk)
     end
 
     -- 第一次召唤初始化成长；死亡后再次召唤必须保留已有成长。
-    local summonAtk = SafeNonNegativeInteger(playerAtk, 0)
     if not beast.summoned then
         beast.summoned = true
         beast.level = 1
         beast.exp = 0
         beast.expToNext = LEVEL_EXP[1]
-        beast.baseAtk = math.max(1, math.floor(summonAtk * 1.5))
         beast.maxHP = 300
         beast.def = 8
     else
@@ -357,18 +462,10 @@ function DivineBeast.Summon(scene, playerPos, playerAtk)
         beast.expToNext = LEVEL_EXP[beast.level]
         beast.exp = beast.level >= MAX_BEAST_LEVEL and 0
             or math.min(SafeNonNegativeInteger(beast.exp, 0, MAX_BEAST_EXP), beast.expToNext - 1)
-        -- 若旧存档只有 summoned 标记而没有完整属性，按当前角色攻击力补齐；
-        -- 正常存档不会降低已经成长出的神兽攻击力。
-        local fallbackAtk = math.max(1, math.floor(summonAtk * 1.5))
-        beast.baseAtk = math.max(fallbackAtk,
-            SafeNonNegativeInteger(beast.baseAtk, fallbackAtk, MAX_BEAST_ATK))
-        beast.maxHP = math.max(300 + BEAST_GROWTH.hp_per_level * (beast.level - 1),
-            SafeNonNegativeInteger(beast.maxHP, 300, MAX_BEAST_HP))
-        beast.def = math.max(8 + BEAST_GROWTH.def_per_level * (beast.level - 1),
-            SafeNonNegativeInteger(beast.def, 8, MAX_BEAST_DEF))
     end
-    beast.atk = beast.baseAtk
-    beast.hp = beast.maxHP
+    -- 攻击、生命和防御都按主人当前面板计算；没有 player 的旧调用中，
+    -- playerAtk 视为已经结算完成的神兽攻击力，绝不再次乘技能倍率。
+    RecalculateOwnerStats(player, playerAtk, true)
     beast.speed = 4.0
     beast.baseAttackCD = 2.0
     beast.attackCD = 2.0
@@ -434,8 +531,8 @@ function DivineBeast.TakeDamage(dmg)
         return 0
     end
 
-    local effectiveDmg = dmg * (100 / (100 + beast.def))
-    effectiveDmg = math.max(1, math.floor(effectiveDmg))
+    local effectiveDmg = Balance.CalculateDamage(dmg, beast.def)
+    if effectiveDmg <= 0 then return 0 end
 
     beast.hp = beast.hp - effectiveDmg
     beast.hitFlashTimer = 0.2
@@ -477,50 +574,14 @@ function DivineBeast.AddExp(exp)
         beast.level = beast.level + 1
         beast.expToNext = LEVEL_EXP[beast.level]
 
-        -- 属性成长
-        beast.maxHP = beast.maxHP + BEAST_GROWTH.hp_per_level
-        beast.hp = beast.maxHP  -- 升级回满
-        beast.baseAtk = beast.baseAtk + BEAST_GROWTH.atk_per_level
-        beast.atk = math.floor(beast.baseAtk * beast.buffMult)
-        beast.def = beast.def + BEAST_GROWTH.def_per_level
-        -- 等级配色此前只定义了函数却未在升级时调用，神兽即使升到高阶
-        -- 也始终保持初始视觉。立即刷新自发光材质让成长可见。
-        DivineBeast.UpdateLevelMaterial()
+        -- 等级成长叠加在主人当前面板之上，升级回满生命。
+        RecalculateOwnerStats(nil, nil, true)
 
         print("[DivineBeast] 升级! Lv." .. beast.level .. " HP=" .. beast.maxHP .. " ATK=" .. beast.atk)
     end
     if beast.level >= MAX_BEAST_LEVEL then
         beast.exp = 0
         beast.expToNext = LEVEL_EXP[MAX_BEAST_LEVEL]
-    end
-end
-
--- ============================================================================
--- 等级材质更新（通过自发光叠加体现等级，保留原始贴图）
--- ============================================================================
-function DivineBeast.UpdateLevelMaterial()
-    if not beast.animModel then return end
-
-    local lc = LEVEL_COLORS[beast.level] or LEVEL_COLORS[1]
-    -- 等级越高，自发光越强（不改变漫反射贴图）
-    local emissiveStrength = beast.level * 0.08
-    local emissiveColor = Color(
-        lc[1] / 255 * emissiveStrength,
-        lc[2] / 255 * emissiveStrength,
-        lc[3] / 255 * emissiveStrength
-    )
-
-    local numGeom = beast.animModel:GetNumGeometries()
-    for i = 0, numGeom - 1 do
-        -- 始终从原始材质克隆，避免每次升级都从上一次克隆继续复制并泄漏。
-        local mat = (beast.baseMats and beast.baseMats[i]) or beast.originalMats[i]
-        if mat then
-            -- Clone 材质以避免修改共享资源
-            local levelMat = mat:Clone()
-            levelMat:SetShaderParameter("MatEmissiveColor", Variant(emissiveColor))
-            beast.originalMats[i] = levelMat
-            beast.animModel:SetMaterial(i, levelMat)
-        end
     end
 end
 
@@ -556,6 +617,7 @@ function DivineBeast.Heal(amount)
     if not DivineBeast.IsAlive() then return false end
     amount = tonumber(amount)
     if not amount or amount ~= amount or amount == math.huge or amount <= 0 then return false end
+    amount = math.max(1, math.floor(amount + 0.5))
     beast.hp = math.min(beast.maxHP, beast.hp + amount)
     return true
 end
@@ -643,7 +705,7 @@ function DivineBeast.Restore(scene, playerPos, saved, fallbackPlayerAtk)
     local level = math.max(1, math.min(MAX_BEAST_LEVEL,
         SafeNonNegativeInteger(saved.level, 1, MAX_BEAST_LEVEL)))
     local minMaxHP = 300 + BEAST_GROWTH.hp_per_level * (level - 1)
-    local minDef = 8 + BEAST_GROWTH.def_per_level * (level - 1)
+    local minDef = math.floor(8 + BEAST_GROWTH.def_per_level * (level - 1) + 0.5)
     local fallbackAtk = math.max(1, math.floor(
         SafeNonNegativeInteger(fallbackPlayerAtk, 0, MAX_BEAST_ATK) * 1.5))
     local savedBaseAtk = SafeNonNegativeInteger(saved.baseAtk, fallbackAtk, MAX_BEAST_ATK)
@@ -674,12 +736,11 @@ function DivineBeast.Restore(scene, playerPos, saved, fallbackPlayerAtk)
     end
 
     -- Summon 负责创建模型和物理组件；成长数据已先归一化，召唤时会保留它。
-    if not DivineBeast.Summon(scene, playerPos, fallbackPlayerAtk or 0) then
+    if not DivineBeast.Summon(scene, playerPos, beast.baseAtk) then
         return false
     end
     beast.hp = math.max(1, math.min(beast.maxHP,
         SafeNonNegativeInteger(saved.hp, beast.maxHP, MAX_BEAST_HP)))
-    DivineBeast.UpdateLevelMaterial()
 
     print("[DivineBeast] Restored Lv." .. beast.level .. " HP=" .. beast.hp .. "/" .. beast.maxHP)
     return true
@@ -704,6 +765,7 @@ function DivineBeast.OnMapChanged(playerPos)
     beast.state = "follow"
     beast.isMoving = false
     ResetFireBreath()
+    RestoreOriginalMaterials()
 
     if not alive or not beast.node then return false end
     local body = beast.node:GetComponent("RigidBody")
@@ -862,8 +924,8 @@ local function UpdateHitFlash(dt)
     if not beast.animModel then return end
 
     if beast.hitFlashTimer > 0 then
-        beast.hitFlashTimer = beast.hitFlashTimer - dt
-        local flash = math.floor(beast.hitFlashTimer * 10) % 2 == 0
+        beast.hitFlashTimer = math.max(0, beast.hitFlashTimer - dt)
+        local flash = beast.hitFlashTimer > 0 and math.floor(beast.hitFlashTimer * 10) % 2 == 0
         local numGeom = beast.animModel:GetNumGeometries()
 
         if flash then
@@ -875,11 +937,7 @@ local function UpdateHitFlash(dt)
                 beast.animModel:SetMaterial(i, flashMat)
             end
         else
-            for i = 0, numGeom - 1 do
-                if beast.originalMats[i] then
-                    beast.animModel:SetMaterial(i, beast.originalMats[i])
-                end
-            end
+            RestoreOriginalMaterials()
         end
     end
 end
@@ -905,22 +963,13 @@ local function UpdateBuffFlash(dt)
                 beast.animModel:SetMaterial(i, buffMat)
             end
         else
-            for i = 0, numGeom - 1 do
-                if beast.originalMats[i] then
-                    beast.animModel:SetMaterial(i, beast.originalMats[i])
-                end
-            end
+            RestoreOriginalMaterials()
         end
     elseif beast.buffTimer <= 0 and beast.hitFlashTimer <= 0 then
         -- Buff 结束且无受击闪烁时恢复原材质
         if beast.buffFlashAccum and beast.buffFlashAccum > 0 then
             beast.buffFlashAccum = 0
-            local numGeom = beast.animModel:GetNumGeometries()
-            for i = 0, numGeom - 1 do
-                if beast.originalMats[i] then
-                    beast.animModel:SetMaterial(i, beast.originalMats[i])
-                end
-            end
+            RestoreOriginalMaterials()
         end
     end
 end
@@ -928,11 +977,20 @@ end
 -- ============================================================================
 -- 主更新
 -- ============================================================================
+---@param dt number
+---@param scene Scene
+---@param playerNode Node
+---@param player table
+---@param enemies table[]|nil
+---@param dealDamageFn function
+---@param isSafeZoneFn function
 function DivineBeast.Update(dt, scene, playerNode, player, enemies, dealDamageFn, isSafeZoneFn)
     if not DivineBeast.IsAlive() or not playerNode then return end
     dt = tonumber(dt)
     if not dt or dt <= 0 or dt ~= dt or dt == math.huge then return end
+    DivineBeast.SyncOwnerStats(player)
 
+    ---@type Vector3
     local beastPos = beast.node.position
     local playerPos = playerNode.position
     local playerInSafeZone = type(isSafeZoneFn) == "function" and isSafeZoneFn(playerPos) or false
@@ -952,7 +1010,6 @@ function DivineBeast.Update(dt, scene, playerNode, player, enemies, dealDamageFn
             beast.buffMult = 1.0
             beast.atk = beast.baseAtk
             beast.attackCD = beast.baseAttackCD or 2.0
-            beast.buffFlashAccum = 0
         end
     end
 
@@ -975,7 +1032,9 @@ function DivineBeast.Update(dt, scene, playerNode, player, enemies, dealDamageFn
             local enemyInSafeZone = type(isSafeZoneFn) == "function"
                 and e.node and isSafeZoneFn(e.node.position)
             if e.node and e.state ~= "dead" and e.state ~= "dying" and not enemyInSafeZone then
-                local d = (e.node.position - beastPos):Length()
+                ---@type Vector3
+                local enemyPos = e.node.position
+                local d = (enemyPos - beastPos):Length()
                 if d < nearDist then
                     nearDist = d
                     nearestEnemy = e
@@ -1072,6 +1131,7 @@ end
 -- ============================================================================
 -- 获取节点位置（供 UI 使用）
 -- ============================================================================
+---@return Vector3|nil
 function DivineBeast.GetPosition()
     if DivineBeast.IsAlive() then
         return beast.node.position

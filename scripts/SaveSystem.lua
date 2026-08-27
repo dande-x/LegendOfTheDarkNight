@@ -6,7 +6,6 @@
 local SaveSystem = {}
 
 local Quest = require("scripts.Quest")
-local DivineBeast = require("scripts.DivineBeast")
 
 -- ============================================================================
 -- 常量
@@ -201,9 +200,9 @@ function SaveSystem.CreateSnapshot(player, inventoryData, killCount)
         -- 所在地图
         mapId      = (require("scripts.Combat").currentMapId) or "map_bq",
 
-        -- 只有道士拥有永久神兽；按职业写入可避免异常会话切换时把
-        -- 上一个道士角色的随从成长串进战士/法师槽位。
-        divineBeast = player.classId == "taoist" and DivineBeast.GetSaveData() or nil,
+        -- 神兽是当前角色会话内的临时成长，不写入角色存档。
+        -- 旧版本存档即使仍含 divineBeast 字段，读档也会忽略；下一次
+        -- 保存会用当前快照覆盖槽位，从而自然移除旧字段。
     }
 end
 
