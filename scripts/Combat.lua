@@ -163,10 +163,11 @@ local ENEMY_DEFS = {
         exp = 700, scale = 2.5, tier = "boss",
     },
     {
-        name = "火龙王", monsterType = "serpent",
+        name = "火龙王", monsterType = "fire_dragon",
         level = 48, hp = 1700, atk = 48, def = 20,
-        speed = 2.2, chaseRange = 16, attackRange = 1.5, attackCD = 2.0,
-        exp = 1000, scale = 2.8, tier = "boss",
+        speed = 2.9, chaseRange = 24, attackRange = 7.5, attackCD = 2.4,
+        attackMode = "fire_breath", attackDamageScale = 1.0,
+        exp = 1000, scale = 2.7, tier = "boss",
     },
     {
         name = "牛魔王", monsterType = "golem",
@@ -420,6 +421,100 @@ local function CreatePBR(color, metallic, roughness)
     mat:SetShaderParameter("Metallic", Variant(metallic or 0.0))
     mat:SetShaderParameter("Roughness", Variant(roughness or 0.6))
     return mat
+end
+
+local fireBreathMaterials = nil
+
+local function GetFireBreathMaterials()
+    if fireBreathMaterials then return fireBreathMaterials end
+
+    local function Make(color, emissive, roughness)
+        local mat = Material:new()
+        mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+        mat:SetShaderParameter("MatDiffColor", Variant(color))
+        mat:SetShaderParameter("MatEmissiveColor", Variant(emissive))
+        mat:SetShaderParameter("Metallic", Variant(0.0))
+        mat:SetShaderParameter("Roughness", Variant(roughness))
+        return mat
+    end
+
+    fireBreathMaterials = {
+        core = Make(Color(1.0, 0.72, 0.12, 0.92), Color(5.0, 1.45, 0.08, 1.0), 0.08),
+        flame = Make(Color(1.0, 0.18, 0.015, 0.68), Color(3.6, 0.32, 0.02, 1.0), 0.15),
+        ember = Make(Color(1.0, 0.88, 0.30, 0.90), Color(4.0, 1.1, 0.10, 1.0), 0.06),
+    }
+    return fireBreathMaterials
+end
+
+function Combat.SpawnFireBreathVisual(scene, origin, targetPos, maxRange)
+    if not scene or not origin or not targetPos then return nil end
+    local dir = targetPos - origin
+    dir.y = 0
+    local targetDistance = dir:Length()
+    if targetDistance <= 0.001 then return nil end
+    dir = dir:Normalized()
+
+    local length = math.min(maxRange or 7.5, targetDistance)
+    local materials = GetFireBreathMaterials()
+    local node = scene:CreateChild("AOEVisual")
+    node.position = Vector3(origin.x, origin.y + 2.35, origin.z)
+    node.rotation = Quaternion(math.deg(math.atan2(dir.x, dir.z)), Vector3.UP)
+
+    -- 用逐渐扩张并下沉的火团形成锥形吐息，起点贴近龙首、末端覆盖目标身位。
+    local segmentCount = 9
+    for index = 1, segmentCount do
+        local progress = index / segmentCount
+        local radius = 0.12 + progress * 0.52
+        local flame = node:CreateChild("fire_breath_flame_" .. index)
+        flame.position = Vector3(
+            math.sin(index * 2.3) * radius * 0.28,
+            -1.32 * progress + math.sin(index * 1.7) * 0.08,
+            length * progress)
+        flame.scale = Vector3(radius * 1.20, radius * 0.92, radius * 1.65)
+        local model = flame:CreateComponent("StaticModel")
+        model:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
+        model:SetMaterial(index % 3 == 0 and materials.core or materials.flame)
+        model.castShadows = false
+    end
+
+    for index = 1, 4 do
+        local progress = (index + 0.5) / 5.0
+        local ember = node:CreateChild("fire_breath_ember_" .. index)
+        ember.position = Vector3(
+            (index % 2 == 0 and 1 or -1) * (0.18 + progress * 0.42),
+            -1.18 * progress + 0.18,
+            length * progress)
+        local size = 0.07 + progress * 0.06
+        ember.scale = Vector3(size, size, size)
+        local model = ember:CreateComponent("StaticModel")
+        model:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
+        model:SetMaterial(materials.ember)
+        model.castShadows = false
+    end
+
+    node:SetVar("removeTimer", Variant(0.72))
+    return node
+end
+
+local function ApplyEnemyDamageToPlayer(enemy, player, hitPos)
+    local incomingMultiplier = enemy.attackDamageScale or 1.0
+    if CharacterClass.RollIncomingDamageReduction
+        and CharacterClass.RollIncomingDamageReduction(player) then
+        incomingMultiplier = incomingMultiplier * CharacterClass.GetIncomingDamageMultiplier(player)
+    end
+    local dmg = Balance.CalculateDamage(enemy.atk, player.def, {
+        damageMultiplier = incomingMultiplier,
+    })
+    if player.shieldHP > 0 then
+        local absorbed = math.min(player.shieldHP, dmg)
+        player.shieldHP = player.shieldHP - absorbed
+        dmg = dmg - absorbed
+    end
+    player.hp = math.max(0, player.hp - dmg)
+    if Combat.onEnemyAttack then
+        Combat.onEnemyAttack(enemy, dmg, hitPos)
+    end
+    return dmg
 end
 
 -- ============================================================================
@@ -756,6 +851,8 @@ function Combat.SpawnEnemy(scene, playerPos, playerLevel, forceDef, mapId, optio
         chaseRange = def.chaseRange,
         attackRange = def.attackRange,
         attackCD = def.attackCD,
+        attackMode = def.attackMode or "melee",
+        attackDamageScale = def.attackDamageScale or 1.0,
         faceYawOffset = def.faceYawOffset or 0,
         attackTimer = 0,
         exp = scaledEXP,
@@ -1124,32 +1221,21 @@ function Combat.UpdateEnemies(dt, playerNode, player)
                         MonsterSkeleton.PlayAnim(e.animData, "attack", nil)
                     end
 
+                    if e.attackMode == "fire_breath" then
+                        local scene = e.node:GetScene()
+                        if scene then
+                            Combat.SpawnFireBreathVisual(scene, pos, targetPos, e.attackRange)
+                        end
+                    end
+
                     if attackTarget == "beast" then
                         -- 攻击神兽
-                        DivineBeast.TakeDamage(e.atk)
+                        DivineBeast.TakeDamage(e.atk * (e.attackDamageScale or 1.0))
                         e.attackTimer = e.attackCD
                     else
                         -- 攻击玩家
-                        local incomingMultiplier = 1.0
-                        if CharacterClass.RollIncomingDamageReduction
-                            and CharacterClass.RollIncomingDamageReduction(player) then
-                            incomingMultiplier = CharacterClass.GetIncomingDamageMultiplier(player)
-                        end
-                        local dmg = Balance.CalculateDamage(e.atk, player.def, {
-                            damageMultiplier = incomingMultiplier,
-                        })
-                        -- 护盾吸收
-                        if player.shieldHP > 0 then
-                            local absorbed = math.min(player.shieldHP, dmg)
-                            player.shieldHP = player.shieldHP - absorbed
-                            dmg = dmg - absorbed
-                        end
-                        player.hp = math.max(0, player.hp - dmg)
+                        ApplyEnemyDamageToPlayer(e, player, playerPos)
                         e.attackTimer = e.attackCD
-
-                        if Combat.onEnemyAttack then
-                            Combat.onEnemyAttack(e, dmg, playerPos)
-                        end
                     end
                 end
             end

@@ -14,6 +14,9 @@ const inventorySource = read("scripts/Inventory.lua");
 const weaponSource = read("scripts/WeaponData.lua");
 const enhanceSource = read("scripts/Enhance.lua");
 const mainSource = read("scripts/main.lua");
+const equipmentPanelSource = read("scripts/EquipmentPanel.lua");
+const gameUISource = read("scripts/GameUI.lua");
+const forgePanelSource = read("scripts/ForgePanel.lua");
 const equipmentSource = `${inventorySource}\n${weaponSource}`;
 
 function check(condition, message) {
@@ -49,6 +52,7 @@ const profiles = {
     orc: { hp: 1.08, atk: 1.05, def: 1.00 },
     golem: { hp: 1.18, atk: 0.95, def: 1.25 },
     qilin: { hp: 1.00, atk: 1.08, def: 1.05 },
+    fire_dragon: { hp: 0.88, atk: 1.08, def: 0.85 },
 };
 
 function monsterStats(def) {
@@ -97,6 +101,28 @@ check(combatSource.includes("local requestedHeal = math.max(1"),
     "技能治疗量未整数化");
 check(mainSource.includes("hpCfg.healRatio * 100") && mainSource.includes("mpCfg.healRatio * 100"),
     "商店药水说明未读取实际恢复配置");
+check(inventorySource.includes("Inventory.POTION_BUY_PRICE = 100"),
+    "药水商店价格不再是统一的 100 金币");
+check((inventorySource.match(/price = Inventory\.POTION_BUY_PRICE/g) ?? []).length === 2,
+    "血药和蓝药没有共用统一商店价格");
+check(mainSource.includes('Inventory.BuyPotionFromMerchant("hp")')
+    && mainSource.includes('Inventory.BuyPotionFromMerchant("mp")'),
+    "安全区商人没有承接两种药水购买");
+check(!mainSource.includes("Inventory.BuyPotion("),
+    "仍存在绕过商人的旧药水购买调用");
+check(!equipmentPanelSource.includes("BuyPotion")
+    && equipmentPanelSource.includes("仅可在安全区商人处购买"),
+    "背包重新出现药水购买入口或缺少商人购买提示");
+check(mainSource.includes('elseif kind == "blacksmith" then')
+    && mainSource.includes("GameUI.ShowForgePanel(player_)"),
+    "铁匠 NPC 没有承接锻造入口");
+check(!equipmentPanelSource.includes("ForgeRecipe")
+    && !equipmentPanelSource.includes("ForgeItems"),
+    "角色/背包面板重新出现直接锻造逻辑");
+check(gameUISource.includes("自动选 3 件材料 · 每次锻造 1 件")
+    && forgePanelSource.includes("3 件同品质同部位")
+    && forgePanelSource.includes("锻造 1 件 · "),
+    "锻造台没有清楚说明材料、次数与费用");
 
 // 这些字符串让测试与 Lua 单一数值源绑定；修改曲线时必须同步更新验收矩阵。
 for (const formula of [

@@ -3297,7 +3297,7 @@ function GameUI.ShowForgePanel(player)
                     _CreateOverlayHeader("铁匠 · 锻造台", function()
                         GameUI.HideNPCPanel()
                     end, {
-                        subtitle = "自动选材 · 三合一升品质",
+                        subtitle = "自动选 3 件材料 · 每次锻造 1 件",
                         titleColor = {244, 210, 142, 255},
                         subtitleColor = {202, 154, 92, 220},
                     }),
@@ -4046,9 +4046,6 @@ local function _BuildEquipmentPanelOptions(player, tab)
     return {
         player = player,
         showToast = function(message) GameUI.ShowToast(message) end,
-        updatePotionCount = function(kind, count)
-            GameUI.UpdatePotionCount(kind, count)
-        end,
         closeDetail = GameUI.HideItemDetail,
         openDetail = function(detailPanel)
             GameUI.HideItemDetail()

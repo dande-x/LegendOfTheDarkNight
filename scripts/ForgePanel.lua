@@ -169,13 +169,13 @@ local function BuildRecipeCard(recipe, options)
     local borderColor = recipe.canForge and {205, 151, 58, 230}
         or (materialsReady and {142, 98, 42, 190} or {76, 70, 60, 145})
 
-    local progressText = "材料 " .. selectedCount .. "/" .. required
+    local progressText = "已找到 " .. selectedCount .. "/" .. required .. " 件材料"
     if totalCount > required then
         progressText = progressText .. " · 同组库存 " .. totalCount .. " 件"
     end
 
     local reason = type(recipe.reason) == "string" and recipe.reason or ""
-    local statusText = recipe.canForge and "材料与金币都已满足"
+    local statusText = recipe.canForge and "可以锻造"
         or (reason ~= "" and reason or "当前条件未满足")
     local statusColor = recipe.canForge and {143, 214, 126, 235}
         or materialsReady and {238, 170, 92, 235}
@@ -231,7 +231,7 @@ local function BuildRecipeCard(recipe, options)
                     alignItems = "center",
                     children = {
                         UI.Label {
-                            text = recipe.hasMaterials and "材料齐全"
+                            text = recipe.hasMaterials and (required .. "/" .. required .. " 已齐")
                                 or (selectedCount .. "/" .. required),
                             fontSize = 11,
                             fontWeight = "bold",
@@ -258,7 +258,7 @@ local function BuildRecipeCard(recipe, options)
                         or {176, 170, 154, 215},
                 },
                 UI.Label {
-                    text = (recipe.hasMaterials and "本次自动消耗：" or "当前同组装备：")
+                    text = (recipe.hasMaterials and "将自动消耗：" or "背包中可用：")
                         .. FormatMaterials(recipe.materials),
                     fontSize = 9,
                     lineHeight = 1.35,
@@ -268,7 +268,7 @@ local function BuildRecipeCard(recipe, options)
                     maxLines = 3,
                 },
                 recipe.targetAvailable and UI.Label {
-                    text = "本次费用：" .. Integer(recipe.cost, 0) .. " 金币  ·  产出：1 件",
+                    text = "需要 " .. Integer(recipe.cost, 0) .. " 金币  →  获得 1 件",
                     fontSize = 10,
                     fontColor = {232, 196, 112, 230},
                 } or nil,
@@ -287,7 +287,7 @@ local function BuildRecipeCard(recipe, options)
 
     if recipe.containsEnhanced and recipe.hasMaterials then
         table.insert(cardChildren, UI.Label {
-            text = "注意：本次材料含强化装备，强化等级不会继承；点击后会先让你确认。",
+            text = "注意：材料中有强化装备，强化等级不会继承；锻造前会再次确认。",
             fontSize = 9,
             fontColor = {240, 151, 79, 235},
             marginTop = 3,
@@ -295,8 +295,8 @@ local function BuildRecipeCard(recipe, options)
         })
     elseif availableCrafts > 1 then
         table.insert(cardChildren, UI.Label {
-            text = "同组库存最多可制作 " .. availableCrafts
-                .. " 件；按钮每次只制作 1 件。",
+            text = "同组材料可锻造 " .. availableCrafts
+                .. " 次；本次只锻造 1 件。",
             fontSize = 9,
             fontColor = {158, 185, 148, 215},
             marginTop = 3,
@@ -304,8 +304,19 @@ local function BuildRecipeCard(recipe, options)
         })
     end
 
+    local buttonText = "暂不能锻造"
+    if recipe.canForge then
+        buttonText = "锻造 1 件 · " .. Integer(recipe.cost, 0) .. " 金币"
+    elseif not recipe.targetAvailable then
+        buttonText = "当前没有对应产物"
+    elseif not recipe.hasMaterials then
+        buttonText = "还差 " .. math.max(0, required - totalCount) .. " 件材料"
+    elseif not recipe.hasGold then
+        buttonText = "金币不足"
+    end
+
     table.insert(cardChildren, UI.Button {
-        text = recipe.canForge and "自动选材并锻造 1 件" or "条件未满足",
+        text = buttonText,
         width = "100%",
         minHeight = 42,
         marginTop = 8,
@@ -409,13 +420,13 @@ function ForgePanel.Build(options)
                             alignItems = "flex-start",
                             children = {
                                 UI.Label {
-                                    text = "自动选材锻造",
+                                    text = "3 件同品质同部位  →  1 件更高品质",
                                     fontSize = 16,
                                     fontWeight = "bold",
                                     fontColor = {238, 205, 130, 250},
                                 },
                                 UI.Label {
-                                    text = "不用手动放材料；选择配方后，铁匠会替你挑选。",
+                                    text = "选择下面的配方即可；铁匠会从背包自动挑选材料。武器还需同职业。",
                                     fontSize = 10,
                                     lineHeight = 1.35,
                                     whiteSpace = "normal",
@@ -449,9 +460,9 @@ function ForgePanel.Build(options)
                     height = 1,
                     backgroundColor = {112, 82, 40, 125},
                 },
-                BuildRuleStep(1, "系统按品质、部位和职业自动分组，不会把不兼容装备混在一起。"),
-                BuildRuleStep(2, "每次只从背包选择 3 件；优先消耗未强化、属性较低的装备，已装备物品不会被选中。"),
-                BuildRuleStep(3, "支付页面标出的金币后获得 1 件更高品质装备；按钮每次只锻造 1 件，成品有 30% 概率自带 +1~+2 强化。"),
+                BuildRuleStep(1, "准备 3 件同品质、同部位的装备；武器还必须属于同一职业。"),
+                BuildRuleStep(2, "铁匠优先消耗未强化、属性较低的背包装备；已装备物品不会被选中。"),
+                BuildRuleStep(3, "每次消耗卡片所示金币并锻造 1 件；成品有 30% 概率自带 +1~+2 强化。"),
             },
         },
         UI.Panel {
@@ -491,17 +502,17 @@ function ForgePanel.Build(options)
     else
         local forgeableSection = BuildSection(
             "现在可锻造",
-            "材料与金币都已满足；点击后自动选择并消耗本次的 3 件装备。",
+            "点击按钮后，铁匠会自动选择并消耗卡片列出的 3 件装备。",
             forgeableRecipes,
             options)
         local blockedSection = BuildSection(
             "材料已齐 · 暂不能锻造",
-            "材料已经凑齐；查看卡片中的金币差额或异常说明。",
+            "通常是金币不足；卡片会直接显示原因。",
             blockedRecipes,
             options)
         local progressSection = BuildSection(
-            "收集材料",
-            "同品质、同部位、同职业凑齐 3 件后即可锻造。",
+            "继续收集材料",
+            "凑齐 3 件同组装备后，这张卡会自动移到“现在可锻造”。",
             progressRecipes,
             options)
         local unavailableSection = BuildSection(

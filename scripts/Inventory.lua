@@ -239,6 +239,22 @@ local function IsCanonicalItem(item, playerClassId)
         and item.enhance <= 12
 end
 
+--- 判断装备是否适用于当前职业。
+---
+--- classReq=nil 表示职业通用装备（例如屠龙）；带职业要求的装备只有
+--- 在要求与当前职业一致时才允许进入该职业的掉落池。playerClassId=nil
+--- 时保留旧接口语义，不做职业过滤，供编辑器/离线工具查看完整模板。
+---@param item table|nil
+---@param playerClassId string|nil
+---@return boolean
+local function IsItemCompatibleWithClass(item, playerClassId)
+    if type(item) ~= "table" then return false end
+    if playerClassId == nil then return true end
+    return item.classReq == nil or item.classReq == playerClassId
+end
+
+Inventory.IsItemCompatibleWithClass = IsItemCompatibleWithClass
+
 local function GetItemType(item)
     if type(item) ~= "table" then return nil end
     return item.itemType or item.slot
@@ -521,9 +537,10 @@ Inventory.playerData = playerData
 -- ============================================================================
 -- 药水配置
 -- ============================================================================
+Inventory.POTION_BUY_PRICE = 100
 Inventory.POTION_CONFIG = {
-    hp = { max = 10, price = 40, healRatio = 0.30, dropChance = 0.12, label = "血药" },
-    mp = { max = 8,  price = 60, healRatio = 0.40, dropChance = 0.08, label = "蓝药" },
+    hp = { max = 10, price = Inventory.POTION_BUY_PRICE, healRatio = 0.30, dropChance = 0.12, label = "血药" },
+    mp = { max = 8,  price = Inventory.POTION_BUY_PRICE, healRatio = 0.40, dropChance = 0.08, label = "蓝药" },
 }
 
 local function EnsurePotions()
@@ -587,10 +604,11 @@ function Inventory.GetPotionCount(kind)
     return potions[kind] or 0
 end
 
---- 购买药水，扣金币，返回 true 表示成功
+--- 商人出售药水：扣除金币并增加一瓶。只允许商人交互流程调用，
+--- 背包和 HUD 不提供购买入口。
 ---@param kind "hp"|"mp"
 ---@return boolean, string
-function Inventory.BuyPotion(kind)
+function Inventory.BuyPotionFromMerchant(kind)
     local cfg = Inventory.POTION_CONFIG[kind]
     if not cfg then return false, "无效类型" end
     local potions = EnsurePotions()
@@ -942,7 +960,7 @@ end
 -- ============================================================================
 -- 掉落判定（只计算掉什么，不添加到背包/金币）
 -- ============================================================================
-function Inventory.RollDrop(enemyName)
+function Inventory.RollDrop(enemyName, playerClassId)
     local dropTable = DROP_TABLES[enemyName]
     if not dropTable then return nil, 0 end
 
@@ -953,21 +971,27 @@ function Inventory.RollDrop(enemyName)
 
     -- 物品掉落判定
     local droppedItem = nil
-    if math.random() < dropTable.dropChance then
-        local totalWeight = 0
-        for _, entry in ipairs(dropTable.items) do
-            totalWeight = totalWeight + entry.weight
+    -- 先过滤当前职业不能使用的装备，再按剩余权重抽样。不能在抽中后才
+    -- 丢弃，否则会让玩家看到无效掉落，且不同职业的有效掉落率会被稀释。
+    local eligibleEntries = {}
+    local totalWeight = 0
+    for _, entry in ipairs(dropTable.items or {}) do
+        local weight = tonumber(entry.weight)
+        local tmpl = ITEM_BY_ID[entry.id]
+        if tmpl and IsFiniteNumber(weight) and weight > 0
+            and IsItemCompatibleWithClass(tmpl, playerClassId) then
+            eligibleEntries[#eligibleEntries + 1] = { template = tmpl, weight = weight }
+            totalWeight = totalWeight + weight
         end
+    end
 
+    if totalWeight > 0 and math.random() < (tonumber(dropTable.dropChance) or 0) then
         local roll = math.random() * totalWeight
         local acc = 0
-        for _, entry in ipairs(dropTable.items) do
+        for _, entry in ipairs(eligibleEntries) do
             acc = acc + entry.weight
             if roll <= acc then
-                local tmpl = ITEM_BY_ID[entry.id]
-                if tmpl then
-                    droppedItem = Inventory.CreateItem(tmpl.id, 0)
-                end
+                droppedItem = Inventory.CreateItem(entry.template.id, 0)
                 break
             end
         end
@@ -980,7 +1004,7 @@ end
 -- 保留旧接口兼容（即时处理掉落 — 不再使用）
 -- ============================================================================
 function Inventory.ProcessDrop(enemyName, playerClassId)
-    local item, gold = Inventory.RollDrop(enemyName)
+    local item, gold = Inventory.RollDrop(enemyName, playerClassId)
     Inventory.AddGold(gold)
     if item then
         Inventory.PickupItem(item, playerClassId)

@@ -33,6 +33,106 @@ local function CreateGhostDeerMat()
     return mat
 end
 
+local function CreateFireDragonMat(color, emissive, alpha)
+    local mat = Material:new()
+    local technique = alpha and "Techniques/PBR/PBRNoTextureAlpha.xml"
+        or "Techniques/PBR/PBRNoTexture.xml"
+    mat:SetTechnique(0, cache:GetResource("Technique", technique))
+    mat:SetShaderParameter("MatDiffColor", Variant(color))
+    mat:SetShaderParameter("MatEmissiveColor", Variant(emissive))
+    mat:SetShaderParameter("Roughness", Variant(0.16))
+    mat:SetShaderParameter("Metallic", Variant(0.08))
+    return mat
+end
+
+local function DefineWingTriangle(geom, a, b, c, normal)
+    geom:DefineVertex(a)
+    geom:DefineNormal(normal)
+    geom:DefineTexCoord(Vector2(0, 0))
+    geom:DefineVertex(b)
+    geom:DefineNormal(normal)
+    geom:DefineTexCoord(Vector2(1, 0))
+    geom:DefineVertex(c)
+    geom:DefineNormal(normal)
+    geom:DefineTexCoord(Vector2(0.5, 1))
+end
+
+local function CreateFireDragonWing(parent, side, material)
+    local wing = parent:CreateChild(side < 0 and "fire_dragon_wing_l" or "fire_dragon_wing_r")
+    wing.position = Vector3(side * 0.30, 1.48, -0.04)
+
+    local root = Vector3.ZERO
+    local tip = Vector3(side * 1.02, 0.48, -0.42)
+    local rear = Vector3(side * 0.84, -0.38, -0.86)
+    local inner = Vector3(side * 0.12, -0.46, -0.26)
+    local geom = wing:CreateComponent("CustomGeometry")
+    geom:BeginGeometry(0, TRIANGLE_LIST)
+    DefineWingTriangle(geom, root, tip, rear, Vector3.UP)
+    DefineWingTriangle(geom, root, rear, inner, Vector3.UP)
+    DefineWingTriangle(geom, rear, tip, root, -Vector3.UP)
+    DefineWingTriangle(geom, inner, rear, root, -Vector3.UP)
+    geom:Commit()
+    geom:SetMaterial(material)
+    geom.castShadows = false
+    return { node = wing, side = side }
+end
+
+local function CreateFireDragonAdornment(visualNode, model)
+    local wingMat = CreateFireDragonMat(
+        Color(0.72, 0.08, 0.015, 0.72),
+        Color(2.8, 0.30, 0.025, 1.0), true)
+    local flameMat = CreateFireDragonMat(
+        Color(1.0, 0.26, 0.015, 0.70),
+        Color(4.2, 0.72, 0.04, 1.0), true)
+    local auraMat = CreateFireDragonMat(
+        Color(1.0, 0.12, 0.01, 0.16),
+        Color(1.8, 0.18, 0.015, 1.0), true)
+
+    -- 保留原模型贴图，在外层叠加极薄的熔火轮廓，避免把精细纹理整体染成纯色。
+    local auraNode = visualNode:CreateChild("fire_dragon_aura")
+    auraNode.scale = Vector3(1.028, 1.028, 1.028)
+    local auraModel = auraNode:CreateComponent("StaticModel")
+    auraModel:SetModel(model)
+    auraModel:SetMaterial(auraMat)
+    auraModel.castShadows = false
+
+    local flames = {}
+    local flameDefs = {
+        { Vector3(0, 1.78, -0.14), Vector3(0.13, 0.34, 0.13) },
+        { Vector3(0, 1.54, -0.40), Vector3(0.11, 0.28, 0.11) },
+        { Vector3(0, 1.32, -0.64), Vector3(0.09, 0.22, 0.09) },
+    }
+    for index, def in ipairs(flameDefs) do
+        local flame = visualNode:CreateChild("fire_dragon_flame_" .. index)
+        flame.position = def[1]
+        flame.scale = def[2]
+        local flameModel = flame:CreateComponent("StaticModel")
+        flameModel:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
+        flameModel:SetMaterial(flameMat)
+        flameModel.castShadows = false
+        table.insert(flames, { node = flame, baseScale = def[2] })
+    end
+
+    local lightNode = visualNode:CreateChild("fire_dragon_light")
+    lightNode.position = Vector3(0, 1.36, 0)
+    local light = lightNode:CreateComponent("Light")
+    light.lightType = LIGHT_POINT
+    light.color = Color(1.0, 0.24, 0.035, 1.0)
+    light.range = 6.5
+    light.brightness = 2.4
+    light.castShadows = false
+
+    return {
+        aura = auraNode,
+        flames = flames,
+        wings = {
+            CreateFireDragonWing(visualNode, -1, wingMat),
+            CreateFireDragonWing(visualNode, 1, wingMat),
+        },
+        light = light,
+    }
+end
+
 local function CreateZombieMat(index)
     local palette = {
         Color(0.36, 0.50, 0.32, 1.0),
@@ -105,6 +205,16 @@ local MODEL_MONSTERS = {
         rotation = Quaternion(90, Vector3.UP),
         scale = Vector3(1.00, 1.00, 1.00),
         hideProceduralBones = true,
+    },
+    fire_dragon = {
+        modelPath = "Meshes/Qilin.mdl",
+        materialPath = "Materials/Qilin_00_tripo_material_5c1ff8c2-9635-4910-924c-b2eca2720248.xml",
+        parentBone = nil,
+        position = Vector3(0, 0.75, 0),
+        rotation = Quaternion(90, Vector3.UP),
+        scale = Vector3(1.08, 1.08, 1.08),
+        hideProceduralBones = true,
+        decorate = CreateFireDragonAdornment,
     },
     mech_humanoid = {
         modelPath = "uuid://ARoaobEzRVktIvNfBEsDPWeQ",
@@ -185,6 +295,11 @@ local function CreateModelVisual(parentNode, bones, monsterType)
 
     modelComponent.castShadows = modelDef.castShadows ~= false
 
+    local decor = nil
+    if modelDef.decorate then
+        decor = modelDef.decorate(visualNode, model)
+    end
+
     local animCtrl = nil
     local fsm = nil
     if isAnimatedModel then
@@ -220,6 +335,7 @@ local function CreateModelVisual(parentNode, bones, monsterType)
         modelAnim = modelDef.modelAnim,
         currentAnim = nil,
         overlayTimer = 0,
+        decor = decor,
         baseScale = visualNode.scale,
         basePosition = visualNode.position,
         baseRotation = visualNode.rotation,
@@ -576,6 +692,11 @@ MonsterSkeleton.TYPES = {
         color = Color(0.70, 0.55, 0.25, 1.0),  -- 金色神兽
         scale = 1.25, heightOffset = 0,
     },
+    fire_dragon = {
+        name = "火龙王", bones = BONES_DEER,
+        color = Color(0.88, 0.18, 0.035, 1.0),
+        scale = 1.0, heightOffset = 0,
+    },
     mech_humanoid = {
         name = "幽灵", bones = BONES_GOLEM,
         color = Color(0.32, 0.46, 0.28, 1.0),
@@ -659,6 +780,7 @@ ANIMS.deer = {
 
 -- 麒麟：四足神兽，复用鹿的对角步态，保持四肢着地移动
 ANIMS.qilin = ANIMS.deer
+ANIMS.fire_dragon = ANIMS.deer
 -- 新增四足怪复用鹿步态（骨骼命名 lFrontUp/lBackUp 等兼容）
 ANIMS.cat = ANIMS.deer
 ANIMS.wolf = ANIMS.deer
@@ -1155,6 +1277,7 @@ local MODEL_ANIMS = {
 local MODEL_ATTACK_OVERLAY = {
     deer = { duration = 0.58, back = 0.16, forward = 0.42, pitchBack = -13, pitchForward = 18, squash = 0.05 },
     qilin = { duration = 0.66, back = 0.18, forward = 0.54, pitchBack = -15, pitchForward = 22, squash = 0.055 },
+    fire_dragon = { duration = 0.78, back = 0.22, forward = 0.66, pitchBack = -18, pitchForward = 26, squash = 0.065 },
     scarecrow = { duration = 0.62, back = 0.12, forward = 0.36, pitchBack = -10, pitchForward = 15, squash = 0.04 },
     mech_humanoid = { duration = 0.68, back = 0.10, forward = 0.30, pitchBack = -7, pitchForward = 11, squash = 0.025 },
 }
@@ -1251,21 +1374,88 @@ local function ApplyModelAttackOverlay(visual, dt, monsterType, animState)
     return true
 end
 
-local function ApplyQilinMoveOverlay(visual, monsterType, animState, isMoving)
-    if monsterType ~= "qilin" or not visual or not visual.node then return false end
+local function UpdateFireDragonAdornment(visual, animState, isMoving)
+    local decor = visual and visual.decor
+    if not decor then return end
+
+    local t = visual.elapsed or 0
+    local flap
+    if animState == "death" then
+        flap = -34
+    elseif animState == "attack" then
+        flap = 34 + math.sin(t * 13.0) * 8
+    elseif animState == "hit" then
+        flap = 22 + math.sin(t * 18.0) * 7
+    elseif isMoving then
+        flap = 18 + math.sin(t * 7.0) * 12
+    else
+        flap = 14 + math.sin(t * 2.8) * 6
+    end
+    for _, wing in ipairs(decor.wings or {}) do
+        wing.node.rotation = Quaternion(wing.side * flap, Vector3.FORWARD)
+    end
+
+    local pulse = 1.028 + math.sin(t * 5.0) * 0.010
+    if decor.aura then decor.aura.scale = Vector3(pulse, pulse, pulse) end
+    for index, flame in ipairs(decor.flames or {}) do
+        local flicker = 0.86 + math.sin(t * (7.0 + index) + index) * 0.14
+        flame.node.scale = flame.baseScale * flicker
+    end
+    if decor.light then
+        decor.light.brightness = 2.25 + math.sin(t * 6.5) * 0.30
+    end
+end
+
+local function ApplyFireDragonStateOverlay(visual, dt, monsterType, animState)
+    if monsterType ~= "fire_dragon" or not visual or not visual.node then return false end
+    if animState ~= "hit" and animState ~= "death" then
+        visual.fireDragonState = nil
+        visual.fireDragonStateTime = nil
+        return false
+    end
+
+    if visual.fireDragonState ~= animState then
+        visual.fireDragonState = animState
+        visual.fireDragonStateTime = 0
+    end
+    visual.fireDragonStateTime = (visual.fireDragonStateTime or 0) + dt
+
+    local basePos = visual.basePosition or Vector3.ZERO
+    local baseRot = visual.baseRotation or Quaternion.IDENTITY
+    local baseScale = visual.baseScale or visual.node.scale
+    if animState == "hit" then
+        local p = math.min(1.0, visual.fireDragonStateTime / 0.4)
+        local shake = math.sin(p * math.pi * 5.0) * (1.0 - p)
+        visual.node.position = basePos + Vector3(shake * 0.07, 0, 0)
+        visual.node.rotation = baseRot * Quaternion(shake * 8.0, Vector3.FORWARD)
+        visual.node.scale = baseScale
+    else
+        local p = SmoothStep(math.min(1.0, visual.fireDragonStateTime / 1.0))
+        visual.node.position = basePos + Vector3(0, -0.32 * p, 0)
+        visual.node.rotation = baseRot * Quaternion(78 * p, Vector3.FORWARD)
+        visual.node.scale = baseScale * (1.0 - p * 0.12)
+    end
+    return true
+end
+
+local function ApplyLargeCreatureMoveOverlay(visual, monsterType, animState, isMoving)
+    if (monsterType ~= "qilin" and monsterType ~= "fire_dragon")
+        or not visual or not visual.node then return false end
     if animState == "attack" or animState == "hit" or animState == "death" then return false end
 
     local basePos = visual.basePosition or Vector3.ZERO
     local baseRot = visual.baseRotation or Quaternion.IDENTITY
     local baseScale = visual.baseScale or visual.node.scale
+    local isFireDragon = monsterType == "fire_dragon"
 
     if isMoving then
         local t = visual.elapsed or 0
-        local stride = math.sin(t * 8.0)
-        local hop = math.abs(math.sin(t * 8.0)) * 0.075
-        local roll = stride * 3.5
-        local pitch = math.sin(t * 8.0 + math.pi * 0.5) * 2.8
-        local swayX = math.sin(t * 4.0) * 0.035
+        local gait = isFireDragon and 6.4 or 8.0
+        local stride = math.sin(t * gait)
+        local hop = math.abs(math.sin(t * gait)) * (isFireDragon and 0.055 or 0.075)
+        local roll = stride * (isFireDragon and 2.6 or 3.5)
+        local pitch = math.sin(t * gait + math.pi * 0.5) * (isFireDragon and 3.4 or 2.8)
+        local swayX = math.sin(t * gait * 0.5) * (isFireDragon and 0.045 or 0.035)
         local stretch = 1.0 + math.abs(stride) * 0.025
         visual.node.position = basePos + Vector3(swayX, hop, 0)
         visual.node.rotation = baseRot * Quaternion(pitch, Vector3.RIGHT) * Quaternion(roll, Vector3.FORWARD)
@@ -1283,13 +1473,19 @@ end
 local function UpdateModelOverlay(visual, dt, animState, isMoving, monsterType, moveAnimName)
     if not visual then return end
     visual.elapsed = (visual.elapsed or 0) + dt
+    if monsterType == "fire_dragon" then
+        UpdateFireDragonAdornment(visual, animState, isMoving)
+    end
 
     local hasFSM = SetModelFSMParameter(visual, animState, isMoving, moveAnimName)
+    if ApplyFireDragonStateOverlay(visual, dt, monsterType, animState) then
+        return
+    end
     if ApplyModelAttackOverlay(visual, dt, monsterType, animState) then
         return
     end
 
-    if ApplyQilinMoveOverlay(visual, monsterType, animState, isMoving) then
+    if ApplyLargeCreatureMoveOverlay(visual, monsterType, animState, isMoving) then
         return
     end
 

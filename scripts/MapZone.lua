@@ -109,7 +109,7 @@ MapZone.DEFS = {
         mapColor = { 82, 30, 24, 245 },
         landmarks = {
             { name = "熔岩池", x = -26, z = 22 },
-            { name = "屠龙台", x = 0, z = -32 },
+            { name = "熔火龙巢", x = 0, z = -32 },
             { name = "深渊王座", x = 30, z = 26 },
         },
     },

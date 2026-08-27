@@ -1029,15 +1029,28 @@ function CreateMapDecorations(mapId, mapDef)
             Vector3(3.2, 3.3, 0.08), solid(Color(0.025, 0.02, 0.035, 1.0), 1.0), nil)
     elseif mapId == "map_zm" then
         -- 祖玛寺庙：真正自发光的岩浆池、裂隙和带碰撞的熔岩石。
+        -- 火龙王遭遇中心必须保持净空，避免动态刚体出生后被场景碰撞夹住。
         local lavaMat = solid(Color(0.82, 0.16, 0.025, 1.0), 0.26, Color(2.8, 0.46, 0.06, 1.0))
         local lavaGlowMat = solid(Color(1.0, 0.36, 0.04, 1.0), 0.16, Color(4.0, 0.85, 0.10, 1.0))
         local rockMat = solid(Color(0.16, 0.10, 0.08, 1.0), 0.95)
+        local lairCenterX, lairCenterZ = 0, -32
+        local lairClearRadius = 8.0
+        local function RandomOutsideDragonLair(range, padding)
+            for _ = 1, 32 do
+                local x, z = RandomOutsideSafeZone(range, padding)
+                local dx, dz = x - lairCenterX, z - lairCenterZ
+                if dx * dx + dz * dz >= lairClearRadius * lairClearRadius then
+                    return x, z
+                end
+            end
+            return lairCenterX + lairClearRadius + 3.0, lairCenterZ
+        end
         for i = 1, 7 do
             local x, z
             if i == 1 then
                 x, z = -26, 22
             else
-                x, z = RandomOutsideSafeZone(38, 4.0)
+                x, z = RandomOutsideDragonLair(38, 4.0)
             end
             local pool = CreateMapModel("LavaPool_" .. i, "Models/Sphere.mdl", Vector3(x, 0.055, z),
                 Vector3(2.8 + math.random() * 2.4, 0.10, 2.0 + math.random() * 2.2),
@@ -1047,7 +1060,7 @@ function CreateMapDecorations(mapId, mapDef)
             if model then model.castShadows = false end
         end
         for i = 1, 18 do
-            local x, z = RandomOutsideSafeZone(42, 3.0)
+            local x, z = RandomOutsideDragonLair(42, 3.0)
             local crack = CreateMapModel("LavaCrack_" .. i, "Models/Box.mdl", Vector3(x, 0.04, z),
                 Vector3(0.10, 0.035, 1.2 + math.random() * 2.2), lavaGlowMat, nil)
             crack.rotation = Quaternion(math.random() * 360, Vector3.UP)
@@ -1055,16 +1068,41 @@ function CreateMapDecorations(mapId, mapDef)
             if model then model.castShadows = false end
         end
         for i = 1, 12 do
-            local x, z = RandomOutsideSafeZone(44, 3.0)
+            local x, z = RandomOutsideDragonLair(44, 3.0)
             local rock = CreateMapModel("LavaRock_" .. i, "Models/Sphere.mdl", Vector3(x, 0.4, z),
                 Vector3(0.8 + math.random() * 1.2, 0.55 + math.random() * 0.8, 0.8 + math.random() * 1.2),
                 rockMat, "sphere")
             rock.rotation = Quaternion(math.random() * 360, Vector3.UP)
         end
-        CreateMapModel("DragonSlayerPlatform", "Models/Box.mdl", Vector3(0, 0.34, -32),
-            Vector3(5.8, 0.68, 5.8), rockMat, "box")
-        CreateMapModel("DragonSlayerPedestal", "Models/Box.mdl", Vector3(0, 0.92, -32),
-            Vector3(1.6, 0.55, 1.6), lavaMat, "box")
+
+        -- 熔火龙巢只有地表与外围装饰，不创建任何碰撞体；Boss 可从中心直接追击玩家。
+        local lairGround = CreateMapModel("DragonLair_Ground", "Models/Sphere.mdl",
+            Vector3(lairCenterX, 0.025, lairCenterZ), Vector3(7.6, 0.045, 7.6), rockMat, nil)
+        local lairGroundModel = lairGround:GetComponent("StaticModel")
+        if lairGroundModel then lairGroundModel.castShadows = false end
+        local lairRing = CreateMapModel("DragonLair_Ring", "Models/Torus.mdl",
+            Vector3(lairCenterX, 0.09, lairCenterZ), Vector3(13.2, 0.28, 13.2), lavaGlowMat, nil)
+        local lairRingModel = lairRing:GetComponent("StaticModel")
+        if lairRingModel then lairRingModel.castShadows = false end
+        for index = 1, 4 do
+            local angle = (index - 1) / 4 * math.pi * 2 + math.pi * 0.25
+            local x = lairCenterX + math.cos(angle) * 9.2
+            local z = lairCenterZ + math.sin(angle) * 9.2
+            CreateMapModel("DragonLair_Spire_" .. index, "Models/Cone.mdl",
+                Vector3(x, 1.2, z), Vector3(0.72, 2.4, 0.72), rockMat, nil)
+            local flame = CreateMapModel("DragonLair_Flame_" .. index, "Models/Sphere.mdl",
+                Vector3(x, 2.58, z), Vector3(0.30, 0.52, 0.30), lavaGlowMat, nil)
+            local flameModel = flame:GetComponent("StaticModel")
+            if flameModel then flameModel.castShadows = false end
+        end
+        local lairLightNode = scene_:CreateChild("DragonLair_Light")
+        lairLightNode.position = Vector3(lairCenterX, 1.6, lairCenterZ)
+        local lairLight = lairLightNode:CreateComponent("Light")
+        lairLight.lightType = LIGHT_POINT
+        lairLight.color = Color(1.0, 0.22, 0.04, 1.0)
+        lairLight.range = 15.0
+        lairLight.brightness = 2.2
+        lairLight.castShadows = false
 
         CreateMapModel("AbyssThroneBase", "Models/Box.mdl", Vector3(30, 0.45, 26),
             Vector3(5.2, 0.9, 4.2), rockMat, "box")
@@ -1659,7 +1697,7 @@ local DECOR_PREFIXES = {
     "Pillar_", "Altar", "TempleRune_", "Brazier_", "BrazierFlame_", "BrazierLight_",
     "WomarGate",
     "LavaPool_", "LavaCrack_", "LavaRock_",
-    "DragonSlayer", "AbyssThrone",
+    "DragonSlayer", "DragonLair_", "AbyssThrone",
     "SafeZone", "SafeZoneDash_", "SafeZoneNeedle_", "SafeZoneRing_",
 }
 
@@ -2138,7 +2176,7 @@ function SetupGameCallbacks()
                     hint = "💰" .. hpCfg.price .. "  拥有 "
                         .. Inventory.GetPotionCount("hp") .. "/" .. hpCfg.max,
                     onTap = function()
-                        local ok, msg = Inventory.BuyPotion("hp")
+                        local ok, msg = Inventory.BuyPotionFromMerchant("hp")
                         if ok then
                             GameUI.UpdatePotionCount("hp", Inventory.GetPotionCount("hp"))
                             GameUI.ShowToast("购买成功：血药 +1")
@@ -2154,7 +2192,7 @@ function SetupGameCallbacks()
                     hint = "💰" .. mpCfg.price .. "  拥有 "
                         .. Inventory.GetPotionCount("mp") .. "/" .. mpCfg.max,
                     onTap = function()
-                        local ok, msg = Inventory.BuyPotion("mp")
+                        local ok, msg = Inventory.BuyPotionFromMerchant("mp")
                         if ok then
                             GameUI.UpdatePotionCount("mp", Inventory.GetPotionCount("mp"))
                             GameUI.ShowToast("购买成功：蓝药 +1")
@@ -2385,7 +2423,7 @@ function SetupGameCallbacks()
 
     -- 掉落系统（地面掉落模式）
     Combat.onEnemyDeath = function(enemyName, deathPos, exp, deathDuration, tier, mapId, encounterId)
-        local droppedItem, gold = Inventory.RollDrop(enemyName)
+        local droppedItem, gold = Inventory.RollDrop(enemyName, player_.classId)
         -- 金币散落到地面
         if gold > 0 then
             Combat.SpawnGroundGold(scene_, deathPos, gold)

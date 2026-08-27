@@ -110,6 +110,8 @@ Balance.MONSTER_PROFILES = {
     orc           = { hp = 1.08, atk = 1.05, def = 1.00, exp = 1.0 },
     golem         = { hp = 1.18, atk = 0.95, def = 1.25, exp = 1.0 },
     qilin         = { hp = 1.00, atk = 1.08, def = 1.05, exp = 1.0 },
+    -- 火龙王更换独立外观与攻击方式时保持原 Boss 曲线，避免模型修复顺带抬高数值。
+    fire_dragon   = { hp = 0.88, atk = 1.08, def = 0.85, exp = 1.0 },
 }
 
 local DEFAULT_PROFILE = { hp = 1.0, atk = 1.0, def = 1.0, exp = 1.0 }

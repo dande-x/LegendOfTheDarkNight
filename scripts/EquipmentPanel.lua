@@ -743,18 +743,6 @@ function EquipmentPanel.BuildBagTab(options)
     local capacityColor = #inv.bag >= Inventory.MAX_BAG_SLOTS
         and {245, 112, 92, 240} or {184, 186, 184, 215}
 
-    local function buyPotion(kind)
-        local ok, reason = Inventory.BuyPotion(kind)
-        if ok then
-            if options.updatePotionCount then
-                options.updatePotionCount(kind, Inventory.GetPotionCount(kind))
-            end
-        else
-            ShowToast(options, reason or "购买失败")
-        end
-        Refresh(options)
-    end
-
     return UI.Panel {
         width = "100%",
         children = {
@@ -773,26 +761,55 @@ function EquipmentPanel.BuildBagTab(options)
             },
             UI.Panel {
                 width = "100%",
-                flexDirection = "row",
-                flexWrap = "wrap",
-                gap = 8,
+                gap = 6,
                 marginBottom = 11,
-                alignItems = "center",
                 children = {
-                    UI.Label { text = "药水", fontSize = 11, fontColor = {180, 182, 180, 205} },
-                    UI.Button {
-                        text = "血药 " .. inv.potions.hp .. "/" .. Inventory.POTION_CONFIG.hp.max
-                            .. " · " .. Inventory.POTION_CONFIG.hp.price .. "金",
-                        height = 32,
-                        variant = "secondary",
-                        onClick = function() buyPotion("hp") end,
+                    UI.Label {
+                        text = "药水 · 仅可在安全区商人处购买",
+                        fontSize = 11,
+                        fontColor = {180, 182, 180, 205},
                     },
-                    UI.Button {
-                        text = "蓝药 " .. inv.potions.mp .. "/" .. Inventory.POTION_CONFIG.mp.max
-                            .. " · " .. Inventory.POTION_CONFIG.mp.price .. "金",
-                        height = 32,
-                        variant = "secondary",
-                        onClick = function() buyPotion("mp") end,
+                    UI.Panel {
+                        width = "100%",
+                        flexDirection = "row",
+                        flexWrap = "wrap",
+                        gap = 8,
+                        children = {
+                            UI.Panel {
+                                minHeight = 32,
+                                paddingHorizontal = 10,
+                                paddingVertical = 6,
+                                backgroundColor = {40, 20, 18, 205},
+                                borderRadius = 6,
+                                borderWidth = 1,
+                                borderColor = {142, 67, 55, 155},
+                                children = {
+                                    UI.Label {
+                                        text = "血药 " .. inv.potions.hp .. "/" .. Inventory.POTION_CONFIG.hp.max
+                                            .. " · 商人价 " .. Inventory.POTION_CONFIG.hp.price .. " 金币",
+                                        fontSize = 10,
+                                        fontColor = {224, 188, 178, 225},
+                                    },
+                                },
+                            },
+                            UI.Panel {
+                                minHeight = 32,
+                                paddingHorizontal = 10,
+                                paddingVertical = 6,
+                                backgroundColor = {18, 24, 43, 205},
+                                borderRadius = 6,
+                                borderWidth = 1,
+                                borderColor = {61, 94, 157, 155},
+                                children = {
+                                    UI.Label {
+                                        text = "蓝药 " .. inv.potions.mp .. "/" .. Inventory.POTION_CONFIG.mp.max
+                                            .. " · 商人价 " .. Inventory.POTION_CONFIG.mp.price .. " 金币",
+                                        fontSize = 10,
+                                        fontColor = {178, 196, 228, 225},
+                                    },
+                                },
+                            },
+                        },
                     },
                 },
             },

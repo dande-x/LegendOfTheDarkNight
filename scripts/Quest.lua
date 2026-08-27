@@ -226,10 +226,10 @@ Quest.CHAIN = {
         },
     },
     {
-        id = "q_015", name = "骨龙之渊", chapter = "终章 · 屠龙之战",
+        id = "q_015", name = "熔火龙巢", chapter = "终章 · 屠龙之战",
         mode = "encounter", mapId = "map_zm", target = "火龙王", count = 1, legacyCount = 1,
-        encounter = { name = "屠龙台", x = 0, z = -32 },
-        desc = "祖玛寺庙深处，火龙王守护着最后的封印。",
+        encounter = { name = "熔火龙巢", x = 0, z = -32 },
+        desc = "祖玛寺庙深处，火龙王在熔火龙巢中巡猎，守护着最后的封印。",
         rewardExp = 10000, rewardGold = 8000,
         dialogues = {
             { speaker = "旁白", text = "祖玛寺庙深处，火龙王在熔岩深渊中缓缓睁开眼。" },
