@@ -1699,6 +1699,7 @@ local DECOR_PREFIXES = {
     "LavaPool_", "LavaCrack_", "LavaRock_",
     "DragonSlayer", "DragonLair_", "AbyssThrone",
     "SafeZone", "SafeZoneDash_", "SafeZoneNeedle_", "SafeZoneRing_",
+    "QuestSignal", "QuestAreaEffect",
 }
 
 --- 清理所有装饰节点（切图时调用）
@@ -1801,6 +1802,35 @@ ProcessPendingQuestMapSwitch = function()
     return SwitchMap(mapId)
 end
 
+-- 任务世界坐标统一从目标数据生成。Quest 只保存纯坐标，主流程负责补齐
+-- 渲染/刷怪需要的 Y 值，避免把引擎 Node 或材质状态塞回任务存档。
+local function GetQuestWorldPosition(anchor, y)
+    if type(anchor) ~= "table" then return nil end
+    local x = tonumber(anchor.x)
+    local z = tonumber(anchor.z)
+    if not x or not z then return nil end
+    return Vector3(x, tonumber(anchor.y) or (y or 0), z)
+end
+
+-- 坚守区域是当前任务的世界提示，不属于地图装饰。只在目标地图展示，
+-- 站入区域且角色存活时切换到高亮；离开、死亡、切图或任务推进后自动熄灭/清理。
+local function UpdateQuestAreaEffect()
+    local quest = Quest.GetCurrent()
+    if not scene_ or not playerNode_ or not player_
+        or not quest or quest.mode ~= "survive"
+        or quest.mapId ~= Combat.currentMapId
+        or type(quest.area) ~= "table" then
+        Combat.ClearQuestAreaEffect()
+        return
+    end
+
+    local active = false
+    if not isDead and (tonumber(player_.hp) or 0) > 0 then
+        active = Quest.IsInsideObjective(playerNode_.position, quest.area)
+    end
+    Combat.SetQuestAreaEffect(scene_, quest.id, quest.area, active)
+end
+
 local function GetMerchantRequiredLevel(item)
     local rarityLevels = {
         COMMON = 1,
@@ -1814,21 +1844,19 @@ end
 
 local function GenerateMerchantStock(mapId, player)
     local candidates = {}
-    for _, item in ipairs(Inventory.GetAllItemTemplates()) do
+    local compatibleTemplates = Inventory.GetCompatibleItemTemplates(player.classId)
+    for _, item in ipairs(compatibleTemplates) do
         local requiredLevel = GetMerchantRequiredLevel(item)
-        local classOk = not item.classReq or item.classReq == player.classId
         -- 货架只展示当前等级可购买或略高一档的装备；终极传说装备留给
         -- 终章/Boss，避免商人直接跳过掉落与主线成长。
-        if classOk and item.rarity ~= "LEGENDARY"
+        if item.rarity ~= "LEGENDARY"
             and requiredLevel <= (player.level or 1) then
             table.insert(candidates, item)
         end
     end
     if #candidates == 0 then
-        for _, item in ipairs(Inventory.GetAllItemTemplates()) do
-            if not item.classReq or item.classReq == player.classId then
-                table.insert(candidates, item)
-            end
+        for _, item in ipairs(compatibleTemplates) do
+            table.insert(candidates, item)
         end
     end
 
@@ -2237,7 +2265,7 @@ function SetupGameCallbacks()
                     text = "[" .. rarityName .. "] " .. tmpl.name,
                     hint = "💰" .. price .. "  点击购买",
                     onTap = function()
-                        local ok, msg, item = Inventory.BuyItem(itemCopy.id)
+                        local ok, msg, item = Inventory.BuyItem(itemCopy.id, player_.classId)
                         if not ok then
                             GameUI.ShowToast(msg or "购买失败")
                             return
@@ -2531,6 +2559,90 @@ function SetupGameCallbacks()
         if shouldSave then SaveCurrentGame() end
     end
 
+    -- 巡查点首次到达：在目标地点打出一次明确的世界特效，并从当前地图
+    -- 自然生态中注入一小组敌人。Quest 只报告事件，刷怪和演出仍由主流程
+    -- 统一编排，避免 Combat 反向依赖任务模块。
+    Quest.onObjectiveReached = function(quest, point, progress)
+        if not quest or quest.mode ~= "patrol" or not scene_
+            or Combat.currentMapId ~= quest.mapId then
+            return
+        end
+
+        local position = GetQuestWorldPosition(point, 0)
+        if not position then return end
+
+        local pointName = (point and point.name) or "目标地点"
+        Combat.SpawnQuestSignal(scene_, position, "patrol")
+        GameUI.ShowToast("探索成功：" .. pointName, 2.2)
+        if playerNode_ then
+            GameUI.AddFloatingText("已发现 · " .. pointName,
+                position + Vector3(0, 1.25, 0), {255, 220, 110, 255})
+        end
+
+        Combat.SpawnEnemyGroup(scene_, position, player_.level, quest.mapId, {
+            count = 3,
+            radius = 4.8,
+            groupId = quest.id .. ":point:" .. tostring(progress or 0),
+        })
+    end
+
+    -- 坚守区域状态变化：首次进入时亮起区域、播报“区域生效”，并
+    -- 生成首波敌群；之后的离开/回归只切换亮度，不重复首波。
+    Quest.onAreaStateChanged = function(quest, active, area, firstActivation)
+        if not quest or quest.mode ~= "survive" or not scene_
+            or Combat.currentMapId ~= quest.mapId then
+            return
+        end
+
+        local position = GetQuestWorldPosition(area, 0)
+        if not position then return end
+
+        Combat.SetQuestAreaEffect(scene_, quest.id, area, active == true)
+        if not active then return end
+
+        local areaName = (area and area.name) or "目标区域"
+        if firstActivation then
+            Combat.SpawnQuestSignal(scene_, position, "survive")
+            GameUI.ShowToast("区域生效：" .. areaName .. " · 坚守 50 秒", 2.6)
+            if playerNode_ then
+                GameUI.AddFloatingText("区域生效",
+                    position + Vector3(0, 1.25, 0), {255, 180, 70, 255})
+            end
+            Combat.SpawnEnemyGroup(scene_, position, player_.level, quest.mapId, {
+                count = 4,
+                radius = 5.5,
+                groupId = quest.id .. ":start",
+            })
+        else
+            GameUI.ShowToast("回到" .. areaName .. "，坚守继续", 1.8)
+        end
+    end
+
+    -- 坚守每累计 10 秒触发一波敌群（10/20/30/40 秒），最后 50 秒由
+    -- 任务完成处理，不再额外生成“完成后的”波次。
+    Quest.onSurviveWave = function(quest, waveIndex, area)
+        if not quest or quest.mode ~= "survive" or not scene_
+            or Combat.currentMapId ~= quest.mapId then
+            return
+        end
+
+        local position = GetQuestWorldPosition(area, 0)
+        if not position then return end
+
+        Combat.SpawnQuestSignal(scene_, position, "survive")
+        local waveLabel = "敌群来袭 · 第" .. tostring(waveIndex or 1) .. "波"
+        GameUI.ShowToast(waveLabel, 1.8)
+        if playerNode_ then
+            GameUI.AddFloatingText(waveLabel,
+                position + Vector3(0, 1.25, 0), {255, 120, 70, 255})
+        end
+        Combat.SpawnEnemyGroup(scene_, position, player_.level, quest.mapId, {
+            count = 4,
+            radius = 6.0,
+            groupId = quest.id .. ":wave:" .. tostring(waveIndex or 0),
+        })
+    end
+
     Quest.onQuestStart = function(quest)
         if questPresentationDelayHint > 0 then
             pendingQuestPresentation = {
@@ -2794,6 +2906,7 @@ function HandleUpdate(eventType, eventData)
 
     -- 游戏暂停：打开背包/地图/系统面板时暂停游戏逻辑
     if GameUI.IsGamePaused() then
+        UpdateQuestAreaEffect()
         UpdateCamera(dt)
         GameUI.UpdateHUD(player_, dt)
         return
@@ -2836,6 +2949,7 @@ function HandleUpdate(eventType, eventData)
             Combat.CancelPlayerHostileEffects()
             print("[main] Player revived")
         end
+        UpdateQuestAreaEffect()
         UpdateCamera(dt)
         GameUI.UpdateHUD(player_, dt)
         return
@@ -2853,6 +2967,7 @@ function HandleUpdate(eventType, eventData)
         ShowChargeGlow(false)
         GameUI.AddFloatingText("阵亡!", playerNode_.position, {255, 50, 50, 255})
         print("[main] Player died, reviving in 3s")
+        UpdateQuestAreaEffect()
         UpdateCamera(dt)
         GameUI.UpdateHUD(player_, dt)
         return
@@ -2904,6 +3019,7 @@ function HandleUpdate(eventType, eventData)
     -- 区域/巡逻进度只在角色存活且位于目标地图时推进；离图、死亡和读档
     -- 都保留已完成部分。显式遭遇逐帧确保存在，但 encounterId 防止重复刷出。
     Quest.Update(dt, Combat.currentMapId, playerNode_.position, not isDead)
+    UpdateQuestAreaEffect()
     if GameUI.IsGamePaused() then
         UpdateCamera(dt)
         GameUI.UpdateHUD(player_, dt)

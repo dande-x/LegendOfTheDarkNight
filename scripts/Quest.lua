@@ -20,6 +20,13 @@
 
 local Quest = {}
 
+-- 坚守类任务统一使用 50 秒；波次按“已坚守时间”触发，而不是按现实时间，
+-- 这样离开区域、死亡、暂停和读档都不会偷偷消耗波次间隔。
+local SURVIVE_DURATION = 50
+local SURVIVE_WAVE_INTERVAL = 10
+Quest.SURVIVE_DURATION = SURVIVE_DURATION
+Quest.SURVIVE_WAVE_INTERVAL = SURVIVE_WAVE_INTERVAL
+
 -- ============================================================================
 -- 主线任务链（按策划案三幕 + 终章）
 -- ============================================================================
@@ -64,7 +71,7 @@ Quest.CHAIN = {
     },
     {
         id = "q_004", name = "半兽人先锋", chapter = "第一幕 · 边城烽火",
-        mode = "survive", mapId = "map_bq", count = 18, legacyCount = 10,
+        mode = "survive", mapId = "map_bq", count = 50, legacyCount = 10,
         area = { name = "断桥", x = 15, z = 12, radius = 9 },
         desc = "敌人正有组织地穿过断桥。守住桥头，阻止它们继续向城门推进。",
         rewardExp = 690, rewardGold = 180,
@@ -150,7 +157,7 @@ Quest.CHAIN = {
     },
     {
         id = "q_011", name = "熔火之门", chapter = "第三幕 · 怒海寻踪",
-        mode = "survive", mapId = "map_sc", count = 20, legacyCount = 10,
+        mode = "survive", mapId = "map_sc", count = 50, legacyCount = 10,
         area = { name = "灯塔", x = 0, z = 38, radius = 9 },
         desc = "水城的航路被熔火封锁。守住灯塔，让城中的船只完成撤离。",
         rewardExp = 6540, rewardGold = 2400,
@@ -270,12 +277,20 @@ local state = {
     dialogueRead = {}, -- 已看过的任务开场对话，避免读档重复播放
     endingSeen = false, -- 最终 Boss 尾声是否完整播放
     lastNotifiedProgress = -1,
+    -- 以下状态不单独持久化：是否已触发首波可由 progress 推导，波次索引也
+    -- 由已保存的坚守秒数推导，避免为一次性演出再引入第二套存档真源。
+    areaActive = false,
+    areaTriggered = false,
+    surviveWaveIndex = 0,
 }
 
 -- 外部回调（由 main.lua 注册）
 Quest.onQuestComplete = nil   -- function(quest) 任务完成时触发（发放奖励）
 Quest.onProgressUpdate = nil  -- function(quest, progress, count) 进度变化时触发（刷新 HUD）
 Quest.onQuestStart = nil      -- function(quest) 任务开始时触发（播放剧情对话）
+Quest.onObjectiveReached = nil -- function(quest, point, progress) 巡逻点首次到达
+Quest.onAreaStateChanged = nil -- function(quest, active, area, firstActivation) 坚守区域状态
+Quest.onSurviveWave = nil      -- function(quest, waveIndex, area) 坚守波次触发
 
 -- ============================================================================
 -- 查询接口
@@ -332,6 +347,20 @@ local function SetProgress(quest, value)
     if quest and quest.mode ~= "survive" then progress = math.floor(progress) end
     state.progress = progress
     SyncModeState(quest)
+end
+
+-- 任务切换/读档时重置一次性区域演出的运行时状态。首波是否已经触发由
+-- 坚守秒数推导，已保存的旧版本也能自然续接，不会因为升级代码而重复刷首波。
+local function ResetObjectiveRuntimeState(quest, progress)
+    state.areaActive = false
+    state.areaTriggered = quest and quest.mode == "survive"
+        and (tonumber(progress) or 0) > 0 or false
+    if quest and quest.mode == "survive" then
+        local safeProgress = math.max(0, tonumber(progress) or 0)
+        state.surviveWaveIndex = math.floor(safeProgress / SURVIVE_WAVE_INTERVAL)
+    else
+        state.surviveWaveIndex = 0
+    end
 end
 
 --- 当前任务（nil 表示全部完成）
@@ -468,6 +497,7 @@ function Quest.Restore(saved)
         state.dialogueRead = {}
         state.endingSeen = false
         state.lastNotifiedProgress = -1
+        ResetObjectiveRuntimeState(Quest.GetCurrent(), 0)
         return
     end
 
@@ -485,6 +515,7 @@ function Quest.Restore(saved)
         state.questIndex = #Quest.CHAIN + 1
         state.progress = 0
         state.modeState = {}
+        ResetObjectiveRuntimeState(nil, 0)
     else
         local current = Quest.CHAIN[state.questIndex]
         local progress = IsFiniteNumber(tonumber(saved.progress)) and tonumber(saved.progress) or 0
@@ -524,6 +555,7 @@ function Quest.Restore(saved)
                 or math.max(0, current.count - 1)
         end
         SetProgress(current, progress)
+        ResetObjectiveRuntimeState(current, progress)
     end
 
     state.dialogueRead = {}
@@ -551,6 +583,7 @@ function Quest.Reset()
     state.dialogueRead = {}
     state.endingSeen = false
     state.lastNotifiedProgress = -1
+    ResetObjectiveRuntimeState(Quest.GetCurrent(), 0)
     SyncModeState(Quest.GetCurrent())
 end
 
@@ -567,13 +600,37 @@ local function NotifyProgress(q, force)
     end
 end
 
-local function AdvanceCurrent(amount)
+local function NotifySurviveWaves(q)
+    if not q or q.mode ~= "survive" then return end
+
+    -- 到达 50 秒这一刻任务会直接完成，不再额外生成“完成后的”波次。
+    local cappedProgress = math.min(state.progress, math.max(0, q.count - 0.0001))
+    local waveIndex = math.floor(cappedProgress / SURVIVE_WAVE_INTERVAL)
+    local previousWave = state.surviveWaveIndex or 0
+    if waveIndex <= previousWave then return end
+
+    state.surviveWaveIndex = waveIndex
+    for index = previousWave + 1, waveIndex do
+        if Quest.onSurviveWave then
+            Quest.onSurviveWave(q, index, q.area)
+        end
+    end
+end
+
+local function AdvanceCurrent(amount, objective)
     local q = Quest.GetCurrent()
     if not q then return false end
     local increment = tonumber(amount) or 0
     if increment <= 0 then return false end
 
     SetProgress(q, state.progress + increment)
+
+    if q.mode == "patrol" and objective and Quest.onObjectiveReached then
+        Quest.onObjectiveReached(q, objective, math.floor(state.progress))
+    elseif q.mode == "survive" then
+        NotifySurviveWaves(q)
+    end
+
     if state.progress >= q.count then
         Quest._CompleteCurrent()
     else
@@ -618,6 +675,14 @@ local function IsInsideObjective(position, objective)
     return dx * dx + dz * dz <= radius * radius
 end
 
+--- 公开的目标区域判定，供世界特效和 HUD 使用同一套半径逻辑。
+---@param position Vector3|table|nil
+---@param objective table|nil
+---@return boolean
+function Quest.IsInsideObjective(position, objective)
+    return IsInsideObjective(position, objective)
+end
+
 --- 更新巡逻与坚守目标。离开目标地图、角色死亡或离开坚守区域时只暂停，
 --- 不清零已有进度；因此重生、传送往返和读档都不会让任务卡死。
 ---@param dt number
@@ -627,15 +692,44 @@ end
 ---@return boolean
 function Quest.Update(dt, mapId, playerPos, isAlive)
     local q = Quest.GetCurrent()
-    if not q or not Quest.IsOnTargetMap(q, mapId) or isAlive == false then return false end
+    if not q then return false end
+
+    -- 坚守区域离图/死亡时显式熄灭“生效”状态，但不清空已累计秒数；
+    -- 回到区域后只恢复状态，不重复触发首波（除非本次任务从未触发过）。
+    if not Quest.IsOnTargetMap(q, mapId) or isAlive == false then
+        if q.mode == "survive" and state.areaActive then
+            state.areaActive = false
+            if Quest.onAreaStateChanged then
+                Quest.onAreaStateChanged(q, false, q.area, false)
+            end
+        end
+        return false
+    end
 
     if q.mode == "patrol" then
         local nextPoint = q.points and q.points[math.floor(state.progress) + 1] or nil
         if not IsInsideObjective(playerPos, nextPoint) then return false end
-        return AdvanceCurrent(1)
+        return AdvanceCurrent(1, nextPoint)
     end
 
-    if q.mode ~= "survive" or not IsInsideObjective(playerPos, q.area) then return false end
+    if q.mode ~= "survive" then return false end
+
+    local insideArea = IsInsideObjective(playerPos, q.area)
+    if insideArea and not state.areaActive then
+        local firstActivation = not state.areaTriggered
+        state.areaActive = true
+        if firstActivation then state.areaTriggered = true end
+        if Quest.onAreaStateChanged then
+            Quest.onAreaStateChanged(q, true, q.area, firstActivation)
+        end
+    elseif not insideArea and state.areaActive then
+        state.areaActive = false
+        if Quest.onAreaStateChanged then
+            Quest.onAreaStateChanged(q, false, q.area, false)
+        end
+    end
+
+    if not insideArea then return false end
 
     local elapsed = tonumber(dt)
     if not IsFiniteNumber(elapsed) or elapsed <= 0 then return false end
@@ -653,12 +747,14 @@ function Quest._CompleteCurrent()
     state.progress = 0
     state.modeState = {}
     state.lastNotifiedProgress = -1
+    ResetObjectiveRuntimeState(nil, 0)
 
     if state.questIndex > #Quest.CHAIN then
         state.finished = true
     end
 
     local next = Quest.GetCurrent()
+    ResetObjectiveRuntimeState(next, 0)
     SyncModeState(next)
 
     if Quest.onQuestComplete then

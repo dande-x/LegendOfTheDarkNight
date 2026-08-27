@@ -17,6 +17,7 @@ WeaponData.WEAPONS = {
     { id = "sword_flame",  name = "炼狱",     slot = SLOT.WEAPON, itemType = "weapon", rarity = "RARE",      atk = 28, def = 0, hp = 0,  classReq = "warrior" },
     { id = "sword_jzy",    name = "井中月",   slot = SLOT.WEAPON, itemType = "weapon", rarity = "RARE",      atk = 22, def = 0, hp = 0,  classReq = "warrior" },
     { id = "sword_cjzz",   name = "裁决之杖", slot = SLOT.WEAPON, itemType = "weapon", rarity = "EPIC",      atk = 45, def = 0, hp = 0,  classReq = "warrior" },
+    -- 屠龙是项目设定的唯一全职业通用传说武器；其它刀剑/法杖/道术武器均为职业专属。
     { id = "sword_dragon", name = "屠龙",     slot = SLOT.WEAPON, itemType = "weapon", rarity = "LEGENDARY", atk = 58, def = 2, hp = 50, classReq = nil },
 
     -- 法师

@@ -239,6 +239,18 @@ local function IsCanonicalItem(item, playerClassId)
         and item.enhance <= 12
 end
 
+local CLASS_IDS = {
+    warrior = true,
+    mage = true,
+    taoist = true,
+}
+
+local function IsKnownClassId(playerClassId)
+    return type(playerClassId) == "string" and CLASS_IDS[playerClassId] == true
+end
+
+Inventory.IsKnownClassId = IsKnownClassId
+
 --- 判断装备是否适用于当前职业。
 ---
 --- classReq=nil 表示职业通用装备（例如屠龙）；带职业要求的装备只有
@@ -250,6 +262,9 @@ end
 local function IsItemCompatibleWithClass(item, playerClassId)
     if type(item) ~= "table" then return false end
     if playerClassId == nil then return true end
+    -- 运行时职业上下文异常时必须 fail closed，不能因为 classReq=nil
+    -- 而把未知职业误当成“全职业”放行。
+    if not IsKnownClassId(playerClassId) then return false end
     return item.classReq == nil or item.classReq == playerClassId
 end
 
@@ -318,6 +333,26 @@ function Inventory.GetItemTemplate(itemId)
     return ITEM_BY_ID[itemId]
 end
 
+--- 获取当前职业可见的装备模板。
+---
+--- 掉落、商店和其它按职业生成货架的入口统一复用这条规则，避免某个
+--- 新入口只筛掉落表、却把其它职业武器重新展示或售出。
+---@param playerClassId string|nil nil 仅用于编辑器/离线查看全部模板
+---@return table[]
+function Inventory.GetCompatibleItemTemplates(playerClassId)
+    if playerClassId ~= nil and not IsKnownClassId(playerClassId) then
+        return {}
+    end
+
+    local result = {}
+    for _, template in ipairs(ITEM_TEMPLATES) do
+        if IsItemCompatibleWithClass(template, playerClassId) then
+            result[#result + 1] = CloneItemTemplate(template)
+        end
+    end
+    return result
+end
+
 --- 根据模板创建一个新的运行时物品实例。
 ---@param itemId string
 ---@param enhance number|nil
@@ -339,6 +374,10 @@ end
 function Inventory.CreateItemFromSave(savedItem, expectedSlot, playerClassId)
     if type(savedItem) ~= "table" or type(savedItem.id) ~= "string" then
         return nil, "物品数据无效"
+    end
+
+    if playerClassId ~= nil and not IsKnownClassId(playerClassId) then
+        return nil, "职业无效"
     end
 
     local template = Inventory.GetItemTemplate(savedItem.id)
@@ -368,7 +407,7 @@ function Inventory.CreateItemFromSave(savedItem, expectedSlot, playerClassId)
         end
     end
 
-    if template.classReq and playerClassId and template.classReq ~= playerClassId then
+    if not IsItemCompatibleWithClass(template, playerClassId) then
         return nil, "职业不匹配"
     end
 
@@ -712,6 +751,9 @@ end
 -- ============================================================================
 function Inventory.EquipItem(item, playerClassId, targetSlot)
     if type(item) ~= "table" then return false, "装备无效", nil end
+    if not IsKnownClassId(playerClassId) then
+        return false, "装备需要有效职业", nil
+    end
     local ownedType, ownedKey = FindOwnedItem(item)
     if ownedType then
         -- 当前角色已经持有的实例必须仍与本地模板一致；异常运行时数据
@@ -885,12 +927,20 @@ function Inventory.SpendGold(amount)
 end
 
 --- 从商人原子购买一件模板装备。所有校验通过后才同时扣款与入包，
---- 避免“金币已扣但背包写入失败”。价格始终由本地模板计算。
+--- 避免“金币已扣但背包写入失败”。价格始终由本地模板计算；职业参数
+--- 是必需的，防止未来调用绕过商店货架筛选购买异职业武器。
 ---@param itemId string
+---@param playerClassId string
 ---@return boolean, string, table|nil, number
-function Inventory.BuyItem(itemId)
+function Inventory.BuyItem(itemId, playerClassId)
     local item = Inventory.CreateItem(itemId, 0)
     if not item then return false, "商品不存在", nil, 0 end
+    if not IsKnownClassId(playerClassId) then
+        return false, "购买装备需要有效职业", nil, 0
+    end
+    if not IsItemCompatibleWithClass(item, playerClassId) then
+        return false, "该装备不适用于当前职业", nil, 0
+    end
     if #playerData.bag >= MAX_BAG_SLOTS then
         return false, "背包已满", nil, 0
     end
@@ -963,6 +1013,12 @@ end
 function Inventory.RollDrop(enemyName, playerClassId)
     local dropTable = DROP_TABLES[enemyName]
     if not dropTable then return nil, 0 end
+    -- 掉落是运行时经济入口，职业上下文缺失时直接拒绝，避免旧调用
+    -- 把完整模板池当成玩家可用掉落池。
+    if not IsKnownClassId(playerClassId) then
+        print("[Inventory] RollDrop refused: missing or invalid player class")
+        return nil, 0
+    end
 
     -- 金币必掉，但按统一经济倍率折算；至少保留 1 金，避免低级怪
     -- 因取整完全没有金币反馈。
@@ -1555,11 +1611,7 @@ end
 --- 获取所有装备模板（供商人货架）
 ---@return table[] 装备模板数组
 function Inventory.GetAllItemTemplates()
-    local result = {}
-    for _, tmpl in ipairs(ITEM_TEMPLATES) do
-        result[#result + 1] = CloneItemTemplate(tmpl)
-    end
-    return result
+    return Inventory.GetCompatibleItemTemplates(nil)
 end
 
 return Inventory

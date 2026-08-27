@@ -42,7 +42,9 @@ MonsterData.NEW_ENEMIES = {
         -- boss tier，导致 q_006 永远无法生成目标。当前约 2900 HP，
         -- 作为第一幕高潮但不拖成持久战。
         level = 9, hp = 300, atk = 24, def = 10,
-        speed = 2.2, chaseRange = 9, attackRange = 1.5, attackCD = 2.0,
+        speed = 2.8, chaseRange = 18, attackRange = 2.4, attackCD = 2.0,
+        attackMode = "charge", attackDamageScale = 1.05,
+        leashRange = 27, guardRadius = 2.2,
         exp = 120, scale = 1.5, tier = "boss",
     },
     {
@@ -50,7 +52,9 @@ MonsterData.NEW_ENEMIES = {
         -- 第二幕 Boss：当前约 6800 HP。此前 1800 × 5 反而比后续
         -- 多个 Boss 更耐打，导致第二幕节奏异常陡峭。
         level = 20, hp = 640, atk = 32, def = 14,
-        speed = 1.5, chaseRange = 12, attackRange = 1.8, attackCD = 2.8,
+        speed = 2.7, chaseRange = 20, attackRange = 2.7, attackCD = 2.8,
+        attackMode = "charge", attackDamageScale = 1.10,
+        leashRange = 30, guardRadius = 2.4,
         exp = 300, scale = 2.2, tier = "boss",
     },
     {

@@ -119,7 +119,9 @@ local ENEMY_DEFS = {
         -- 水上城市守关 Boss。最终属性由 Balance 的 Lv34 Boss 曲线派生，
         -- 衔接白野猪与终章沃玛教主。
         level = 34, hp = 900,  atk = 38, def = 16,
-        speed = 3.8, chaseRange = 14, attackRange = 1.5, attackCD = 1.0,
+        speed = 3.4, chaseRange = 20, attackRange = 6.0, attackCD = 1.8,
+        attackMode = "venom_spit", attackDamageScale = 0.95,
+        encounterOffsetZ = 6.0, leashRange = 30, guardRadius = 2.4,
         exp = 480, scale = 1.8, tier = "boss",
     },
     {
@@ -159,7 +161,9 @@ local ENEMY_DEFS = {
     {
         name = "沃玛教主", monsterType = "golem",
         level = 44, hp = 1200, atk = 41, def = 18, hpScale = 0.80,
-        speed = 1.2, chaseRange = 10, attackRange = 1.5, attackCD = 3.0,
+        speed = 2.4, chaseRange = 20, attackRange = 4.2, attackCD = 2.6,
+        attackMode = "ground_slam", attackDamageScale = 1.08,
+        leashRange = 32, guardRadius = 2.5,
         exp = 700, scale = 2.5, tier = "boss",
     },
     {
@@ -167,12 +171,15 @@ local ENEMY_DEFS = {
         level = 48, hp = 1700, atk = 48, def = 20,
         speed = 2.9, chaseRange = 24, attackRange = 7.5, attackCD = 2.4,
         attackMode = "fire_breath", attackDamageScale = 1.0,
+        leashRange = 36, guardRadius = 3.0,
         exp = 1000, scale = 2.7, tier = "boss",
     },
     {
         name = "牛魔王", monsterType = "golem",
         level = 50, hp = 2200, atk = 54, def = 23, atkScale = 1.12,
-        speed = 1.8, chaseRange = 14, attackRange = 1.5, attackCD = 2.5,
+        speed = 2.6, chaseRange = 22, attackRange = 4.6, attackCD = 2.5,
+        attackMode = "ground_slam", attackDamageScale = 1.18,
+        encounterOffsetZ = -6.0, leashRange = 36, guardRadius = 3.0,
         exp = 1300, scale = 3.0, tier = "boss",
     },
 }
@@ -197,6 +204,10 @@ local aoeZones = {}      -- 范围持续伤害区域 (火墙等)
 local summons = {}        -- 召唤兽列表
 ---@type table[]
 local groundItems = {}   -- 地面掉落物 {node, type="gold"/"item", amount, item, timer, magnetPhase, vel}
+---@type table[]
+local questEffects = {}   -- 主线到点/波次的短时视觉效果
+---@type table|nil
+local questAreaEffect = nil -- 当前坚守任务的持续区域效果
 ---@type table|nil
 local lastPlayerTarget = nil -- 玩家上次主动攻击命中的怪物，用于无正前方目标时保持目标连续性
 local IsEnemyTargetable, HorizontalDir, NormalizeHorizontal, RememberPlayerTarget, IsLastPlayerTargetValid, FacePlayerToTarget
@@ -423,6 +434,275 @@ local function CreatePBR(color, metallic, roughness)
     return mat
 end
 
+-- 主线提示材质使用透明 PBR + 自发光：既能在暗色地图上读清轮廓，
+-- 又不会把发光区域误当成实体碰撞或地面装饰。
+local function CreateQuestEffectMaterial(color, alpha, emissive)
+    local mat = Material:new()
+    mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+    mat:SetShaderParameter("MatDiffColor", Variant(Color(color[1], color[2], color[3], alpha)))
+    mat:SetShaderParameter("MatEmissiveColor", Variant(Color(
+        color[1] * (emissive or 1.0),
+        color[2] * (emissive or 1.0),
+        color[3] * (emissive or 1.0), 1.0)))
+    mat:SetShaderParameter("Metallic", Variant(0.0))
+    mat:SetShaderParameter("Roughness", Variant(0.18))
+    return mat
+end
+
+local function SetQuestModelsMaterial(models, material)
+    if type(models) ~= "table" then return end
+    for _, model in ipairs(models) do
+        if model then model:SetMaterial(material) end
+    end
+end
+
+local function CreateQuestRingSegments(parent, radius, material, segmentCount, prefix)
+    local models = {}
+    local count = math.max(6, math.floor(segmentCount or 12))
+    local circumference = math.pi * 2 * radius
+    local segmentLength = math.max(0.38, circumference / count * 0.62)
+
+    for index = 1, count do
+        local angle = (index - 1) / count * math.pi * 2
+        local segment = parent:CreateChild((prefix or "segment") .. "_" .. index)
+        segment.position = Vector3(
+            math.cos(angle) * radius,
+            0.055,
+            math.sin(angle) * radius)
+        -- Box 的本体尺寸为 1m；长轴沿切线摆放，形成清晰的环形虚线。
+        segment.scale = Vector3(segmentLength, 0.045, 0.09)
+        segment.rotation = Quaternion(math.deg(angle) + 90, Vector3.UP)
+        local model = segment:CreateComponent("StaticModel")
+        model:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
+        model:SetMaterial(material)
+        model.castShadows = false
+        table.insert(models, model)
+    end
+    return models
+end
+
+local function CreateQuestAreaVisual(scene, questId, mapId, area)
+    local x = tonumber(area and area.x) or 0
+    local z = tonumber(area and area.z) or 0
+    local radius = math.max(0.5, tonumber(area and area.radius) or 9)
+    local root = scene:CreateChild("QuestAreaEffect_" .. tostring(questId))
+    root.position = Vector3(x, 0, z)
+
+    local activeColor = { 1.0, 0.42, 0.08 }
+    local idleColor = { 0.36, 0.18, 0.06 }
+    local activeMat = CreateQuestEffectMaterial(activeColor, 0.62, 2.4)
+    local idleMat = CreateQuestEffectMaterial(idleColor, 0.24, 0.7)
+    local innerMat = CreateQuestEffectMaterial({ 1.0, 0.68, 0.20 }, 0.10, 1.6)
+
+    local disk = root:CreateChild("AreaDisk")
+    disk.position = Vector3(0, 0.025, 0)
+    disk.scale = Vector3(radius * 2, 0.025, radius * 2)
+    local diskModel = disk:CreateComponent("StaticModel")
+    diskModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+    diskModel:SetMaterial(innerMat)
+    diskModel.castShadows = false
+
+    -- 区域刚创建时处于“未生效”状态；先用低亮材质，等玩家真正站入
+    -- 区域后再由 SetQuestAreaEffect 切到高亮，避免首帧就显示成已激活。
+    local segments = CreateQuestRingSegments(root, radius, idleMat, 18, "AreaRing")
+    local innerSegments = CreateQuestRingSegments(root, radius * 0.56, idleMat, 12, "AreaInnerRing")
+
+    local beaconModels = {}
+    for index, angle in ipairs({ 0, math.pi * 0.5, math.pi, math.pi * 1.5 }) do
+        local beacon = root:CreateChild("AreaBeacon_" .. index)
+        beacon.position = Vector3(
+            math.cos(angle) * radius * 0.82,
+            0.42,
+            math.sin(angle) * radius * 0.82)
+        beacon.scale = Vector3(0.13, 0.84, 0.13)
+        local model = beacon:CreateComponent("StaticModel")
+        model:SetModel(cache:GetResource("Model", "Models/Cone.mdl"))
+        model:SetMaterial(idleMat)
+        model.castShadows = false
+        table.insert(beaconModels, { node = beacon, model = model, baseHeight = 0.84 })
+    end
+
+    return {
+        questId = questId,
+        mapId = mapId,
+        node = root,
+        radius = radius,
+        phase = 0,
+        active = false,
+        activeMaterial = activeMat,
+        idleMaterial = idleMat,
+        segments = segments,
+        innerSegments = innerSegments,
+        beaconModels = beaconModels,
+        diskModel = diskModel,
+    }
+end
+
+--- 创建一次性的“到点/敌群来袭”主线提示。
+---@param scene Scene
+---@param position Vector3|table
+---@param kind string|nil "patrol" or "survive"
+---@return Node|nil
+function Combat.SpawnQuestSignal(scene, position, kind)
+    if not scene or not position then return nil end
+
+    local palette = kind == "survive"
+        and { 1.0, 0.34, 0.06 }
+        or { 1.0, 0.78, 0.16 }
+    local root = scene:CreateChild("QuestSignal")
+    root.position = Vector3(
+        tonumber(position.x) or 0,
+        tonumber(position.y) or 0,
+        tonumber(position.z) or 0)
+    root.scale = Vector3(0.55, 1.0, 0.55)
+
+    local ringMaterial = CreateQuestEffectMaterial(palette, 0.72, 3.2)
+    local innerMaterial = CreateQuestEffectMaterial({ 1.0, 0.95, 0.56 }, 0.82, 3.8)
+    local ringModels = CreateQuestRingSegments(root, 2.35, ringMaterial, 14, "SignalRing")
+    local innerModels = CreateQuestRingSegments(root, 1.15, innerMaterial, 10, "SignalInner")
+
+    local beacon = root:CreateChild("SignalBeacon")
+    beacon.position = Vector3(0, 1.05, 0)
+    beacon.scale = Vector3(0.18, 2.1, 0.18)
+    local beaconModel = beacon:CreateComponent("StaticModel")
+    beaconModel:SetModel(cache:GetResource("Model", "Models/Cone.mdl"))
+    beaconModel:SetMaterial(innerMaterial)
+    beaconModel.castShadows = false
+
+    local core = root:CreateChild("SignalCore")
+    core.position = Vector3(0, 0.24, 0)
+    core.scale = Vector3(0.42, 0.42, 0.42)
+    local coreModel = core:CreateComponent("StaticModel")
+    coreModel:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
+    coreModel:SetMaterial(innerMaterial)
+    coreModel.castShadows = false
+
+    table.insert(questEffects, {
+        node = root,
+        elapsed = 0,
+        duration = 1.35,
+        ringModels = ringModels,
+        innerModels = innerModels,
+        ringMaterial = ringMaterial,
+        innerMaterial = innerMaterial,
+        color = palette,
+    })
+    return root
+end
+
+--- 设置当前坚守任务的区域效果。区域即使未站入也会保留低亮轮廓，站入后
+--- 自动切为高亮脉冲，玩家能同时看到“目标在哪里”和“当前是否生效”。
+---@param scene Scene
+---@param questId string
+---@param area table
+---@param active boolean
+---@return Node|nil
+function Combat.SetQuestAreaEffect(scene, questId, area, active)
+    if not scene or type(questId) ~= "string" or type(area) ~= "table" then
+        Combat.ClearQuestAreaEffect()
+        return nil
+    end
+
+    local x = tonumber(area.x) or 0
+    local z = tonumber(area.z) or 0
+    local radius = math.max(0.5, tonumber(area.radius) or 9)
+    local mapId = currentMapId
+    local areaNode = questAreaEffect and questAreaEffect.node or nil
+    if questAreaEffect and not areaNode then
+        questAreaEffect = nil
+    end
+    if questAreaEffect and (
+        questAreaEffect.questId ~= questId
+        or questAreaEffect.mapId ~= mapId
+        or math.abs(areaNode.position.x - x) > 0.01
+        or math.abs(areaNode.position.z - z) > 0.01
+        or math.abs(questAreaEffect.radius - radius) > 0.01) then
+        areaNode:Remove()
+        questAreaEffect = nil
+    end
+
+    if not questAreaEffect then
+        questAreaEffect = CreateQuestAreaVisual(scene, questId, mapId, area)
+    end
+
+    local nextActive = active == true
+    if questAreaEffect.active ~= nextActive then
+        questAreaEffect.active = nextActive
+        local outerMaterial = nextActive
+            and questAreaEffect.activeMaterial or questAreaEffect.idleMaterial
+        SetQuestModelsMaterial(questAreaEffect.segments, outerMaterial)
+        SetQuestModelsMaterial(questAreaEffect.innerSegments, nextActive
+            and questAreaEffect.activeMaterial or questAreaEffect.idleMaterial)
+        local beaconModels = {}
+        for _, item in ipairs(questAreaEffect.beaconModels) do
+            table.insert(beaconModels, item.model)
+        end
+        SetQuestModelsMaterial(beaconModels, outerMaterial)
+    end
+    return questAreaEffect.node
+end
+
+function Combat.ClearQuestAreaEffect()
+    if questAreaEffect and questAreaEffect.node then
+        questAreaEffect.node:Remove()
+    end
+    questAreaEffect = nil
+end
+
+-- 清理主线专用的瞬时/持续视觉节点。切图、读档和结束角色会话都必须
+-- 清掉这些节点，否则它们会留在旧场景里，甚至继续被 UpdateVisuals 驱动。
+local function ClearQuestEffects()
+    for index = #questEffects, 1, -1 do
+        local effect = questEffects[index]
+        if effect and effect.node then
+            effect.node:Remove()
+        end
+        questEffects[index] = nil
+    end
+    Combat.ClearQuestAreaEffect()
+end
+
+local function UpdateQuestEffects(dt)
+    local elapsed = math.max(0, tonumber(dt) or 0)
+
+    for index = #questEffects, 1, -1 do
+        local effect = questEffects[index]
+        effect.elapsed = effect.elapsed + elapsed
+        if not effect.node or effect.elapsed >= effect.duration then
+            if effect.node then effect.node:Remove() end
+            table.remove(questEffects, index)
+        else
+            local progress = math.max(0, math.min(1, effect.elapsed / effect.duration))
+            local scale = 0.55 + progress * 1.65
+            effect.node.scale = Vector3(scale, 1.0, scale)
+            effect.node.rotation = effect.node.rotation * Quaternion(115 * elapsed, Vector3.UP)
+            local alpha = 0.72 * (1.0 - progress) + 0.08
+            if effect.ringMaterial then
+                effect.ringMaterial:SetShaderParameter("MatDiffColor", Variant(Color(
+                    effect.color[1], effect.color[2], effect.color[3], alpha)))
+            end
+            if effect.innerMaterial then
+                effect.innerMaterial:SetShaderParameter("MatDiffColor", Variant(Color(
+                    1.0, 0.95, 0.56, math.min(0.9, alpha + 0.10))))
+            end
+        end
+    end
+
+    if questAreaEffect and questAreaEffect.node then
+        questAreaEffect.phase = questAreaEffect.phase + elapsed
+        local pulse = questAreaEffect.active
+            and (1.0 + math.sin(questAreaEffect.phase * 4.2) * 0.075)
+            or (0.94 + math.sin(questAreaEffect.phase * 2.0) * 0.025)
+        questAreaEffect.node.scale = Vector3(pulse, 1.0, pulse)
+        for _, item in ipairs(questAreaEffect.beaconModels or {}) do
+            local heightPulse = questAreaEffect.active
+                and (0.88 + math.sin(questAreaEffect.phase * 4.2 + item.baseHeight) * 0.18)
+                or 0.72
+            item.node.scale = Vector3(0.13, item.baseHeight * heightPulse, 0.13)
+        end
+    end
+end
+
 local fireBreathMaterials = nil
 
 local function GetFireBreathMaterials()
@@ -456,7 +736,7 @@ function Combat.SpawnFireBreathVisual(scene, origin, targetPos, maxRange)
 
     local length = math.min(maxRange or 7.5, targetDistance)
     local materials = GetFireBreathMaterials()
-    local node = scene:CreateChild("AOEVisual")
+    local node = scene:CreateChild("BossAttackVisual")
     node.position = Vector3(origin.x, origin.y + 2.35, origin.z)
     node.rotation = Quaternion(math.deg(math.atan2(dir.x, dir.z)), Vector3.UP)
 
@@ -494,6 +774,110 @@ function Combat.SpawnFireBreathVisual(scene, origin, targetPos, maxRange)
 
     node:SetVar("removeTimer", Variant(0.72))
     return node
+end
+
+local bossAttackMaterials = nil
+
+local function GetBossAttackMaterials()
+    if bossAttackMaterials then return bossAttackMaterials end
+
+    local function Make(color, emissive, roughness)
+        local mat = Material:new()
+        mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+        mat:SetShaderParameter("MatDiffColor", Variant(color))
+        mat:SetShaderParameter("MatEmissiveColor", Variant(emissive))
+        mat:SetShaderParameter("Metallic", Variant(0.0))
+        mat:SetShaderParameter("Roughness", Variant(roughness or 0.22))
+        return mat
+    end
+
+    bossAttackMaterials = {
+        venom = Make(Color(0.12, 0.88, 0.18, 0.76), Color(0.08, 2.2, 0.18, 1.0), 0.16),
+        venomCore = Make(Color(0.62, 1.0, 0.16, 0.92), Color(1.4, 3.0, 0.12, 1.0), 0.10),
+        slam = Make(Color(1.0, 0.30, 0.05, 0.52), Color(2.6, 0.42, 0.04, 1.0), 0.34),
+        slamCore = Make(Color(1.0, 0.72, 0.12, 0.82), Color(3.2, 1.4, 0.08, 1.0), 0.18),
+        charge = Make(Color(1.0, 0.86, 0.24, 0.72), Color(3.0, 1.6, 0.12, 1.0), 0.12),
+    }
+    return bossAttackMaterials
+end
+
+--- 生成轻量 Boss 攻击反馈。伤害仍由同帧战斗结算完成，视觉节点只负责表现，
+--- 因而传送、重生或进入安全区时可以直接删除，不会留下等待中的攻击状态。
+function Combat.SpawnBossAttackVisual(scene, mode, origin, targetPos, radius)
+    if not scene or not origin then return nil end
+    local materials = GetBossAttackMaterials()
+    local node = scene:CreateChild("BossAttackVisual")
+    local effectRadius = math.max(0.8, tonumber(radius) or 2.0)
+
+    if mode == "venom_spit" and targetPos then
+        local dir = targetPos - origin
+        dir.y = 0
+        local distance = dir:Length()
+        if distance <= 0.001 then node:Remove() return nil end
+        dir = dir:Normalized()
+        local length = math.min(effectRadius, distance)
+        node.position = Vector3(origin.x, origin.y + 1.45, origin.z)
+        node.rotation = Quaternion(math.deg(math.atan2(dir.x, dir.z)), Vector3.UP)
+        for index = 1, 6 do
+            local progress = index / 6
+            local drop = node:CreateChild("venom_drop_" .. index)
+            drop.position = Vector3(
+                math.sin(index * 2.1) * 0.12,
+                math.sin(progress * math.pi) * 0.55 - progress * 1.0,
+                length * progress)
+            local size = 0.12 + progress * 0.16
+            drop.scale = Vector3(size, size, size)
+            local model = drop:CreateComponent("StaticModel")
+            model:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
+            model:SetMaterial(index == 6 and materials.venomCore or materials.venom)
+            model.castShadows = false
+        end
+        node:SetVar("removeTimer", Variant(0.58))
+    elseif mode == "ground_slam" then
+        node.position = Vector3(origin.x, 0.06, origin.z)
+        local disk = node:CreateChild("slam_disk")
+        disk.scale = Vector3(effectRadius * 2, 0.045, effectRadius * 2)
+        local diskModel = disk:CreateComponent("StaticModel")
+        diskModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+        diskModel:SetMaterial(materials.slam)
+        diskModel.castShadows = false
+        for index = 1, 4 do
+            local crack = node:CreateChild("slam_crack_" .. index)
+            crack.position = Vector3(0, 0.04, 0)
+            crack.rotation = Quaternion((index - 1) * 45, Vector3.UP)
+            crack.scale = Vector3(effectRadius * 1.65, 0.035, 0.10)
+            local crackModel = crack:CreateComponent("StaticModel")
+            crackModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
+            crackModel:SetMaterial(index % 2 == 0 and materials.slamCore or materials.slam)
+            crackModel.castShadows = false
+        end
+        node:SetVar("removeTimer", Variant(0.62))
+    elseif mode == "charge" then
+        local impact = targetPos or origin
+        node.position = Vector3(impact.x, 0.12, impact.z)
+        local burst = node:CreateChild("charge_impact")
+        burst.scale = Vector3(effectRadius * 0.9, 0.12, effectRadius * 0.9)
+        local model = burst:CreateComponent("StaticModel")
+        model:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+        model:SetMaterial(materials.charge)
+        model.castShadows = false
+        node:SetVar("removeTimer", Variant(0.36))
+    else
+        node:Remove()
+        return nil
+    end
+
+    return node
+end
+
+local function RemoveBossAttackVisuals(scene)
+    if not scene then return end
+    for index = scene:GetNumChildren(false) - 1, 0, -1 do
+        local child = scene:GetChild(index)
+        if child and child.name == "BossAttackVisual" then
+            child:Remove()
+        end
+    end
 end
 
 local function ApplyEnemyDamageToPlayer(enemy, player, hitPos)
@@ -588,6 +972,14 @@ end
 -- 安全区代表完整脱战：玩家进入后，之前已经释放的敌对效果也必须立即失效，
 -- 不能只禁止新技能。召唤兽与永久神兽实体继续保留，但各自的 Update 会暂停索敌。
 function Combat.CancelPlayerHostileEffects()
+    local hostileScene = nil
+    for _, enemy in ipairs(enemies) do
+        if enemy and enemy.node then
+            hostileScene = enemy.node:GetScene()
+            if hostileScene then break end
+        end
+    end
+
     for _, projectile in ipairs(projectiles) do
         if projectile.node then projectile.node:Remove() end
     end
@@ -598,6 +990,7 @@ function Combat.CancelPlayerHostileEffects()
         if zone.visualNode then zone.visualNode:Remove() end
     end
     aoeZones = {}
+    RemoveBossAttackVisuals(hostileScene)
 
     for _, enemy in ipairs(enemies) do
         if enemy then
@@ -611,6 +1004,13 @@ function Combat.CancelPlayerHostileEffects()
             enemy.trapRadius = nil
             enemy.trapTimer = nil
             enemy.trapDefReduced = nil
+            if enemy.tier == "boss" and enemy.state ~= "dying" and enemy.state ~= "dead" then
+                enemy.state = "return"
+                enemy.patrolTarget = nil
+                enemy.attackTimer = math.max(enemy.attackTimer or 0, 0.35)
+                enemy.knockbackTimer = 0
+                enemy.hitStunTimer = 0
+            end
             if hadPoison then RemovePoisonTint(enemy) end
         end
     end
@@ -757,6 +1157,7 @@ function Combat.SpawnEnemy(scene, playerPos, playerLevel, forceDef, mapId, optio
     local scaledATK = scaledStats.atk
     local scaledDEF = scaledStats.def
     local scaledEXP = scaledStats.exp
+    local isBoss = def.tier == "boss"
 
     -- 在玩家周围随机位置生成（避开安全区 + 保证最小距离）
     -- 安全区以地图出生点为中心、safeRadius 为方形半边长；怪物不得生成在线内。
@@ -770,6 +1171,13 @@ function Combat.SpawnEnemy(scene, playerPos, playerLevel, forceDef, mapId, optio
             tonumber(requestedPosition.x) or 0,
             tonumber(requestedPosition.y) or 0,
             tonumber(requestedPosition.z) or 0)
+        -- 显式遭遇点同时也是地图地标中心。部分旧场景把蚁穴/王座碰撞体
+        -- 放在同一坐标，Boss 又锁定 Y 轴，因而永远无法自行脱困。只对
+        -- Boss 遭遇应用配置偏移，让目标仍出现在地标附近但站到入口前方。
+        if isBoss and type(options) == "table" and options.encounterId then
+            candidate.x = candidate.x + (tonumber(def.encounterOffsetX) or 0)
+            candidate.z = candidate.z + (tonumber(def.encounterOffsetZ) or 0)
+        end
         candidate = MapZone.ClampToArena(candidate, 1.0) or candidate
         spawnPos = MoveOutsideSafeZone(candidate, spawnMapId, 1.0) or candidate
     else
@@ -814,7 +1222,9 @@ function Combat.SpawnEnemy(scene, playerPos, playerLevel, forceDef, mapId, optio
     local rbody = enemyNode:CreateComponent("RigidBody")
     rbody.mass = 1.0
     rbody.collisionLayer = 4          -- AI 层
-    rbody.collisionMask = 1 | 2 | 4   -- 与地形(1)、玩家(2)、其他AI(4)碰撞
+    -- Boss 不与普通 AI 互相阻挡，避免被小怪包围后看似“不能动”；仍与
+    -- 地形和玩家碰撞。普通怪保持原来的 AI 间碰撞。
+    rbody.collisionMask = isBoss and (1 | 2) or (1 | 2 | 4)
     rbody.angularFactor = Vector3(0, 0, 0)
     rbody.linearFactor = Vector3(1, 0, 1)   -- 锁定 Y 轴
     rbody.friction = 0.5
@@ -856,9 +1266,17 @@ function Combat.SpawnEnemy(scene, playerPos, playerLevel, forceDef, mapId, optio
         faceYawOffset = def.faceYawOffset or 0,
         attackTimer = 0,
         exp = scaledEXP,
-        state = "patrol",  -- patrol / chase / attack / dead / dying
+        state = isBoss and "guard" or "patrol",
+        homePosition = Vector3(spawnPos.x, spawnPos.y, spawnPos.z),
+        leashRange = tonumber(def.leashRange) or math.max(18, (def.chaseRange or 10) * 1.5),
+        guardRadius = tonumber(def.guardRadius) or 2.0,
+        returnSpeed = (def.speed or ENEMY_MOVE_SPEED) * 1.15,
+        chargeRange = tonumber(def.chargeRange) or 8.0,
         patrolTarget = nil,
         patrolWait = 0,
+        stuckCheckTimer = 0,
+        stuckRecoveries = 0,
+        lastMovePosition = Vector3(spawnPos.x, spawnPos.y, spawnPos.z),
         hitFlashTimer = 0,
         hitStunTimer = 0,   -- 受击硬直时间
         defReduction = 0,  -- 施毒术减防
@@ -870,11 +1288,66 @@ function Combat.SpawnEnemy(scene, playerPos, playerLevel, forceDef, mapId, optio
         animData = animData,
         dyingTimer = 0,
         encounterId = type(options) == "table" and options.encounterId or nil,
+        questGroupId = type(options) == "table" and options.questGroupId or nil,
+        spawnSource = type(options) == "table" and options.spawnSource or "natural",
     }
 
     table.insert(enemies, enemy)
     return enemy
 end
+
+--- 在指定目标点附近生成一小组当前地图生态怪物。
+--- 该 API 只重复调用统一 SpawnEnemy 入口，不改变地图池、等级曲线或自然刷怪器；
+--- 因此任务事件只是一次性的压力注入，不会形成第二套怪物来源。
+---@param scene Scene
+---@param center Vector3|table
+---@param playerLevel number
+---@param mapId string|nil
+---@param options table|nil {count, radius, groupId}
+---@return number 实际生成数量（达到地图上限时可能少于请求数）
+function Combat.SpawnEnemyGroup(scene, center, playerLevel, mapId, options)
+    if not scene or not center then return 0 end
+
+    local opts = type(options) == "table" and options or {}
+    local count = SafeInteger(opts.count, 4, 1, 8)
+    local radius = tonumber(opts.radius) or 5.5
+    if not IsFiniteNumber(radius) then radius = 5.5 end
+    radius = math.max(1.5, math.min(radius, 12.0))
+
+    local spawnMapId = mapId or currentMapId
+    local groupId = type(opts.groupId) == "string" and opts.groupId or nil
+    local spawned = 0
+    local startAngle = math.random() * math.pi * 2
+    local centerPos = Vector3(
+        tonumber(center.x) or 0,
+        tonumber(center.y) or 0,
+        tonumber(center.z) or 0)
+
+    for index = 1, count do
+        local angle = startAngle + (index - 1) * (math.pi * 2 / count)
+        local distance = radius * (0.62 + math.random() * 0.38)
+        local spawnPos = Vector3(
+            centerPos.x + math.cos(angle) * distance,
+            centerPos.y,
+            centerPos.z + math.sin(angle) * distance)
+        local enemy = Combat.SpawnEnemy(scene, centerPos, playerLevel, nil, spawnMapId, {
+            position = spawnPos,
+            questGroupId = groupId,
+            spawnSource = "quest_group",
+        })
+        if enemy then spawned = spawned + 1 end
+    end
+
+    if spawned > 0 then
+        print(string.format("[Combat] Quest enemy group spawned: %d/%d (%s)",
+            spawned, count, groupId or "anonymous"))
+    end
+    return spawned
+end
+
+-- 兼容更短的调用名，所有别名仍指向同一个统一实现。
+Combat.SpawnGroup = Combat.SpawnEnemyGroup
+Combat.SpawnQuestGroup = Combat.SpawnEnemyGroup
 
 -- ============================================================================
 -- 敌人死亡处理（统一入口，避免重复触发）
@@ -944,6 +1417,67 @@ local function FaceEnemyTarget(enemy, targetPos)
     FaceEnemyDir(enemy, targetPos - enemy.node.position)
 end
 
+local function SetEnemyDisengaged(enemy, clearControl)
+    if not enemy then return end
+    enemy.state = enemy.tier == "boss" and "return" or "patrol"
+    enemy.patrolTarget = nil
+    enemy.patrolWait = 0
+    enemy.attackTimer = math.max(enemy.attackTimer or 0, 0.25)
+    if clearControl then
+        enemy.knockbackTimer = 0
+        enemy.knockbackDir = nil
+        enemy.hitStunTimer = 0
+    end
+end
+
+local function UpdateBossStuckRecovery(enemy, dt, isMoving, moveTargetPos)
+    if not enemy or enemy.tier ~= "boss" or not enemy.node then return end
+    if not isMoving or not moveTargetPos then
+        enemy.stuckCheckTimer = 0
+        enemy.lastMovePosition = enemy.node.position
+        return
+    end
+
+    enemy.stuckCheckTimer = (enemy.stuckCheckTimer or 0) + math.max(0, dt or 0)
+    if enemy.stuckCheckTimer < 0.75 then return end
+
+    local currentPos = enemy.node.position
+    local previousPos = enemy.lastMovePosition or currentPos
+    local moved = currentPos - previousPos
+    moved.y = 0
+    if moved:Length() < 0.16 then
+        local forward = moveTargetPos - currentPos
+        forward.y = 0
+        if forward:Length() > 0.001 then
+            forward = forward:Normalized()
+            enemy.stuckRecoveries = (enemy.stuckRecoveries or 0) + 1
+            local sideSign = enemy.stuckRecoveries % 2 == 0 and -1 or 1
+            local side = Vector3(-forward.z * sideSign, 0, forward.x * sideSign)
+            local candidate = currentPos + forward * 0.45 + side * 1.15
+
+            -- 连续三次仍无法移动时回到出生守点，避免被地标或地图边界永久夹住。
+            if enemy.stuckRecoveries >= 3 and enemy.homePosition then
+                candidate = Vector3(
+                    enemy.homePosition.x,
+                    enemy.homePosition.y,
+                    enemy.homePosition.z)
+                enemy.state = "guard"
+                enemy.stuckRecoveries = 0
+            end
+            candidate = MapZone.ClampToArena(candidate, 0.85) or candidate
+            candidate = MoveOutsideSafeZone(candidate, currentMapId, 0.85) or candidate
+            enemy.node.position = candidate
+            local body = enemy.node:GetComponent("RigidBody")
+            if body then body:SetLinearVelocity(Vector3.ZERO) end
+        end
+    else
+        enemy.stuckRecoveries = 0
+    end
+
+    enemy.lastMovePosition = enemy.node.position
+    enemy.stuckCheckTimer = 0
+end
+
 -- ============================================================================
 -- 敌人 AI 更新
 -- ============================================================================
@@ -1001,9 +1535,7 @@ function Combat.UpdateEnemies(dt, playerNode, player)
                 e.node.position = outside
                 pos = outside
             end
-            e.state = "patrol"
-            e.patrolTarget = nil
-            e.attackTimer = math.max(e.attackTimer or 0, 0.25)
+            SetEnemyDisengaged(e, true)
             e.trapCenter = nil
             e.trapRadius = nil
             e.trapTimer = nil
@@ -1072,13 +1604,11 @@ function Combat.UpdateEnemies(dt, playerNode, player)
         -- 安全区也必须立即停止伤害，不能只在 chase 分支拦截追击。
         -- 同时清掉速度和攻击状态，避免离开安全区后一帧继续沿用旧攻击窗口。
         if playerInSafeZone then
-            if e.state == "chase" or e.state == "attack" then
-                e.state = "patrol"
-                e.patrolTarget = nil
-                e.attackTimer = math.max(e.attackTimer or 0, 0.25)
+            SetEnemyDisengaged(e, true)
+            if e.tier ~= "boss" then
+                if eBody then eBody:SetLinearVelocity(Vector3.ZERO) end
+                goto continue
             end
-            if eBody then eBody:SetLinearVelocity(Vector3.ZERO) end
-            goto continue
         end
 
         -- 状态机
@@ -1086,6 +1616,7 @@ function Combat.UpdateEnemies(dt, playerNode, player)
 
         local isMoving = false
         local moveAnimName = "run"
+        local moveTargetPos = nil
 
         -- 抗拒火环击退：被推开期间强制水平位移，跳过正常 AI（避免速度被状态机覆盖）
         if (e.knockbackTimer or 0) > 0 then
@@ -1113,7 +1644,83 @@ function Combat.UpdateEnemies(dt, playerNode, player)
             goto continue
         end
 
-        if e.state == "patrol" then
+        if e.state == "guard" then
+            -- Boss 守点：在出生点附近短距离巡弋；玩家或神兽进入警戒范围后追击。
+            ---@type Vector3|nil
+            local beastPos = DivineBeast.GetPosition()
+            if beastPos and IsInSafeZone(beastPos) then beastPos = nil end
+            local beastDist = beastPos and (beastPos - pos):Length() or 9999
+            if dist < e.chaseRange or beastDist < e.chaseRange then
+                e.state = "chase"
+                e.patrolTarget = nil
+            else
+                local home = e.homePosition or pos
+                local toHome = home - pos
+                toHome.y = 0
+                if toHome:Length() > (e.guardRadius or 2.0) * 1.8 then
+                    e.state = "return"
+                    e.patrolTarget = nil
+                else
+                    e.patrolWait = math.max(0, (e.patrolWait or 0) - dt)
+                    if not e.patrolTarget and e.patrolWait <= 0 then
+                        local angle = math.random() * math.pi * 2
+                        local radius = (e.guardRadius or 2.0) * (0.45 + math.random() * 0.55)
+                        local guardTarget = Vector3(
+                            home.x + math.cos(angle) * radius,
+                            home.y,
+                            home.z + math.sin(angle) * radius)
+                        guardTarget = MapZone.ClampToArena(guardTarget, 0.85) or guardTarget
+                        e.patrolTarget = MoveOutsideSafeZone(guardTarget, currentMapId, 0.85) or guardTarget
+                    end
+
+                    if e.patrolTarget then
+                        local dir = e.patrolTarget - pos
+                        dir.y = 0
+                        if dir:Length() > 0.45 then
+                            dir = dir:Normalized()
+                            if eBody then eBody:SetLinearVelocity(dir * e.speed * 0.38) end
+                            FaceEnemyDir(e, dir)
+                            isMoving = true
+                            moveAnimName = "walk"
+                            moveTargetPos = e.patrolTarget
+                        else
+                            if eBody then eBody:SetLinearVelocity(Vector3.ZERO) end
+                            e.patrolTarget = nil
+                            e.patrolWait = 1.2 + math.random() * 1.8
+                        end
+                    elseif eBody then
+                        eBody:SetLinearVelocity(Vector3.ZERO)
+                    end
+                end
+            end
+
+        elseif e.state == "return" then
+            -- 脱战回位不等待长前摇；安全区、重生与失去目标都能立即切入。
+            local home = e.homePosition
+            if not home then
+                e.state = "patrol"
+                if eBody then eBody:SetLinearVelocity(Vector3.ZERO) end
+            else
+                local dir = home - pos
+                dir.y = 0
+                if dir:Length() <= 0.65 then
+                    e.node.position = Vector3(home.x, home.y, home.z)
+                    if eBody then eBody:SetLinearVelocity(Vector3.ZERO) end
+                    e.state = "guard"
+                    e.patrolTarget = nil
+                    e.patrolWait = 0.8
+                    e.attackTimer = math.max(e.attackTimer or 0, 0.35)
+                else
+                    dir = dir:Normalized()
+                    if eBody then eBody:SetLinearVelocity(dir * (e.returnSpeed or e.speed)) end
+                    FaceEnemyDir(e, dir)
+                    isMoving = true
+                    moveAnimName = "run"
+                    moveTargetPos = home
+                end
+            end
+
+        elseif e.state == "patrol" then
             -- 巡逻：发现玩家或神兽时追击
             ---@type Vector3|nil
             local beastPos = DivineBeast.GetPosition()
@@ -1140,6 +1747,7 @@ function Combat.UpdateEnemies(dt, playerNode, player)
                     FaceEnemyDir(e, dir)
                     isMoving = true
                     moveAnimName = "walk"
+                    moveTargetPos = e.patrolTarget
                 else
                     if eBody then eBody:SetLinearVelocity(Vector3.ZERO) end
                 end
@@ -1148,7 +1756,7 @@ function Combat.UpdateEnemies(dt, playerNode, player)
         elseif e.state == "chase" then
             -- 安全区保护：玩家在安全区内时，怪物停止追击并返回巡逻
             if playerInSafeZone then
-                e.state = "patrol"
+                SetEnemyDisengaged(e, true)
                 if eBody then eBody:SetLinearVelocity(Vector3.ZERO) end
                 goto continue
             end
@@ -1165,8 +1773,18 @@ function Combat.UpdateEnemies(dt, playerNode, player)
                 chaseTargetDist = chaseBeastDist
             end
 
-            if chaseTargetDist > e.chaseRange * 1.5 then
-                e.state = "patrol"
+            local homeDist = 0
+            if e.tier == "boss" and e.homePosition then
+                local toHome = pos - e.homePosition
+                toHome.y = 0
+                homeDist = toHome:Length()
+            end
+
+            if e.tier == "boss" and homeDist > (e.leashRange or e.chaseRange * 1.5) then
+                SetEnemyDisengaged(e, true)
+                if eBody then eBody:SetLinearVelocity(Vector3.ZERO) end
+            elseif chaseTargetDist > e.chaseRange * 1.5 then
+                SetEnemyDisengaged(e, false)
                 if eBody then eBody:SetLinearVelocity(Vector3.ZERO) end
             elseif chaseTargetDist <= e.attackRange then
                 e.state = "attack"
@@ -1176,12 +1794,18 @@ function Combat.UpdateEnemies(dt, playerNode, player)
                 local dir = (chaseTargetPos - pos)
                 dir.y = 0
                 dir = dir:Normalized()
+                local chaseSpeed = e.speed
+                if e.attackMode == "charge" and chaseTargetDist <= (e.chargeRange or 8.0)
+                    and e.attackTimer <= 0 then
+                    chaseSpeed = chaseSpeed * 1.45
+                end
                 if eBody then
-                    eBody:SetLinearVelocity(dir * e.speed)
+                    eBody:SetLinearVelocity(dir * chaseSpeed)
                 end
                 FaceEnemyDir(e, dir)
                 isMoving = true
                 moveAnimName = "run"
+                moveTargetPos = chaseTargetPos
             end
 
         elseif e.state == "attack" then
@@ -1202,15 +1826,13 @@ function Combat.UpdateEnemies(dt, playerNode, player)
                 end
             end
 
-            if attackDist > e.attackRange * 1.5 then
+            if attackDist > e.attackRange * 1.35 then
                 e.state = "chase"
             else
                 -- 面向目标
                 local targetPos = attackTarget == "beast" and beastPos or playerPos
                 if not targetPos or IsInSafeZone(targetPos) then
-                    e.state = "patrol"
-                    e.patrolTarget = nil
-                    e.attackTimer = math.max(e.attackTimer or 0, 0.25)
+                    SetEnemyDisengaged(e, true)
                     goto continue
                 end
                 FaceEnemyTarget(e, targetPos)
@@ -1226,9 +1848,39 @@ function Combat.UpdateEnemies(dt, playerNode, player)
                         if scene then
                             Combat.SpawnFireBreathVisual(scene, pos, targetPos, e.attackRange)
                         end
+                    elseif e.attackMode == "venom_spit" then
+                        local scene = e.node:GetScene()
+                        if scene then
+                            Combat.SpawnBossAttackVisual(scene, "venom_spit", pos, targetPos, e.attackRange)
+                        end
+                    elseif e.attackMode == "ground_slam" then
+                        local scene = e.node:GetScene()
+                        if scene then
+                            Combat.SpawnBossAttackVisual(scene, "ground_slam", pos, targetPos, e.attackRange)
+                        end
+                    elseif e.attackMode == "charge" then
+                        local scene = e.node:GetScene()
+                        if scene then
+                            Combat.SpawnBossAttackVisual(scene, "charge", pos, targetPos, e.attackRange)
+                        end
                     end
 
-                    if attackTarget == "beast" then
+                    if e.attackMode == "ground_slam" then
+                        -- 震地是以 Boss 为中心的实际范围伤害；玩家与神兽都在
+                        -- 范围内时会同时受击，不再表现为 1.5 米站桩拳。
+                        if dist <= e.attackRange and not IsInSafeZone(playerPos) then
+                            ApplyEnemyDamageToPlayer(e, player, playerPos)
+                        end
+                        local slamBeastPos = DivineBeast.GetPosition()
+                        if slamBeastPos and not IsInSafeZone(slamBeastPos) then
+                            local toBeast = slamBeastPos - pos
+                            toBeast.y = 0
+                            if toBeast:Length() <= e.attackRange then
+                                DivineBeast.TakeDamage(e.atk * (e.attackDamageScale or 1.0))
+                            end
+                        end
+                        e.attackTimer = e.attackCD
+                    elseif attackTarget == "beast" then
                         -- 攻击神兽
                         DivineBeast.TakeDamage(e.atk * (e.attackDamageScale or 1.0))
                         e.attackTimer = e.attackCD
@@ -3386,6 +4038,9 @@ end
 -- AOE 视觉清理 (场景中的临时节点)
 -- ============================================================================
 function Combat.UpdateVisuals(scene, dt, playerNode)
+    if not scene then return end
+    UpdateQuestEffects(dt)
+
     -- 清理 AOE / Crescent 视觉效果（场景根级别）
     local children = {}
     for i = 0, scene:GetNumChildren(false) - 1 do
@@ -4219,6 +4874,9 @@ function Combat.SetMap(mapId)
         encounterRetryTimer = 0
         activeEncounterId = nil
         playerWasInSafeZone = false
+        -- SetMap 也可能被独立调用（不一定总是先经过 Combat.Clear），
+        -- 因此在地图边界再次清理主线特效，避免旧区域轮廓跨图残留。
+        ClearQuestEffects()
     end
     return true
 end
@@ -4256,6 +4914,7 @@ function Combat.Clear(resetKillCount, clearPersistentSummon)
     for _, g in ipairs(groundItems) do
         if g.node then g.node:Remove() end
     end
+    ClearQuestEffects()
     enemies = {}
     projectiles = {}
     summons = {}
