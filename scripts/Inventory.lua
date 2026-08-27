@@ -5,6 +5,7 @@
 
 local Inventory = {}
 local MAX_RESOURCE = 1000000000
+local SoundManager = require("scripts.SoundManager")
 
 -- 经济平衡参数：集中管理商店买卖价，避免掉落装备成为稳定套利来源。
 -- 买入价上调、卖出价下调后，装备的主要价值回到“提升战力”，而不是刷怪卖钱。
@@ -573,7 +574,6 @@ local playerData = {
     bonusAtk = 0,
     bonusDef = 0,
     bonusHP  = 0,
-    protectStones = 0,  -- 保护石数量（强化失败不掉级）
 }
 
 Inventory.playerData = playerData
@@ -619,7 +619,6 @@ function Inventory.Init()
     playerData.bonusAtk = 0
     playerData.bonusDef = 0
     playerData.bonusHP  = 0
-    playerData.protectStones = 0
     ---@type table<string, number>
     playerData.potions = { hp = 5, mp = 3 }
     print("[Inventory] Initialized")
@@ -1458,12 +1457,10 @@ function Inventory.ForgeRecipe(recipe)
     return Inventory.ForgeItems(materials)
 end
 
---- 铁匠强化：只消耗金币，按成功率判定，失败可能掉级。
---- 保护强化额外消耗一颗保护石，失败时保持当前等级。
+--- 铁匠强化：只消耗金币，按成功率判定；失败不掉级，只损失本次服务费。
 ---@param item table 待强化装备
----@param useProtect boolean 是否使用保护石（失败不掉级）
 ---@return boolean, string, number, table|nil 成功/原因/最终强化等级/本次结果
-function Inventory.EnhanceItem(item, useProtect)
+function Inventory.EnhanceItem(item)
     if not item then return false, "无装备", 0 end
     if not FindOwnedItem(item) then
         return false, "装备已不存在或不属于当前角色", 0
@@ -1478,22 +1475,7 @@ function Inventory.EnhanceItem(item, useProtect)
     local gold = ClampInteger(playerData.gold, 0, MAX_RESOURCE, 0)
     playerData.gold = gold
     if gold < cost.gold then return false, "金币不足", cur end
-    useProtect = useProtect == true
-    local failureLevel = Enhance.GetFailureLevel(cur, nextLevel)
-    local canDowngrade = failureLevel < cur
-    if useProtect and not canDowngrade then
-        return false, "当前阶段失败不会掉级，无需使用保护石", cur
-    end
-    local protectStones = Inventory.GetProtectStones()
-    if useProtect and protectStones <= 0 then
-        return false, "保护石不足", cur
-    end
-
-    -- 确认资源充足后一次性扣除。无论成功或失败，本次铁匠服务费都不返还。
     playerData.gold = gold - cost.gold
-    if useProtect then
-        playerData.protectStones = protectStones - 1
-    end
 
     local result = {
         previousLevel = cur,
@@ -1501,30 +1483,18 @@ function Inventory.EnhanceItem(item, useProtect)
         finalLevel = cur,
         goldSpent = cost.gold,
         successRate = cost.successRate,
-        protected = useProtect,
-        protectStoneSpent = useProtect and 1 or 0,
-        failureLevel = failureLevel,
-        canDowngrade = canDowngrade,
-        downgraded = false,
     }
 
-    -- 成功率判定
+    -- 成功率判定：成功才升级；失败保持当前等级，只损失本次服务费。
     if math.random() < cost.successRate then
         item.enhance = nextLevel
         result.finalLevel = nextLevel
-        Inventory.RecalcBonus()
-        return true, "", nextLevel, result
     end
-
-    -- 失败：普通强化按阶段保底计算掉级；保护强化保持当前等级。
-    if canDowngrade and not useProtect then
-        item.enhance = failureLevel
-        result.downgraded = item.enhance < cur
-    end
-    result.finalLevel = item.enhance or cur
     Inventory.RecalcBonus()
-    return false, useProtect and "强化失败（保护石生效）" or "强化失败",
-        result.finalLevel, result
+    if result.finalLevel > cur then
+        return true, "", result.finalLevel, result
+    end
+    return false, "强化失败", result.finalLevel, result
 end
 
 Inventory.MAX_BAG_SLOTS = MAX_BAG_SLOTS
@@ -1552,27 +1522,6 @@ function Inventory.GetItemPrice(item)
     if score < 0 then return 0 end
     return math.min(MAX_RESOURCE, math.max(20, math.floor(
         score * mult * Inventory.ECONOMY.itemBuyMultiplier)))
-end
-
-Inventory.PROTECT_STONE_PRICE = 800
-
---- 获取保护石数量。
-function Inventory.GetProtectStones()
-    playerData.protectStones = ClampInteger(playerData.protectStones, 0, MAX_RESOURCE, 0)
-    return playerData.protectStones
-end
-
---- 从商人购买一颗保护石。
----@return boolean, string
-function Inventory.BuyProtectStone()
-    if Inventory.GetProtectStones() >= MAX_RESOURCE then
-        return false, "保护石已达上限"
-    end
-    if not Inventory.SpendGold(Inventory.PROTECT_STONE_PRICE) then
-        return false, "金币不足"
-    end
-    playerData.protectStones = playerData.protectStones + 1
-    return true, ""
 end
 
 --- 装备卖出价（玩家卖给商人的价格，含强化返还）
@@ -1621,6 +1570,7 @@ function Inventory.SellItem(itemOrIndex)
     table.remove(playerData.bag, bagIndex)
     local currentGold = ClampInteger(playerData.gold, 0, MAX_RESOURCE, 0)
     playerData.gold = math.min(MAX_RESOURCE, currentGold + price)
+    SoundManager.Play("sell")
     print(string.format("[Inventory] 出售 %s -> +%d金", item.name or "?", price))
     return true, price
 end

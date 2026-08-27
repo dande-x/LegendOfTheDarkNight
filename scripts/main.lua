@@ -15,6 +15,7 @@ local Quest = require("scripts.Quest")
 local MapZone = require("scripts.MapZone")
 local NPC = require("scripts.NPC")
 local DivineBeast = require("scripts.DivineBeast")
+local SoundManager = require("scripts.SoundManager")
 require "urhox-libs.UI.GameHUD"
 
 -- ============================================================================
@@ -127,6 +128,10 @@ function Start()
 
     -- 初始化存档系统
     SaveSystem.Init()
+    -- 初始化音效管理：绑定场景、加载设置、播放主界面背景音乐
+    SoundManager.SetScene(scene_)
+    SoundManager.LoadSettings()
+    SoundManager.PlayMusic("menu")
 
     -- 先展示启动 Logo，再进入存档槽位选择界面
     GameUI.ShowStartupLogo(function()
@@ -141,6 +146,8 @@ end
 function Stop()
     -- 当前角色会话结束即清空神兽召唤与成长状态。
     DivineBeast.Clear()
+    -- 停止背景音乐，避免退出时残留循环节点
+    SoundManager.StopMusic()
     UI.Shutdown()
 end
 
@@ -1631,6 +1638,8 @@ function LoadFromSave(saveData)
     -- 上一角色会话可能残留的神兽单例。
     GameUI.ShowGameHUD(player_)
     SetupGameCallbacks()
+    -- 进入游戏：切换到战斗背景音乐
+    SoundManager.PlayMusic("battle")
 
     -- 刷新任务追踪条
     local cur = Quest.GetCurrent()
@@ -2029,6 +2038,7 @@ function SetupGameCallbacks()
         hpPotionCD = HP_POTION_CD
         GameUI.UpdatePotionCount("hp", Inventory.GetPotionCount("hp"))
         GameUI.AddFloatingText("+" .. math.floor(heal), playerNode_.position, {100, 255, 100, 255})
+        SoundManager.Play("potion", { position = playerNode_.position })
     end
 
     GameUI.onUseMpPotion = function()
@@ -2052,6 +2062,7 @@ function SetupGameCallbacks()
         mpPotionCD = MP_POTION_CD
         GameUI.UpdatePotionCount("mp", Inventory.GetPotionCount("mp"))
         GameUI.AddFloatingText("+" .. math.floor(restore), playerNode_.position, {100, 180, 255, 255})
+        SoundManager.Play("potion", { position = playerNode_.position })
     end
 
     -- 返回主菜单回调
@@ -2174,6 +2185,8 @@ function SetupGameCallbacks()
             return false
         end
 
+        -- 传送到目标地图安全区
+        SoundManager.Play("safe_zone")
         GameUI.SetNPCInteract(false)
         return true
     end
@@ -2246,19 +2259,6 @@ function SetupGameCallbacks()
                     end,
                 },
             }
-
-            -- 保护石仍是高阶强化的可选保险；强化本身只在铁匠处消耗金币。
-            table.insert(rows, {
-                text = "保护石",
-                hint = "💰" .. Inventory.PROTECT_STONE_PRICE .. "  当前 "
-                    .. Inventory.GetProtectStones() .. " · 铁匠强化失败不掉级",
-                onTap = function()
-                    local ok, msg = Inventory.BuyProtectStone()
-                    GameUI.ShowToast(ok and "购买成功：保护石 +1" or (msg or "购买失败"))
-                    GameUI.HideNPCPanel()
-                    openMerchantPanel(1)
-                end,
-            })
 
             -- 装备货架：按职业/等级筛选，并在五分钟内保持不变。
             local shopItems = EnsureMerchantStock(Combat.currentMapId, player_)
@@ -2444,6 +2444,8 @@ function SetupGameCallbacks()
         local color = isCrit and {255, 220, 50, 255} or {255, 255, 255, 255}
         local text = isCrit and (math.floor(dmg) .. "!") or tostring(math.floor(dmg))
         GameUI.AddFloatingText(text, worldPos, color, isCrit)
+        -- 命中怪物音效（在命中位置播放，增强打击感）
+        SoundManager.Play("sword_hit", { position = worldPos })
     end
 
     Combat.onEnemyAttack = function(enemy, dmg, playerPos)
@@ -2451,15 +2453,19 @@ function SetupGameCallbacks()
             GameUI.AddFloatingText("护盾吸收", playerPos, {120, 190, 255, 255})
         else
             GameUI.AddFloatingText("-" .. math.floor(dmg), playerPos, {255, 80, 60, 255})
+            SoundManager.Play("hurt", { position = playerPos })
         end
     end
 
     Combat.onPlayerHeal = function(amount, pos)
         GameUI.AddFloatingText("+" .. math.floor(amount), pos, {100, 255, 130, 255})
+        SoundManager.Play("heal", { position = pos })
     end
 
     -- 掉落系统（地面掉落模式）
     Combat.onEnemyDeath = function(enemyName, deathPos, exp, deathDuration, tier, mapId, encounterId)
+        -- 怪物死亡音效
+        SoundManager.Play("enemy_death", { position = deathPos })
         local droppedItem, gold = Inventory.RollDrop(enemyName, player_.classId)
         -- 金币散落到地面
         if gold > 0 then
@@ -2498,6 +2504,7 @@ function SetupGameCallbacks()
     Combat.onGoldPickup = function(amount, pos)
         Inventory.AddGold(amount)
         GameUI.AddFloatingText("+" .. amount .. "金", pos + Vector3(0, 0.3, 0), {255, 215, 0, 255})
+        SoundManager.Play("gold", { position = pos })
     end
 
     -- 装备靠近拾取回调
@@ -2507,8 +2514,10 @@ function SetupGameCallbacks()
         local color = rarity and rarity.color or {255, 255, 255, 255}
         if ok then
             GameUI.AddFloatingText(item.name, pos + Vector3(0, 0.5, 0), color)
+            SoundManager.Play("pickup", { position = pos })
         else
             GameUI.AddFloatingText("背包已满", pos + Vector3(0, 0.5, 0), {255, 100, 100, 255})
+            SoundManager.Play("error", { position = pos })
         end
         -- Combat 依据返回值决定是否移除地面掉落；背包满时保留物品以便
         -- 玩家整理背包后再拾取。
@@ -2518,6 +2527,7 @@ function SetupGameCallbacks()
     -- 技能解锁提示
     Combat.onSkillUnlocked = function(skillName)
         GameUI.ShowToast("习得新技能【" .. skillName .. "】")
+        SoundManager.Play("levelup")
         -- 刷新技能栏显示
         GameUI.RefreshSkillButtons(player_)
     end
@@ -2539,6 +2549,7 @@ function SetupGameCallbacks()
 
         GameUI.ShowToast("任务完成：【" .. quest.name .. "】")
         GameUI.AddFloatingText("任务完成 +" .. (quest.rewardExp or 0) .. "经验", playerNode_.position, {255, 215, 0, 255})
+        SoundManager.Play("quest_complete")
 
         -- 刷新任务追踪条
         local cur = Quest.GetCurrent()
@@ -2749,6 +2760,8 @@ function ReturnToMainMenu()
     questPresentationDelayHint = 0
 
     -- 返回存档槽位选择界面
+    -- 回到主界面：切换为菜单背景音乐
+    SoundManager.PlayMusic("menu")
     ShowSaveSlotScreen()
 end
 
@@ -2983,6 +2996,8 @@ function HandleUpdate(eventType, eventData)
         ShowChargeGlow(false)
         GameUI.UpdateGold(Inventory.playerData.gold)
         GameUI.ShowDeathMark(DEATH_MARK_DURATION)
+        -- 玩家死亡音效
+        SoundManager.Play("death")
         print("[main] Player died; waiting for death settlement")
         UpdateQuestAreaEffect()
         UpdateCamera(dt)

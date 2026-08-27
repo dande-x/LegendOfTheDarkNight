@@ -14,6 +14,8 @@ local Balance = {}
 Balance.MAX_LEVEL = 50
 Balance.DEFENSE_CONSTANT = 100
 Balance.REFERENCE_ATTACK_INTERVAL = 1.7
+-- 神兽攻击力 = 主人攻击 × 该倍率（百分比） × 道士被动；作为唯一数值源供各模块引用。
+Balance.DIVINE_BEAST_ATK_PERCENT = 135
 
 local MAX_VALUE = 1000000000
 
@@ -194,7 +196,8 @@ function Balance.GetDivineBeastStats(player, beastLevel, summonDamagePercent, pa
     local ownerHP = math.max(1, SafeNumber(player.maxHP, 1))
     local ownerATK = math.max(0, SafeNumber(player.atk, 0))
     local ownerDEF = math.max(0, SafeNumber(player.def, 0))
-    local skillMultiplier = math.max(0, SafeNumber(summonDamagePercent, 150) / 100)
+    local skillMultiplier = math.max(0,
+        SafeNumber(summonDamagePercent, Balance.DIVINE_BEAST_ATK_PERCENT) / 100)
     local passive = math.max(0, SafeNumber(passiveMultiplier, 1))
 
     return {

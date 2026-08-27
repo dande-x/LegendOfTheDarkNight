@@ -10,6 +10,7 @@ local MonsterSkeleton = require("scripts.MonsterSkeleton")
 local DivineBeast = require("scripts.DivineBeast")
 local MonsterData = require("scripts.MonsterData")
 local MapZone = require("scripts.MapZone")
+local SoundManager = require("scripts.SoundManager")
 
 local Combat = {}
 
@@ -302,6 +303,8 @@ Combat.IsInSafeZone = IsInSafeZone
 -- 怪物密度由各地图单独配置；后期单体更强，因此不再用同一个 42 只上限
 -- 把所有地图都做成堆怪压力。
 local ENEMY_MOVE_SPEED = 2.8
+-- 怪物移动速度上限（米/秒）。任何怪物（含 Boss 冲锋/回位）最快不得超过此值。
+local ENEMY_MAX_SPEED = 3.0
 
 -- Boss 遭遇附近降低自然刷怪压力：只影响周期性生态刷怪，不影响 Boss
 -- 遭遇本体或任务波次。按水平距离判断，Boss 离场/死亡后会自动恢复原频率。
@@ -1292,7 +1295,7 @@ function Combat.SpawnEnemy(scene, playerPos, playerLevel, forceDef, mapId, optio
         hp = scaledHP,
         atk = scaledATK,
         def = scaledDEF,
-        speed = def.speed or ENEMY_MOVE_SPEED,
+        speed = math.min(def.speed or ENEMY_MOVE_SPEED, ENEMY_MAX_SPEED),
         chaseRange = def.chaseRange,
         attackRange = def.attackRange,
         attackCD = def.attackCD,
@@ -1305,7 +1308,7 @@ function Combat.SpawnEnemy(scene, playerPos, playerLevel, forceDef, mapId, optio
         homePosition = Vector3(spawnPos.x, spawnPos.y, spawnPos.z),
         leashRange = tonumber(def.leashRange) or math.max(18, (def.chaseRange or 10) * 1.5),
         guardRadius = tonumber(def.guardRadius) or 2.0,
-        returnSpeed = (def.speed or ENEMY_MOVE_SPEED) * 1.15,
+        returnSpeed = math.min((def.speed or ENEMY_MOVE_SPEED) * 1.15, ENEMY_MAX_SPEED),
         chargeRange = tonumber(def.chargeRange) or 8.0,
         patrolTarget = nil,
         patrolWait = 0,
@@ -1881,7 +1884,7 @@ function Combat.UpdateEnemies(dt, playerNode, player)
                 local chaseSpeed = e.speed
                 if e.attackMode == "charge" and chaseTargetDist <= (e.chargeRange or 8.0)
                     and e.attackTimer <= 0 then
-                    chaseSpeed = chaseSpeed * 1.45
+                    chaseSpeed = math.min(chaseSpeed * 1.45, ENEMY_MAX_SPEED)
                 end
                 if eBody then
                     eBody:SetLinearVelocity(dir * chaseSpeed)
@@ -2039,6 +2042,23 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
     -- 消耗 MP，触发 CD
     player.mp = player.mp - skill.manaCost
     player.cooldowns[skill.id] = skill.cooldown
+
+    -- 播放技能施放音效（按技能类型映射，提高手感识别度）
+    if skill.type == SKILL_TYPE.MELEE then
+        SoundManager.Play("sword_swing")
+    elseif skill.type == SKILL_TYPE.RANGED and skill.id == "m_thunder" then
+        SoundManager.Play("thunder")
+    elseif skill.type == SKILL_TYPE.RANGED then
+        SoundManager.Play("fireball")
+    elseif skill.type == SKILL_TYPE.AOE then
+        SoundManager.Play("explosion")
+    elseif skill.type == SKILL_TYPE.BUFF then
+        SoundManager.Play("buff")
+    elseif skill.type == SKILL_TYPE.HEAL then
+        SoundManager.Play("heal")
+    elseif skill.type == SKILL_TYPE.DASH then
+        SoundManager.Play("dash")
+    end
 
     local playerPos = playerNode.position
     local playerDir = playerNode:GetDirection()  -- 前方方向

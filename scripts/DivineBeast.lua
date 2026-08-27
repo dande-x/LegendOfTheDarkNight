@@ -125,7 +125,7 @@ local beast = {
     buffFlashAccum = 0,
     isMoving = false,
     ownerStats = nil,     -- 当前主人面板快照，用于升级/换装后的实时同步
-    summonDamagePercent = 150,
+    summonDamagePercent = Balance.DIVINE_BEAST_ATK_PERCENT,
     ownerPassiveMultiplier = 1.0,
     -- 模型缩放信息
     baseScale = 1.0,
@@ -194,7 +194,7 @@ local function ResetBeastGrowth()
     beast.atk = 18
     beast.def = 8
     beast.ownerStats = nil
-    beast.summonDamagePercent = 150
+    beast.summonDamagePercent = Balance.DIVINE_BEAST_ATK_PERCENT
     beast.ownerPassiveMultiplier = 1.0
 end
 
@@ -217,7 +217,8 @@ local function ReadOwnerSnapshot(player)
         maxHP = math.max(1, tonumber(player.maxHP) or 1),
         atk = math.max(0, tonumber(player.atk) or 0),
         def = math.max(0, tonumber(player.def) or 0),
-        summonDamagePercent = summonSkill and summonSkill.damage or 150,
+        summonDamagePercent = summonSkill and summonSkill.damage
+            or Balance.DIVINE_BEAST_ATK_PERCENT,
         passiveMultiplier = CharacterClass.GetDivineBeastAttackMultiplier
             and CharacterClass.GetDivineBeastAttackMultiplier(player) or 1.0,
     }
@@ -707,7 +708,8 @@ function DivineBeast.Restore(scene, playerPos, saved, fallbackPlayerAtk)
     local minMaxHP = 300 + BEAST_GROWTH.hp_per_level * (level - 1)
     local minDef = math.floor(8 + BEAST_GROWTH.def_per_level * (level - 1) + 0.5)
     local fallbackAtk = math.max(1, math.floor(
-        SafeNonNegativeInteger(fallbackPlayerAtk, 0, MAX_BEAST_ATK) * 1.5))
+        SafeNonNegativeInteger(fallbackPlayerAtk, 0, MAX_BEAST_ATK)
+        * (Balance.DIVINE_BEAST_ATK_PERCENT / 100)))
     local savedBaseAtk = SafeNonNegativeInteger(saved.baseAtk, fallbackAtk, MAX_BEAST_ATK)
 
     beast.level = level

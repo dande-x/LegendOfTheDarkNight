@@ -729,7 +729,6 @@ function EquipmentPanel.BuildBagTab(options)
                 marginBottom = 10,
                 children = {
                     UI.Label { text = "金币 " .. inv.gold, fontSize = 13, fontColor = {228, 230, 228, 255}, fontWeight = "bold" },
-                    UI.Label { text = "保护石 " .. Inventory.GetProtectStones(), fontSize = 11, fontColor = {126, 190, 242, 225} },
                 },
             },
             UI.Panel {

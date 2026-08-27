@@ -446,7 +446,7 @@ const equipmentStages = [
         "bell_holy", "helm_dragon", "armor_dragon", "neck_dragon",
         "brace_dragon", "brace_dragon", "ring_dragon", "ring_dragon", "belt_dragon", "boots_dragon",
     ] },
-    { label: "史诗+12", rarity: "EPIC", enhance: 12, hit: [75, 100], survival: [26, 34], ids: [
+    { label: "史诗+12", rarity: "EPIC", enhance: 12, hit: [70, 92], survival: [29, 40], ids: [
         "bell_holy", "helm_dragon", "armor_dragon", "neck_dragon",
         "brace_dragon", "brace_dragon", "ring_dragon", "ring_dragon", "belt_dragon", "boots_dragon",
     ] },

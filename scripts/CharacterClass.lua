@@ -278,7 +278,7 @@ CharacterClass.Classes = {
                 desc = "召唤远古神兽为随从，喷火焚敌，永不消散",
                 slot = 2, cooldown = 8, manaCost = 60,
                 unlockLevel = 1,
-                damage = 150,  -- 神兽基础ATK倍率150%
+                damage = Balance.DIVINE_BEAST_ATK_PERCENT,  -- 神兽基础ATK倍率
                 duration = -1, -- -1 表示永久
                 summonCount = 1,
                 summonType = "divineBeast",

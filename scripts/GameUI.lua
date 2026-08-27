@@ -15,6 +15,7 @@ local NPC = require("scripts.NPC")
 local PlayerAnim = require("scripts.PlayerAnim")
 local DivineBeast = require("scripts.DivineBeast")
 local ServiceScrollView = require("scripts.ServiceScrollView")
+local SoundManager = require("scripts.SoundManager")
 require "urhox-libs.UI.GameHUD"
 
 local GameUI = {}
@@ -3226,6 +3227,7 @@ end
 ---@param maps table[]|nil {id, name, minLevel, maxLevel, cost, locked, current}
 function GameUI.ShowTeleportPanel(maps)
     if uiState.teleportPanelOpen then return end
+    SoundManager.Play("open_panel")
     uiState.teleportPanelOpen = true
     _SyncPauseState()
 
@@ -3409,6 +3411,7 @@ end
 
 function GameUI.HideTeleportPanel()
     if not uiState.teleportPanelOpen then return end
+    SoundManager.Play("close_panel")
     uiState.teleportPanelOpen = false
     _SyncPauseState()
     uiState.teleportPanelRoot = nil
@@ -3760,6 +3763,7 @@ local _skillBarIcons = {
     w_basic = "image/icon_w_basic_20260617040401_round.png",
     w_thrust = "image/icon_w_thrust_20260617040358_round.png",
     w_crescent = "image/icon_w_crescent_20260617040403_round.png",
+    w_earthsplit = "image/icon_w_earthsplit_20260827_round.png",
     w_charge = "image/icon_w_charge_20260617040402_round.png",
     w_fire = "image/icon_w_fire_20260617040854_round.png",
     w_shield = "image/icon_w_shield_20260617040850_round.png",
@@ -4519,6 +4523,7 @@ function GameUI.ShowCharacterPanel(player, tab)
         -- 已打开则先关再开（用于 Tab 切换）
         GameUI.HideCharacterPanel()
     end
+    SoundManager.Play("open_panel")
     uiState.charPanelOpen = true
     _SyncPauseState()
 
@@ -4617,6 +4622,7 @@ end
 
 function GameUI.HideCharacterPanel()
     if not uiState.charPanelOpen then return end
+    SoundManager.Play("close_panel")
     GameUI.HideItemDetail()
     uiState.charPanelOpen = false
     _SyncPauseState()
@@ -4670,6 +4676,7 @@ function GameUI.ShowSystemPanel()
     -- 关闭角色面板（互斥）
     if uiState.charPanelOpen then GameUI.HideCharacterPanel() end
     if uiState.systemPanelOpen then return end
+    SoundManager.Play("open_panel")
     uiState.systemPanelOpen = true
     _SyncPauseState()
 
@@ -4678,6 +4685,45 @@ function GameUI.ShowSystemPanel()
             width = "100%", height = 1,
             backgroundColor = {72, 74, 76, 110},
         },
+        -- 音效开关：控制全部音效与背景音乐
+        (function()
+            local sfxEnabled = SoundManager.IsSoundEnabled()
+            local sfxButton = UI.Button {
+                text = (sfxEnabled and "开启" or "关闭"),
+                width = 72, height = 32,
+                backgroundColor = (sfxEnabled and {60, 90, 60, 240} or {70, 58, 58, 240}),
+                borderRadius = 6, borderWidth = 1,
+                borderColor = (sfxEnabled and {90, 160, 90, 200} or {160, 80, 80, 180}),
+                fontSize = 13,
+                fontColor = (sfxEnabled and {180, 255, 180, 255} or {236, 200, 200, 255}),
+                onClick = function()
+                    local newEnabled = not SoundManager.IsSoundEnabled()
+                    SoundManager.SetSoundEnabled(newEnabled)
+                    SoundManager.Play("click")
+                    sfxButton:SetText(newEnabled and "开启" or "关闭")
+                    sfxButton:SetStyle {
+                        backgroundColor = (newEnabled and {60, 90, 60, 240} or {70, 58, 58, 240}),
+                        borderColor = (newEnabled and {90, 160, 90, 200} or {160, 80, 80, 180}),
+                        fontColor = (newEnabled and {180, 255, 180, 255} or {236, 200, 200, 255}),
+                    }
+                end,
+            }
+            return UI.Panel {
+                width = "100%",
+                flexDirection = "row",
+                alignItems = "center",
+                justifyContent = "space-between",
+                paddingLeft = 4, paddingRight = 4,
+                children = {
+                    UI.Label {
+                        text = "音效",
+                        fontSize = 14,
+                        fontColor = {214, 216, 214, 240},
+                    },
+                    sfxButton,
+                },
+            }
+        end)(),
         UI.Button {
             text = "退出游戏",
             width = 180, height = 40,
@@ -4812,6 +4858,7 @@ end
 
 function GameUI.HideSystemPanel()
     if not uiState.systemPanelOpen then return end
+    SoundManager.Play("close_panel")
     uiState.systemPanelOpen = false
     _SyncPauseState()
     uiState.systemPanelRoot = nil
