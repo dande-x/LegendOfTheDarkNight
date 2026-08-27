@@ -1192,7 +1192,7 @@ function Inventory.RecycleItem(item)
 
     -- 先移除实例，再发放收益；这样同一个旧引用无法重复结算。
     if locationType == "bag" then
-        table.remove(playerData.bag, locationKey)
+        table.remove(playerData.bag, locationKey --[[@as integer]])
     else
         playerData.equipped[locationKey] = nil
         Inventory.RecalcBonus()
@@ -1593,7 +1593,7 @@ function Inventory.GetItemSellPrice(item)
 end
 
 --- 出售背包中的装备（移除 + 加金币）
----@param bagIndex number 背包索引
+---@param itemOrIndex table|number 装备实例或背包索引
 ---@return boolean, number|string 成功与否，返回卖出价或错误信息
 function Inventory.SellItem(itemOrIndex)
     local bagIndex = nil

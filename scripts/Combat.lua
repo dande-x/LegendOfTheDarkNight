@@ -2711,11 +2711,12 @@ function Combat.SpawnEarthRiftWave(scene, origin, dir, damage, skill)
     crackMat:SetShaderParameter("Roughness", Variant(0.32))
 
     local crackOffsets = {-0.18, 0.12, -0.08, 0.20, -0.14}
+    ---@type number[]
     local crackAngles = {-14, 11, -8, 16, -10}
     for i = 1, 5 do
         local crack = waveNode:CreateChild("earthCrack" .. i)
         crack.position = Vector3(crackOffsets[i] * radius, 0.035, (i - 3) * 0.34)
-        crack.rotation = Quaternion(crackAngles[i], Vector3.UP)
+        crack.rotation = Quaternion(crackAngles[i] or 0, Vector3.UP)
         crack.scale = Vector3(0.10 + i * 0.008, 0.025, 0.52)
         local crackModel = crack:CreateComponent("StaticModel")
         crackModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
