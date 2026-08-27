@@ -17,6 +17,7 @@ const mainSource = read("scripts/main.lua");
 const equipmentPanelSource = read("scripts/EquipmentPanel.lua");
 const gameUISource = read("scripts/GameUI.lua");
 const forgePanelSource = read("scripts/ForgePanel.lua");
+const npcSource = read("scripts/NPC.lua");
 const equipmentSource = `${inventorySource}\n${weaponSource}`;
 
 function check(condition, message) {
@@ -123,6 +124,17 @@ check(gameUISource.includes("自动选 3 件材料 · 每次锻造 1 件")
     && forgePanelSource.includes("3 件同品质同部位")
     && forgePanelSource.includes("锻造 1 件 · "),
     "锻造台没有清楚说明材料、次数与费用");
+check(npcSource.includes("BuildHoodedHumanoid")
+    && npcSource.includes("WhiteRobeLower")
+    && npcSource.includes("HoodFaceShadow"),
+    "安全区 NPC 又退回占位模型或缺少白袍兜帽轮廓");
+check(npcSource.includes("StewardStaff")
+    && npcSource.includes("MerchantCoinPouch")
+    && npcSource.includes("BlacksmithHammerHead"),
+    "白袍 NPC 缺少管家、商人、铁匠的职业辨识物件");
+check((npcSource.match(/spawnHoodedNPC\("/g) ?? []).length === 3
+    && npcSource.includes("shape:SetCapsule(0.35, 1.6"),
+    "三名安全区 NPC 未全部使用新模型，或碰撞范围发生漂移");
 
 // 这些字符串让测试与 Lua 单一数值源绑定；修改曲线时必须同步更新验收矩阵。
 for (const formula of [

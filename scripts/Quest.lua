@@ -160,7 +160,9 @@ Quest.CHAIN = {
         mode = "survive", mapId = "map_sc", count = 50, legacyCount = 10,
         area = { name = "灯塔", x = 0, z = 38, radius = 9 },
         desc = "水城的航路被熔火封锁。守住灯塔，让城中的船只完成撤离。",
-        rewardExp = 6540, rewardGold = 2400,
+        -- 坚守延长到 50 秒后会多经历约 10 只同期怪；下调任务本体经验，
+        -- 保持第三幕结束仍落在既定 Lv35 阶段，而不是提前溢出到下一档。
+        rewardExp = 5300, rewardGold = 2400,
         dialogues = {
             { speaker = "旁白", text = "海底的熔火并非自然异变，焦黑岩壁上残留着熟悉的黑暗符文。" },
             { speaker = "你", text = "这股力量和师父封印中的一模一样。真正的幕后之物，就在前方。" },

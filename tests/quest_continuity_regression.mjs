@@ -44,9 +44,17 @@ for (const mode of allowedModes) {
 check(!questSource.includes("QUEST_MAPS"), "任务地图仍存在第二份 QUEST_MAPS 真源");
 check(!/type = "(?:kill|boss)"/.test(questSource), "旧 kill/boss 任务类型仍在使用");
 
+for (const id of ["q_004", "q_011"]) {
+    const block = questBlock(id);
+    check(/mode = "survive"/.test(block), `${id} 不是坚守任务`);
+    check(/count = 50\b/.test(block), `${id} 坚守时间没有统一为 50 秒`);
+}
+check(/SURVIVE_DURATION\s*=\s*50/.test(questSource), "坚守时长常量不是 50 秒");
+
 for (const api of [
     "Quest.Update", "Quest.OnKill", "Quest.GetObjectiveText",
     "Quest.GetObjectiveMarker", "Quest.GetEncounterRequest",
+    "Quest.IsInsideObjective",
 ]) {
     check(questSource.includes(`function ${api}`), `缺少连续性接口 ${api}`);
 }
@@ -59,10 +67,20 @@ check(!combatSource.includes("questTarget"), "自然刷怪仍会注入任务怪�
 check(!combatSource.includes("TrySpawnQuestBoss"), "仍保留任务专用 Boss 刷新器");
 check(combatSource.includes("function Combat.EnsureEncounter"), "缺少统一遭遇生成入口");
 check(combatSource.includes("encounterId"), "遭遇实体没有唯一标识，可能重复生成");
+for (const api of [
+    "Combat.SpawnEnemyGroup", "Combat.SpawnQuestSignal",
+    "Combat.SetQuestAreaEffect", "Combat.ClearQuestAreaEffect",
+]) {
+    check(combatSource.includes(`function ${api}`), `缺少任务演出接口 ${api}`);
+}
 
 check(mainSource.includes("Quest.Update(dt, Combat.currentMapId"), "主循环未更新任务区域/巡逻进度");
 check(mainSource.includes("Combat.EnsureEncounter"), "主循环未恢复当前遭遇目标");
 check(mainSource.includes("not isDead"), "任务更新没有显式接入存活状态");
+check(mainSource.includes("Quest.onObjectiveReached"), "主流程未接入巡查到点回调");
+check(mainSource.includes("Quest.onAreaStateChanged"), "主流程未接入坚守区域回调");
+check(mainSource.includes("Quest.onSurviveWave"), "主流程未接入坚守波次回调");
+check(mainSource.includes("UpdateQuestAreaEffect"), "主流程未同步坚守区域视觉状态");
 
 const loadStart = mainSource.indexOf("function LoadFromSave");
 const loadEnd = mainSource.indexOf("function SaveCurrentGame", loadStart);
