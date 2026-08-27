@@ -76,6 +76,9 @@ check(divineBeastSource.includes("Balance.CalculateDamage"),
     "神兽受伤未接入统一防御公式");
 check(classSource.includes('def = 1.8') && classSource.includes('def = 1.0')
     && classSource.includes('def = 1.4'), "三职业防御成长常量漂移");
+check(classSource.includes('id = "w_thrust", name = "刺杀剑术"')
+    && classSource.includes('desc = "隔敌人一个身位攻击，可以凌空斩出白色剑气，大幅穿透其防御。"'),
+    "武士刺杀剑术描述没有同步为玩家可理解的攻击说明");
 check((mapSource.match(/spawnSettings =/g) ?? []).length === 5, "五张地图未全部设置独立刷怪密度");
 
 // 神兽等级只允许改变名字颜色；模型必须始终恢复 prefab 自带材质。
@@ -114,6 +117,25 @@ check(!mainSource.includes("Inventory.BuyPotion("),
 check(!equipmentPanelSource.includes("BuyPotion")
     && equipmentPanelSource.includes("仅可在安全区商人处购买"),
     "背包重新出现药水购买入口或缺少商人购买提示");
+const itemDetailStart = equipmentPanelSource.indexOf("local function ShowItemDetail");
+const itemDetailEnd = equipmentPanelSource.indexOf("function EquipmentPanel.BuildEquipTab", itemDetailStart);
+check(itemDetailStart >= 0 && itemDetailEnd > itemDetailStart,
+    "装备详情入口结构缺失，无法验证背包操作边界");
+const itemDetailSource = equipmentPanelSource.slice(itemDetailStart, itemDetailEnd);
+check(itemDetailSource.includes('or ("出售可得 " .. sellPrice .. " 金 · 请前往安全区商人")')
+    && itemDetailSource.includes('text = "分解穿戴中装备"')
+    && itemDetailSource.includes("if sourceSlot then"),
+    "装备详情没有区分背包出售与已穿戴分解操作");
+check(!itemDetailSource.includes('or "分解装备"')
+    && !itemDetailSource.includes('text = "分解装备"'),
+    "背包装备详情仍暴露分解装备按钮");
+const skillDescriptionStart = gameUISource.indexOf('text = skill.desc or ""');
+const skillDescriptionEnd = gameUISource.indexOf("UI.Label {", skillDescriptionStart + 1);
+const skillDescriptionSource = gameUISource.slice(skillDescriptionStart, skillDescriptionEnd);
+check(skillDescriptionStart >= 0
+    && skillDescriptionSource.includes('whiteSpace = "normal"')
+    && skillDescriptionSource.includes('wordBreak = "break-word"'),
+    "技能描述没有启用中文换行，长说明可能被挤压");
 check(mainSource.includes('elseif kind == "blacksmith" then')
     && mainSource.includes("GameUI.ShowBlacksmithPanel(player_)"),
     "铁匠 NPC 没有承接锻造/强化入口");
@@ -128,8 +150,12 @@ check(forgePanelSource.includes("5 件同品质同部位")
     "锻造台没有清楚说明材料、次数与费用");
 check(npcSource.includes("BuildHoodedHumanoid")
     && npcSource.includes("WhiteRobeLower")
+    && npcSource.includes("0.34, 0.22, 1.22")
+    && npcSource.includes("PointedHat")
+    && npcSource.includes("Models/Cone.mdl")
+    && npcSource.includes("HatBrim")
     && npcSource.includes("HoodFaceShadow"),
-    "安全区 NPC 又退回占位模型或缺少白袍兜帽轮廓");
+    "安全区 NPC 又退回占位模型或缺少白袍尖帽轮廓");
 check(npcSource.includes("StewardStaff")
     && npcSource.includes("MerchantCoinPouch")
     && npcSource.includes("BlacksmithHammerHead"),

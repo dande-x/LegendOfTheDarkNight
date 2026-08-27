@@ -128,7 +128,7 @@ CharacterClass.Classes = {
             },
             {
                 id = "w_thrust", name = "刺杀剑术", type = SKILL_TYPE.PASSIVE,
-                desc = "被动：基本剑术可凌空斩出白色剑气，补击隔一身位之敌，并大幅穿透其防御",
+                desc = "隔敌人一个身位攻击，可以凌空斩出白色剑气，大幅穿透其防御。",
                 slot = 0, cooldown = 0, manaCost = 0,  -- 被动:随基本剑术触发,不占技能栏/不耗蓝
                 unlockLevel = 12,
                 damage = 200,  -- 补刀ATK倍率200% (增强/穿透系数见 Combat.lua 身位常量)

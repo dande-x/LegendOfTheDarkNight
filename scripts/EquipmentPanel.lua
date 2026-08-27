@@ -158,7 +158,9 @@ local function ShowItemDetail(options, item, sourceSlot)
     local targetName = targetSlot and (Inventory.SLOT_NAMES[targetSlot] or targetSlot) or "未知槽位"
     local bagFull = #inv.bag >= Inventory.MAX_BAG_SLOTS
     local enhanceLevel = Integer(item.enhance)
-    local recycleReward = Inventory.Enhance.Recycle(item)
+    -- 背包装备只保留查看、穿戴和前往商人出售的路径；分解操作仅保留在
+    -- 已穿戴装备详情中，避免玩家在背包里直接把掉落物变成金币。
+    local recycleReward = sourceSlot and Inventory.Enhance.Recycle(item) or nil
     local sellPrice = Inventory.GetItemSellPrice(item)
 
     local function doEquip()
@@ -287,8 +289,10 @@ local function ShowItemDetail(options, item, sourceSlot)
     end
 
     table.insert(bodyChildren, UI.Label {
-        text = "商店估值 " .. sellPrice .. " 金 · 分解可得 "
-            .. recycleReward.gold .. " 金",
+        text = sourceSlot
+            and ("卸下后可出售 " .. sellPrice .. " 金 · 分解可得 "
+                .. recycleReward.gold .. " 金")
+            or ("出售可得 " .. sellPrice .. " 金 · 请前往安全区商人"),
         width = "100%",
         fontSize = 10,
         fontColor = {165, 158, 144, 195},
@@ -375,13 +379,15 @@ local function ShowItemDetail(options, item, sourceSlot)
         },
     })
 
-    table.insert(bodyChildren, UI.Button {
-        text = sourceSlot and "分解穿戴中装备" or "分解装备",
-        width = "100%", height = 36,
-        marginTop = 12,
-        variant = "danger",
-        onClick = requestRecycle,
-    })
+    if sourceSlot then
+        table.insert(bodyChildren, UI.Button {
+            text = "分解穿戴中装备",
+            width = "100%", height = 36,
+            marginTop = 12,
+            variant = "danger",
+            onClick = requestRecycle,
+        })
+    end
     table.insert(bodyChildren, UI.Panel { width = "100%", height = 8 })
 
     local detailPanel = UI.Panel {
@@ -607,7 +613,7 @@ function EquipmentPanel.BuildEquipTab(options)
         width = "100%",
         children = {
             UI.Label {
-                text = "点击已穿戴装备查看属性、分解或卸下；强化请前往安全区铁匠",
+                text = "点击已穿戴装备查看属性、分解或卸下；背包装备可出售，强化请前往安全区铁匠",
                 fontSize = 10,
                 fontColor = {154, 156, 154, 175},
                 textAlign = "center",

@@ -1958,6 +1958,10 @@ end
 local previewClassIds_ = {}
 
 -- 角色选择与存档页使用二维职业立绘，不再依赖三维模型预览。
+-- 固定的暗色背景图，避免选择界面透出游戏场景的透视地图。
+-- 资源位于 assets/image，运行时路径不带 assets/ 前缀。
+local CHARACTER_SELECT_BACKGROUND = "image/tex_ground_dark_20260611064232.png"
+
 local CLASS_PORTRAITS = {
     male = {
         warrior = "image/portrait_male_warrior_restrained_20260720115032.png",
@@ -2460,23 +2464,26 @@ function GameUI.ShowSaveSlots(slots, callbacks)
         GameUI._ShowDeleteConfirm(selectedSlot, slots, callbacks)
     end)
 
-    -- 构建完整界面
-    -- 关键设计：上半部分（视口）无不透明背景，让3D角色透出
-    -- 下半部分（信息卡）完全不透明
+    -- 构建完整界面：固定暗色图片覆盖底层 3D 场景，
+    -- 上半部分只展示角色立绘，下半部分保持不透明信息卡。
     local saveSlotRoot = UI.Panel {
         id = "saveSlotScreen",
         width = "100%",
         height = "100%",
-        -- 全屏布局，无背景让3D透出
+        -- 使用固定图片作为选择界面底图，不再让 3D 地图透出。
+        backgroundImage = CHARACTER_SELECT_BACKGROUND,
+        backgroundFit = "cover",
+        backgroundImageOpacity = 0.72,
+        backgroundColor = {8, 8, 10, 255},
         children = {
-            -- === 上半部分：角色展示区（透明，3D透出，占满上方空间）===
+            -- === 上半部分：角色展示区（立绘叠加在固定暗色底图上）===
             UI.Panel {
                 width = "100%",
                 flexGrow = 5,
                 flexDirection = "row",
                 padding = 10,
                 gap = 8,
-                -- 无 backgroundColor！让3D角色可见
+                backgroundColor = {5, 5, 7, 72},
                 children = {
                     BuildViewport(1),
                     BuildViewport(2),
@@ -2699,7 +2706,12 @@ function GameUI.ShowClassSelect(onSelected, overlayMode, overlaySlotIndex, onCan
         position = overlayMode and "absolute" or nil,
         top = overlayMode and 0 or nil,
         left = overlayMode and ((overlaySlotIndex == 2) and "50%" or 0) or nil,
-        backgroundColor = overlayMode and {0, 0, 0, 118} or {10, 8, 6, 252},
+        -- 存档页中的职业选择直接叠在同一张固定底图上；
+        -- 独立打开时也使用该图片，不暴露游戏场景。
+        backgroundImage = not overlayMode and CHARACTER_SELECT_BACKGROUND or nil,
+        backgroundFit = "cover",
+        backgroundImageOpacity = not overlayMode and 0.72 or nil,
+        backgroundColor = overlayMode and {4, 4, 7, 205} or {10, 8, 6, 255},
         justifyContent = "center",
         alignItems = "center",
         children = {
@@ -4357,7 +4369,12 @@ local function _BuildSkillTabContent(player)
                         },
                         UI.Label {
                             text = skill.desc or "",
-                            fontSize = 11, fontColor = locked and {90, 90, 90, 125} or {174, 176, 176, 205},
+                            width = "100%",
+                            fontSize = 11,
+                            lineHeight = 1.35,
+                            whiteSpace = "normal",
+                            wordBreak = "break-word",
+                            fontColor = locked and {90, 90, 90, 125} or {174, 176, 176, 205},
                             marginTop = 2,
                         },
                         UI.Label {

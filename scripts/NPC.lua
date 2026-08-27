@@ -149,7 +149,7 @@ local function AddRoleAccessory(root, kind, materials)
     end
 end
 
---- 在父节点下创建白袍兜帽人形 NPC。所有身份共用轮廓，只改变服务标识。
+--- 在父节点下创建白袍尖帽人形 NPC。所有身份共用轮廓，只改变服务标识。
 ---@param parentNode Node
 ---@param name string
 ---@param kind string
@@ -171,53 +171,49 @@ local function BuildHoodedHumanoid(parentNode, name, kind)
             style.emissive),
     }
 
-    -- 袍身：下摆放宽形成长袍轮廓，上身略收，避免仍像一根立柱。
+    -- 袍身：整体收窄并拉高，形成参考图中的细长人型比例。
     AddTaperedPart(root, "WhiteRobeLower", materials.robe, Vector3(0, 0.56, 0),
-        0.42, 0.28, 1.08, 18)
+        0.34, 0.22, 1.22, 18)
     AddTaperedPart(root, "WhiteRobeTorso", materials.robe, Vector3(0, 1.18, 0),
-        0.29, 0.24, 0.46, 18)
+        0.23, 0.19, 0.52, 18)
     AddModelPart(root, "RobeHem", "Models/Cylinder.mdl", materials.robeShade,
-        Vector3(0, 0.11, 0), Vector3(0.80, 0.055, 0.66))
+        Vector3(0, 0.11, 0), Vector3(0.66, 0.055, 0.54))
     AddModelPart(root, "RoleBelt", "Models/Cylinder.mdl", materials.accent,
-        Vector3(0, 0.91, 0), Vector3(0.60, 0.085, 0.49))
+        Vector3(0, 0.98, 0), Vector3(0.49, 0.075, 0.40))
 
-    -- 宽袖向身体两侧自然下垂；袖口露出双手，强化人形识别。
+    -- 窄袖向身体两侧自然下垂；袖口露出双手，强化人形识别。
     for _, side in ipairs({-1, 1}) do
         local sideName = side < 0 and "L" or "R"
         AddTaperedPart(root, "WhiteSleeve_" .. sideName, materials.robe,
-            Vector3(side * 0.43, 1.13, 0), 0.16, 0.19, 0.49, 14,
-            Quaternion(0, 0, side * 44))
+            Vector3(side * 0.34, 1.25, 0), 0.13, 0.15, 0.56, 14,
+            Quaternion(0, 0, side * 38))
         AddModelPart(root, "Hand_" .. sideName, "Models/Sphere.mdl", materials.skin,
-            Vector3(side * 0.60, 0.95, 0.015), Vector3(0.14, 0.15, 0.13))
+            Vector3(side * 0.48, 1.04, 0.015), Vector3(0.12, 0.14, 0.11))
     end
 
-    -- 披肩、兜帽外壳与暗色面孔形成清晰的白袍兜帽剪影。
-    AddTaperedPart(root, "HoodedCowl", materials.robeShade, Vector3(0, 1.39, -0.01),
-        0.35, 0.25, 0.23, 18)
-    AddModelPart(root, "HoodShell", "Models/Sphere.mdl", materials.hood,
-        Vector3(0, 1.65, -0.025), Vector3(0.70, 0.74, 0.62))
+    -- 披肩、尖帽与帽檐形成参考图中清晰的高尖头部剪影。
+    AddTaperedPart(root, "HoodedCowl", materials.robeShade, Vector3(0, 1.57, -0.01),
+        0.28, 0.21, 0.18, 18)
     AddModelPart(root, "HoodFaceShadow", "Models/Sphere.mdl", materials.faceShadow,
-        Vector3(0, 1.62, 0.292), Vector3(0.38, 0.42, 0.10))
-    AddModelPart(root, "HoodBrow", "Models/Box.mdl", materials.hood,
-        Vector3(0, 1.80, 0.305), Vector3(0.40, 0.075, 0.09))
-    for _, side in ipairs({-1, 1}) do
-        AddModelPart(root, side < 0 and "HoodFoldL" or "HoodFoldR",
-            "Models/Box.mdl", materials.hood,
-            Vector3(side * 0.205, 1.61, 0.30), Vector3(0.085, 0.35, 0.085),
-            Quaternion(0, 0, side * 11))
-    end
+        Vector3(0, 1.68, 0.255), Vector3(0.29, 0.32, 0.08))
+    AddModelPart(root, "PointedHat", "Models/Cone.mdl", materials.hood,
+        Vector3(0, 2.04, -0.02), Vector3(0.36, 0.52, 0.36))
+    AddModelPart(root, "HatBrim", "Models/Cylinder.mdl", materials.hood,
+        Vector3(0, 1.80, -0.015), Vector3(0.52, 0.055, 0.41))
+    AddModelPart(root, "HatBand", "Models/Cylinder.mdl", materials.robeShade,
+        Vector3(0, 1.87, -0.02), Vector3(0.37, 0.045, 0.29))
 
     -- 袍下露出少量深色鞋面，避免模型像悬浮的圆锥。
     AddModelPart(root, "BootL", "Models/Box.mdl", materials.faceShadow,
-        Vector3(-0.16, 0.085, 0.13), Vector3(0.20, 0.17, 0.32))
+        Vector3(-0.13, 0.085, 0.13), Vector3(0.16, 0.17, 0.28))
     AddModelPart(root, "BootR", "Models/Box.mdl", materials.faceShadow,
-        Vector3(0.16, 0.085, 0.13), Vector3(0.20, 0.17, 0.32))
+        Vector3(0.13, 0.085, 0.13), Vector3(0.16, 0.17, 0.28))
 
     AddModelPart(root, "RoleSeal", "Models/Sphere.mdl", materials.accent,
-        Vector3(0, 1.18, 0.275), Vector3(0.15, 0.15, 0.065))
+        Vector3(0, 1.30, 0.22), Vector3(0.13, 0.13, 0.055))
     AddRoleAccessory(root, kind, materials)
 
-    -- 保持原有窄胶囊碰撞，宽袍只影响外观，不扩大阻路范围。
+    -- 保持原有窄胶囊碰撞，尖帽和细长袍身只影响外观，不扩大阻路范围。
     local rbody = root:CreateComponent("RigidBody")
     rbody.mass = 0
     rbody.collisionLayer = 1  -- 地形层（静态障碍）
@@ -234,7 +230,7 @@ end
 ---@param color Color
 local function AddNameplate(root, text, color)
     local labelNode = root:CreateChild("Nameplate")
-    labelNode.position = Vector3(0, 2.18, 0)
+    labelNode.position = Vector3(0, 2.48, 0)
     local label = labelNode:CreateComponent("Text3D")
     label:SetFont("Fonts/MiSans-Regular.ttf", 16)
     label:SetText(text)
@@ -271,7 +267,7 @@ function NPC.SpawnForMap(scene, mapId, spawnPos)
         table.insert(npcs, { node = npc, kind = kind, mapId = mapId })
     end
 
-    -- 三名 NPC 共用白袍兜帽轮廓，分别以权杖、钱袋、铁锤标识服务。
+    -- 三名 NPC 共用白袍尖帽轮廓，分别以权杖、钱袋、铁锤标识服务。
     spawnHoodedNPC("steward", "NPC_Steward")
     spawnHoodedNPC("merchant", "NPC_Merchant")
     spawnHoodedNPC("blacksmith", "NPC_Blacksmith")
