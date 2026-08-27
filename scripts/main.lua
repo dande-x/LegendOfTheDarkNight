@@ -2034,54 +2034,86 @@ function SetupGameCallbacks()
     -- 传送面板回调（已改为 NPC 管家对话传送，此回调保留用于兼容但不再由按钮触发）
     GameUI.onTeleportToggle = nil
 
+    --- 读取角色实际所在地图。NPC 节点携带的 mapId 只作为最后回退，
+    --- 避免切图边界上旧节点数据让传送列表排除错地图或计算错费用。
+    ---@param npcMapId string|nil
+    ---@return string|nil
+    local function resolveCurrentMapId(npcMapId)
+        local combatMapId = Combat.currentMapId
+        local zoneMapId = MapZone.GetCurrentMapId()
+
+        if MapZone.GetDef(combatMapId) then
+            if MapZone.GetDef(zoneMapId) and zoneMapId ~= combatMapId then
+                print("[main] Teleport map state mismatch: combat=" .. tostring(combatMapId)
+                    .. ", zone=" .. tostring(zoneMapId))
+            end
+            return combatMapId
+        end
+        if MapZone.GetDef(zoneMapId) then return zoneMapId end
+        if MapZone.GetDef(npcMapId) then return npcMapId end
+        return nil
+    end
+
     GameUI.onTeleportSelected = function(mapId)
+        local targetDef = MapZone.GetDef(mapId)
+        if not targetDef then
+            GameUI.ShowToast("传送目标不存在，请重新打开传送面板", 2.0)
+            print("[main] Teleport rejected unknown target: " .. tostring(mapId))
+            return false
+        end
+
+        local currentMapId = resolveCurrentMapId(nil)
+        if not currentMapId then
+            GameUI.ShowToast("当前地图状态异常，请返回游戏后重试", 2.0)
+            print("[main] Teleport rejected: current map is unavailable")
+            return false
+        end
+        if mapId == currentMapId then
+            GameUI.ShowToast("你已经在" .. targetDef.name)
+            return false
+        end
+
         -- 手动传送执行硬等级门槛；剧情自动切图走 QueueQuestMapSwitch，
         -- 不会被这里拦截，因此主线仍能按章节安排推进。
         if not MapZone.IsLevelAllowed(mapId, player_.level) then
             GameUI.ShowToast("等级不足，" .. MapZone.GetLevelRequirement(mapId), 2.0)
-            return
+            return false
         end
-        SwitchMap(mapId)
+
+        local cost = MapZone.GetTeleportCost(currentMapId)
+        if cost > 0 and not Inventory.SpendGold(cost) then
+            GameUI.ShowToast("金币不足，需要 " .. cost .. " 金币", 2.0)
+            return false
+        end
+
+        local switched = SwitchMap(mapId)
+        if not switched then
+            if cost > 0 then Inventory.AddGold(cost) end
+            GameUI.ShowToast(cost > 0 and "传送失败，金币已退回" or "传送失败，请重试", 2.0)
+            return false
+        end
+
+        GameUI.SetNPCInteract(false)
+        return true
     end
 
-    -- 与管家交互：打开传送面板（花费金币）
-    local function openStewardPanel(currentMapId)
-        local cost = MapZone.GetTeleportCost(currentMapId)
-        local options = NPC.GetTeleportOptions(currentMapId, player_.level)
-        local rows = {}
-        for _, opt in ipairs(options) do
-            local optCopy = opt
-            table.insert(rows, {
-                text = opt.name,
-                hint = ((cost > 0) and ("💰" .. cost) or "免费")
-                    .. (optCopy.locked and "  需要 Lv." or "  推荐 Lv.") .. optCopy.minLevel
-                    .. (optCopy.locked and " · 未解锁" or ""),
-                onTap = function()
-                    if optCopy.locked then
-                        GameUI.ShowToast("等级不足，需要 Lv." .. optCopy.minLevel, 1.5)
-                        return
-                    end
-                    if cost > 0 then
-                        if not Inventory.SpendGold(cost) then
-                            GameUI.ShowToast("金币不足，需要 " .. cost .. " 金币")
-                            return
-                        end
-                    end
-                    GameUI.HideNPCPanel()
-                    GameUI.SetNPCInteract(false)
-                    local switched = SwitchMap(optCopy.id)
-                    if not switched and cost > 0 then
-                        -- 场景在切换期间失效时退回传送费，避免一次失败交互
-                        -- 造成不可见的经济损失。
-                        Inventory.AddGold(cost)
-                        GameUI.ShowToast("传送失败，金币已退回")
-                    end
-                end,
-            })
+    -- 与管家交互：根据实时所在地图打开专用传送面板。
+    local function openStewardPanel(npcMapId)
+        local currentMapId = resolveCurrentMapId(npcMapId)
+        local options = {}
+        if currentMapId then
+            options = NPC.GetTeleportOptions(currentMapId, player_.level)
         end
-        GameUI.ShowNPCPanel("管家 · 传送", {
-            { label = "传送", build = function() return rows end },
-        })
+
+        print("[main] Open teleport panel: currentMap=" .. tostring(currentMapId)
+            .. ", npcMap=" .. tostring(npcMapId)
+            .. ", level=" .. tostring(player_.level)
+            .. ", options=" .. tostring(#options))
+
+        if #options == 0 then
+            GameUI.ShowToast("未读取到传送路线，请关闭面板后重试", 2.0)
+        end
+        GameUI.ShowTeleportPanel(options)
     end
 
     -- 与商人交互：打开商店（「购买」标签：药水 + 装备；「出售」标签：卖背包装备）

@@ -2829,46 +2829,136 @@ end
 -- 传送面板（地图选择）
 -- ============================================================================
 
---- 打开传送面板（列出 5 张地图供选择）
----@param maps table[] {id, name, minLevel, maxLevel, current}
+--- 打开传送面板（列出当前地图之外的可选目的地）
+---@param maps table[]|nil {id, name, minLevel, maxLevel, cost, locked, current}
 function GameUI.ShowTeleportPanel(maps)
     if uiState.teleportPanelOpen then return end
     uiState.teleportPanelOpen = true
     _SyncPauseState()
 
     local rows = {}
-    for _, m in ipairs(maps) do
-        local isCurrent = m.current
-        local locked = m.locked == true
+    local safeMaps = type(maps) == "table" and maps or {}
+    for _, m in ipairs(safeMaps) do
+        -- 显式捕获本轮数据，避免点击回调依赖循环变量后续变化。
+        local option = m
+        local isCurrent = option.current == true
+        local locked = option.locked == true
+        local minLevel = math.max(1, math.floor(tonumber(option.minLevel) or 1))
+        local maxLevel = math.max(minLevel, math.floor(tonumber(option.maxLevel) or minLevel))
+        local cost = math.max(0, math.floor(tonumber(option.cost) or 0))
+        local costText = cost > 0 and (tostring(cost) .. " 金币") or "免费"
+
+        local function handleClick()
+            if isCurrent then
+                GameUI.ShowToast("你已经在当前地图")
+                return
+            end
+            if locked then
+                GameUI.ShowToast("等级不足，需要 Lv." .. minLevel, 1.5)
+                return
+            end
+
+            -- 宿主返回 false 时代表校验未通过（如金币不足），面板保持打开，
+            -- 玩家仍可查看其他路线或主动返回。
+            local shouldClose = true
+            if GameUI.onTeleportSelected then
+                shouldClose = GameUI.onTeleportSelected(option.id, option) ~= false
+            end
+            if shouldClose then
+                GameUI.HideTeleportPanel()
+            end
+        end
+
         table.insert(rows, UI.Panel {
             flexDirection = "row", alignItems = "center", justifyContent = "space-between",
             width = "100%",
-            paddingHorizontal = 10, paddingVertical = 8,
+            minHeight = 62,
+            flexShrink = 0,
+            paddingHorizontal = 12, paddingVertical = 9,
             backgroundColor = isCurrent and {40, 50, 40, 210}
                 or locked and {28, 25, 24, 190}
                 or {24, 22, 18, 200},
             borderRadius = 6,
             borderWidth = 1,
-            borderColor = isCurrent and {140, 200, 140, 170} or {70, 66, 56, 120},
-            onClick = (isCurrent or locked) and nil or function()
-                GameUI.HideTeleportPanel()
-                if GameUI.onTeleportSelected then
-                    GameUI.onTeleportSelected(m.id)
-                end
-            end,
+            borderColor = isCurrent and {140, 200, 140, 170}
+                or locked and {70, 66, 56, 100}
+                or {128, 112, 76, 145},
+            onClick = handleClick,
+            children = {
+                UI.Panel {
+                    flexGrow = 1,
+                    flexShrink = 1,
+                    alignItems = "flex-start",
+                    children = {
+                        UI.Label {
+                            text = tostring(option.name or option.id or "未知地图")
+                                .. (isCurrent and "（当前）" or ""),
+                            fontSize = 14,
+                            fontColor = isCurrent and {180, 230, 180, 255}
+                                or locked and {138, 134, 128, 190}
+                                or {230, 224, 204, 250},
+                            fontWeight = isCurrent and "bold" or "normal",
+                        },
+                        UI.Label {
+                            text = locked and ("需要 Lv." .. minLevel)
+                                or ("推荐 Lv." .. minLevel .. "-" .. maxLevel),
+                            fontSize = 11,
+                            fontColor = locked and {150, 128, 118, 190}
+                                or {166, 160, 142, 205},
+                            marginTop = 3,
+                        },
+                    },
+                },
+                UI.Panel {
+                    flexShrink = 0,
+                    alignItems = "flex-end",
+                    marginLeft = 10,
+                    children = {
+                        UI.Label {
+                            text = costText,
+                            fontSize = 12,
+                            fontColor = locked and {132, 126, 118, 175}
+                                or {255, 210, 120, 235},
+                            fontWeight = "bold",
+                        },
+                        UI.Label {
+                            text = locked and "未解锁" or isCurrent and "当前位置" or "点击传送",
+                            fontSize = 10,
+                            fontColor = locked and {170, 105, 90, 205}
+                                or isCurrent and {150, 205, 150, 215}
+                                or {164, 174, 156, 205},
+                            marginTop = 3,
+                        },
+                    },
+                },
+            },
+        })
+    end
+
+    if #rows == 0 then
+        table.insert(rows, UI.Panel {
+            width = "100%",
+            minHeight = 110,
+            flexShrink = 0,
+            justifyContent = "center",
+            alignItems = "center",
+            padding = 16,
+            backgroundColor = {24, 22, 18, 190},
+            borderRadius = 6,
+            borderWidth = 1,
+            borderColor = {70, 66, 56, 110},
             children = {
                 UI.Label {
-                    text = m.name .. (isCurrent and "（当前）" or locked and "（未解锁）" or ""),
-                    fontSize = 14,
-                    fontColor = isCurrent and {180, 230, 180, 255}
-                        or locked and {130, 126, 120, 180}
-                        or {220, 215, 200, 240},
-                    fontWeight = isCurrent and "bold" or "normal",
+                    text = "暂无可用传送路线",
+                    fontSize = 15,
+                    fontColor = {220, 214, 198, 235},
+                    fontWeight = "bold",
                 },
                 UI.Label {
-                    text = locked and ("需要 Lv." .. m.minLevel)
-                        or ("Lv." .. m.minLevel .. "-" .. m.maxLevel),
-                    fontSize = 11, fontColor = {160, 155, 140, 180},
+                    text = "请返回游戏后重新靠近管家再试",
+                    fontSize = 11,
+                    fontColor = {156, 150, 138, 190},
+                    marginTop = 6,
                 },
             },
         })
@@ -2891,10 +2981,15 @@ function GameUI.ShowTeleportPanel(maps)
                 overflow = "hidden",
                 onClick = function() end,
                 children = {
-                    _CreateOverlayHeader("传送阵 · 选择地图", function()
+                    _CreateOverlayHeader("管家 · 传送", function()
                         GameUI.HideTeleportPanel()
                     end),
-                    UI.Label { text = "达到地图等级后方可使用管家传送", fontSize = 10, fontColor = {150, 150, 145, 180}, marginBottom = 12 },
+                    UI.Label {
+                        text = "达到目的地等级后可传送，费用按当前地图收取",
+                        fontSize = 10,
+                        fontColor = {150, 150, 145, 180},
+                        marginBottom = 12,
+                    },
                     UI.ScrollView {
                         width = "100%",
                         flexGrow = 1,
@@ -3053,7 +3148,53 @@ function GameUI.ShowNPCPanel(title, tabs, selectedTab)
         end
 
         local rows = tabs[activeTab].build()
+        if type(rows) ~= "table" then rows = {} end
         local rowChildren = buildRows(rows)
+
+        if #rowChildren == 0 then
+            table.insert(rowChildren, UI.Panel {
+                width = "100%",
+                minHeight = 96,
+                justifyContent = "center",
+                alignItems = "center",
+                children = {
+                    UI.Label {
+                        text = "暂无可用项目",
+                        fontSize = 14,
+                        fontColor = {176, 170, 158, 220},
+                    },
+                },
+            })
+        end
+
+        -- children 必须是连续数组。单标签面板若在标题和列表之间直接放 nil，
+        -- UI 库使用 ipairs 挂载时会在 nil 处提前结束，后面的 ScrollView 因而
+        -- 完全不会进入界面（管家传送列表为空的根因）。
+        local panelChildren = {
+            _CreateOverlayHeader(title, function()
+                GameUI.HideNPCPanel()
+            end),
+        }
+        if #tabs > 1 then
+            table.insert(panelChildren, UI.Panel {
+                flexDirection = "row", width = "100%", gap = 6,
+                marginBottom = 10, flexShrink = 0,
+                children = tabChildren,
+            })
+        end
+        table.insert(panelChildren, UI.ScrollView {
+            width = "100%",
+            flexGrow = 1,
+            flexBasis = 0,
+            showScrollbar = true,
+            children = {
+                UI.Panel {
+                    width = "100%",
+                    gap = 8,
+                    children = rowChildren,
+                },
+            },
+        })
 
         uiState.npcPanelRoot = UI.Panel {
             id = "npcPanelOverlay",
@@ -3073,29 +3214,7 @@ function GameUI.ShowNPCPanel(title, tabs, selectedTab)
                     padding = 16, alignItems = "center",
                     overflow = "hidden",
                     onClick = function() end,
-                    children = {
-                        _CreateOverlayHeader(title, function()
-                            GameUI.HideNPCPanel()
-                        end),
-                        (#tabs > 1) and UI.Panel {
-                            flexDirection = "row", width = "100%", gap = 6,
-                            marginBottom = 10, flexShrink = 0,
-                            children = tabChildren,
-                        } or nil,
-                        UI.ScrollView {
-                            width = "100%",
-                            flexGrow = 1,
-                            flexBasis = 0,
-                            showScrollbar = true,
-                            children = {
-                                UI.Panel {
-                                    width = "100%",
-                                    gap = 8,
-                                    children = rowChildren,
-                                },
-                            },
-                        },
-                    },
+                    children = panelChildren,
                 },
             },
         }
