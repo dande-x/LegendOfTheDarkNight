@@ -1,17 +1,19 @@
 -- ============================================================================
 -- Quest.lua — 暗夜传奇 主线任务系统
 --
--- 致敬盛大《热血传奇》，主线按「三幕 + 终章」组织，每幕一个剧情反转、
--- 一场高潮 Boss 战。任务目标怪物名与 Combat.ENEMY_DEFS 的 name 字段对齐；
--- 待 P1 命名替换（蜘蛛→毒蜘蛛、狼人→狼、山岳巨人→沃玛教主 等）落地后，
--- 需同步更新下方 target 字段即可，任务链结构无需改动。
+-- 致敬盛大《热血传奇》，主线按「三幕 + 终章」组织。地图始终按自己的
+-- 自然怪物池刷新；任务只描述玩家要完成的行为，不再修改地图刷怪候选。
 --
--- 任务类型：
---   kill  —— 击杀指定怪物 N 只（普通推进）
---   boss  —— 击杀指定 Boss 1 只（章节高潮）
+-- 任务模式：
+--   clear      —— 在目标地图清理任意敌人
+--   patrol     —— 依次到达少量已有地标
+--   survive    —— 在指定区域累计坚守时间；离图或死亡时只暂停
+--   encounter  —— 在地标触发显式精英/Boss 遭遇
 --
 -- 设计原则（反「流水账刷怪」）：
---   - 每幕最后一个任务是 Boss 战，作为章节情感高潮
+--   - 普通任务不向地图刷怪池注入“任务怪”，地图始终只有一套自然生态
+--   - 四种轻量模式分散到整条主线，不给每章堆叠独立复杂机制
+--   - 每幕最后一个任务是 encounter，作为章节情感高潮
 --   - 任务名与 desc 承载剧情反转，驱动玩家「为什么而战」
 --   - 奖励 = 经验 + 金币（装备奖励字段预留，由经济系统分支接入）
 -- ============================================================================
@@ -25,22 +27,26 @@ Quest.CHAIN = {
     -- ============ 第一幕「边城烽火」（比奇省·银杏山谷，Lv1~9）============
     {
         id = "q_001", name = "初入荒原", chapter = "第一幕 · 边城烽火",
-        type = "kill", target = "稻草人", count = 5,
-        desc = "村庄被半兽人夜袭焚毁。清理田间的稻草人，让幸存的村民重返家园。",
+        mode = "clear", mapId = "map_bq", count = 5, legacyCount = 5,
+        desc = "村庄被半兽人夜袭焚毁。清理附近游荡的威胁，让幸存的村民重返家园。",
         rewardExp = 100, rewardGold = 50,
         dialogues = {
             { speaker = "旁白", text = "那一夜，半兽人的火把照亮了整片银杏山谷。" },
             { speaker = "师父", text = "快走！带着这把乌木剑，去盟重……找……真相……" },
             { speaker = "旁白", text = "师父倒在了你怀里，手里还紧紧攥着这把剑。" },
             { speaker = "你", text = "我会回来。我会让它们血债血偿。" },
-            { speaker = "旁白", text = "村庄已成废墟。清理田间游荡的稻草人，让幸存者重返家园。" },
+            { speaker = "旁白", text = "村庄已成废墟。清理附近游荡的怪物，让幸存者重返家园。" },
         },
     },
     {
         id = "q_002", name = "幽影来袭", chapter = "第一幕 · 边城烽火",
-        type = "kill", target = "幽灵", count = 8,
-        desc = "废墟上游荡着不散的幽影。它们像是被什么力量驱使着，彻夜哀鸣。",
-        rewardExp = 180, rewardGold = 80,
+        mode = "patrol", mapId = "map_bq", count = 2, legacyCount = 6,
+        points = {
+            { name = "荒村废墟", x = -30, z = -22, radius = 6 },
+            { name = "断桥", x = 15, z = 12, radius = 6 },
+        },
+        desc = "沿荒村与断桥巡查幽影留下的痕迹，找出它们被驱使的方向。",
+        rewardExp = 280, rewardGold = 80,
         dialogues = {
             { speaker = "村民", text = "那些幽影……夜夜在村口徘徊，像是认得回家的路。" },
             { speaker = "你", text = "它们是被夜袭害死的村民。有人在用邪术囚禁亡魂。" },
@@ -48,9 +54,9 @@ Quest.CHAIN = {
     },
     {
         id = "q_003", name = "骷髅军团", chapter = "第一幕 · 边城烽火",
-        type = "kill", target = "骷髅", count = 10,
-        desc = "夜袭的尸骨竟从泥土里爬了起来。有人在暗中操控亡者。",
-        rewardExp = 260, rewardGold = 120,
+        mode = "clear", mapId = "map_bq", count = 8, legacyCount = 8,
+        desc = "夜袭的尸骨竟从泥土里爬了起来。边清理周边威胁，边寻找操控亡者的线索。",
+        rewardExp = 200, rewardGold = 120,
         dialogues = {
             { speaker = "旁白", text = "你挖开夜袭留下的埋尸坑，里面的尸骨竟在微微颤动。" },
             { speaker = "神秘商人", text = "小伙子，有人在比奇城里替半兽人开了门。查查城门，你会明白的。" },
@@ -58,9 +64,10 @@ Quest.CHAIN = {
     },
     {
         id = "q_004", name = "半兽人先锋", chapter = "第一幕 · 边城烽火",
-        type = "kill", target = "半兽人", count = 12,
-        desc = "半兽人的先锋队有组织地推进。它们不像野兽，倒像一支军队。",
-        rewardExp = 400, rewardGold = 180,
+        mode = "survive", mapId = "map_bq", count = 18, legacyCount = 10,
+        area = { name = "断桥", x = 15, z = 12, radius = 9 },
+        desc = "敌人正有组织地穿过断桥。守住桥头，阻止它们继续向城门推进。",
+        rewardExp = 690, rewardGold = 180,
         dialogues = {
             { speaker = "旁白", text = "半兽人的先锋队排着整齐的队形，这绝不是野兽能做出来的事。" },
             { speaker = "你", text = "有内奸。它们对我们的布防了如指掌。" },
@@ -68,9 +75,9 @@ Quest.CHAIN = {
     },
     {
         id = "q_005", name = "蛛穴之影", chapter = "第一幕 · 边城烽火",
-        type = "kill", target = "毒蜘蛛", count = 15,
-        desc = "追杀溃逃的兽兵时，你撞进了毒蛛的巢穴。杀出去，别回头。",
-        rewardExp = 600, rewardGold = 260,
+        mode = "clear", mapId = "map_bq", count = 10, legacyCount = 10,
+        desc = "追杀溃逃的兽兵时，你撞进了毒蛛巢穴。清开退路，别被困在里面。",
+        rewardExp = 350, rewardGold = 260,
         dialogues = {
             { speaker = "旁白", text = "你追着溃逃的兽兵，一路追进了城外的蛛穴。" },
             { speaker = "你", text = "这些毒蛛……是被故意放养在这里，堵住追兵的。" },
@@ -78,9 +85,10 @@ Quest.CHAIN = {
     },
     {
         id = "q_006", name = "边城守卫战", chapter = "第一幕 · 边城烽火",
-        type = "boss", target = "半兽勇士", count = 1,
+        mode = "encounter", mapId = "map_bq", target = "半兽勇士", count = 1, legacyCount = 1,
+        encounter = { name = "荒村废墟", x = -30, z = -22 },
         desc = "真相大白——你曾最信任的守卫队长，正是为半兽人打开城门的叛徒。",
-        rewardExp = 1500, rewardGold = 800,
+        rewardExp = 500, rewardGold = 800,
         dialogues = {
             { speaker = "守卫队长", text = "没想到是你活了下来。" },
             { speaker = "守卫队长", text = "不错，是我开的门。半兽人答应我，事成之后，比奇城归我。" },
@@ -93,9 +101,13 @@ Quest.CHAIN = {
     -- ============ 第二幕「黄沙盟重」（盟重土城，Lv10~24）============
     {
         id = "q_007", name = "野狼出没", chapter = "第二幕 · 黄沙盟重",
-        type = "kill", target = "狼", count = 20,
-        desc = "黄沙之城的商路被狼群切断。护送商队穿过荒漠。",
-        rewardExp = 1800, rewardGold = 900,
+        mode = "patrol", mapId = "map_mz", count = 2, legacyCount = 12,
+        points = {
+            { name = "黄沙商路", x = -34, z = -9, radius = 7 },
+            { name = "北城残垣", x = 0, z = 40, radius = 7 },
+        },
+        desc = "黄沙之城的商路被截断。沿商路巡查到北城残垣，替商队探明通路。",
+        rewardExp = 5050, rewardGold = 900,
         dialogues = {
             { speaker = "旁白", text = "你循着师父的遗言，一路西行，来到了黄沙深处的盟重土城。" },
             { speaker = "商队头领", text = "城外狼群越聚越多，商路快断了。帮我们清一条路出来。" },
@@ -103,9 +115,9 @@ Quest.CHAIN = {
     },
     {
         id = "q_008", name = "石魔之心", chapter = "第二幕 · 黄沙盟重",
-        type = "kill", target = "石魔", count = 15,
-        desc = "荒漠深处的石魔被唤醒，它们的心脏里封着古老的符文。",
-        rewardExp = 2200, rewardGold = 1200,
+        mode = "clear", mapId = "map_mz", count = 10, legacyCount = 10,
+        desc = "荒漠深处的魔物被唤醒。清理石墓周边，从战场痕迹中寻找古老符文。",
+        rewardExp = 5200, rewardGold = 1200,
         dialogues = {
             { speaker = "旁白", text = "土城东郊的石墓（猪洞）传来异动。传闻有白野猪作乱。" },
             { speaker = "你", text = "石魔心脏上的符文……和比奇城见到的一模一样。" },
@@ -113,9 +125,10 @@ Quest.CHAIN = {
     },
     {
         id = "q_009", name = "猪洞之影", chapter = "第二幕 · 黄沙盟重",
-        type = "boss", target = "白野猪", count = 1,
+        mode = "encounter", mapId = "map_mz", target = "白野猪", count = 1, legacyCount = 1,
+        encounter = { name = "石墓入口", x = 30, z = 20 },
         desc = "城主竟被掉了包！猪洞的骚乱只是调虎离山。杀入石墓，夺回城主信物。",
-        rewardExp = 3000, rewardGold = 1500,
+        rewardExp = 7000, rewardGold = 1500,
         dialogues = {
             { speaker = "旁白", text = "你终于见到了城主，却发现——他的眼神，不对。" },
             { speaker = "假城主", text = "真正的城主被我关在猪洞深处。而你，也一起留下吧！" },
@@ -127,9 +140,9 @@ Quest.CHAIN = {
     -- ============ 第三幕「怒海寻踪」（水上城市，Lv25~34）============
     {
         id = "q_010", name = "将军之骨", chapter = "第三幕 · 怒海寻踪",
-        type = "kill", target = "骷髅将军", count = 20,
-        desc = "海上迷城的水域飘来无数骸骨。它们都朝着同一个方向跪拜。",
-        rewardExp = 3800, rewardGold = 1800,
+        mode = "clear", mapId = "map_sc", count = 10, legacyCount = 10,
+        desc = "海上迷城的水域飘来无数骸骨。清理航道，追查它们朝拜的方向。",
+        rewardExp = 4800, rewardGold = 1800,
         dialogues = {
             { speaker = "旁白", text = "你循线索来到水上城市——一座建在海域上的贸易城。" },
             { speaker = "故交", text = "你师父……他本是沃玛寺庙的守门人。当年的事，远比你想象的复杂。" },
@@ -137,9 +150,10 @@ Quest.CHAIN = {
     },
     {
         id = "q_011", name = "熔火之门", chapter = "第三幕 · 怒海寻踪",
-        type = "kill", target = "赤焰魔", count = 20,
-        desc = "水城的航路被熔火封锁。有东西在海底烧灼着整片海域。",
-        rewardExp = 4800, rewardGold = 2400,
+        mode = "survive", mapId = "map_sc", count = 20, legacyCount = 10,
+        area = { name = "灯塔", x = 0, z = 38, radius = 9 },
+        desc = "水城的航路被熔火封锁。守住灯塔，让城中的船只完成撤离。",
+        rewardExp = 6540, rewardGold = 2400,
         dialogues = {
             { speaker = "旁白", text = "海底的熔火并非自然异变，焦黑岩壁上残留着熟悉的黑暗符文。" },
             { speaker = "你", text = "这股力量和师父封印中的一模一样。真正的幕后之物，就在前方。" },
@@ -147,9 +161,14 @@ Quest.CHAIN = {
     },
     {
         id = "q_012", name = "蛇窟", chapter = "第三幕 · 怒海寻踪",
-        type = "kill", target = "巨蟒", count = 25,
-        desc = "通往真相的路，盘踞着无数巨蟒。",
-        rewardExp = 6000, rewardGold = 3000,
+        mode = "patrol", mapId = "map_sc", count = 3, legacyCount = 12,
+        points = {
+            { name = "灯塔", x = 0, z = 38, radius = 7 },
+            { name = "西水道", x = -30, z = 0, radius = 7 },
+            { name = "蚁穴入口", x = 30, z = -26, radius = 7 },
+        },
+        desc = "从灯塔穿过西水道，找到通往蚁穴深处的入口。",
+        rewardExp = 8350, rewardGold = 3000,
         dialogues = {
             { speaker = "故交", text = "你师父当年并非战死。他是自愿献祭，封印沃玛教主。" },
             { speaker = "你", text = "……所以，他骗了我。他让我来找的，是他自己的死亡。" },
@@ -157,9 +176,10 @@ Quest.CHAIN = {
     },
     {
         id = "q_012b", name = "蚁后之渊", chapter = "第三幕 · 怒海寻踪",
-        type = "boss", target = "蚁后", count = 1,
+        mode = "encounter", mapId = "map_sc", target = "蚁后", count = 1, legacyCount = 1,
+        encounter = { name = "蚁穴入口", x = 30, z = -26 },
         desc = "水城的蚁患背后，是沃玛教主的黑暗力量。击败蚁后，夺回进入沃玛寺庙的通行证。",
-        rewardExp = 8000, rewardGold = 4000,
+        rewardExp = 4600, rewardGold = 4000,
         dialogues = {
             { speaker = "旁白", text = "水城蚁患肆虐，整片海域的航路都被蚁群吞噬。" },
             { speaker = "故交", text = "蚁后不是元凶，它只是被沃玛教主的黑暗力量驱使。" },
@@ -170,9 +190,9 @@ Quest.CHAIN = {
     -- ============ 终章「屠龙之战」（沃玛 Lv35~44 → 祖玛 Lv45~50）============
     {
         id = "q_013", name = "噬魂之潮", chapter = "终章 · 屠龙之战",
-        type = "kill", target = "噬魂兽", count = 25,
-        desc = "真相的尽头是更大的黑暗。",
-        rewardExp = 7500, rewardGold = 3600,
+        mode = "clear", mapId = "map_wm", count = 12, legacyCount = 12,
+        desc = "真相的尽头是更大的黑暗。清理寺庙外围，为深入封印打开道路。",
+        rewardExp = 10750, rewardGold = 3600,
         dialogues = {
             { speaker = "旁白", text = "你带着对师父的真正敬意，踏入沃玛寺庙。" },
             { speaker = "你", text = "师父，我来完成你未竟的事。" },
@@ -180,9 +200,14 @@ Quest.CHAIN = {
     },
     {
         id = "q_014", name = "麒麟试炼", chapter = "终章 · 屠龙之战",
-        type = "kill", target = "麒麟", count = 20,
-        desc = "集齐屠龙宝刀的残片，需先通过麒麟的试炼。",
-        rewardExp = 9000, rewardGold = 4500,
+        mode = "patrol", mapId = "map_wm", count = 3, legacyCount = 10,
+        points = {
+            { name = "石柱廊", x = -12, z = -22, radius = 7 },
+            { name = "封印祭坛", x = 0, z = 18, radius = 7 },
+            { name = "教主殿", x = 30, z = -28, radius = 7 },
+        },
+        desc = "循着屠龙宝刀残片的共鸣，穿过石柱廊与封印祭坛，抵达教主殿。",
+        rewardExp = 13440, rewardGold = 4500,
         dialogues = {
             { speaker = "旁白", text = "屠龙宝刀散落大陆。要打开祖玛封印，必须集齐残片。" },
             { speaker = "你", text = "牛魔王也盯上了残片。绝不能让它先得手。" },
@@ -190,9 +215,10 @@ Quest.CHAIN = {
     },
     {
         id = "q_014b", name = "沃玛教主", chapter = "终章 · 屠龙之战",
-        type = "boss", target = "沃玛教主", count = 1,
+        mode = "encounter", mapId = "map_wm", target = "沃玛教主", count = 1, legacyCount = 1,
+        encounter = { name = "教主殿", x = 30, z = -28 },
         desc = "沃玛寺庙深处，沃玛教主祭起黑暗法阵。击败它，夺回通往祖玛的钥匙。",
-        rewardExp = 11000, rewardGold = 7000,
+        rewardExp = 14000, rewardGold = 7000,
         dialogues = {
             { speaker = "旁白", text = "沃玛寺庙深处，师父当年封印的黑暗，终于现出真身。" },
             { speaker = "沃玛教主", text = "守门人的徒弟？你和他一样，都将葬身于此！" },
@@ -201,9 +227,10 @@ Quest.CHAIN = {
     },
     {
         id = "q_015", name = "骨龙之渊", chapter = "终章 · 屠龙之战",
-        type = "boss", target = "火龙王", count = 1,
+        mode = "encounter", mapId = "map_zm", target = "火龙王", count = 1, legacyCount = 1,
+        encounter = { name = "屠龙台", x = 0, z = -32 },
         desc = "祖玛寺庙深处，火龙王守护着最后的封印。",
-        rewardExp = 12000, rewardGold = 8000,
+        rewardExp = 10000, rewardGold = 8000,
         dialogues = {
             { speaker = "旁白", text = "祖玛寺庙深处，火龙王在熔岩深渊中缓缓睁开眼。" },
             { speaker = "旁白", text = "这是最后的守护。屠龙宝刀在此觉醒。" },
@@ -211,9 +238,10 @@ Quest.CHAIN = {
     },
     {
         id = "q_016", name = "深渊领主", chapter = "终章 · 屠龙之战",
-        type = "boss", target = "牛魔王", count = 1,
-        desc = "火龙王已倒下，祖玛封印却仍在崩解。牛魔王正从深渊王座踏入人间。",
-        rewardExp = 20000, rewardGold = 15000,
+        mode = "encounter", mapId = "map_zm", target = "牛魔王", count = 1, legacyCount = 1,
+        encounter = { name = "深渊王座", x = 30, z = 26 },
+        desc = "祖玛封印撑过了熔岩冲击，却仍在崩解。牛魔王正从深渊王座踏入人间。",
+        rewardExp = 15000, rewardGold = 15000,
         dialogues = {
             { speaker = "旁白", text = "祖玛寺庙最深处，牛魔王挡住了你的去路。" },
             { speaker = "牛魔王", text = "渺小的凡人，也敢踏足祖玛圣地！" },
@@ -228,41 +256,20 @@ Quest.CHAIN = {
     },
 }
 
--- 任务目标与地图的唯一映射入口。
---
--- 任务链中的部分怪物会跨地图出现（例如“半兽人”“骷髅”），因此不能
--- 只按 target 名称推断地图；按 quest id 映射可以保证剧情任务始终被
--- 路由到策划指定的章节地图，同时保留 target 名称用于击杀计数。
-local QUEST_MAPS = {
-    q_001 = "map_bq",
-    q_002 = "map_bq",
-    q_003 = "map_bq",
-    q_004 = "map_bq",
-    q_005 = "map_bq",
-    q_006 = "map_bq",
-    q_007 = "map_mz",
-    q_008 = "map_mz",
-    q_009 = "map_mz",
-    q_010 = "map_sc",
-    q_011 = "map_sc",
-    q_012 = "map_sc",
-    q_012b = "map_sc",
-    q_013 = "map_wm",
-    q_014 = "map_wm",
-    q_014b = "map_wm",
-    q_015 = "map_zm",
-    q_016 = "map_zm",
-}
-
 -- ============================================================================
 -- 运行时状态
 -- ============================================================================
+local QUEST_SAVE_VERSION = 2
+Quest.SAVE_VERSION = QUEST_SAVE_VERSION
+
 local state = {
     questIndex = 1,   -- 当前任务在 CHAIN 中的下标（1 起始）
-    progress = 0,     -- 当前任务击杀进度
+    progress = 0,     -- 当前模式的数值进度
+    modeState = {},   -- 当前模式的可持久化状态（只保存纯数据）
     finished = false, -- 是否已通关全部主线
     dialogueRead = {}, -- 已看过的任务开场对话，避免读档重复播放
     endingSeen = false, -- 最终 Boss 尾声是否完整播放
+    lastNotifiedProgress = -1,
 }
 
 -- 外部回调（由 main.lua 注册）
@@ -273,6 +280,59 @@ Quest.onQuestStart = nil      -- function(quest) 任务开始时触发（播放�
 -- ============================================================================
 -- 查询接口
 -- ============================================================================
+
+local function IsFiniteNumber(value)
+    return type(value) == "number" and value == value
+        and value ~= math.huge and value ~= -math.huge
+end
+
+local function Clamp(value, minValue, maxValue)
+    return math.max(minValue, math.min(maxValue, value))
+end
+
+local function ResolveQuest(quest)
+    if type(quest) == "table" then return quest end
+    if type(quest) ~= "string" then return nil end
+    for _, item in ipairs(Quest.CHAIN) do
+        if item.id == quest then return item end
+    end
+    return nil
+end
+
+local function CopyModeState(source)
+    local copy = {}
+    if type(source) ~= "table" then return copy end
+    for key, value in pairs(source) do
+        if type(value) == "number" or type(value) == "string" or type(value) == "boolean" then
+            copy[key] = value
+        end
+    end
+    return copy
+end
+
+local function SyncModeState(quest)
+    local modeState = {}
+    if quest then
+        if quest.mode == "clear" then
+            modeState.kills = math.floor(state.progress)
+        elseif quest.mode == "patrol" then
+            modeState.step = math.floor(state.progress)
+        elseif quest.mode == "survive" then
+            modeState.seconds = state.progress
+        elseif quest.mode == "encounter" then
+            modeState.defeated = state.progress >= quest.count
+        end
+    end
+    state.modeState = modeState
+end
+
+local function SetProgress(quest, value)
+    local count = math.max(1, tonumber(quest and quest.count) or 1)
+    local progress = IsFiniteNumber(value) and Clamp(value, 0, count) or 0
+    if quest and quest.mode ~= "survive" then progress = math.floor(progress) end
+    state.progress = progress
+    SyncModeState(quest)
+end
 
 --- 当前任务（nil 表示全部完成）
 function Quest.GetCurrent()
@@ -289,17 +349,93 @@ end
 function Quest.GetProgress()
     local q = Quest.GetCurrent()
     if not q then return 0, 0 end
-    return state.progress, q.count
+    return math.floor(state.progress), q.count
 end
 
---- 获取任务目标所在地图。
---- 由宿主在任务开始时调用，用于普通击杀任务与 Boss 任务的统一路由。
+--- 获取任务目标所在地图。地图直接写在任务定义中，避免双重真源。
 ---@param quest table|string|nil 任务对象或任务 id
 ---@return string|nil mapId
 function Quest.GetTargetMapId(quest)
+    local resolved = ResolveQuest(quest)
+    return resolved and resolved.mapId or nil
+end
+
+--- 返回可直接用于 HUD 的当前目标文案。
+---@param quest table|nil
+---@param progress number|nil
+---@param count number|nil
+---@return string
+function Quest.GetObjectiveText(quest, progress, count)
+    if not quest then return "主线已完成" end
+    local currentProgress = math.floor(tonumber(progress) or state.progress or 0)
+    local targetCount = math.max(1, math.floor(tonumber(count) or quest.count or 1))
+
+    if quest.mode == "clear" then
+        return "清理当前区域威胁 " .. currentProgress .. "/" .. targetCount
+    elseif quest.mode == "patrol" then
+        local nextPoint = quest.points and quest.points[currentProgress + 1] or nil
+        if nextPoint then
+            return "巡查：" .. nextPoint.name .. " " .. currentProgress .. "/" .. targetCount
+        end
+        return "巡查完成 " .. currentProgress .. "/" .. targetCount
+    elseif quest.mode == "survive" then
+        local areaName = quest.area and quest.area.name or "目标区域"
+        return "坚守" .. areaName .. " " .. currentProgress .. "/" .. targetCount .. "秒"
+    elseif quest.mode == "encounter" then
+        return "击败" .. tostring(quest.target or "遭遇首领") .. " " .. currentProgress .. "/" .. targetCount
+    end
+    return quest.name or "任务目标"
+end
+
+--- 获取当前目标的小地图标记。clear 没有单点目标，其余模式返回纯坐标数据。
+---@param quest table|nil
+---@return table|nil
+function Quest.GetObjectiveMarker(quest)
+    quest = quest or Quest.GetCurrent()
     if not quest then return nil end
-    local questId = type(quest) == "table" and quest.id or quest
-    return QUEST_MAPS[questId]
+
+    local source = nil
+    if quest.mode == "patrol" then
+        source = quest.points and quest.points[math.floor(state.progress) + 1] or nil
+    elseif quest.mode == "survive" then
+        source = quest.area
+    elseif quest.mode == "encounter" then
+        source = quest.encounter
+    end
+    if not source then return nil end
+
+    return {
+        questId = quest.id,
+        mode = quest.mode,
+        mapId = quest.mapId,
+        name = source.name or quest.target or quest.name,
+        x = tonumber(source.x) or 0,
+        z = tonumber(source.z) or 0,
+        radius = tonumber(source.radius) or 0,
+    }
+end
+
+--- 返回当前显式遭遇请求；Combat 只消费该通用数据，不反向依赖 Quest。
+---@return table|nil
+function Quest.GetEncounterRequest()
+    local quest = Quest.GetCurrent()
+    if not quest or quest.mode ~= "encounter" or state.progress >= quest.count then return nil end
+    local location = quest.encounter or {}
+    return {
+        id = quest.id,
+        mapId = quest.mapId,
+        enemyName = quest.target,
+        x = tonumber(location.x) or 0,
+        z = tonumber(location.z) or 0,
+    }
+end
+
+---@param quest table|nil
+---@param mapId string|nil
+---@return boolean
+function Quest.IsOnTargetMap(quest, mapId)
+    local targetMapId = Quest.GetTargetMapId(quest)
+    return targetMapId == nil or targetMapId == mapId
 end
 
 --- 任务总进度（用于存档/展示）
@@ -308,9 +444,14 @@ function Quest.GetState()
     for questId, read in pairs(state.dialogueRead) do
         if read == true then dialogueRead[questId] = true end
     end
+    local current = Quest.GetCurrent()
     return {
+        version = QUEST_SAVE_VERSION,
         questIndex = state.questIndex,
+        questId = current and current.id or nil,
+        mode = current and current.mode or nil,
         progress = state.progress,
+        modeState = CopyModeState(state.modeState),
         finished = state.finished,
         dialogueRead = dialogueRead,
         endingSeen = state.endingSeen,
@@ -322,9 +463,11 @@ function Quest.Restore(saved)
     if type(saved) ~= "table" then
         state.questIndex = 1
         state.progress = 0
+        state.modeState = {}
         state.finished = false
         state.dialogueRead = {}
         state.endingSeen = false
+        state.lastNotifiedProgress = -1
         return
     end
 
@@ -341,14 +484,46 @@ function Quest.Restore(saved)
     if state.finished then
         state.questIndex = #Quest.CHAIN + 1
         state.progress = 0
+        state.modeState = {}
     else
         local current = Quest.CHAIN[state.questIndex]
-        local progress = tonumber(saved.progress)
-        if not progress or progress ~= progress or progress == math.huge or progress == -math.huge then
-            progress = 0
+        local progress = IsFiniteNumber(tonumber(saved.progress)) and tonumber(saved.progress) or 0
+        local sameSchema = tonumber(saved.version) == QUEST_SAVE_VERSION
+            and saved.questId == current.id and saved.mode == current.mode
+            and type(saved.modeState) == "table"
+
+        if sameSchema then
+            if current.mode == "clear" then
+                progress = tonumber(saved.modeState.kills) or progress
+            elseif current.mode == "patrol" then
+                progress = tonumber(saved.modeState.step) or progress
+            elseif current.mode == "survive" then
+                progress = tonumber(saved.modeState.seconds) or progress
+            elseif current.mode == "encounter" then
+                progress = saved.modeState.defeated == true and current.count or progress
+            end
+        else
+            -- v1 与过渡版 v2 都把 progress 解释为指定怪击杀数。按旧目标
+            -- 总量折算到新模式，既不清空玩家投入，也不会把 10 次击杀当 10 秒。
+            local legacyCount = math.max(1, tonumber(current.legacyCount) or tonumber(current.count) or 1)
+            local ratio = Clamp(progress / legacyCount, 0, 1)
+            if current.mode == "survive" then
+                progress = ratio * current.count
+            elseif current.mode == "encounter" then
+                progress = ratio >= 1 and current.count or 0
+            else
+                progress = math.floor(ratio * current.count + 0.5)
+            end
         end
-        progress = math.max(0, math.min(current.count, progress))
-        state.progress = math.floor(progress)
+
+        -- 当前任务按设计不应以“已完成但未推进”的状态落盘。遇到旧版或
+        -- 损坏存档时保留到最后一步，让下一次合法行为完成并正常发奖。
+        if progress >= current.count then
+            progress = current.mode == "survive"
+                and math.max(0, current.count - 0.01)
+                or math.max(0, current.count - 1)
+        end
+        SetProgress(current, progress)
     end
 
     state.dialogueRead = {}
@@ -364,42 +539,109 @@ function Quest.Restore(saved)
         state.finished = true
     end
     state.endingSeen = state.finished and saved.endingSeen == true
+    state.lastNotifiedProgress = math.floor(state.progress)
 end
 
 --- 重置（新建角色时调用）
 function Quest.Reset()
     state.questIndex = 1
     state.progress = 0
+    state.modeState = {}
     state.finished = false
     state.dialogueRead = {}
     state.endingSeen = false
+    state.lastNotifiedProgress = -1
+    SyncModeState(Quest.GetCurrent())
 end
 
 -- ============================================================================
 -- 推进逻辑
 -- ============================================================================
 
---- 击杀上报（由 Combat.onEnemyDeath 接线调用）
---- 只统计当前任务目标怪，其他击杀不打断当前任务
-function Quest.OnKill(enemyName)
-    if state.finished then return end
-    if type(enemyName) ~= "string" then return end
-    local q = Quest.CHAIN[state.questIndex]
+local function NotifyProgress(q, force)
+    local displayProgress = math.floor(state.progress)
+    if not force and displayProgress == state.lastNotifiedProgress then return end
+    state.lastNotifiedProgress = displayProgress
+    if Quest.onProgressUpdate then
+        Quest.onProgressUpdate(q, displayProgress, q.count)
+    end
+end
+
+local function AdvanceCurrent(amount)
+    local q = Quest.GetCurrent()
+    if not q then return false end
+    local increment = tonumber(amount) or 0
+    if increment <= 0 then return false end
+
+    SetProgress(q, state.progress + increment)
+    if state.progress >= q.count then
+        Quest._CompleteCurrent()
+    else
+        NotifyProgress(q, false)
+    end
+    return true
+end
+
+--- 击杀上报（由 Combat.onEnemyDeath 接线调用）。
+--- clear 统计目标地图任意敌人；encounter 只统计当前遭遇实体。
+---@param enemyName string
+---@param tier string|nil
+---@param mapId string|nil
+---@param encounterId string|nil
+---@return boolean
+function Quest.OnKill(enemyName, tier, mapId, encounterId)
+    if state.finished or type(enemyName) ~= "string" then return false end
+    local q = Quest.GetCurrent()
     if not q then
         state.finished = true
-        return
+        return false
     end
 
-    -- 仅当击杀的怪物匹配当前任务目标时计数
-    if enemyName ~= q.target then return end
+    if type(mapId) == "string" and not Quest.IsOnTargetMap(q, mapId) then return false end
 
-    state.progress = state.progress + 1
-    if state.progress >= q.count then
-        state.progress = q.count
-        Quest._CompleteCurrent()
-    elseif Quest.onProgressUpdate then
-        Quest.onProgressUpdate(q, state.progress, q.count)
+    if q.mode == "clear" then
+        return AdvanceCurrent(1)
+    elseif q.mode == "encounter" and enemyName == q.target
+        and (encounterId == nil or encounterId == q.id) then
+        return AdvanceCurrent(1)
     end
+    return false
+end
+
+local function IsInsideObjective(position, objective)
+    if not position or not objective then return false end
+    local px, pz = tonumber(position.x), tonumber(position.z)
+    local ox, oz = tonumber(objective.x), tonumber(objective.z)
+    if not px or not pz or not ox or not oz then return false end
+    local dx, dz = px - ox, pz - oz
+    local radius = math.max(0.5, tonumber(objective.radius) or 6)
+    return dx * dx + dz * dz <= radius * radius
+end
+
+--- 更新巡逻与坚守目标。离开目标地图、角色死亡或离开坚守区域时只暂停，
+--- 不清零已有进度；因此重生、传送往返和读档都不会让任务卡死。
+---@param dt number
+---@param mapId string|nil
+---@param playerPos Vector3|table|nil
+---@param isAlive boolean|nil
+---@return boolean
+function Quest.Update(dt, mapId, playerPos, isAlive)
+    local q = Quest.GetCurrent()
+    if not q or not Quest.IsOnTargetMap(q, mapId) or isAlive == false then return false end
+
+    if q.mode == "patrol" then
+        local nextPoint = q.points and q.points[math.floor(state.progress) + 1] or nil
+        if not IsInsideObjective(playerPos, nextPoint) then return false end
+        return AdvanceCurrent(1)
+    end
+
+    if q.mode ~= "survive" or not IsInsideObjective(playerPos, q.area) then return false end
+
+    local elapsed = tonumber(dt)
+    if not IsFiniteNumber(elapsed) or elapsed <= 0 then return false end
+    -- 防止切后台/调试断点后单帧时间过大，直接跳过整个坚守任务。
+    local cappedElapsed = elapsed > 0.25 and 0.25 or elapsed
+    return AdvanceCurrent(cappedElapsed)
 end
 
 --- 完成当前任务，推进到下一任务
@@ -409,17 +651,21 @@ function Quest._CompleteCurrent()
 
     state.questIndex = state.questIndex + 1
     state.progress = 0
+    state.modeState = {}
+    state.lastNotifiedProgress = -1
 
     if state.questIndex > #Quest.CHAIN then
         state.finished = true
     end
+
+    local next = Quest.GetCurrent()
+    SyncModeState(next)
 
     if Quest.onQuestComplete then
         Quest.onQuestComplete(q)
     end
 
     -- 新任务开始时触发（播放剧情对话）
-    local next = Quest.GetCurrent()
     if next and Quest.onQuestStart then
         Quest.onQuestStart(next)
         if not next.dialogues or #next.dialogues == 0 then

@@ -19,9 +19,10 @@ MapZone.DEFS = {
         maxLevel = 9,
         groundColor = Color(0.16, 0.24, 0.14, 1.0),
         fogColor = Color(0.26, 0.29, 0.34, 1.0),
-        -- 第一幕普通任务目标（半兽人/毒蜘蛛）也必须在本图候选池中。
+        -- 比奇自然生态；任务只统计行为，不改动候选池或刷新权重。
         spawnPool = { "稻草人", "蛤蟆", "多钩猫", "钉耙猫", "鹿", "幽灵", "骷髅", "半兽人", "毒蜘蛛" },
         boss = "半兽勇士",
+        spawnSettings = { initialCount = 10, maxEnemies = 24, interval = 1.10 },
         spawnPos = Vector3.ZERO,
         safeZoneRadius = 8,     -- 方形安全区半边长（不刷怪）
         teleportCost = 100,      -- 管家传送统一收取 100 金
@@ -38,10 +39,10 @@ MapZone.DEFS = {
         maxLevel = 24,
         groundColor = Color(0.38, 0.29, 0.16, 1.0),
         fogColor = Color(0.46, 0.39, 0.24, 1.0),
-        -- 普通刷怪只放本区间的常规怪；剧情目标由 Combat 按任务路由
-        -- 临时补入，避免把低级回流怪伪装成盟重常驻生态。
+        -- 盟重自然生态；显式首领遭遇也通过 Combat 的统一生成入口创建。
         spawnPool = { "狼", "石魔", "红野猪", "黑野猪" },
         boss = "白野猪",
+        spawnSettings = { initialCount = 12, maxEnemies = 28, interval = 0.95 },
         spawnPos = Vector3.ZERO,
         safeZoneRadius = 8,
         teleportCost = 100,
@@ -58,10 +59,10 @@ MapZone.DEFS = {
         maxLevel = 34,
         groundColor = Color(0.06, 0.17, 0.31, 1.0),
         fogColor = Color(0.12, 0.42, 0.46, 1.0),
-        -- 普通生态维持 25~34 级；骷髅将军/赤焰魔/巨蟒等剧情目标
-        -- 由 Combat 在任务激活时按 QUEST_MAPS 补入，不污染常规池。
+        -- 水城自然生态维持 25~34 级，不再临时补入指定任务怪。
         spawnPool = { "石像鬼", "海妖", "巨蜥" },
         boss = "蚁后",
+        spawnSettings = { initialCount = 12, maxEnemies = 30, interval = 1.00 },
         spawnPos = Vector3.ZERO,
         safeZoneRadius = 8,
         teleportCost = 100,
@@ -78,9 +79,10 @@ MapZone.DEFS = {
         maxLevel = 44,
         groundColor = Color(0.18, 0.22, 0.28, 1.0),
         fogColor = Color(0.31, 0.35, 0.40, 1.0),
-        -- 终章前的常规生态；噬魂兽/麒麟是当前任务目标时才生成。
+        -- 沃玛自然生态；任务不会改变这里的怪物构成。
         spawnPool = { "岩甲兽", "黑鳞蟒", "深渊恶鬼" },
         boss = "沃玛教主",
+        spawnSettings = { initialCount = 10, maxEnemies = 26, interval = 1.10 },
         spawnPos = Vector3.ZERO,
         safeZoneRadius = 8,
         teleportCost = 100,
@@ -100,6 +102,7 @@ MapZone.DEFS = {
         -- 祖玛卫士保留精英身份，由 Combat 以较低权重混入常规生态。
         spawnPool = { "熔岩巨兽", "魔龙幼崽", "祖玛卫士" },
         boss = { "牛魔王", "火龙王" },
+        spawnSettings = { initialCount = 8, maxEnemies = 22, interval = 1.20 },
         spawnPos = Vector3.ZERO,
         safeZoneRadius = 8,
         teleportCost = 100,
@@ -125,6 +128,18 @@ end
 function MapZone.GetPool(mapId)
     local mapDef = MapZone.GetDef(mapId)
     return mapDef and mapDef.spawnPool or nil
+end
+
+---@param mapId string
+---@return table {initialCount:number,maxEnemies:number,interval:number}
+function MapZone.GetSpawnSettings(mapId)
+    local mapDef = MapZone.GetDef(mapId)
+    local settings = mapDef and mapDef.spawnSettings or nil
+    return {
+        initialCount = settings and settings.initialCount or 10,
+        maxEnemies = settings and settings.maxEnemies or 24,
+        interval = settings and settings.interval or 1.10,
+    }
 end
 
 ---@return string

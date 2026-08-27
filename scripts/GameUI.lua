@@ -7,9 +7,11 @@
 local UI = require("urhox-libs/UI")
 local CharacterClass = require("scripts.CharacterClass")
 local Inventory = require("scripts.Inventory")
+local EquipmentPanel = require("scripts.EquipmentPanel")
 local ForgePanel = require("scripts.ForgePanel")
 local Quest = require("scripts.Quest")
 local MapZone = require("scripts.MapZone")
+local NPC = require("scripts.NPC")
 local PlayerAnim = require("scripts.PlayerAnim")
 local DivineBeast = require("scripts.DivineBeast")
 require "urhox-libs.UI.GameHUD"
@@ -25,6 +27,8 @@ GameUI.debugShowDistance = false
 GameUI.debugShowOverlay = false
 -- 调试入口默认不进入正式菜单；本地排错时可由宿主显式设为 true。
 GameUI.debugMode = false
+---@type table|nil
+GameUI.potionCD = nil
 
 -- ============================================================================
 -- NanoVG 常量
@@ -90,6 +94,7 @@ local castBarState = {
 -- 相机/场景引用
 -- ============================================================================
 local cameraRef = nil
+---@type Node|nil
 local playerNodeRef = nil  -- 玩家节点引用（用于地图系统）
 local sceneRef = nil       -- 场景引用（用于暂停 timeScale）
 
@@ -2526,6 +2531,13 @@ function GameUI.ShowGameHUD(player)
         borderWidth = 1, borderColor = {185, 220, 255, 230},
         pointerEvents = "none",
     }
+    local fullMapBlacksmithDot = UI.Panel {
+        position = "absolute", width = 8, height = 8,
+        borderRadius = 4,
+        backgroundColor = {238, 104, 42, 255},
+        borderWidth = 1, borderColor = {255, 205, 155, 230},
+        pointerEvents = "none",
+    }
 
     -- 每张地图目前有三个策划地标；复用固定 widget，切图时只更新文字与坐标，
     -- 避免像旧 HUD 一样在每帧重建控件。
@@ -2592,6 +2604,7 @@ function GameUI.ShowGameHUD(player)
     for _, landmark in ipairs(fullMapLandmarks) do table.insert(fmChildren, landmark.root) end
     table.insert(fmChildren, fullMapStewardDot)
     table.insert(fmChildren, fullMapMerchantDot)
+    table.insert(fmChildren, fullMapBlacksmithDot)
     table.insert(fmChildren, fullMapPlayerDir)
     table.insert(fmChildren, fullMapPlayerDot)
 
@@ -2619,6 +2632,9 @@ function GameUI.ShowGameHUD(player)
     -- 图例
     local fullMapLegend = UI.Panel {
         flexDirection = "row",
+        flexWrap = "wrap",
+        justifyContent = "center",
+        rowGap = 4,
         gap = 14,
         marginTop = 6,
         children = {
@@ -2641,6 +2657,13 @@ function GameUI.ShowGameHUD(player)
                 children = {
                     UI.Panel { width = 9, height = 9, backgroundColor = {225, 166, 68, 245}, borderWidth = 1, borderColor = {255, 232, 176, 230} },
                     UI.Label { text = "地标", fontSize = 11, fontColor = {200, 200, 190, 220} },
+                },
+            },
+            UI.Panel {
+                flexDirection = "row", alignItems = "center", gap = 4,
+                children = {
+                    UI.Panel { width = 9, height = 9, backgroundColor = {238, 104, 42, 255}, borderWidth = 1, borderColor = {255, 205, 155, 230} },
+                    UI.Label { text = "铁匠", fontSize = 11, fontColor = {200, 200, 190, 220} },
                 },
             },
         },
@@ -2692,6 +2715,7 @@ function GameUI.ShowGameHUD(player)
     uiState.refs.fullMapSafeZone = fullMapSafeZone
     uiState.refs.fullMapStewardDot = fullMapStewardDot
     uiState.refs.fullMapMerchantDot = fullMapMerchantDot
+    uiState.refs.fullMapBlacksmithDot = fullMapBlacksmithDot
     uiState.refs.fullMapLandmarks = fullMapLandmarks
     uiState.refs.fullMapTitle = fullMapTitle
     uiState.refs.fullMapGridLines = fmGridLines
@@ -2777,6 +2801,8 @@ function GameUI.UpdateQuestTracker(quest, progress, count)
         local targetMapId = Quest.GetTargetMapId(quest)
         local targetMap = targetMapId and MapZone.GetDef(targetMapId) or nil
         local mapName = targetMap and targetMap.name or ""
+        local offTargetMap = targetMapId and MapZone.GetCurrentMapId() ~= targetMapId
+        local objectiveText = Quest.GetObjectiveText(quest, progress, count)
         content = UI.Panel {
             flexDirection = "column",
             backgroundColor = {16, 14, 12, 215},
@@ -2798,15 +2824,15 @@ function GameUI.UpdateQuestTracker(quest, progress, count)
                     marginTop = 2,
                 },
                 UI.Label {
-                    text = (done and "✓ 已完成" or ("目标：" .. quest.target .. " " .. progress .. "/" .. count)),
+                    text = done and "✓ 已完成" or ("目标：" .. objectiveText),
                     fontSize = 11,
                     fontColor = done and {140, 220, 140, 255} or {210, 200, 180, 230},
                     marginTop = 3,
                 },
                 (mapName ~= "") and UI.Label {
-                    text = "📍 " .. mapName,
+                    text = "📍 " .. mapName .. (offTargetMap and " · 返回后继续" or ""),
                     fontSize = 10,
-                    fontColor = {140, 190, 220, 200},
+                    fontColor = offTargetMap and {255, 190, 105, 225} or {140, 190, 220, 200},
                     marginTop = 2,
                 } or nil,
             },
@@ -2843,10 +2869,11 @@ function GameUI.ShowTeleportPanel(maps)
         local option = m
         local isCurrent = option.current == true
         local locked = option.locked == true
+        local questTarget = option.questTarget == true
         local minLevel = math.max(1, math.floor(tonumber(option.minLevel) or 1))
         local maxLevel = math.max(minLevel, math.floor(tonumber(option.maxLevel) or minLevel))
         local cost = math.max(0, math.floor(tonumber(option.cost) or 0))
-        local costText = cost > 0 and (tostring(cost) .. " 金币") or "免费"
+        local costText = questTarget and "主线免费" or (cost > 0 and (tostring(cost) .. " 金币") or "免费")
 
         local function handleClick()
             if isCurrent then
@@ -2892,7 +2919,7 @@ function GameUI.ShowTeleportPanel(maps)
                     children = {
                         UI.Label {
                             text = tostring(option.name or option.id or "未知地图")
-                                .. (isCurrent and "（当前）" or ""),
+                                .. (isCurrent and "（当前）" or questTarget and "（主线）" or ""),
                             fontSize = 14,
                             fontColor = isCurrent and {180, 230, 180, 255}
                                 or locked and {138, 134, 128, 190}
@@ -2900,7 +2927,8 @@ function GameUI.ShowTeleportPanel(maps)
                             fontWeight = isCurrent and "bold" or "normal",
                         },
                         UI.Label {
-                            text = locked and ("需要 Lv." .. minLevel)
+                            text = questTarget and "当前任务目标地图"
+                                or locked and ("需要 Lv." .. minLevel)
                                 or ("推荐 Lv." .. minLevel .. "-" .. maxLevel),
                             fontSize = 11,
                             fontColor = locked and {150, 128, 118, 190}
@@ -3029,7 +3057,7 @@ function GameUI.IsTeleportPanelOpen()
 end
 
 -- ============================================================================
--- NPC 交互面板（管家传送 / 商人商店）
+-- NPC 交互面板（管家传送 / 商人商店 / 铁匠锻造）
 -- ============================================================================
 
 --- 显示/隐藏 HUD 上的 NPC 交互按钮（去重：状态不变时不重建，避免每帧销毁导致点击失效）
@@ -3222,6 +3250,71 @@ function GameUI.ShowNPCPanel(title, tabs, selectedTab)
     end
 
     buildPanel()
+end
+
+--- 打开铁匠专属锻造台。锻造不再放在角色面板中，玩家必须在安全区
+--- 靠近铁匠后使用该服务。
+---@param player table
+function GameUI.ShowForgePanel(player)
+    if not player then
+        GameUI.ShowToast("角色数据不可用，暂时无法锻造")
+        return
+    end
+
+    GameUI.HideNPCPanel()
+    uiState.npcPanelOpen = true
+    _SyncPauseState()
+
+    local function refreshForgePanel()
+        if not uiState.npcPanelOpen then return end
+        GameUI.HideNPCPanel()
+        GameUI.ShowForgePanel(player)
+    end
+
+    local forgeContent = ForgePanel.Build {
+        showToast = function(message) GameUI.ShowToast(message) end,
+        onRefresh = refreshForgePanel,
+        onGoldChanged = function(gold) GameUI.UpdateGold(gold) end,
+    }
+
+    uiState.npcPanelRoot = UI.Panel {
+        id = "forgePanelOverlay",
+        width = "100%", height = "100%",
+        backgroundColor = {0, 0, 0, 178},
+        justifyContent = "center", alignItems = "center",
+        onClick = function() GameUI.HideNPCPanel() end,
+        children = {
+            UI.Panel {
+                width = "92%", maxWidth = 560,
+                height = "90%", maxHeight = 620,
+                backgroundColor = {16, 12, 9, 252},
+                borderRadius = 12, borderWidth = 2,
+                borderColor = {164, 105, 43, 220},
+                padding = 15,
+                overflow = "hidden",
+                onClick = function() end,
+                children = {
+                    _CreateOverlayHeader("铁匠 · 锻造台", function()
+                        GameUI.HideNPCPanel()
+                    end, {
+                        subtitle = "自动选材 · 三合一升品质",
+                        titleColor = {244, 210, 142, 255},
+                        subtitleColor = {202, 154, 92, 220},
+                    }),
+                    UI.ScrollView {
+                        width = "100%",
+                        flexGrow = 1,
+                        flexBasis = 0,
+                        showScrollbar = true,
+                        children = { forgeContent },
+                    },
+                },
+            },
+        },
+    }
+
+    UI.SetRoot(uiState.npcPanelRoot)
+    print("[GameUI] Blacksmith forge panel opened")
 end
 
 function GameUI.HideNPCPanel()
@@ -3606,6 +3699,24 @@ function GameUI._CreateMiniMapArea(player)
         backgroundColor = {75, 150, 240, 255},
         pointerEvents = "none",
     }
+    local miniBlacksmithDot = UI.Panel {
+        position = "absolute", width = 3, height = 3,
+        borderRadius = 2,
+        backgroundColor = {238, 104, 42, 255},
+        pointerEvents = "none",
+    }
+
+    -- 当前 Boss 任务目标（红点）。位置由 _UpdateMiniMapUI 按 Boss 实体实时更新。
+    -- 使用独立 widget，避免每帧重建小地图树；Boss 离场/任务切换时直接隐藏。
+    local miniBossDot = UI.Panel {
+        position = "absolute", width = 6, height = 6,
+        borderRadius = 3,
+        backgroundColor = {245, 48, 48, 255},
+        borderWidth = 1,
+        borderColor = {255, 220, 220, 255},
+        pointerEvents = "none",
+        visible = false,
+    }
 
     -- ── 网格线（将竞技场分为 4 象限）──
     local gridH = UI.Panel {
@@ -3630,7 +3741,7 @@ function GameUI._CreateMiniMapArea(player)
         borderWidth = 2,
         borderColor = {126, 130, 134, 245},  -- 银灰粗边框
         overflow = "hidden",  -- 裁剪超出边界的玩家标记
-        children = { miniSafeZone, gridH, gridV, miniStewardDot, miniMerchantDot, playerDir, playerDot },
+        children = { miniSafeZone, gridH, gridV, miniStewardDot, miniMerchantDot, miniBlacksmithDot, miniBossDot, playerDir, playerDot },
     }
 
     -- ── 指北标 "N"（固定在圆形顶部）──
@@ -3668,6 +3779,8 @@ function GameUI._CreateMiniMapArea(player)
     uiState.refs.miniMapSafeZone = miniSafeZone
     uiState.refs.miniMapStewardDot = miniStewardDot
     uiState.refs.miniMapMerchantDot = miniMerchantDot
+    uiState.refs.miniMapBlacksmithDot = miniBlacksmithDot
+    uiState.refs.miniMapBossDot = miniBossDot
     uiState.refs.miniMapArenaBlock = arenaBlock
     uiState.refs.miniMapNorthLabel = northLabel
     uiState.refs.miniMapSize = mapSize
@@ -3777,7 +3890,7 @@ function GameUI._CreateMiniMapArea(player)
 end
 
 -- ============================================================================
--- 角色面板（技能 + 背包 Tab 合并）
+-- 角色面板（技能 + 装备 + 背包；锻造由安全区铁匠负责）
 -- ============================================================================
 
 local function _FormatCooldown(value)
@@ -3929,505 +4042,37 @@ function GameUI.IsItemDetailOpen()
     return uiState.itemDetailRoot ~= nil
 end
 
-local function _BuildEquipTabContent(player)
-    local inv = Inventory.playerData
-    local SLOT = Inventory.SLOT
-    local SLOT_NAMES = Inventory.SLOT_NAMES
-    local RARITY = Inventory.RARITY
-
-    local function refreshPanel()
-        GameUI.HideCharacterPanel()
-        GameUI.ShowCharacterPanel(player, "equip")
-    end
-
-    -- 装备详情弹窗
-    local function showItemDetail(item, slotKey)
-        -- 捕获详情对应的实例，避免按钮闭包依赖不存在的外层局部变量。
-        local capturedItem = item
-        local rarity = RARITY[item.rarity]
-        local rarityClr = rarity and rarity.color or {200, 200, 200}
-        local nameColor = {rarityClr[1], rarityClr[2], rarityClr[3], 255}
-        local rarityName = rarity and rarity.name or "普通"
-        local slotLabel = SLOT_NAMES[slotKey] or slotKey
-
-        -- 构建属性列表
-        local statRows = {}
-        if item.atk > 0 then
-            table.insert(statRows, UI.Panel { flexDirection = "row", gap = 6, children = {
-                UI.Label { text = "攻击力", fontSize = 13, fontColor = {160, 150, 130, 200} },
-                UI.Label { text = "+" .. item.atk, fontSize = 13, fontColor = {255, 100, 80, 240}, fontWeight = "bold" },
-            }})
-        end
-        if item.def > 0 then
-            table.insert(statRows, UI.Panel { flexDirection = "row", gap = 6, children = {
-                UI.Label { text = "防御力", fontSize = 13, fontColor = {160, 150, 130, 200} },
-                UI.Label { text = "+" .. item.def, fontSize = 13, fontColor = {80, 180, 255, 240}, fontWeight = "bold" },
-            }})
-        end
-        if item.hp > 0 then
-            table.insert(statRows, UI.Panel { flexDirection = "row", gap = 6, children = {
-                UI.Label { text = "生命值", fontSize = 13, fontColor = {160, 150, 130, 200} },
-                UI.Label { text = "+" .. item.hp, fontSize = 13, fontColor = {80, 230, 100, 240}, fontWeight = "bold" },
-            }})
-        end
-
-        local capturedSlot = slotKey
-        GameUI.HideItemDetail()
-        local detailPanel = UI.Panel {
-            position = "absolute", width = "100%", height = "100%",
-            justifyContent = "center", alignItems = "center",
-            backgroundColor = {0, 0, 0, 180},
-            onClick = function()
-                GameUI.HideItemDetail()
-            end,
-            children = {
-                UI.Panel {
-                    width = 220, minHeight = 160,
-                    backgroundColor = {25, 20, 15, 250},
-                    borderRadius = 10, borderWidth = 2,
-                    borderColor = {rarityClr[1], rarityClr[2], rarityClr[3], 200},
-                    paddingHorizontal = 16, paddingVertical = 14,
-                    alignItems = "center",
-                    onClick = function() end,
-                    children = {
-                        _CreateOverlayHeader("装备详情", GameUI.HideItemDetail, {
-                            titleFontSize = 15,
-                            backWidth = 76,
-                            marginBottom = 6,
-                        }),
-                        -- 品质标签
-                        UI.Label { text = "[" .. rarityName .. "]", fontSize = 11, fontColor = nameColor, marginBottom = 4 },
-                        -- 物品名称
-                        UI.Label { text = item.name, fontSize = 18, fontWeight = "bold", fontColor = nameColor, marginBottom = 2 },
-                        -- 槽位类型
-                        UI.Label { text = slotLabel, fontSize = 11, fontColor = {140, 130, 110, 160}, marginBottom = 10 },
-                        -- 分隔线
-                        UI.Panel { width = "80%", height = 1, backgroundColor = {100, 90, 70, 100}, marginBottom = 10 },
-                        -- 属性行
-                        UI.Panel { alignItems = "flex-start", gap = 6, marginBottom = 14, children = statRows },
-                        -- 强化信息
-                        (function()
-                            local lv = item.enhance or 0
-                            if lv >= 12 then
-                                return UI.Label { text = "强化 +12（已满）", fontSize = 12, fontColor = {255, 210, 90, 255}, marginBottom = 10 }
-                            end
-                            local cost = Inventory.Enhance.EnhanceCost(lv + 1)
-                            return UI.Label {
-                                text = string.format("强化 +%d→+%d 需 %d石 %d金 (%.0f%%)", lv, lv + 1, cost.stones, cost.gold, cost.successRate * 100),
-                                fontSize = 10, fontColor = {210, 200, 180, 220}, marginBottom = 10, textAlign = "center",
-                            }
-                        end)(),
-                        -- 按钮行：强化 + 分解
-                        UI.Panel {
-                            flexDirection = "row", gap = 8, marginBottom = 8,
-                            children = {
-                                UI.Button {
-                                    text = "强化",
-                                    width = 90, height = 34,
-                                    onClick = function()
-                                        local ok, reason, finalLv = Inventory.EnhanceItem(capturedItem)
-                                        if ok then
-                                            GameUI.ShowToast(capturedItem.name .. " 强化成功 → +" .. finalLv)
-                                        else
-                                            GameUI.ShowToast(reason or "强化失败")
-                                        end
-                                        refreshPanel()
-                                    end,
-                                },
-                                UI.Button {
-                                    text = "分解", variant = "outline",
-                                    width = 90, height = 34,
-                                    onClick = function()
-                                        -- 传说品质二次确认
-                                        if capturedItem.rarity == "LEGENDARY" then
-                                            UI.Modal.Confirm {
-                                                title = "确认分解传说装备",
-                                                message = "【" .. capturedItem.name .. "】将永久消失，确定继续吗？",
-                                                confirmText = "确认分解",
-                                                cancelText = "保留装备",
-                                                onConfirm = function()
-                                                    local ok, res = Inventory.RecycleItem(capturedItem)
-                                                    if ok then
-                                                        GameUI.ShowToast("已分解 +" .. res.gold .. "金 +" .. res.stones .. "石")
-                                                        refreshPanel()
-                                                    else
-                                                        GameUI.ShowToast("分解失败")
-                                                    end
-                                                end,
-                                            }
-                                            return
-                                        end
-                                        local ok, res = Inventory.RecycleItem(capturedItem)
-                                        if ok then
-                                            GameUI.ShowToast("已分解 +" .. res.gold .. "金 +" .. res.stones .. "石")
-                                        end
-                                        refreshPanel()
-                                    end,
-                                },
-                            },
-                        },
-                        -- 卸下按钮
-                        UI.Button {
-                            text = "卸下装备", variant = "outline",
-                            width = 140, height = 34,
-                            onClick = function()
-                                Inventory.UnequipSlot(capturedSlot)
-                                refreshPanel()
-                            end,
-                        },
-                    },
-                },
-            },
-        }
-        -- 将详情弹窗附加到面板上层
-        if uiState.charPanelRoot then
-            uiState.itemDetailRoot = detailPanel
-            uiState.charPanelRoot:AddChild(detailPanel)
-        end
-    end
-
-    -- 单个装备槽 UI 构建
-    local function makeSlotCell(slotKey, w, h)
-        w = w or 72
-        h = h or 78
-        local item = inv.equipped[slotKey]
-        local label = SLOT_NAMES[slotKey] or slotKey
-        local rarity = item and RARITY[item.rarity] or nil
-        local rarityClr = rarity and rarity.color or nil
-        local nameColor = rarityClr and {rarityClr[1], rarityClr[2], rarityClr[3], 255} or {120, 115, 100, 180}
-        local borderClr = rarityClr and {rarityClr[1], rarityClr[2], rarityClr[3], 200} or {55, 50, 42, 150}
-        local bgColor = item and {30, 24, 18, 250} or {22, 18, 14, 200}
-
-        -- 属性简述
-        local statParts = {}
-        if item then
-            if item.atk > 0 then table.insert(statParts, "攻" .. item.atk) end
-            if item.def > 0 then table.insert(statParts, "防" .. item.def) end
-            if item.hp  > 0 then table.insert(statParts, "血" .. item.hp) end
-        end
-        local statText = table.concat(statParts, " ")
-
-        local capturedSlot = slotKey
-        local capturedItem = item
-
-        -- 卸下按钮（右上角小 ✕ 图标）
-        local unequipBtn = nil
-        if item then
-            unequipBtn = UI.Panel {
-                position = "absolute", top = 2, right = 2,
-                width = 16, height = 16,
-                backgroundColor = {80, 20, 20, 200},
-                borderRadius = 8,
-                justifyContent = "center", alignItems = "center",
-                onClick = function()
-                    Inventory.UnequipSlot(capturedSlot)
-                    refreshPanel()
-                end,
-                children = {
-                    UI.Label { text = "✕", fontSize = 10, fontColor = {255, 120, 100, 240} },
-                },
-            }
-        end
-
-        return UI.Panel {
-            width = w, height = h, overflow = "visible",
-            backgroundColor = bgColor, borderRadius = 5,
-            borderWidth = item and 1.5 or 1, borderColor = borderClr,
-            justifyContent = "center", alignItems = "center",
-            paddingHorizontal = 3, paddingVertical = 3,
-            -- 点击装备区域 → 弹出详情
-            onClick = capturedItem and function()
-                showItemDetail(capturedItem, capturedSlot)
-            end or nil,
-            children = {
-                -- 卸下按钮（右上角）
-                unequipBtn,
-                -- 槽位标签
-                UI.Label { text = label, fontSize = 9, fontColor = {140, 130, 100, 160} },
-                -- 物品名称
-                UI.Label {
-                    text = item and (item.name .. ((item.enhance and item.enhance > 0) and (" +" .. item.enhance) or "")) or "—",
-                    fontSize = item and 11 or 10,
-                    fontWeight = item and "bold" or "normal",
-                    fontColor = nameColor, marginTop = 2,
-                    textAlign = "center",
-                },
-                -- 属性
-                (item and statText ~= "") and UI.Label {
-                    text = statText, fontSize = 9,
-                    fontColor = {180, 175, 155, 190}, marginTop = 1,
-                    textAlign = "center",
-                } or nil,
-            },
-        }
-    end
-
-    -- 计算总属性
-    local totalAtk = inv.bonusAtk or 0
-    local totalDef = inv.bonusDef or 0
-    local totalHP  = inv.bonusHP  or 0
-
-    -- 布局：传奇经典三列布局
-    -- 左列：头盔、项链、左手镯、左戒指、腰带
-    -- 中间：人物轮廓 + 属性
-    -- 右列：武器、盔甲、右手镯、右戒指、鞋子
-
-    local leftCol = UI.Panel {
-        width = 78, alignItems = "center", gap = 4,
-        children = {
-            makeSlotCell(SLOT.HELMET, 72, 72),
-            makeSlotCell(SLOT.NECKLACE, 72, 72),
-            makeSlotCell(SLOT.BRACELET1, 72, 72),
-            makeSlotCell(SLOT.RING1, 72, 72),
-            makeSlotCell(SLOT.BELT, 72, 72),
-        },
-    }
-
-    local rightCol = UI.Panel {
-        width = 78, alignItems = "center", gap = 4,
-        children = {
-            makeSlotCell(SLOT.WEAPON, 72, 72),
-            makeSlotCell(SLOT.ARMOR, 72, 72),
-            makeSlotCell(SLOT.BRACELET2, 72, 72),
-            makeSlotCell(SLOT.RING2, 72, 72),
-            makeSlotCell(SLOT.BOOTS, 72, 72),
-        },
-    }
-
-    -- 中间人物轮廓区域
-    local classDef = CharacterClass.Classes[player.classId]
-    local classColor = classDef and classDef.color or {200, 180, 120}
-    local centerCol = UI.Panel {
-        flex = 1, alignItems = "center", justifyContent = "center",
-        paddingVertical = 8,
-        children = {
-            -- 人物轮廓（简化用文字符号表示）
-            UI.Panel {
-                width = 100, height = 200,
-                backgroundColor = {12, 10, 8, 200},
-                borderRadius = 8, borderWidth = 1,
-                borderColor = {60, 50, 35, 120},
-                justifyContent = "center", alignItems = "center",
-                children = {
-                    UI.Label {
-                        text = classDef and classDef.name or "角色",
-                        fontSize = 14, fontWeight = "bold",
-                        fontColor = {classColor[1], classColor[2], classColor[3], 220},
-                    },
-                    UI.Label { text = "Lv." .. player.level, fontSize = 12, fontColor = {200, 190, 160, 200}, marginTop = 4 },
-                    -- 人物轮廓符号
-                    UI.Label { text = "⚔", fontSize = 40, fontColor = {classColor[1], classColor[2], classColor[3], 140}, marginTop = 8 },
-                },
-            },
-            -- 属性总计
-            UI.Panel {
-                width = "100%", marginTop = 10, alignItems = "center", gap = 3,
-                children = {
-                    UI.Label { text = "— 装备属性 —", fontSize = 10, fontColor = {172, 174, 174, 180} },
-                    UI.Panel {
-                        flexDirection = "row", gap = 8, marginTop = 4,
-                        children = {
-                            UI.Label { text = "攻+" .. totalAtk, fontSize = 12, fontColor = {255, 100, 80, 230}, fontWeight = "bold" },
-                            UI.Label { text = "防+" .. totalDef, fontSize = 12, fontColor = {80, 180, 255, 230}, fontWeight = "bold" },
-                            UI.Label { text = "血+" .. totalHP, fontSize = 12, fontColor = {80, 230, 100, 230}, fontWeight = "bold" },
-                        },
-                    },
-                },
-            },
-        },
-    }
-
-    return UI.Panel {
-        width = "100%",
-        children = {
-            -- 提示
-            UI.Label {
-                text = "点击装备查看详情 · ✕卸下",
-                fontSize = 10, fontColor = {150, 152, 152, 165},
-                textAlign = "center", marginBottom = 6,
-            },
-            -- 三列布局
-            UI.Panel {
-                flexDirection = "row", width = "100%",
-                justifyContent = "space-between", alignItems = "flex-start",
-                children = { leftCol, centerCol, rightCol },
-            },
-        },
-    }
-end
-
---- 构建锻造 Tab 内容
-local function _BuildForgeTabContent(player)
-    return ForgePanel.Build {
+local function _BuildEquipmentPanelOptions(player, tab)
+    return {
+        player = player,
         showToast = function(message) GameUI.ShowToast(message) end,
-        onRefresh = function()
+        updatePotionCount = function(kind, count)
+            GameUI.UpdatePotionCount(kind, count)
+        end,
+        closeDetail = GameUI.HideItemDetail,
+        openDetail = function(detailPanel)
+            GameUI.HideItemDetail()
+            if uiState.charPanelRoot then
+                uiState.itemDetailRoot = detailPanel
+                uiState.charPanelRoot:AddChild(detailPanel)
+            end
+        end,
+        refresh = function()
             GameUI.HideCharacterPanel()
-            GameUI.ShowCharacterPanel(player, "forge")
+            GameUI.ShowCharacterPanel(player, tab)
         end,
     }
 end
 
+local function _BuildEquipTabContent(player)
+    return EquipmentPanel.BuildEquipTab(
+        _BuildEquipmentPanelOptions(player, "equip"))
+end
+
 --- 构建背包 Tab 内容
 local function _BuildBagTabContent(player)
-    local inv = Inventory.playerData
-    if not inv.potions then inv.potions = { hp = 5, mp = 3 } end
-    local RARITY = Inventory.RARITY
-
-    local function refreshPanel()
-        GameUI.HideCharacterPanel()
-        GameUI.ShowCharacterPanel(player, "bag")
-    end
-
-    -- 背包格子：固定60x68，5列排布，点击装备
-    local bagCells = {}
-    for i = 1, 20 do
-        local item = inv.bag[i]
-        local rarity = item and RARITY[item.rarity] or nil
-        local rarityClr = rarity and rarity.color or nil
-        local nameColor = rarityClr and {rarityClr[1], rarityClr[2], rarityClr[3], 235} or {80, 78, 70, 100}
-        local bgColor = item and {28, 23, 17, 240} or {18, 15, 12, 120}
-        local borderClr = rarityClr and {rarityClr[1], rarityClr[2], rarityClr[3], 130} or {42, 38, 32, 90}
-
-        local statParts = {}
-        if item then
-            if item.atk > 0 then table.insert(statParts, "攻" .. item.atk) end
-            if item.def > 0 then table.insert(statParts, "防" .. item.def) end
-            if item.hp  > 0 then table.insert(statParts, "血" .. item.hp) end
-        end
-        local briefStat = table.concat(statParts, " ")
-
-        local capturedItem = item
-        table.insert(bagCells, UI.Panel {
-            width = 66, height = 70, overflow = "hidden",
-            backgroundColor = bgColor, borderRadius = 5,
-            borderWidth = 1, borderColor = borderClr,
-            justifyContent = "center", alignItems = "center",
-            paddingHorizontal = 4, paddingVertical = 4,
-            children = {
-                item and UI.Label {
-                    text = item.name, fontSize = 11, fontWeight = "bold",
-                    fontColor = nameColor, textAlign = "center",
-                } or nil,
-                item and item.enhance and item.enhance > 0 and UI.Label {
-                    text = "+" .. item.enhance,
-                    fontSize = 9, fontColor = {255, 210, 90, 230}, marginTop = 0,
-                } or nil,
-                item and briefStat ~= "" and UI.Label {
-                    text = briefStat,
-                    fontSize = 9, fontColor = {175, 170, 155, 185}, marginTop = 1, textAlign = "center",
-                } or nil,
-                item and UI.Panel {
-                    flexDirection = "row", gap = 4, marginTop = 2,
-                    children = {
-                        UI.Panel {
-                            paddingHorizontal = 4, paddingVertical = 1,
-                            backgroundColor = {28, 40, 28, 180}, borderRadius = 3,
-                            onClick = function()
-                                Inventory.EquipItem(capturedItem, player.classId)
-                                refreshPanel()
-                            end,
-                            children = { UI.Label { text = "装备", fontSize = 8, fontColor = {110, 190, 110, 220} } },
-                        },
-                        UI.Panel {
-                            paddingHorizontal = 4, paddingVertical = 1,
-                            backgroundColor = {40, 24, 20, 180}, borderRadius = 3,
-                            onClick = function()
-                                local function recycleCapturedItem()
-                                    local ok, res, reason = Inventory.RecycleItem(capturedItem)
-                                    if ok then
-                                        GameUI.ShowToast("已分解 +" .. res.gold .. "金 +" .. res.stones .. "石")
-                                    else
-                                        GameUI.ShowToast(reason or "分解失败")
-                                    end
-                                    refreshPanel()
-                                end
-
-                                -- 背包格子必须和装备详情页遵守同一条不可逆操作规则，
-                                -- 否则玩家可从这里绕过传说装备二次确认。
-                                if capturedItem.rarity == "LEGENDARY" then
-                                    UI.Modal.Confirm {
-                                        title = "确认分解传说装备",
-                                        message = "【" .. capturedItem.name .. "】分解后无法恢复，确定继续吗？",
-                                        confirmText = "确认分解",
-                                        cancelText = "保留装备",
-                                        onConfirm = recycleCapturedItem,
-                                    }
-                                else
-                                    recycleCapturedItem()
-                                end
-                            end,
-                            children = { UI.Label { text = "分解", fontSize = 8, fontColor = {230, 120, 90, 220} } },
-                        },
-                    },
-                } or nil,
-            },
-        })
-    end
-
-    return UI.Panel {
-        width = "100%",
-        children = {
-            -- 金币行
-            UI.Panel {
-                flexDirection = "row", alignItems = "center", gap = 6, marginBottom = 10,
-                children = {
-                    UI.Label { text = "💰", fontSize = 16 },
-                    UI.Label { text = tostring(inv.gold), fontSize = 16, fontColor = {226, 228, 226, 255}, fontWeight = "bold" },
-                    UI.Label { text = "   🔶强化石 " .. (inv.enhanceStones or 0), fontSize = 13, fontColor = {255, 200, 90, 230}, fontWeight = "bold" },
-                },
-            },
-            -- 药水区
-            UI.Panel {
-                flexDirection = "row", gap = 10, marginBottom = 12, alignItems = "center",
-                children = {
-                    UI.Label { text = "药水", fontSize = 12, fontColor = {178, 180, 178, 205} },
-                    -- HP 药水购买
-                    UI.Panel {
-                        flexDirection = "row", alignItems = "center", gap = 4,
-                        paddingHorizontal = 8, paddingVertical = 5,
-                        backgroundColor = {60, 18, 18, 180}, borderRadius = 8,
-                        borderWidth = 1, borderColor = {160, 60, 50, 150},
-                        onClick = function()
-                            local ok, msg = Inventory.BuyPotion("hp")
-                            if ok then
-                                GameUI.UpdatePotionCount("hp", Inventory.GetPotionCount("hp"))
-                            end
-                            refreshPanel()
-                        end,
-                        children = {
-                            UI.Label { text = "血药", fontSize = 11, fontColor = {240, 100, 80, 255}, fontWeight = "bold" },
-                            UI.Label { text = inv.potions.hp .. "/" .. Inventory.POTION_CONFIG.hp.max, fontSize = 10, fontColor = {200, 190, 170, 200} },
-                            UI.Label { text = "💰" .. Inventory.POTION_CONFIG.hp.price, fontSize = 10, fontColor = {220, 222, 220, 220} },
-                        },
-                    },
-                    -- MP 药水购买
-                    UI.Panel {
-                        flexDirection = "row", alignItems = "center", gap = 4,
-                        paddingHorizontal = 8, paddingVertical = 5,
-                        backgroundColor = {18, 18, 60, 180}, borderRadius = 8,
-                        borderWidth = 1, borderColor = {55, 100, 170, 150},
-                        onClick = function()
-                            local ok, msg = Inventory.BuyPotion("mp")
-                            if ok then
-                                GameUI.UpdatePotionCount("mp", Inventory.GetPotionCount("mp"))
-                            end
-                            refreshPanel()
-                        end,
-                        children = {
-                            UI.Label { text = "蓝药", fontSize = 11, fontColor = {80, 150, 230, 255}, fontWeight = "bold" },
-                            UI.Label { text = inv.potions.mp .. "/" .. Inventory.POTION_CONFIG.mp.max, fontSize = 10, fontColor = {200, 190, 170, 200} },
-                            UI.Label { text = "💰" .. Inventory.POTION_CONFIG.mp.price, fontSize = 10, fontColor = {220, 222, 220, 220} },
-                        },
-                    },
-                },
-            },
-            -- 分隔
-            UI.Panel { width = "100%", height = 1, backgroundColor = {72, 74, 76, 105}, marginBottom = 10 },
-            -- 背包区
-            UI.Label { text = "背包 " .. #inv.bag .. "/20", fontSize = 12, fontColor = {178, 180, 178, 205}, marginBottom = 8 },
-            UI.Panel { flexDirection = "row", flexWrap = "wrap", gap = 6, children = bagCells },
-        },
-    }
+    return EquipmentPanel.BuildBagTab(
+        _BuildEquipmentPanelOptions(player, "bag"))
 end
 
 --- 玩家主动关闭角色面板时走此入口；Tab 切换仍使用 HideCharacterPanel，
@@ -4453,6 +4098,9 @@ function GameUI.ShowCharacterPanel(player, tab)
     _SyncPauseState()
 
     local activeTab = tab or "skill"
+    if activeTab ~= "equip" and activeTab ~= "skill" and activeTab ~= "bag" then
+        activeTab = "equip"
+    end
     local classDef = CharacterClass.Classes[player.classId]
 
     -- Tab 按钮样式
@@ -4487,8 +4135,6 @@ function GameUI.ShowCharacterPanel(player, tab)
         content = _BuildEquipTabContent(player)
     elseif activeTab == "skill" then
         content = _BuildSkillTabContent(player)
-    elseif activeTab == "forge" then
-        content = _BuildForgeTabContent(player)
     else
         content = _BuildBagTabContent(player)
     end
@@ -4522,13 +4168,12 @@ function GameUI.ShowCharacterPanel(player, tab)
                             makeTab("装备", "equip"),
                             makeTab("技能", "skill"),
                             makeTab("背包", "bag"),
-                            makeTab("锻造", "forge"),
                         },
                     },
                     -- 分隔线
                     UI.Panel { width = "100%", height = 1, backgroundColor = {72, 74, 76, 120}, marginBottom = 10 },
                     -- 内容区必须使用真正的 ScrollView；Panel 的 overflow="scroll"
-                    -- 不是可滚动容器，之前小屏会直接裁掉装备格和锻造按钮。
+                    -- 不是可滚动容器，之前小屏会直接裁掉装备格和背包操作。
                     UI.ScrollView {
                         width = "100%",
                         flexGrow = 1,
@@ -4909,6 +4554,8 @@ function GameUI._UpdateMiniMapUI()
     local safeZone = uiState.refs.miniMapSafeZone
     local stewardDot = uiState.refs.miniMapStewardDot
     local merchantDot = uiState.refs.miniMapMerchantDot
+    local blacksmithDot = uiState.refs.miniMapBlacksmithDot
+    local bossDot = uiState.refs.miniMapBossDot
     local arenaDrawSize = uiState.refs.miniMapArenaDrawSize
     if not arenaDrawSize then return end
 
@@ -4919,15 +4566,15 @@ function GameUI._UpdateMiniMapUI()
 
     local mapId = MapZone.GetCurrentMapId()
     local mapDef = MapZone.GetDef(mapId)
+    local function worldToMini(x, z)
+        return (x + halfArena) / (halfArena * 2) * arenaDrawSize,
+            (halfArena - z) / (halfArena * 2) * arenaDrawSize
+    end
+
     if mapDef and visuals.mapId ~= mapId then
         local mapColor = mapDef.mapColor or {30, 32, 34, 220}
         if arenaBlock then
             arenaBlock:SetStyle({ backgroundColor = {mapColor[1], mapColor[2], mapColor[3], 220} })
-        end
-
-        local function worldToMini(x, z)
-            return (x + halfArena) / (halfArena * 2) * arenaDrawSize,
-                (halfArena - z) / (halfArena * 2) * arenaDrawSize
         end
 
         local spawn = mapDef.spawnPos or Vector3.ZERO
@@ -4942,11 +4589,62 @@ function GameUI._UpdateMiniMapUI()
             })
         end
 
-        local stewardX, stewardY = worldToMini(spawn.x + 2.5, spawn.z + 2.5)
-        local merchantX, merchantY = worldToMini(spawn.x - 2.5, spawn.z + 2.5)
+        local stewardPos = NPC.GetWorldPosition("steward", spawn)
+        local merchantPos = NPC.GetWorldPosition("merchant", spawn)
+        local blacksmithPos = NPC.GetWorldPosition("blacksmith", spawn)
+        local stewardX, stewardY = worldToMini(stewardPos.x, stewardPos.z)
+        local merchantX, merchantY = worldToMini(merchantPos.x, merchantPos.z)
+        local blacksmithX, blacksmithY = worldToMini(blacksmithPos.x, blacksmithPos.z)
         if stewardDot then stewardDot:SetStyle({ left = math.floor(stewardX - 1), top = math.floor(stewardY - 1) }) end
         if merchantDot then merchantDot:SetStyle({ left = math.floor(merchantX - 1), top = math.floor(merchantY - 1) }) end
+        if blacksmithDot then blacksmithDot:SetStyle({ left = math.floor(blacksmithX - 1), top = math.floor(blacksmithY - 1) }) end
         visuals.mapId = mapId
+    end
+
+    -- 巡逻、坚守与显式遭遇共用一个目标点。遭遇生成后跟随实体实时位置，
+    -- 其它模式显示 Quest 提供的纯坐标；切图后不缓存任何已销毁节点。
+    if bossDot then
+        local marker = Quest.GetObjectiveMarker()
+        local objectivePos = marker and marker.mapId == mapId and marker or nil
+        if objectivePos and marker.mode == "encounter" then
+            local Combat = require("scripts.Combat")
+            for _, enemy in ipairs(Combat.enemies or {}) do
+                if enemy and enemy.encounterId == marker.questId
+                    and enemy.node and enemy.state ~= "dead" and enemy.state ~= "dying"
+                    and type(enemy.hp) == "number" and enemy.hp > 0 then
+                    local enemyPos = enemy.node.worldPosition or enemy.node.position
+                    objectivePos = { x = enemyPos.x, z = enemyPos.z }
+                    break
+                end
+            end
+        end
+
+        if objectivePos then
+            local markerX, markerY = worldToMini(objectivePos.x, objectivePos.z)
+            local markerLeft = math.floor(markerX - 3)
+            local markerTop = math.floor(markerY - 3)
+            if not visuals.bossVisible then
+                bossDot:SetVisible(true)
+            end
+            if marker and visuals.objectiveMode ~= marker.mode then
+                local markerColor = marker.mode == "encounter" and {245, 48, 48, 255}
+                    or marker.mode == "survive" and {245, 150, 55, 255}
+                    or {255, 220, 70, 255}
+                bossDot:SetStyle({ backgroundColor = markerColor })
+                visuals.objectiveMode = marker.mode
+            end
+            if visuals.bossLeft ~= markerLeft or visuals.bossTop ~= markerTop then
+                bossDot:SetStyle({ left = markerLeft, top = markerTop })
+                visuals.bossLeft, visuals.bossTop = markerLeft, markerTop
+            end
+            visuals.bossVisible = true
+        else
+            if visuals.bossVisible ~= false then
+                bossDot:SetVisible(false)
+            end
+            visuals.bossVisible = false
+            visuals.objectiveMode = nil
+        end
     end
 
     -- 玩家世界坐标 → arenaBlock 内部像素坐标（相对于 arenaBlock content area）
@@ -4993,6 +4691,7 @@ function GameUI._UpdateFullMapUI()
     local safeZone = uiState.refs.fullMapSafeZone
     local stewardDot = uiState.refs.fullMapStewardDot
     local merchantDot = uiState.refs.fullMapMerchantDot
+    local blacksmithDot = uiState.refs.fullMapBlacksmithDot
     local landmarkRefs = uiState.refs.fullMapLandmarks
     local title = uiState.refs.fullMapTitle
     local gridLines = uiState.refs.fullMapGridLines
@@ -5088,10 +4787,15 @@ function GameUI._UpdateFullMapUI()
             })
         end
 
-        local stewardX, stewardY = worldToFullMap(spawn.x + 2.5, spawn.z + 2.5)
-        local merchantX, merchantY = worldToFullMap(spawn.x - 2.5, spawn.z + 2.5)
+        local stewardPos = NPC.GetWorldPosition("steward", spawn)
+        local merchantPos = NPC.GetWorldPosition("merchant", spawn)
+        local blacksmithPos = NPC.GetWorldPosition("blacksmith", spawn)
+        local stewardX, stewardY = worldToFullMap(stewardPos.x, stewardPos.z)
+        local merchantX, merchantY = worldToFullMap(merchantPos.x, merchantPos.z)
+        local blacksmithX, blacksmithY = worldToFullMap(blacksmithPos.x, blacksmithPos.z)
         if stewardDot then stewardDot:SetStyle({ left = math.floor(stewardX - 4), top = math.floor(stewardY - 4) }) end
         if merchantDot then merchantDot:SetStyle({ left = math.floor(merchantX - 4), top = math.floor(merchantY - 4) }) end
+        if blacksmithDot then blacksmithDot:SetStyle({ left = math.floor(blacksmithX - 4), top = math.floor(blacksmithY - 4) }) end
 
         if landmarkRefs and mapDef.landmarks then
             for i, landmark in ipairs(mapDef.landmarks) do

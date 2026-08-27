@@ -37,8 +37,8 @@ local CAM_FOV = 35
 -- 药瓶系统
 local hpPotionCD = 0
 local mpPotionCD = 0
-local HP_POTION_CD = 1.0
-local MP_POTION_CD = 1.0
+local HP_POTION_CD = 6.0
+local MP_POTION_CD = 4.5
 
 -- 玩家死亡
 local deathTimer = 0
@@ -48,7 +48,6 @@ local isDead = false
 local currentSlotIndex = nil  -- 当前使用的存档槽位 (1 或 2)
 local autoSaveTimer = 0
 local AUTO_SAVE_INTERVAL = 30  -- 每30秒自动保存一次
-local INITIAL_ENEMY_COUNT = 18 -- 移动端基线：保持群怪感，避免切图瞬间创建 24~28 组多节点骨架
 
 -- 商人货架：同一地图/角色会话内保持稳定，避免每次打开面板都随机换货；
 -- 五分钟后自动刷新，也可由玩家付费手动刷新。
@@ -137,6 +136,8 @@ function Start()
 end
 
 function Stop()
+    -- 当前角色会话结束即清空神兽召唤与成长状态。
+    DivineBeast.Clear()
     UI.Shutdown()
 end
 
@@ -1510,7 +1511,7 @@ function LoadFromSave(saveData)
         .. " Lv." .. tostring(saveData.level or 1))
 
     -- 载入另一个角色时先结束旧会话，避免单例神兽、旧敌人和旧玩家节点
-    -- 泄漏到新角色；随后再从存档恢复击杀数与神兽成长。
+    -- 泄漏到新角色；随后只恢复击杀数，神兽从未召唤的 Lv.1 状态开始。
     Combat.Clear(true, true)
     pendingQuestPresentation = nil
     questPresentationDelayHint = 0
@@ -1581,9 +1582,9 @@ function LoadFromSave(saveData)
     -- 创建角色节点并进入游戏
     CreatePlayerNode(classId, player_.modelStyle, player_.gender)
     GameUI.SetPlayerNode(playerNode_)
-    if player_.classId == "taoist" then
-        DivineBeast.Restore(scene_, playerNode_.position, saveData.divineBeast, player_.atk)
-    end
+    -- 神兽不读取旧存档：道士每次进入角色都需重新召唤，并从 Lv.1
+    -- 开始培养。LoadFromSave 开头的 Combat.Clear(true, true) 已清空
+    -- 上一角色会话可能残留的神兽单例。
     GameUI.ShowGameHUD(player_)
     SetupGameCallbacks()
 
@@ -1591,14 +1592,6 @@ function LoadFromSave(saveData)
     local cur = Quest.GetCurrent()
     local p, c = Quest.GetProgress()
     GameUI.UpdateQuestTracker(cur, p, c)
-
-    -- 任务路由不能依赖“开场对话是否已读”：已读存档不会再次触发
-    -- Quest.onQuestStart，但若玩家此前手动越级切图，仍必须回到当前
-    -- 任务目标地图，否则按图刷怪会让任务永远无法推进。
-    local targetMapId = Quest.GetTargetMapId(cur)
-    if targetMapId and Combat.currentMapId ~= targetMapId then
-        pendingQuestMapId = targetMapId
-    end
 
     -- 触发当前任务剧情对话（读档后首次进入播放）
     Quest.TriggerCurrentStart()
@@ -1616,15 +1609,11 @@ function LoadFromSave(saveData)
         end
     end
 
-    -- 读档不在 Combat.Update 中，安全地立即处理任务路由；这样不会先在
-    -- 存档旧地图刷一批无法推进当前任务的怪物。
-    if ProcessPendingQuestMapSwitch then
-        ProcessPendingQuestMapSwitch()
-    end
-
-    -- 如果任务路由已经通过 SwitchMap 刷完首批怪，则不要再叠加一批。
+    -- 保留存档中的实际地图。任务栏会持续显示目标地图，玩家返回后从
+    -- 已保存进度继续；读档不能把一次主动传送悄悄撤销。
     if #Combat.enemies == 0 then
-        for i = 1, INITIAL_ENEMY_COUNT do
+        local initialCount = MapZone.GetSpawnSettings(Combat.currentMapId).initialCount
+        for i = 1, initialCount do
             Combat.SpawnEnemy(scene_, playerNode_.position, player_.level, nil, Combat.currentMapId)
         end
     end
@@ -1705,7 +1694,8 @@ function SwitchMap(mapId)
         return false
     end
 
-    -- 清空当前地图战斗实体与地面掉落；默认保留累计击杀数和道士的永久神兽。
+    -- 清空当前地图战斗实体与地面掉落；默认保留累计击杀数和本次
+    -- 角色会话内培养的道士神兽。
     Combat.Clear()
 
     -- 设置战斗系统当前地图（决定按图刷怪池）
@@ -1735,11 +1725,12 @@ function SwitchMap(mapId)
         end
     end
 
-    -- 生成安全区 NPC（管家 + 商人）
+    -- 生成安全区 NPC（管家 + 商人 + 铁匠）
     NPC.SpawnForMap(scene_, mapId, mapDef.spawnPos)
 
     -- 初始刷怪（按新地图怪物池）
-    for i = 1, INITIAL_ENEMY_COUNT do
+    local initialCount = MapZone.GetSpawnSettings(mapId).initialCount
+    for i = 1, initialCount do
         Combat.SpawnEnemy(scene_, playerNode_.position, player_.level, nil, mapId)
     end
 
@@ -1791,7 +1782,7 @@ local function GenerateMerchantStock(mapId, player)
         -- 货架只展示当前等级可购买或略高一档的装备；终极传说装备留给
         -- 终章/Boss，避免商人直接跳过掉落与主线成长。
         if classOk and item.rarity ~= "LEGENDARY"
-            and requiredLevel <= (player.level or 1) + 5 then
+            and requiredLevel <= (player.level or 1) then
             table.insert(candidates, item)
         end
     end
@@ -1950,8 +1941,11 @@ function SetupGameCallbacks()
             return
         end
         local cfg = Inventory.POTION_CONFIG.hp
-        local heal = player_.maxHP * cfg.healRatio
-        player_.hp = math.min(player_.maxHP, player_.hp + heal)
+        local requestedHeal = math.max(1,
+            math.floor(player_.maxHP * cfg.healRatio + 0.5))
+        local oldHP = player_.hp
+        player_.hp = math.min(player_.maxHP, player_.hp + requestedHeal)
+        local heal = player_.hp - oldHP
         hpPotionCD = HP_POTION_CD
         GameUI.UpdatePotionCount("hp", Inventory.GetPotionCount("hp"))
         GameUI.AddFloatingText("+" .. math.floor(heal), playerNode_.position, {100, 255, 100, 255})
@@ -1970,8 +1964,11 @@ function SetupGameCallbacks()
             return
         end
         local cfg = Inventory.POTION_CONFIG.mp
-        local restore = player_.maxMP * cfg.healRatio
-        player_.mp = math.min(player_.maxMP, player_.mp + restore)
+        local requestedRestore = math.max(1,
+            math.floor(player_.maxMP * cfg.healRatio + 0.5))
+        local oldMP = player_.mp
+        player_.mp = math.min(player_.maxMP, player_.mp + requestedRestore)
+        local restore = player_.mp - oldMP
         mpPotionCD = MP_POTION_CD
         GameUI.UpdatePotionCount("mp", Inventory.GetPotionCount("mp"))
         GameUI.AddFloatingText("+" .. math.floor(restore), playerNode_.position, {100, 180, 255, 255})
@@ -2073,14 +2070,18 @@ function SetupGameCallbacks()
             return false
         end
 
-        -- 手动传送执行硬等级门槛；剧情自动切图走 QueueQuestMapSwitch，
-        -- 不会被这里拦截，因此主线仍能按章节安排推进。
-        if not MapZone.IsLevelAllowed(mapId, player_.level) then
+        local currentQuest = Quest.GetCurrent()
+        local questTargetMapId = Quest.GetTargetMapId(currentQuest)
+        local isQuestDestination = questTargetMapId == mapId
+
+        -- 当前主线地图始终可返回且免费，避免玩家传走后因等级或金币不足
+        -- 被锁在别处；其它路线继续遵守原有等级与费用规则。
+        if not isQuestDestination and not MapZone.IsLevelAllowed(mapId, player_.level) then
             GameUI.ShowToast("等级不足，" .. MapZone.GetLevelRequirement(mapId), 2.0)
             return false
         end
 
-        local cost = MapZone.GetTeleportCost(currentMapId)
+        local cost = isQuestDestination and 0 or MapZone.GetTeleportCost(currentMapId)
         if cost > 0 and not Inventory.SpendGold(cost) then
             GameUI.ShowToast("金币不足，需要 " .. cost .. " 金币", 2.0)
             return false
@@ -2103,6 +2104,15 @@ function SetupGameCallbacks()
         local options = {}
         if currentMapId then
             options = NPC.GetTeleportOptions(currentMapId, player_.level)
+            local questTargetMapId = Quest.GetTargetMapId(Quest.GetCurrent())
+            for _, option in ipairs(options) do
+                if option.id == questTargetMapId then
+                    option.locked = false
+                    option.lockReason = nil
+                    option.cost = 0
+                    option.questTarget = true
+                end
+            end
         end
 
         print("[main] Open teleport panel: currentMap=" .. tostring(currentMapId)
@@ -2120,10 +2130,13 @@ function SetupGameCallbacks()
     local function openMerchantPanel(selectedTab)
         -- ============ 购买 tab ============
         local function buildBuyRows()
+            local hpCfg = Inventory.POTION_CONFIG.hp
+            local mpCfg = Inventory.POTION_CONFIG.mp
             local rows = {
                 {
-                    text = "血药（恢复 35% 生命）",
-                    hint = "💰40  拥有 " .. Inventory.GetPotionCount("hp") .. "/" .. Inventory.POTION_CONFIG.hp.max,
+                    text = "血药（恢复 " .. math.floor(hpCfg.healRatio * 100 + 0.5) .. "% 生命）",
+                    hint = "💰" .. hpCfg.price .. "  拥有 "
+                        .. Inventory.GetPotionCount("hp") .. "/" .. hpCfg.max,
                     onTap = function()
                         local ok, msg = Inventory.BuyPotion("hp")
                         if ok then
@@ -2137,8 +2150,9 @@ function SetupGameCallbacks()
                     end,
                 },
                 {
-                    text = "蓝药（恢复 45% 法力）",
-                    hint = "💰60  拥有 " .. Inventory.GetPotionCount("mp") .. "/" .. Inventory.POTION_CONFIG.mp.max,
+                    text = "蓝药（恢复 " .. math.floor(mpCfg.healRatio * 100 + 0.5) .. "% 法力）",
+                    hint = "💰" .. mpCfg.price .. "  拥有 "
+                        .. Inventory.GetPotionCount("mp") .. "/" .. mpCfg.max,
                     onTap = function()
                         local ok, msg = Inventory.BuyPotion("mp")
                         if ok then
@@ -2267,12 +2281,19 @@ function SetupGameCallbacks()
         }, selectedTab or 1)
     end
 
+    -- 与铁匠交互：锻造只通过安全区 NPC 开放，不再放进角色面板。
+    local function openBlacksmithPanel()
+        GameUI.ShowForgePanel(player_)
+    end
+
     -- NPC 交互回调（由 HandleUpdate 每帧检测后触发）
     GameUI.onNPCInteract = function(kind, mapId)
         if kind == "steward" then
             openStewardPanel(mapId)
         elseif kind == "merchant" then
             openMerchantPanel()
+        elseif kind == "blacksmith" then
+            openBlacksmithPanel()
         end
     end
 
@@ -2351,7 +2372,11 @@ function SetupGameCallbacks()
     end
 
     Combat.onEnemyAttack = function(enemy, dmg, playerPos)
-        GameUI.AddFloatingText("-" .. math.floor(dmg), playerPos, {255, 80, 60, 255})
+        if dmg <= 0 then
+            GameUI.AddFloatingText("护盾吸收", playerPos, {120, 190, 255, 255})
+        else
+            GameUI.AddFloatingText("-" .. math.floor(dmg), playerPos, {255, 80, 60, 255})
+        end
     end
 
     Combat.onPlayerHeal = function(amount, pos)
@@ -2359,7 +2384,7 @@ function SetupGameCallbacks()
     end
 
     -- 掉落系统（地面掉落模式）
-    Combat.onEnemyDeath = function(enemyName, deathPos, exp, deathDuration)
+    Combat.onEnemyDeath = function(enemyName, deathPos, exp, deathDuration, tier, mapId, encounterId)
         local droppedItem, gold = Inventory.RollDrop(enemyName)
         -- 金币散落到地面
         if gold > 0 then
@@ -2378,17 +2403,19 @@ function SetupGameCallbacks()
             GameUI.UpdatePotionCount("hp", Inventory.GetPotionCount("hp"))
             GameUI.UpdatePotionCount("mp", Inventory.GetPotionCount("mp"))
         end
-        -- 只有完成 Boss 任务时延后下一段演出；普通任务继续即时刷新进度。
+        -- 只有完成显式遭遇时延后下一段演出；普通清理任务继续即时刷新进度。
         local activeQuest = Quest.GetCurrent()
         local progress, count = Quest.GetProgress()
-        local completesBoss = activeQuest and activeQuest.type == "boss"
-            and activeQuest.target == enemyName and progress + 1 >= count
-        questPresentationDelayHint = completesBoss
+        local completesEncounter = activeQuest and activeQuest.mode == "encounter"
+            and activeQuest.target == enemyName
+            and (encounterId == nil or encounterId == activeQuest.id)
+            and progress + 1 >= count
+        questPresentationDelayHint = completesEncounter
             and math.max(0, tonumber(deathDuration) or 0) + 0.12 or 0
 
         -- 主线任务击杀计数。Quest 回调在本函数内同步执行，因此上面的
         -- delay hint 能被 onQuestStart/onQuestComplete 精确消费。
-        Quest.OnKill(enemyName)
+        Quest.OnKill(enemyName, tier, mapId, encounterId)
         questPresentationDelayHint = 0
     end
 
@@ -2432,7 +2459,8 @@ function SetupGameCallbacks()
             end
             GameUI.RefreshSkillButtons(player_)
         end
-        Inventory.AddGold(quest.rewardGold or 0)
+        local questGoldReward = Inventory.GetQuestGoldReward(quest.rewardGold or 0)
+        Inventory.AddGold(questGoldReward)
 
         GameUI.ShowToast("任务完成：【" .. quest.name .. "】")
         GameUI.AddFloatingText("任务完成 +" .. (quest.rewardExp or 0) .. "经验", playerNode_.position, {255, 215, 0, 255})
@@ -2457,6 +2485,12 @@ function SetupGameCallbacks()
 
     Quest.onProgressUpdate = function(quest, progress, count)
         GameUI.UpdateQuestTracker(quest, progress, count)
+        -- 巡逻点必须立即落盘；坚守每 5 秒、清理每 3 只保存一次，兼顾
+        -- 中断恢复与移动端写盘频率。任务完成仍由 onQuestComplete 强制保存。
+        local shouldSave = quest.mode == "patrol"
+            or (quest.mode == "survive" and progress > 0 and progress % 5 == 0)
+            or (quest.mode == "clear" and progress > 0 and progress % 3 == 0)
+        if shouldSave then SaveCurrentGame() end
     end
 
     Quest.onQuestStart = function(quest)
@@ -2527,7 +2561,7 @@ function ReturnToMainMenu()
         GameUI.HideSystemPanel()
     end
 
-    -- 真正离开角色会话时才清除道士的永久神兽，并重置本次会话的击杀统计。
+    -- 离开角色会话时清除道士神兽成长，并重置本次会话的击杀统计。
     Combat.Clear(true, true)
 
     -- 移除玩家节点
@@ -2698,14 +2732,16 @@ function HandleUpdate(eventType, eventData)
 
     if not player_ then return end
 
-    -- Boss 死亡演出完成后才呈现下一任务，再于同一安全边界执行任务切图。
-    if ProcessPendingQuestPresentation then
+    -- 死亡期间不消费待处理的任务演出或切图；重生后继续，避免重生位置、
+    -- 对话和地图切换在同一帧互相覆盖。
+    local canAdvanceQuestEvents = not isDead and (tonumber(player_.hp) or 0) > 0
+    if canAdvanceQuestEvents and ProcessPendingQuestPresentation then
         ProcessPendingQuestPresentation(dt)
     end
 
     -- 任务切图在战斗回调或延迟演出中排队后，于这里安全执行。
     -- 放在暂停判断前，保证任务对话打开时也能完成章节路由。
-    if ProcessPendingQuestMapSwitch then
+    if canAdvanceQuestEvents and ProcessPendingQuestMapSwitch then
         ProcessPendingQuestMapSwitch()
     end
 
@@ -2755,7 +2791,11 @@ function HandleUpdate(eventType, eventData)
             isDead = false
             player_.hp = player_.maxHP
             player_.mp = player_.maxMP
-            playerNode_.position = Vector3(0, 0, 0)
+            local currentMap = MapZone.GetDef(Combat.currentMapId)
+            playerNode_.position = currentMap and currentMap.spawnPos or Vector3.ZERO
+            local body = playerNode_:GetComponent("RigidBody")
+            if body then body:SetLinearVelocity(Vector3.ZERO) end
+            Combat.CancelPlayerHostileEffects()
             print("[main] Player revived")
         end
         UpdateCamera(dt)
@@ -2775,6 +2815,9 @@ function HandleUpdate(eventType, eventData)
         ShowChargeGlow(false)
         GameUI.AddFloatingText("阵亡!", playerNode_.position, {255, 50, 50, 255})
         print("[main] Player died, reviving in 3s")
+        UpdateCamera(dt)
+        GameUI.UpdateHUD(player_, dt)
+        return
     end
 
     -- 施法状态机更新
@@ -2807,7 +2850,7 @@ function HandleUpdate(eventType, eventData)
     -- NPC 交互检测：玩家靠近安全区 NPC 时显示交互按钮
     local npcKind, npcMapId = NPC.FindNearby(playerNode_.position, 3.0)
     if npcKind and not GameUI.IsNPCPanelOpen() then
-        local label = (npcKind == "steward") and "与管家交谈（传送）" or "与商人交谈（商店）"
+        local label = NPC.GetInteractionLabel(npcKind)
         GameUI.SetNPCInteract(true, label, function()
             GameUI.SetNPCInteract(false)
             if GameUI.onNPCInteract then
@@ -2819,6 +2862,17 @@ function HandleUpdate(eventType, eventData)
             GameUI.SetNPCInteract(false)
         end
     end
+
+    -- 区域/巡逻进度只在角色存活且位于目标地图时推进；离图、死亡和读档
+    -- 都保留已完成部分。显式遭遇逐帧确保存在，但 encounterId 防止重复刷出。
+    Quest.Update(dt, Combat.currentMapId, playerNode_.position, not isDead)
+    if GameUI.IsGamePaused() then
+        UpdateCamera(dt)
+        GameUI.UpdateHUD(player_, dt)
+        return
+    end
+    local encounterRequest = pendingQuestPresentation and nil or Quest.GetEncounterRequest()
+    Combat.EnsureEncounter(scene_, playerNode_, player_, encounterRequest, dt)
 
     -- 战斗系统更新
     Combat.Update(scene_, dt, playerNode_, player_)
