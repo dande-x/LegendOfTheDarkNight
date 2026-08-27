@@ -11,6 +11,7 @@ const forgePanelSource = read("scripts/ForgePanel.lua");
 const enhancePanelSource = read("scripts/EnhancePanel.lua");
 const blacksmithPanelSource = read("scripts/BlacksmithPanel.lua");
 const gameUISource = read("scripts/GameUI.lua");
+const serviceScrollViewSource = read("scripts/ServiceScrollView.lua");
 const mainSource = read("scripts/main.lua");
 const equipmentPanelSource = read("scripts/EquipmentPanel.lua");
 const npcSource = read("scripts/NPC.lua");
@@ -142,6 +143,15 @@ check(blacksmithPanelSource.includes('UI.Tabs')
 check(blacksmithPanelSource.includes("ScrollView")
     || (blacksmithPanelSource.includes("scrollView") && blacksmithPanelSource.includes("height")),
     "铁匠双 Tab 内容缺少明确的滚动容器/高度约束");
+check(blacksmithPanelSource.includes("UpdateDescendants")
+    && blacksmithPanelSource.includes("content.Update = function"),
+    "铁匠 Tab 内容未递归更新内层 ScrollView，列表可能无法计算可滚动高度");
+check(blacksmithPanelSource.includes("ServiceScrollView.Build")
+    && enhancePanelSource.includes("ServiceScrollView.Build")
+    && serviceScrollViewSource.includes('event.pointerType')
+    && serviceScrollViewSource.includes("UI.CancelPointer")
+    && serviceScrollViewSource.includes("bounces = false"),
+    "铁匠滚动容器未兼容桌面/预览端鼠标拖动或边界状态");
 check(gameUISource.includes("require(\"scripts.BlacksmithPanel\")")
     && gameUISource.includes("function GameUI.ShowBlacksmithPanel("),
     "GameUI 没有接入铁匠双 Tab 面板");

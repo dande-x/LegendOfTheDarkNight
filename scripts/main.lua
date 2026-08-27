@@ -1945,7 +1945,7 @@ function SetupGameCallbacks()
         if skill.instant or windup <= 0 then
             local ok, result = Combat.CastSkill(scene_, player_, playerNode_, slot)
             if ok then
-                PlayerAnim.PlaySkill(skill.type)
+                PlayerAnim.PlaySkill(skill.animationType or skill.type)
                 PlayerAnim.TriggerHitFeedback(0.8)
             else
                 print("[main] Instant cast failed: " .. result)
@@ -1989,7 +1989,7 @@ function SetupGameCallbacks()
         end
 
         -- 播放对应攻击动画（根据职业+技能类型自动选择动画和速度）
-        PlayerAnim.PlaySkill(skill.type)
+        PlayerAnim.PlaySkill(skill.animationType or skill.type)
 
         -- 法师蓄力判定
         local isCharging = (player_.classId == "mage" and windup >= 0.3)

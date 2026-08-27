@@ -17,11 +17,20 @@ const mainSource = read("scripts/main.lua");
 const equipmentPanelSource = read("scripts/EquipmentPanel.lua");
 const gameUISource = read("scripts/GameUI.lua");
 const forgePanelSource = read("scripts/ForgePanel.lua");
+const serviceScrollViewSource = read("scripts/ServiceScrollView.lua");
 const npcSource = read("scripts/NPC.lua");
 const equipmentSource = `${inventorySource}\n${weaponSource}`;
 
 function check(condition, message) {
     if (!condition) throw new Error(message);
+}
+
+function getSkillBlock(id) {
+    const start = classSource.indexOf(`id = "${id}"`);
+    check(start >= 0, `技能定义缺失: ${id}`);
+    const end = classSource.indexOf("\n            },", start);
+    check(end > start, `技能定义结构异常: ${id}`);
+    return classSource.slice(start, end);
 }
 
 function roundDamage(raw, defense) {
@@ -79,6 +88,29 @@ check(classSource.includes('def = 1.8') && classSource.includes('def = 1.0')
 check(classSource.includes('id = "w_thrust", name = "刺杀剑术"')
     && classSource.includes('desc = "隔敌人一个身位攻击，可以凌空斩出白色剑气，大幅穿透其防御。"'),
     "武士刺杀剑术描述没有同步为玩家可理解的攻击说明");
+const warriorThrust = getSkillBlock("w_thrust");
+const warriorEarthsplit = getSkillBlock("w_earthsplit");
+const warriorCharge = getSkillBlock("w_charge");
+const warriorShield = getSkillBlock("w_shield");
+const warriorFire = getSkillBlock("w_fire");
+check(warriorThrust.includes("unlockLevel = 10"), "刺杀剑术未改为 10 级解锁");
+check(warriorEarthsplit.includes('name = "地裂斩"')
+    && warriorEarthsplit.includes("type = SKILL_TYPE.AOE")
+    && warriorEarthsplit.includes("unlockLevel = 20")
+    && warriorEarthsplit.includes("isGroundWave = true")
+    && warriorEarthsplit.includes('animationType = "buff"'),
+    "地裂斩未完整接入 20 级直线地面 AOE 与重劈动作");
+check(warriorCharge.includes("unlockLevel = 25"), "野蛮冲撞未改为 25 级解锁");
+check(warriorShield.includes("unlockLevel = 30"), "真气护盾未改为 30 级解锁");
+check(warriorFire.includes("unlockLevel = 35"), "烈火剑法未改为 35 级解锁");
+check(combatSource.includes("if skill.isGroundWave then")
+    && combatSource.includes("function Combat.SpawnEarthRiftWave")
+    && combatSource.includes("groundWave = true")
+    && combatSource.includes("not p.hitEnemies[e]"),
+    "地裂斩没有形成可穿透多个敌人且单目标只命中一次的移动 AOE");
+check((mainSource.match(/PlayerAnim\.PlaySkill\(skill\.animationType or skill\.type\)/g) ?? []).length === 2,
+    "地裂斩的重劈动作没有覆盖瞬发与前摇两条施法路径");
+check(gameUISource.includes('w_earthsplit = "裂"'), "地裂斩缺少技能面板的图标降级显示");
 check((mapSource.match(/spawnSettings =/g) ?? []).length === 5, "五张地图未全部设置独立刷怪密度");
 
 // 神兽等级只允许改变名字颜色；模型必须始终恢复 prefab 自带材质。
@@ -148,6 +180,20 @@ check(!equipmentPanelSource.includes("Inventory.EnhanceItem")
 check(forgePanelSource.includes("5 件同品质同部位")
     && forgePanelSource.includes("锻造 1 件 · "),
     "锻造台没有清楚说明材料、次数与费用");
+check(serviceScrollViewSource.includes("UI.ScrollView")
+    && serviceScrollViewSource.includes("UI.CancelPointer")
+    && serviceScrollViewSource.includes("state.isDragging")
+    && serviceScrollViewSource.includes("scrollbarInteractive = true")
+    && serviceScrollViewSource.includes("bounces = false"),
+    "服务区滚动容器没有接管拖动、滚动条或边界状态");
+check(gameUISource.includes("ServiceScrollView.Build")
+    && gameUISource.includes('local ServiceScrollView = require("scripts.ServiceScrollView")'),
+    "商店面板没有使用服务区滚动容器");
+const blacksmithPanelSource = read("scripts/BlacksmithPanel.lua");
+const enhancePanelSource = read("scripts/EnhancePanel.lua");
+check(blacksmithPanelSource.includes("ServiceScrollView.Build")
+    && enhancePanelSource.includes("ServiceScrollView.Build"),
+    "锻造 / 强化页面没有使用服务区滚动容器");
 check(npcSource.includes("BuildHoodedHumanoid")
     && npcSource.includes("WhiteRobeLower")
     && npcSource.includes("0.34, 0.22, 1.22")

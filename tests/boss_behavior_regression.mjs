@@ -137,6 +137,22 @@ check(combatSource.includes("function Combat.EnsureEncounter"), "Boss 遭遇恢�
 check(combatSource.includes("FindEncounterEnemy(request.id)"), "遭遇逐帧恢复会重复生成 Boss");
 check(combatSource.includes("encounterId = request.id"), "Boss 实体没有遭遇单例标识");
 
+// Boss 附近只降低自然刷怪频率；显式 Boss 遭遇和任务波次不应被拦截。
+const bossSpawnRadius = Number(
+    combatSource.match(/local BOSS_NEARBY_SPAWN_RADIUS = ([0-9.]+)/)?.[1]);
+const bossSpawnMultiplier = Number(
+    combatSource.match(/local BOSS_NEARBY_SPAWN_INTERVAL_MULTIPLIER = ([0-9.]+)/)?.[1]);
+check(Number.isFinite(bossSpawnRadius) && bossSpawnRadius >= 16 && bossSpawnRadius <= 24,
+    "Boss 周围刷怪抑制范围不在合理区间");
+check(Number.isFinite(bossSpawnMultiplier) && bossSpawnMultiplier >= 2,
+    "Boss 周围自然刷怪频率没有明显降低");
+const spawnerBlock = functionBlock(combatSource, "Combat.UpdateSpawner");
+check(spawnerBlock.includes("IsBossNearbyForSpawner(playerNode.position)")
+    && spawnerBlock.includes("BOSS_NEARBY_SPAWN_INTERVAL_MULTIPLIER"),
+    "自然刷怪器没有接入 Boss 周边频率抑制");
+check(combatSource.includes("enemy.tier == \"boss\" and IsEnemyTargetable(enemy)"),
+    "Boss 周边频率判断未排除已死亡或濒死 Boss");
+
 const fireDragon = definitionBlock("火龙王");
 check(fireDragon.includes('monsterType = "fire_dragon"'), "火龙王又退回蛇形模型类型");
 check(skeletonSource.includes("CreateFireDragonAdornment"), "火龙王非蛇形外观增强被回退");

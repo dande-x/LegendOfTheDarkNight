@@ -303,6 +303,11 @@ Combat.IsInSafeZone = IsInSafeZone
 -- 把所有地图都做成堆怪压力。
 local ENEMY_MOVE_SPEED = 2.8
 
+-- Boss 遭遇附近降低自然刷怪压力：只影响周期性生态刷怪，不影响 Boss
+-- 遭遇本体或任务波次。按水平距离判断，Boss 离场/死亡后会自动恢复原频率。
+local BOSS_NEARBY_SPAWN_RADIUS = 20.0
+local BOSS_NEARBY_SPAWN_INTERVAL_MULTIPLIER = 2.5
+
 -- 将技能倍率集中在一个入口，避免职业被动只停留在 CharacterClass 数据描述里。
 local function GetSkillDamage(player, skill)
     local base = (player and player.atk or 0) * ((skill and skill.damage or 0) / 100)
@@ -334,6 +339,22 @@ IsEnemyTargetable = function(enemy)
     return enemy and enemy.node and enemy.state ~= "dead" and enemy.state ~= "dying"
         and IsFiniteNumber(enemy.hp) and enemy.hp > 0
         and not IsInSafeZone(enemy.node.position)
+end
+
+local function IsBossNearbyForSpawner(playerPosition)
+    if not playerPosition then return false end
+    local radiusSquared = BOSS_NEARBY_SPAWN_RADIUS * BOSS_NEARBY_SPAWN_RADIUS
+    for _, enemy in ipairs(enemies) do
+        if enemy and enemy.tier == "boss" and IsEnemyTargetable(enemy) then
+            local bossPosition = enemy.node.position
+            local dx = bossPosition.x - playerPosition.x
+            local dz = bossPosition.z - playerPosition.z
+            if dx * dx + dz * dz <= radiusSquared then
+                return true
+            end
+        end
+    end
+    return false
 end
 
 HorizontalDir = function(fromPos, toPos)
@@ -2160,6 +2181,16 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
         return true, "ranged"
 
     elseif skill.type == SKILL_TYPE.AOE then
+        -- 地裂斩：以玩家朝向发出穿透式地面爆裂波。
+        -- 伤害随波前进逐个结算，同一目标在单次施法中只命中一次。
+        if skill.isGroundWave then
+            local dmg = GetSkillDamage(player, skill)
+            local dir = NormalizeHorizontal(playerDir)
+            playerNode.rotation = Quaternion(math.deg(math.atan2(dir.x, dir.z)), Vector3.UP)
+            Combat.SpawnEarthRiftWave(scene, playerPos, dir, dmg, skill)
+            return true, "aoe"
+        end
+
         -- 抗拒火环：以玩家自身为中心，无直接伤害，纯击退（在伤害计算前拦截）
         if skill.isKnockback then
             local kbRadius = skill.aoeRadius or skill.range or 3.0
@@ -2633,6 +2664,102 @@ function Combat.SpawnProjectile(scene, origin, dir, damage, skill, player)
     return projNode
 end
 
+-- ============================================================================
+-- 地裂斩：沿地面前进的穿透 AOE 波
+-- ============================================================================
+---@param scene Scene
+---@param origin Vector3
+---@param dir Vector3
+---@param damage number
+---@param skill table
+---@return Node|nil
+function Combat.SpawnEarthRiftWave(scene, origin, dir, damage, skill)
+    if not scene or not origin or not dir or type(skill) ~= "table"
+        or IsInSafeZone(origin) then
+        return nil
+    end
+
+    local fwd = NormalizeHorizontal(dir)
+    local radius = tonumber(skill.aoeRadius) or 1.25
+    local startOffset = math.min(1.0, math.max(0.35, radius * 0.75))
+    local waveNode = scene:CreateChild("Projectile")
+    waveNode.position = Vector3(
+        origin.x + fwd.x * startOffset,
+        0.04,
+        origin.z + fwd.z * startOffset)
+    waveNode.rotation = Quaternion(math.deg(math.atan2(fwd.x, fwd.z)), Vector3.UP)
+
+    -- 地面爆心：深褐色尘浪托底，中心金橙色裂缝提供移动方向。
+    local dustNode = waveNode:CreateChild("earthDust")
+    dustNode.scale = Vector3(radius * 1.9, 0.06, radius * 1.45)
+    local dustModel = dustNode:CreateComponent("StaticModel")
+    dustModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+    local dustMat = Material:new()
+    dustMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+    dustMat:SetShaderParameter("MatDiffColor", Variant(Color(0.24, 0.12, 0.045, 0.55)))
+    dustMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.18, 0.055, 0.008)))
+    dustMat:SetShaderParameter("Metallic", Variant(0.0))
+    dustMat:SetShaderParameter("Roughness", Variant(0.92))
+    dustModel:SetMaterial(dustMat)
+    dustModel.castShadows = false
+
+    local crackMat = Material:new()
+    crackMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+    crackMat:SetShaderParameter("MatDiffColor", Variant(Color(1.0, 0.48, 0.06, 0.82)))
+    crackMat:SetShaderParameter("MatEmissiveColor", Variant(Color(1.35, 0.42, 0.025)))
+    crackMat:SetShaderParameter("Metallic", Variant(0.0))
+    crackMat:SetShaderParameter("Roughness", Variant(0.32))
+
+    local crackOffsets = {-0.18, 0.12, -0.08, 0.20, -0.14}
+    local crackAngles = {-14, 11, -8, 16, -10}
+    for i = 1, 5 do
+        local crack = waveNode:CreateChild("earthCrack" .. i)
+        crack.position = Vector3(crackOffsets[i] * radius, 0.035, (i - 3) * 0.34)
+        crack.rotation = Quaternion(crackAngles[i], Vector3.UP)
+        crack.scale = Vector3(0.10 + i * 0.008, 0.025, 0.52)
+        local crackModel = crack:CreateComponent("StaticModel")
+        crackModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
+        crackModel:SetMaterial(crackMat)
+        crackModel.castShadows = false
+    end
+
+    -- 爆裂石片固定排列，既保持帧间稳定，又形成两侧向上掘起的冲击感。
+    local rockMat = CreatePBR(Color(0.23, 0.15, 0.09, 1.0), 0.0, 0.94)
+    rockMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.08, 0.025, 0.004)))
+    local rockLayout = {
+        {-0.78, 0.18, -0.30,  24, 0.24, 0.32},
+        { 0.72, 0.24, -0.18, -28, 0.22, 0.38},
+        {-0.55, 0.34,  0.22,  34, 0.18, 0.48},
+        { 0.48, 0.30,  0.34, -36, 0.20, 0.44},
+        {-0.28, 0.42,  0.02,  18, 0.15, 0.58},
+        { 0.22, 0.46,  0.10, -16, 0.14, 0.62},
+    }
+    for i, data in ipairs(rockLayout) do
+        local rock = waveNode:CreateChild("earthRock" .. i)
+        rock.position = Vector3(data[1] * radius, data[2], data[3])
+        rock.rotation = Quaternion(data[4], i * 37, data[4] * 0.45)
+        rock.scale = Vector3(data[5], data[6], data[5] * 0.82)
+        local rockModel = rock:CreateComponent("StaticModel")
+        rockModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
+        rockModel:SetMaterial(rockMat)
+        rockModel.castShadows = false
+    end
+
+    table.insert(projectiles, {
+        node = waveNode,
+        dir = fwd,
+        speed = tonumber(skill.waveSpeed) or 11.0,
+        damage = damage,
+        range = math.max(0.1, (tonumber(skill.range) or 7.0) - startOffset),
+        traveled = 0,
+        skillId = skill.id or "w_earthsplit",
+        groundWave = true,
+        hitRadius = radius,
+        hitEnemies = {},
+    })
+    return waveNode
+end
+
 function Combat.UpdateProjectiles(scene, dt, player)
     for i = #projectiles, 1, -1 do
         local p = projectiles[i]
@@ -2648,37 +2775,60 @@ function Combat.UpdateProjectiles(scene, dt, player)
             p.node.position = projectilePos
             p.traveled = p.traveled + p.speed * dt
 
-            -- 碰撞检测
-            local hit = false
             local blockedBySafeZone = IsInSafeZone(projectilePos)
-            ---@type Vector3
-            local hitPos = projectilePos
-            if not blockedBySafeZone then
-                for _, e in ipairs(enemies) do
-                    if IsEnemyTargetable(e) then
-                        ---@type Vector3
-                        local enemyPos = e.node.position
-                        local d = (enemyPos - projectilePos):Length()
-                        if d < 1.0 then
-                            local dealt = Combat.DealDamage(e, p.damage, player)
-                            if dealt > 0 then
-                                RememberPlayerTarget(e)
-                                hit = true
-                                hitPos = enemyPos
-                                break
+            if p.groundWave then
+                -- 移动 AOE：波前缘扫过的多个目标均可受伤，但每个目标只结算一次。
+                if not blockedBySafeZone then
+                    local hitRadius = tonumber(p.hitRadius) or 1.25
+                    p.hitEnemies = p.hitEnemies or {}
+                    for _, e in ipairs(enemies) do
+                        if IsEnemyTargetable(e) and not p.hitEnemies[e] then
+                            local toEnemy = e.node.position - projectilePos
+                            toEnemy.y = 0
+                            if toEnemy:Length() <= hitRadius then
+                                p.hitEnemies[e] = true
+                                local dealt = Combat.DealDamage(e, p.damage, player)
+                                if dealt > 0 then RememberPlayerTarget(e) end
                             end
                         end
                     end
                 end
-            end
-
-            if blockedBySafeZone or hit or p.traveled >= p.range then
-                -- 灵魂火符命中时产生小爆炸
-                if hit and p.skillId == "t_talisman" then
-                    Combat.SpawnTalismanBurst(scene, hitPos)
+                if blockedBySafeZone or p.traveled >= p.range then
+                    p.node:Remove()
+                    table.remove(projectiles, i)
                 end
-                p.node:Remove()
-                table.remove(projectiles, i)
+            else
+                -- 普通弹道：命中第一个目标后立即销毁。
+                local hit = false
+                ---@type Vector3
+                local hitPos = projectilePos
+                if not blockedBySafeZone then
+                    for _, e in ipairs(enemies) do
+                        if IsEnemyTargetable(e) then
+                            ---@type Vector3
+                            local enemyPos = e.node.position
+                            local d = (enemyPos - projectilePos):Length()
+                            if d < 1.0 then
+                                local dealt = Combat.DealDamage(e, p.damage, player)
+                                if dealt > 0 then
+                                    RememberPlayerTarget(e)
+                                    hit = true
+                                    hitPos = enemyPos
+                                    break
+                                end
+                            end
+                        end
+                    end
+                end
+
+                if blockedBySafeZone or hit or p.traveled >= p.range then
+                    -- 灵魂火符命中时产生小爆炸
+                    if hit and p.skillId == "t_talisman" then
+                        Combat.SpawnTalismanBurst(scene, hitPos)
+                    end
+                    p.node:Remove()
+                    table.remove(projectiles, i)
+                end
             end
         end
     end
@@ -4308,6 +4458,10 @@ function Combat.UpdateSpawner(scene, dt, playerNode, player)
         dynamicInterval = baseInterval * 1.6
     elseif #enemies < spawnSettings.maxEnemies * 0.40 then
         dynamicInterval = baseInterval * 0.70
+    end
+
+    if IsBossNearbyForSpawner(playerNode.position) then
+        dynamicInterval = dynamicInterval * BOSS_NEARBY_SPAWN_INTERVAL_MULTIPLIER
     end
 
     if spawnTimer >= dynamicInterval then

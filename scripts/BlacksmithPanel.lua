@@ -5,8 +5,30 @@
 local UI = require("urhox-libs/UI")
 local ForgePanel = require("scripts.ForgePanel")
 local EnhancePanel = require("scripts.EnhancePanel")
+local ServiceScrollView = require("scripts.ServiceScrollView")
 
 local BlacksmithPanel = {}
+
+-- Tab 内容不会挂在 Tabs.children 上，因此 UI.Update 不会自动遍历到
+-- 内层 ScrollView。这里给每个页根节点补一个轻量递归更新器，确保
+-- ScrollView 每帧都能重新计算 contentHeight 并处理拖拽惯性。
+local function UpdateDescendants(widget, dt)
+    for _, child in ipairs(widget.children or {}) do
+        if child.Update then
+            child:Update(dt)
+        end
+        UpdateDescendants(child, dt)
+    end
+end
+
+local function EnableTabContentUpdates(content)
+    if content and not content.Update then
+        content.Update = function(self, dt)
+            UpdateDescendants(self, dt)
+        end
+    end
+    return content
+end
 
 local function NormalizeTab(tabId)
     return tabId == "enhance" and "enhance" or "forge"
@@ -19,13 +41,13 @@ local function BuildForgePage(options)
         onGoldChanged = options.onGoldChanged,
         onSuccess = options.onForgeSuccess,
     }
-    return UI.Panel {
+    return EnableTabContentUpdates(UI.Panel {
         width = "100%",
         height = "100%",
         paddingTop = 9,
         overflow = "hidden",
         children = {
-            UI.ScrollView {
+            ServiceScrollView.Build {
                 width = "100%",
                 flexGrow = 1,
                 flexBasis = 0,
@@ -33,11 +55,11 @@ local function BuildForgePage(options)
                 children = { content },
             },
         },
-    }
+    })
 end
 
 local function BuildEnhancePage(options)
-    return UI.Panel {
+    return EnableTabContentUpdates(UI.Panel {
         width = "100%",
         height = "100%",
         paddingTop = 9,
@@ -55,7 +77,7 @@ local function BuildEnhancePage(options)
                 onSuccess = options.onEnhanceSuccess,
             },
         },
-    }
+    })
 end
 
 --- 构建铁匠双页服务区。Tabs 必须提供明确高度，否则只会显示标签栏。

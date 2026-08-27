@@ -130,33 +130,43 @@ CharacterClass.Classes = {
                 id = "w_thrust", name = "刺杀剑术", type = SKILL_TYPE.PASSIVE,
                 desc = "隔敌人一个身位攻击，可以凌空斩出白色剑气，大幅穿透其防御。",
                 slot = 0, cooldown = 0, manaCost = 0,  -- 被动:随基本剑术触发,不占技能栏/不耗蓝
-                unlockLevel = 12,
+                unlockLevel = 10,
                 damage = 200,  -- 补刀ATK倍率200% (增强/穿透系数见 Combat.lua 身位常量)
                 range = 3.0,   -- 触及距离(隔一身位), 与 Combat.ASSASSIN_REACH 对应
             },
             {
-                id = "w_charge", name = "野蛮冲撞", type = SKILL_TYPE.DASH,
-                desc = "剑术步法合一，力如奔牛全力冲刺。沿途顶推前方之敌一同推进，于终点将其撞出至刺杀剑术触及之距，敌僵直约一秒难动",
-                slot = 3, cooldown = 6, manaCost = 22,
+                id = "w_earthsplit", name = "地裂斩", type = SKILL_TYPE.AOE,
+                desc = "猛劈地面，向前掀起一道连续爆裂的地裂波，对直线范围内的群敌造成伤害",
+                slot = 3, cooldown = 6.5, manaCost = 35,
                 unlockLevel = 20,
-                range = 5.0,    -- 冲刺距离(米)；本技能无直接伤害，靠顶推+硬直创造刺杀机会
+                damage = 220,  -- ATK倍率220%；穿透式地面波可命中直线内多个目标
+                range = 7.0, aoeRadius = 1.35,
+                waveSpeed = 11.0, isGroundWave = true,
+                castTime = 0.55, animationType = "buff", -- 重劈动作，而不是回旋 AOE 动作
             },
             {
-                id = "w_fire", name = "烈火剑法", type = SKILL_TYPE.MELEE,
-                desc = "内功吸纳天地之火，灌注刀刃，焰如怒龙",
-                slot = 4, cooldown = 8, manaCost = 40,
-                unlockLevel = 44,
-                damage = 350,  -- ATK倍率350% (大招)
-                range = 2.8, castTime = 0.35,
+                id = "w_charge", name = "野蛮冲撞", type = SKILL_TYPE.DASH,
+                desc = "剑术步法合一，力如奔牛全力冲刺。沿途顶推前方之敌一同推进，于终点将其撞出至刺杀剑术触及之距，敌僵直约一秒难动",
+                slot = 4, cooldown = 6, manaCost = 22,
+                unlockLevel = 25,
+                range = 5.0,    -- 冲刺距离(米)；本技能无直接伤害，靠顶推+硬直创造刺杀机会
             },
             {
                 id = "w_shield", name = "真气护盾", type = SKILL_TYPE.BUFF,
                 desc = "运真气凝结护壁，吞噬外来攻击之力",
                 slot = 5, cooldown = 14, manaCost = 45,
-                unlockLevel = 32,
+                unlockLevel = 30,
                 shieldPercent = 30,
                 duration = 4,
                 range = 0,
+            },
+            {
+                id = "w_fire", name = "烈火剑法", type = SKILL_TYPE.MELEE,
+                desc = "内功吸纳天地之火，灌注刀刃，焰如怒龙",
+                slot = 6, cooldown = 8, manaCost = 40,
+                unlockLevel = 35,
+                damage = 350,  -- ATK倍率350% (大招)
+                range = 2.8, castTime = 0.35,
             },
         },
     },

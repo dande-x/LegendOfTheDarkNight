@@ -14,9 +14,27 @@ local MapZone = require("scripts.MapZone")
 local NPC = require("scripts.NPC")
 local PlayerAnim = require("scripts.PlayerAnim")
 local DivineBeast = require("scripts.DivineBeast")
+local ServiceScrollView = require("scripts.ServiceScrollView")
 require "urhox-libs.UI.GameHUD"
 
 local GameUI = {}
+
+-- UI.SetRoot 不会自动刷新鼠标悬停目标。打开商店/铁匠浮层后，如果鼠标
+-- 没有再次移动，滚轮事件仍可能沿着已销毁的 HUD 节点查找，导致列表看似
+-- 无法滚动；切换根节点后主动同步一次桌面端 hover 状态。
+local function _RefreshMouseHoverAfterRootSwitch()
+    local inputAdapter = UI.Input and UI.Input.GetAdapter and UI.Input.GetAdapter()
+    if not inputAdapter or not inputAdapter.IsDesktop or not inputAdapter:IsDesktop() then
+        return
+    end
+    local sx, sy = UI.Input.GetLastPosition(0)
+    -- SetRoot 只标记布局脏；先计算一次新树布局，命中测试才能找到
+    -- 刚打开的滚动容器。
+    if UI.Layout then UI.Layout() end
+    if UI.HandleMouseMove then
+        UI.HandleMouseMove(sx, sy)
+    end
+end
 
 -- UI 颜色
 local C = CharacterClass.Colors
@@ -210,6 +228,24 @@ function GameUI.InitUI()
         },
         scale = UI.Scale.DEFAULT,
     })
+
+    -- InputAdapter 先通知 Gesture、再通知 UI 的 pointer dispatcher；如果
+    -- Gesture 在 PointerDown 时没有拿到目标，PanStart 只能按当前坐标猜测
+    -- 目标，拖动商店/锻造列表时就容易被按钮截住。提前补上初始命中目标，
+    -- 让滚动手势沿着按下位置稳定地冒泡到 ScrollView。
+    if UI.Gesture and UI.Gesture.HandlePointerDown
+        and not UI.Gesture._makerTargetPatch then
+        local originalHandlePointerDown = UI.Gesture.HandlePointerDown
+        UI.Gesture.HandlePointerDown = function(event)
+            if event and not event.target and UI.FindWidgetAt then
+                local scale = (UI.GetScale and UI.GetScale()) or 1
+                if scale <= 0 then scale = 1 end
+                event.target = UI.FindWidgetAt(event.x / scale, event.y / scale)
+            end
+            return originalHandlePointerDown(event)
+        end
+        UI.Gesture._makerTargetPatch = true
+    end
     print("[GameUI] UI system initialized")
 end
 
@@ -3552,7 +3588,7 @@ function GameUI.ShowNPCPanel(title, tabs, selectedTab)
                 children = tabChildren,
             })
         end
-        table.insert(panelChildren, UI.ScrollView {
+        table.insert(panelChildren, ServiceScrollView.Build {
             width = "100%",
             flexGrow = 1,
             flexBasis = 0,
@@ -3588,8 +3624,9 @@ function GameUI.ShowNPCPanel(title, tabs, selectedTab)
                 },
             },
         }
-        UI.SetRoot(uiState.npcPanelRoot)
-    end
+    UI.SetRoot(uiState.npcPanelRoot)
+    _RefreshMouseHoverAfterRootSwitch()
+end
 
     buildPanel()
 end
@@ -3689,6 +3726,7 @@ function GameUI.ShowBlacksmithPanel(player)
     }
 
     UI.SetRoot(uiState.npcPanelRoot)
+    _RefreshMouseHoverAfterRootSwitch()
     print("[GameUI] Blacksmith panel opened, tab=" .. uiState.blacksmithTab)
 end
 
@@ -4295,6 +4333,9 @@ local function _BuildSkillTabContent(player)
         buff   = "✦", heal   = "✚", dot = "☠",
         dash   = "⚡", summon = "👁",
     }
+    local skillIconFallbacks = {
+        w_earthsplit = "裂",
+    }
 
     local skillRows = {}
     for _, skill in ipairs(allSkills) do
@@ -4309,7 +4350,7 @@ local function _BuildSkillTabContent(player)
         end
 
         local iconSrc = _skillBarIcons[skill.id]
-        local iconFallback = skillIcons[skill.type] or "◆"
+        local iconFallback = skillIconFallbacks[skill.id] or skillIcons[skill.type] or "◆"
         local nameColor = locked and {92, 92, 92, 155} or {224, 226, 224, 255}
         local iconBg = locked and {30, 30, 31, 200} or equippedSlot > 0 and {54, 56, 60, 242} or {38, 39, 41, 232}
         local iconBorder = locked and {54, 54, 54, 135} or equippedSlot > 0 and {136, 140, 144, 210} or {92, 94, 98, 180}

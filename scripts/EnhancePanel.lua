@@ -7,6 +7,7 @@
 
 local UI = require("urhox-libs/UI")
 local Inventory = require("scripts.Inventory")
+local ServiceScrollView = require("scripts.ServiceScrollView")
 
 local EnhancePanel = {}
 
@@ -712,7 +713,7 @@ function EnhancePanel.Build(options)
                             fontWeight = "bold",
                             fontColor = {220, 201, 157, 235},
                         },
-                        UI.ScrollView {
+                        ServiceScrollView.Build {
                             width = "100%",
                             flexGrow = 1,
                             flexBasis = 0,
@@ -728,7 +729,7 @@ function EnhancePanel.Build(options)
                         },
                     },
                 },
-                UI.ScrollView {
+                ServiceScrollView.Build {
                     flex = 1,
                     height = "100%",
                     showScrollbar = true,
