@@ -3092,8 +3092,11 @@ function GameUI.SetNPCInteract(show, label, onTap)
         children = {
             UI.Button {
                 text = label or "交谈",
-                fontSize = 15, fontWeight = "bold",
-                width = 160, height = 48,
+                fontSize = 14, fontWeight = "bold",
+                -- 不再用固定宽度裁切文案；保留统一最小宽度，短文案在手机上
+                -- 有足够留白，后续新增服务名称变长时也会自动扩展。
+                minWidth = 148, height = 44,
+                paddingHorizontal = 14,
                 backgroundColor = {34, 30, 20, 240},
                 borderRadius = 8, borderWidth = 1.5,
                 borderColor = {170, 140, 70, 220},

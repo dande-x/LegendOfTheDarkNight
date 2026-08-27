@@ -417,6 +417,7 @@ local GOLD_MAGNET_MAX_SPEED = 18.0
 local GOLD_PICKUP_DIST = 0.5     -- 拾取判定距离
 local ITEM_PICKUP_DIST = 0.65    -- 装备拾取距离：必须踩到装备上才拾取
 local ITEM_PICKUP_DELAY = 2.0    -- 装备刚掉落后延迟拾取(秒)
+local ITEM_BLINK_INTERVAL = 0.16 -- 装备可拾取前的闪烁半周期(秒)
 local ITEM_LIFETIME = 60.0       -- 装备存在时间(秒)
 local GOLD_LIFETIME = 30.0       -- 金币存在时间(秒)
 -- 一件装备包含多段模型、透明光效与 Text3D。地面装备无上限时，高频刷怪
@@ -4585,6 +4586,39 @@ local function CreateGroundEquipmentModel(root, item, rarityColor)
     end
 end
 
+--- 更新装备掉落期间的闪烁状态。
+---
+--- 地面装备由多个子节点（模型、光环、Text3D）组成，不能只切换根节点的
+--- enabled 属性，否则子节点仍可能继续渲染；SetDeepEnabled 会递归覆盖整棵
+--- 掉落物树。装备一旦落地且延迟结束，立即恢复完整可见状态并停止闪烁。
+local function UpdateGroundItemBlink(groundItem, dt, canPickup)
+    if not groundItem or not groundItem.node then return end
+
+    if canPickup then
+        -- 延迟结束后不再闪烁，即使玩家暂时不在拾取距离内也保持常亮。
+        if groundItem.blinkActive ~= false or groundItem.blinkVisible ~= true then
+            groundItem.blinkActive = false
+            groundItem.blinkTimer = 0
+            groundItem.blinkVisible = true
+            groundItem.node:SetDeepEnabled(true)
+        end
+        return
+    end
+
+    groundItem.blinkActive = true
+    groundItem.blinkTimer = (groundItem.blinkTimer or 0) + math.max(0, tonumber(dt) or 0)
+
+    -- 用步数处理大帧间隔，避免低帧时闪烁状态失真；只有奇数次翻转才需要
+    -- 调用引擎 API，减少每帧跨 Lua/C++ 的开销。
+    local toggleCount = math.floor(groundItem.blinkTimer / ITEM_BLINK_INTERVAL)
+    if toggleCount <= 0 then return end
+    groundItem.blinkTimer = groundItem.blinkTimer - toggleCount * ITEM_BLINK_INTERVAL
+    if toggleCount % 2 == 1 then
+        groundItem.blinkVisible = not groundItem.blinkVisible
+        groundItem.node:SetDeepEnabled(groundItem.blinkVisible)
+    end
+end
+
 local function ReserveGroundEquipmentSlot()
     while true do
         local equipmentCount = 0
@@ -4642,6 +4676,11 @@ function Combat.SpawnGroundItem(scene, pos, item)
         falling = true,
         pickupDelayTimer = 0,
         pickupRetryTimer = 0,
+        -- 掉落动画和不可拾取延迟阶段均闪烁；初始帧保持可见，避免装备
+        -- 生成时恰好处于隐藏相位而让玩家错过落点。
+        blinkTimer = 0,
+        blinkVisible = true,
+        blinkActive = true,
         rotSpeed = 60 + math.random() * 40,
     })
 end
@@ -4728,7 +4767,9 @@ function Combat.UpdateGroundItems(dt, playerNode)
             -- 装备刚掉落的前 2 秒不可拾取，之后必须踩到装备上才触发
             g.pickupDelayTimer = math.min(ITEM_PICKUP_DELAY, (g.pickupDelayTimer or 0) + dt)
             g.pickupRetryTimer = math.max(0, (g.pickupRetryTimer or 0) - dt)
-            if not g.falling and g.pickupDelayTimer >= ITEM_PICKUP_DELAY
+            local canPickup = not g.falling and g.pickupDelayTimer >= ITEM_PICKUP_DELAY
+            UpdateGroundItemBlink(g, dt, canPickup)
+            if canPickup
                 and g.pickupRetryTimer <= 0 and dist < ITEM_PICKUP_DIST then
                 -- 回调返回 false 时（例如背包已满）必须保留地面物品；此前
                 -- 无论回调结果都 Remove，导致玩家看到“背包已满”却永久丢装。

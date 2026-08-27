@@ -6,13 +6,14 @@
 --   2. 商人（Merchant）：买卖药水
 --   3. 铁匠（Blacksmith）：自动选材锻造装备
 --
--- NPC 使用程序化几何搭建（立柱 + 球头 + 不同配色区分身份），
--- 站在安全区内，玩家靠近后点击交互。
+-- NPC 使用统一的白袍兜帽人形，并用腰带、胸章与随身物件区分身份，
+-- 站在安全区内面向出生点，玩家靠近后点击交互。
 -- ============================================================================
 
 local NPC = {}
 
 local MapZone = require("scripts.MapZone")
+local G = require("classes.GeomUtils")
 
 -- 所有 NPC 的出生点偏移集中在这里，主场景和小地图都通过本模块读取，
 -- 避免增加角色后出现“实体位置”和“地图标记”不一致。
@@ -29,9 +30,29 @@ NPC.NAMES = {
 }
 
 NPC.INTERACTION_LABELS = {
-    steward = "与管家交谈（传送）",
-    merchant = "与商人交谈（商店）",
-    blacksmith = "与铁匠交谈（锻造）",
+    -- 交互按钮保留动作与服务，省略已经由头顶名牌表达的 NPC 身份，
+    -- 避免完整句式在小屏上拥挤，同时让按钮仍然以明确动词开头。
+    steward = "交谈 · 传送",
+    merchant = "交谈 · 商店",
+    blacksmith = "交谈 · 锻造",
+}
+
+local ROLE_STYLES = {
+    steward = {
+        accent = Color(0.76, 0.56, 0.16, 1.0),
+        emissive = Color(0.055, 0.028, 0.003, 1.0),
+        nameColor = Color(0.95, 0.78, 0.35, 1.0),
+    },
+    merchant = {
+        accent = Color(0.18, 0.48, 0.78, 1.0),
+        emissive = Color(0.008, 0.035, 0.085, 1.0),
+        nameColor = Color(0.45, 0.75, 1.0, 1.0),
+    },
+    blacksmith = {
+        accent = Color(0.82, 0.27, 0.075, 1.0),
+        emissive = Color(0.10, 0.018, 0.002, 1.0),
+        nameColor = Color(1.0, 0.48, 0.18, 1.0),
+    },
 }
 
 --- 返回 NPC 在指定安全区中的世界坐标。
@@ -59,46 +80,144 @@ end
 -- NPC 定义
 -- ============================================================================
 
---- 在父节点下创建一个人形 NPC（程序化几何）
+local function MakeMaterial(color, roughness, metallic, emissive)
+    local mat = Material:new()
+    mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
+    mat:SetShaderParameter("MatDiffColor", Variant(color))
+    mat:SetShaderParameter("Roughness", Variant(roughness or 0.72))
+    mat:SetShaderParameter("Metallic", Variant(metallic or 0.0))
+    if emissive then
+        mat:SetShaderParameter("MatEmissiveColor", Variant(emissive))
+    end
+    return mat
+end
+
+local function AddModelPart(parent, name, modelPath, material, position, scale, rotation)
+    local node = parent:CreateChild(name)
+    node.position = position or Vector3.ZERO
+    node.scale = scale or Vector3(1, 1, 1)
+    node.rotation = rotation or Quaternion.IDENTITY
+
+    local model = node:CreateComponent("StaticModel")
+    model:SetModel(cache:GetResource("Model", modelPath))
+    model:SetMaterial(material)
+    model.castShadows = true
+    return node
+end
+
+local function AddTaperedPart(parent, name, material, position,
+        radiusBottom, radiusTop, height, segments, rotation)
+    local node = parent:CreateChild(name)
+    node.position = position or Vector3.ZERO
+    node.rotation = rotation or Quaternion.IDENTITY
+
+    local geom = node:CreateComponent("CustomGeometry")
+    geom:BeginGeometry(0, TRIANGLE_LIST)
+    G.addTapered(geom, 0, 0, 0, radiusBottom, radiusTop, height, segments or 16)
+    geom:Commit()
+    geom:SetMaterial(material)
+    geom.castShadows = true
+    return node
+end
+
+local function AddRoleAccessory(root, kind, materials)
+    if kind == "steward" then
+        -- 金色权杖与头顶印记，远处也能和商人区分。
+        AddModelPart(root, "StewardStaff", "Models/Cylinder.mdl", materials.leather,
+            Vector3(0.57, 0.77, 0.04), Vector3(0.055, 1.24, 0.055),
+            Quaternion(0, 0, -6))
+        AddModelPart(root, "StewardStaffSeal", "Models/Sphere.mdl", materials.accent,
+            Vector3(0.64, 1.39, 0.04), Vector3(0.18, 0.18, 0.18))
+    elseif kind == "merchant" then
+        -- 斜挎带和钱袋，明确表达买卖服务。
+        AddModelPart(root, "MerchantSatchelStrap", "Models/Box.mdl", materials.leather,
+            Vector3(-0.06, 1.16, 0.285), Vector3(0.055, 0.76, 0.045),
+            Quaternion(0, 0, -28))
+        AddModelPart(root, "MerchantCoinPouch", "Models/Sphere.mdl", materials.accent,
+            Vector3(-0.33, 0.72, 0.24), Vector3(0.28, 0.31, 0.17))
+        AddModelPart(root, "MerchantPouchClasp", "Models/Sphere.mdl", materials.gold,
+            Vector3(-0.33, 0.78, 0.335), Vector3(0.075, 0.075, 0.045))
+    elseif kind == "blacksmith" then
+        -- 侧握铁锤；锤头用深金属，中心保留炉火橙标识。
+        local hammerRotation = Quaternion(0, 0, -18)
+        AddModelPart(root, "BlacksmithHammerHandle", "Models/Box.mdl", materials.leather,
+            Vector3(0.49, 0.80, 0.07), Vector3(0.065, 0.72, 0.065), hammerRotation)
+        AddModelPart(root, "BlacksmithHammerHead", "Models/Box.mdl", materials.metal,
+            Vector3(0.60, 1.13, 0.07), Vector3(0.34, 0.16, 0.20), hammerRotation)
+        AddModelPart(root, "BlacksmithEmber", "Models/Sphere.mdl", materials.accent,
+            Vector3(0.60, 1.13, 0.18), Vector3(0.11, 0.08, 0.045), hammerRotation)
+    end
+end
+
+--- 在父节点下创建白袍兜帽人形 NPC。所有身份共用轮廓，只改变服务标识。
 ---@param parentNode Node
 ---@param name string
----@param bodyColor Color 身体配色
----@param headColor Color 头部配色
+---@param kind string
 ---@return Node
-local function BuildHumanoid(parentNode, name, bodyColor, headColor)
+local function BuildHoodedHumanoid(parentNode, name, kind)
     local root = parentNode:CreateChild(name)
+    local style = ROLE_STYLES[kind] or ROLE_STYLES.steward
+    local materials = {
+        robe = MakeMaterial(Color(0.88, 0.86, 0.80, 1.0), 0.82, 0.0),
+        robeShade = MakeMaterial(Color(0.62, 0.62, 0.59, 1.0), 0.86, 0.0),
+        hood = MakeMaterial(Color(0.94, 0.92, 0.86, 1.0), 0.78, 0.0),
+        faceShadow = MakeMaterial(Color(0.018, 0.022, 0.028, 1.0), 0.94, 0.0),
+        skin = MakeMaterial(Color(0.58, 0.42, 0.30, 1.0), 0.78, 0.0),
+        leather = MakeMaterial(Color(0.16, 0.09, 0.045, 1.0), 0.72, 0.02),
+        metal = MakeMaterial(Color(0.20, 0.21, 0.23, 1.0), 0.34, 0.72),
+        gold = MakeMaterial(Color(0.72, 0.52, 0.14, 1.0), 0.30, 0.58,
+            Color(0.035, 0.018, 0.002, 1.0)),
+        accent = MakeMaterial(style.accent, 0.42, kind == "blacksmith" and 0.32 or 0.12,
+            style.emissive),
+    }
 
-    local function makeMat(color)
-        local mat = Material:new()
-        mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
-        mat:SetShaderParameter("MatDiffColor", Variant(color))
-        mat:SetShaderParameter("Roughness", Variant(0.6))
-        mat:SetShaderParameter("Metallic", Variant(0.0))
-        return mat
+    -- 袍身：下摆放宽形成长袍轮廓，上身略收，避免仍像一根立柱。
+    AddTaperedPart(root, "WhiteRobeLower", materials.robe, Vector3(0, 0.56, 0),
+        0.42, 0.28, 1.08, 18)
+    AddTaperedPart(root, "WhiteRobeTorso", materials.robe, Vector3(0, 1.18, 0),
+        0.29, 0.24, 0.46, 18)
+    AddModelPart(root, "RobeHem", "Models/Cylinder.mdl", materials.robeShade,
+        Vector3(0, 0.11, 0), Vector3(0.80, 0.055, 0.66))
+    AddModelPart(root, "RoleBelt", "Models/Cylinder.mdl", materials.accent,
+        Vector3(0, 0.91, 0), Vector3(0.60, 0.085, 0.49))
+
+    -- 宽袖向身体两侧自然下垂；袖口露出双手，强化人形识别。
+    for _, side in ipairs({-1, 1}) do
+        local sideName = side < 0 and "L" or "R"
+        AddTaperedPart(root, "WhiteSleeve_" .. sideName, materials.robe,
+            Vector3(side * 0.43, 1.13, 0), 0.16, 0.19, 0.49, 14,
+            Quaternion(0, 0, side * 44))
+        AddModelPart(root, "Hand_" .. sideName, "Models/Sphere.mdl", materials.skin,
+            Vector3(side * 0.60, 0.95, 0.015), Vector3(0.14, 0.15, 0.13))
     end
 
-    local bodyMat = makeMat(bodyColor)
-    local headMat = makeMat(headColor)
+    -- 披肩、兜帽外壳与暗色面孔形成清晰的白袍兜帽剪影。
+    AddTaperedPart(root, "HoodedCowl", materials.robeShade, Vector3(0, 1.39, -0.01),
+        0.35, 0.25, 0.23, 18)
+    AddModelPart(root, "HoodShell", "Models/Sphere.mdl", materials.hood,
+        Vector3(0, 1.65, -0.025), Vector3(0.70, 0.74, 0.62))
+    AddModelPart(root, "HoodFaceShadow", "Models/Sphere.mdl", materials.faceShadow,
+        Vector3(0, 1.62, 0.292), Vector3(0.38, 0.42, 0.10))
+    AddModelPart(root, "HoodBrow", "Models/Box.mdl", materials.hood,
+        Vector3(0, 1.80, 0.305), Vector3(0.40, 0.075, 0.09))
+    for _, side in ipairs({-1, 1}) do
+        AddModelPart(root, side < 0 and "HoodFoldL" or "HoodFoldR",
+            "Models/Box.mdl", materials.hood,
+            Vector3(side * 0.205, 1.61, 0.30), Vector3(0.085, 0.35, 0.085),
+            Quaternion(0, 0, side * 11))
+    end
 
-    -- 身体（立柱）
-    local body = root:CreateChild("Body")
-    body.position = Vector3(0, 0.7, 0)
-    body.scale = Vector3(0.35, 0.7, 0.25)
-    local bodyModel = body:CreateComponent("StaticModel")
-    bodyModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
-    bodyModel:SetMaterial(bodyMat)
-    bodyModel.castShadows = true
+    -- 袍下露出少量深色鞋面，避免模型像悬浮的圆锥。
+    AddModelPart(root, "BootL", "Models/Box.mdl", materials.faceShadow,
+        Vector3(-0.16, 0.085, 0.13), Vector3(0.20, 0.17, 0.32))
+    AddModelPart(root, "BootR", "Models/Box.mdl", materials.faceShadow,
+        Vector3(0.16, 0.085, 0.13), Vector3(0.20, 0.17, 0.32))
 
-    -- 头部（球）
-    local head = root:CreateChild("Head")
-    head.position = Vector3(0, 1.45, 0)
-    head.scale = Vector3(0.28, 0.28, 0.28)
-    local headModel = head:CreateComponent("StaticModel")
-    headModel:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
-    headModel:SetMaterial(headMat)
-    headModel.castShadows = true
+    AddModelPart(root, "RoleSeal", "Models/Sphere.mdl", materials.accent,
+        Vector3(0, 1.18, 0.275), Vector3(0.15, 0.15, 0.065))
+    AddRoleAccessory(root, kind, materials)
 
-    -- 碰撞体（静态，玩家碰撞层）
+    -- 保持原有窄胶囊碰撞，宽袍只影响外观，不扩大阻路范围。
     local rbody = root:CreateComponent("RigidBody")
     rbody.mass = 0
     rbody.collisionLayer = 1  -- 地形层（静态障碍）
@@ -115,7 +234,7 @@ end
 ---@param color Color
 local function AddNameplate(root, text, color)
     local labelNode = root:CreateChild("Nameplate")
-    labelNode.position = Vector3(0, 2.05, 0)
+    labelNode.position = Vector3(0, 2.18, 0)
     local label = labelNode:CreateComponent("Text3D")
     label:SetFont("Fonts/MiSans-Regular.ttf", 16)
     label:SetText(text)
@@ -143,23 +262,19 @@ function NPC.SpawnForMap(scene, mapId, spawnPos)
     NPC.Clear()
     sceneRef = scene
 
-    -- 管家（金色，站在出生点右前方）
-    local steward = BuildHumanoid(scene, "NPC_Steward", Color(0.5, 0.42, 0.2, 1.0), Color(0.75, 0.65, 0.4, 1.0))
-    steward.position = NPC.GetWorldPosition("steward", spawnPos)
-    AddNameplate(steward, NPC.GetName("steward"), Color(0.95, 0.78, 0.35, 1.0))
-    table.insert(npcs, { node = steward, kind = "steward", mapId = mapId })
+    local center = spawnPos or Vector3.ZERO
+    local function spawnHoodedNPC(kind, nodeName)
+        local npc = BuildHoodedHumanoid(scene, nodeName, kind)
+        npc.position = NPC.GetWorldPosition(kind, center)
+        npc:LookAt(Vector3(center.x, npc.position.y, center.z))
+        AddNameplate(npc, NPC.GetName(kind), ROLE_STYLES[kind].nameColor)
+        table.insert(npcs, { node = npc, kind = kind, mapId = mapId })
+    end
 
-    -- 商人（蓝色，站在出生点左前方）
-    local merchant = BuildHumanoid(scene, "NPC_Merchant", Color(0.2, 0.32, 0.5, 1.0), Color(0.45, 0.55, 0.75, 1.0))
-    merchant.position = NPC.GetWorldPosition("merchant", spawnPos)
-    AddNameplate(merchant, NPC.GetName("merchant"), Color(0.45, 0.75, 1.0, 1.0))
-    table.insert(npcs, { node = merchant, kind = "merchant", mapId = mapId })
-
-    -- 铁匠（深灰身体 + 炉火色头部，站在出生点后方）
-    local blacksmith = BuildHumanoid(scene, "NPC_Blacksmith", Color(0.28, 0.3, 0.34, 1.0), Color(0.9, 0.32, 0.12, 1.0))
-    blacksmith.position = NPC.GetWorldPosition("blacksmith", spawnPos)
-    AddNameplate(blacksmith, NPC.GetName("blacksmith"), Color(1.0, 0.48, 0.18, 1.0))
-    table.insert(npcs, { node = blacksmith, kind = "blacksmith", mapId = mapId })
+    -- 三名 NPC 共用白袍兜帽轮廓，分别以权杖、钱袋、铁锤标识服务。
+    spawnHoodedNPC("steward", "NPC_Steward")
+    spawnHoodedNPC("merchant", "NPC_Merchant")
+    spawnHoodedNPC("blacksmith", "NPC_Blacksmith")
 
     print("[NPC] Spawned steward + merchant + blacksmith at map " .. mapId)
 end
