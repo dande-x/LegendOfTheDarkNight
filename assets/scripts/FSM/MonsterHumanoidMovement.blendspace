@@ -1,0 +1,10 @@
+{
+    "type": "BlendSpace1D",
+    "name": "MonsterHumanoidMovement",
+    "parameter": "moveSpeed",
+    "points": [
+        { "value": 0, "animation": "uuid://FBV7wR2EwuoH-ovToVA8vH90", "speed": 1.0 },
+        { "value": 2, "animation": "uuid://CLwWYfIHxVykOtlpDhB_-T2E", "speed": 0.85 },
+        { "value": 5, "animation": "uuid://ERdI4cE9zRJ78VWiJNaKWtLD", "speed": 1.15 }
+    ]
+}
