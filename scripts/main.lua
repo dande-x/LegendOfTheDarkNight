@@ -2964,7 +2964,9 @@ function HandleUpdate(eventType, eventData)
         -- 打断施法
         castState.active = false
         castState.phase = "none"
-        Combat.CancelDash()   -- 中断冲刺，避免死亡后仍被推进
+        -- 阵亡当帧就清掉 Boss 攻击、弹道、持续伤害和控制状态；重生时再
+        -- 幂等清理一次，避免三秒等待期间冻结的攻击窗口在复活后继续结算。
+        Combat.CancelPlayerHostileEffects()
         GameUI.HideCastBar()
         ShowChargeGlow(false)
         GameUI.AddFloatingText("阵亡!", playerNode_.position, {255, 50, 50, 255})

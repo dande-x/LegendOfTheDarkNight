@@ -210,6 +210,8 @@ local questEffects = {}   -- 主线到点/波次的短时视觉效果
 local questAreaEffect = nil -- 当前坚守任务的持续区域效果
 ---@type table|nil
 local lastPlayerTarget = nil -- 玩家上次主动攻击命中的怪物，用于无正前方目标时保持目标连续性
+---@type Scene|nil
+local combatScene = nil -- 最近一次战斗所在场景，用于传送/重生时清掉根节点攻击视觉
 local IsEnemyTargetable, HorizontalDir, NormalizeHorizontal, RememberPlayerTarget, IsLastPlayerTargetValid, FacePlayerToTarget
 local killCount = 0
 local spawnTimer = 0
@@ -662,7 +664,7 @@ end
 local function ClearQuestEffects()
     for index = #questEffects, 1, -1 do
         local effect = questEffects[index]
-        if effect and effect.node then
+        if effect and IsQuestNodeAttached(effect.node) then
             effect.node:Remove()
         end
         questEffects[index] = nil
@@ -676,8 +678,8 @@ local function UpdateQuestEffects(dt)
     for index = #questEffects, 1, -1 do
         local effect = questEffects[index]
         effect.elapsed = effect.elapsed + elapsed
-        if not effect.node or effect.elapsed >= effect.duration then
-            if effect.node then effect.node:Remove() end
+        if not IsQuestNodeAttached(effect.node) or effect.elapsed >= effect.duration then
+            if IsQuestNodeAttached(effect.node) then effect.node:Remove() end
             table.remove(questEffects, index)
         else
             local progress = math.max(0, math.min(1, effect.elapsed / effect.duration))
@@ -696,7 +698,7 @@ local function UpdateQuestEffects(dt)
         end
     end
 
-    if questAreaEffect and questAreaEffect.node then
+    if questAreaEffect and IsQuestNodeAttached(questAreaEffect.node) then
         questAreaEffect.phase = questAreaEffect.phase + elapsed
         local pulse = questAreaEffect.active
             and (1.0 + math.sin(questAreaEffect.phase * 4.2) * 0.075)
@@ -736,6 +738,7 @@ end
 
 function Combat.SpawnFireBreathVisual(scene, origin, targetPos, maxRange)
     if not scene or not origin or not targetPos then return nil end
+    combatScene = scene
     local dir = targetPos - origin
     dir.y = 0
     local targetDistance = dir:Length()
@@ -813,6 +816,7 @@ end
 --- 因而传送、重生或进入安全区时可以直接删除，不会留下等待中的攻击状态。
 function Combat.SpawnBossAttackVisual(scene, mode, origin, targetPos, radius)
     if not scene or not origin then return nil end
+    combatScene = scene
     local materials = GetBossAttackMaterials()
     local node = scene:CreateChild("BossAttackVisual")
     local effectRadius = math.max(0.8, tonumber(radius) or 2.0)
@@ -998,7 +1002,7 @@ function Combat.CancelPlayerHostileEffects()
         if zone.visualNode then zone.visualNode:Remove() end
     end
     aoeZones = {}
-    RemoveBossAttackVisuals(hostileScene)
+    RemoveBossAttackVisuals(hostileScene or combatScene)
 
     for _, enemy in ipairs(enemies) do
         if enemy then
@@ -1037,6 +1041,7 @@ end
 -- ============================================================================
 function Combat.SpawnEnemy(scene, playerPos, playerLevel, forceDef, mapId, options)
     if not scene or not playerPos then return nil end
+    combatScene = scene
 
     -- 传入地图优先；未传入时使用战斗系统当前地图。不要让一个临时的
     -- mapId 参数影响另一套状态（例如读档/切图的安全区半径）。
@@ -1901,8 +1906,9 @@ function Combat.UpdateEnemies(dt, playerNode, player)
             end
         end
 
-        -- 困魔咒：位置约束（被困住的怪物无法离开圆形区域）
-        if e.trapCenter and e.trapRadius then
+        -- 困魔咒：普通怪会被限制在区域内；Boss 只承受减防，不会被永久
+        -- 卡在法阵边缘而失去追击、回位和卡位自救能力。
+        if e.tier ~= "boss" and e.trapCenter and e.trapRadius then
             local ePos = e.node.position
             local toCenter = ePos - e.trapCenter
             toCenter.y = 0
@@ -1918,6 +1924,10 @@ function Combat.UpdateEnemies(dt, playerNode, player)
                 if eBody then eBody:SetLinearVelocity(Vector3.ZERO) end
             end
         end
+
+        -- 速度已经写入刚体后，用跨帧位移判断是否真的前进。Boss 若被地标、
+        -- 地图边界或旧碰撞体夹住，会先侧移尝试，连续失败再回出生守点。
+        UpdateBossStuckRecovery(e, dt, isMoving, moveTargetPos)
 
         -- 更新骨架动画
         if e.animData then
@@ -2118,10 +2128,15 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
                         else
                             kbDir = Vector3(math.random() - 0.5, 0, math.random() - 0.5):Normalized()
                         end
+                        local controlScale = e.tier == "boss" and 0.25 or 1.0
                         e.knockbackDir = kbDir
-                        e.knockbackSpeed = kbSpeed
-                        e.knockbackTimer = kbDur
+                        e.knockbackSpeed = kbSpeed * controlScale
+                        e.knockbackTimer = kbDur * controlScale
                         e.hitStunTimer = 0  -- 打断硬直，立即被推开
+                        if e.state == "patrol" or e.state == "guard" or e.state == "return" then
+                            e.state = "chase"
+                            e.patrolTarget = nil
+                        end
                     end
                 end
             end
@@ -2168,8 +2183,14 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
                     toE.y = 0
                     local d = toE:Length()
                     if d <= radius then
-                        e.trapCenter = center
-                        e.trapRadius = radius
+                        if e.tier == "boss" then
+                            -- Boss 保留减防收益，但不接受位置囚禁。
+                            e.trapCenter = nil
+                            e.trapRadius = nil
+                        else
+                            e.trapCenter = center
+                            e.trapRadius = radius
+                        end
                         e.trapTimer = trapDur
                         -- 百分比减防
                         if defReducePct > 0 then
@@ -2417,7 +2438,7 @@ function Combat.DealDamage(enemy, baseDmg, player, opts)
     local allowHitStun = not opts or opts.hitStun ~= false
     if allowHitStun and enemy.hp > 0 and enemy.animData and enemy.animData.state ~= "attack" then
         MonsterSkeleton.PlayAnim(enemy.animData, "hit", nil)
-        enemy.hitStunTimer = 0.25  -- 受击硬直，停止移动
+        enemy.hitStunTimer = enemy.tier == "boss" and 0.08 or 0.25
     end
 
     -- hp <= 0 立即标记死亡（不等下一帧检测）
@@ -2427,8 +2448,10 @@ function Combat.DealDamage(enemy, baseDmg, player, opts)
     end
 
     -- 被击中后立刻进入追击状态
-    if enemy.state ~= "dying" and enemy.state ~= "dead" and enemy.state == "patrol" then
+    if enemy.state ~= "dying" and enemy.state ~= "dead"
+        and (enemy.state == "patrol" or enemy.state == "guard" or enemy.state == "return") then
         enemy.state = "chase"
+        enemy.patrolTarget = nil
     end
 
     -- 回调飘字
@@ -3865,11 +3888,19 @@ function Combat.UpdateAOEZones(dt, player)
             -- 困魔区域：持续捕捉新进入的敌人
             if zone.isTrapZone then
                 for _, e in ipairs(enemies) do
-                    if IsEnemyTargetable(e) and not e.trapCenter then
+                    local needsTrap = e.tier == "boss"
+                        and not e.trapTimer
+                        or (e.tier ~= "boss" and not e.trapCenter)
+                    if IsEnemyTargetable(e) and needsTrap then
                         local d = (e.node.position - zoneCenter):Length()
                         if d <= zone.radius then
-                            e.trapCenter = zoneCenter
-                            e.trapRadius = zone.radius
+                            if e.tier == "boss" then
+                                e.trapCenter = nil
+                                e.trapRadius = nil
+                            else
+                                e.trapCenter = zoneCenter
+                                e.trapRadius = zone.radius
+                            end
                             e.trapTimer = zone.timer
                             -- 后续进入的敌人也施加减防
                             local pct = zone.trapDefReducePercent or 0
@@ -4053,7 +4084,8 @@ function Combat.UpdateVisuals(scene, dt, playerNode)
     local children = {}
     for i = 0, scene:GetNumChildren(false) - 1 do
         local child = scene:GetChild(i)
-        if child.name == "AOEVisual" or child.name == "CrescentVisual" or child.name == "TalismanBurst" then
+        if child.name == "AOEVisual" or child.name == "CrescentVisual"
+            or child.name == "TalismanBurst" or child.name == "BossAttackVisual" then
             table.insert(children, child)
         end
     end
@@ -4765,18 +4797,23 @@ function Combat.EndDash(playerNode)
         for e, lateral in pairs(dashState.pushed) do
             if e and e.node and e.state ~= "dead" and e.state ~= "dying" then
                 local ey = e.node.position.y
-                local ejectPos = Vector3(
-                    pPos.x + dir.x * DASH_EJECT_DIST + lateral.x,
-                    ey,
-                    pPos.z + dir.z * DASH_EJECT_DIST + lateral.z)
-                e.node.position = MoveOutsideSafeZone(ejectPos, currentMapId, 0.85) or ejectPos
+                if e.tier ~= "boss" then
+                    local ejectPos = Vector3(
+                        pPos.x + dir.x * DASH_EJECT_DIST + lateral.x,
+                        ey,
+                        pPos.z + dir.z * DASH_EJECT_DIST + lateral.z)
+                    e.node.position = MoveOutsideSafeZone(ejectPos, currentMapId, 0.85) or ejectPos
+                end
                 local eBody = e.node:GetComponent("RigidBody")
                 if eBody then eBody:SetLinearVelocity(Vector3.ZERO) end
                 e.knockbackTimer = 0          -- 清除残留击退，确保硬直立即生效
-                e.hitStunTimer = DASH_STUN    -- 顶出后进入硬直
+                e.hitStunTimer = e.tier == "boss" and 0.08 or DASH_STUN
                 -- 被顶出后回头面向玩家
                 FaceEnemyDir(e, -dir)
-                if e.state == "patrol" then e.state = "chase" end
+                if e.state == "patrol" or e.state == "guard" or e.state == "return" then
+                    e.state = "chase"
+                    e.patrolTarget = nil
+                end
                 if e.animData then
                     MonsterSkeleton.PlayAnim(e.animData, "hit", nil)
                 end
@@ -4836,16 +4873,19 @@ function Combat.UpdateDash(dt, playerNode)
     -- 顶着被卷入的怪物前进（焊在玩家前方 DASH_CONTACT 处）
     for e, lateral in pairs(dashState.pushed) do
         if e and e.node and e.state ~= "dead" and e.state ~= "dying" then
-            local ey = e.node.position.y
-            local pushedPos = Vector3(
-                newPos.x + dir.x * DASH_CONTACT + lateral.x,
-                ey,
-                newPos.z + dir.z * DASH_CONTACT + lateral.z)
-            e.node.position = MoveOutsideSafeZone(pushedPos, currentMapId, 0.85) or pushedPos
+            if e.tier ~= "boss" then
+                local ey = e.node.position.y
+                local pushedPos = Vector3(
+                    newPos.x + dir.x * DASH_CONTACT + lateral.x,
+                    ey,
+                    newPos.z + dir.z * DASH_CONTACT + lateral.z)
+                e.node.position = MoveOutsideSafeZone(pushedPos, currentMapId, 0.85) or pushedPos
+            end
             local eBody = e.node:GetComponent("RigidBody")
             if eBody then eBody:SetLinearVelocity(Vector3.ZERO) end
             -- 顶推期间保持轻硬直，压制怪物自身 AI 移动（次帧 UpdateEnemies 生效）
-            if e.hitStunTimer < 0.15 then e.hitStunTimer = 0.15 end
+            local dashStun = e.tier == "boss" and 0.08 or 0.15
+            if e.hitStunTimer < dashStun then e.hitStunTimer = dashStun end
             FaceEnemyDir(e, -dir)
         else
             dashState.pushed[e] = nil
@@ -4907,6 +4947,7 @@ end
 ---@param resetKillCount boolean|nil
 ---@param clearPersistentSummon boolean|nil
 function Combat.Clear(resetKillCount, clearPersistentSummon)
+    RemoveBossAttackVisuals(combatScene)
     for _, e in ipairs(enemies) do
         if e.node then e.node:Remove() end
     end
@@ -4942,6 +4983,7 @@ function Combat.Clear(resetKillCount, clearPersistentSummon)
     activeEncounterId = nil
     lastPlayerTarget = nil
     playerWasInSafeZone = false
+    combatScene = nil
     Combat.CancelDash()
     if clearPersistentSummon then
         DivineBeast.Clear()
