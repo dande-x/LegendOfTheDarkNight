@@ -2563,7 +2563,7 @@ function SetupGameCallbacks()
     -- 自然生态中注入一小组敌人。Quest 只报告事件，刷怪和演出仍由主流程
     -- 统一编排，避免 Combat 反向依赖任务模块。
     Quest.onObjectiveReached = function(quest, point, progress)
-        if not quest or quest.mode ~= "patrol" or not scene_
+        if not quest or quest.mode ~= "patrol" or not scene_ or not player_
             or Combat.currentMapId ~= quest.mapId then
             return
         end
@@ -2589,7 +2589,7 @@ function SetupGameCallbacks()
     -- 坚守区域状态变化：首次进入时亮起区域、播报“区域生效”，并
     -- 生成首波敌群；之后的离开/回归只切换亮度，不重复首波。
     Quest.onAreaStateChanged = function(quest, active, area, firstActivation)
-        if not quest or quest.mode ~= "survive" or not scene_
+        if not quest or quest.mode ~= "survive" or not scene_ or not player_
             or Combat.currentMapId ~= quest.mapId then
             return
         end
@@ -2603,7 +2603,9 @@ function SetupGameCallbacks()
         local areaName = (area and area.name) or "目标区域"
         if firstActivation then
             Combat.SpawnQuestSignal(scene_, position, "survive")
-            GameUI.ShowToast("区域生效：" .. areaName .. " · 坚守 50 秒", 2.6)
+            local surviveDuration = Quest.SURVIVE_DURATION or 50
+            GameUI.ShowToast("区域生效：" .. areaName .. " · 坚守 "
+                .. tostring(surviveDuration) .. " 秒", 2.6)
             if playerNode_ then
                 GameUI.AddFloatingText("区域生效",
                     position + Vector3(0, 1.25, 0), {255, 180, 70, 255})
@@ -2621,7 +2623,7 @@ function SetupGameCallbacks()
     -- 坚守每累计 10 秒触发一波敌群（10/20/30/40 秒），最后 50 秒由
     -- 任务完成处理，不再额外生成“完成后的”波次。
     Quest.onSurviveWave = function(quest, waveIndex, area)
-        if not quest or quest.mode ~= "survive" or not scene_
+        if not quest or quest.mode ~= "survive" or not scene_ or not player_
             or Combat.currentMapId ~= quest.mapId then
             return
         end

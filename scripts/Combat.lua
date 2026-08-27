@@ -538,6 +538,14 @@ local function CreateQuestAreaVisual(scene, questId, mapId, area)
     }
 end
 
+-- 引擎节点被父节点清理后，Lua 包装对象有时仍然保持非 nil。用父节点
+-- 关系确认它仍挂在场景树上，避免切图/装饰清理后下一帧访问失效位置。
+local function IsQuestNodeAttached(node)
+    if not node then return false end
+    local ok, parent = pcall(function() return node:GetParent() end)
+    return ok and parent ~= nil
+end
+
 --- 创建一次性的“到点/敌群来袭”主线提示。
 ---@param scene Scene
 ---@param position Vector3|table
@@ -608,7 +616,7 @@ function Combat.SetQuestAreaEffect(scene, questId, area, active)
     local radius = math.max(0.5, tonumber(area.radius) or 9)
     local mapId = currentMapId
     local areaNode = questAreaEffect and questAreaEffect.node or nil
-    if questAreaEffect and not areaNode then
+    if questAreaEffect and not IsQuestNodeAttached(areaNode) then
         questAreaEffect = nil
     end
     if questAreaEffect and (
@@ -643,7 +651,7 @@ function Combat.SetQuestAreaEffect(scene, questId, area, active)
 end
 
 function Combat.ClearQuestAreaEffect()
-    if questAreaEffect and questAreaEffect.node then
+    if questAreaEffect and IsQuestNodeAttached(questAreaEffect.node) then
         questAreaEffect.node:Remove()
     end
     questAreaEffect = nil
