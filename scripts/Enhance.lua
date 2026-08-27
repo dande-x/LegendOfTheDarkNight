@@ -1,5 +1,5 @@
 -- ============================================================================
--- Enhance.lua — 装备分解 / 锻造 / 精炼的纯数值规则
+-- Enhance.lua — 装备分解 / 锻造 / 强化的纯数值规则
 -- ============================================================================
 
 local Enhance = {}
@@ -7,8 +7,8 @@ local Enhance = {}
 -- 分解只保留少量回收价值，避免“掉落装备 → 分解 → 无限刷金”成为主收益线。
 -- 商店出售与分解共用相近的低回收倍率，装备本身的战力价值仍高于现金价值。
 Enhance.RECYCLE_GOLD_MULTIPLIER = 1.5
-
-Enhance.ENHANCE_STONE_ID = "enhance_stone"
+Enhance.ENHANCE_RECYCLE_REFUND_RATE = 0.20
+Enhance.FORGE_MATERIAL_COUNT = 5
 
 local RARITY = {
     COMMON = { mult = 1.0, tier = 0, next = "UNCOMMON" },
@@ -16,6 +16,16 @@ local RARITY = {
     RARE = { mult = 1.6, tier = 2, next = "EPIC" },
     EPIC = { mult = 2.0, tier = 3, next = "LEGENDARY" },
     LEGENDARY = { mult = 2.5, tier = 4, next = nil },
+}
+
+-- 强化改为铁匠收取纯金币，不再要求强化石。金币档位折算了旧版金币与
+-- 强化石商店价值，避免移除材料后强化成本骤降。高阶失败设阶段保底：
+-- +7~+9 不跌破 +6，+10~+12 不跌破 +9。
+local ENHANCE_RULES = {
+    { maxLevel = 3,  gold = 300,  successRate = 1.0, dropOnFail = false, failFloor = 0 },
+    { maxLevel = 6,  gold = 750,  successRate = 0.9, dropOnFail = false, failFloor = 3 },
+    { maxLevel = 9,  gold = 2000, successRate = 0.7, dropOnFail = true,  failFloor = 6 },
+    { maxLevel = 12, gold = 5000, successRate = 0.5, dropOnFail = true,  failFloor = 9 },
 }
 
 local function Integer(value)
@@ -34,20 +44,22 @@ local function ItemScore(item)
         + (tonumber(item.hp) or 0) * 0.3
 end
 
-local function StonesSpentForLevel(level)
-    local stones = 0
-    for targetLevel = 1, level do
-        if targetLevel <= 3 then
-            stones = stones + 1
-        elseif targetLevel <= 6 then
-            stones = stones + 2
-        elseif targetLevel <= 9 then
-            stones = stones + 4
-        else
-            stones = stones + 8
-        end
+local function GetEnhanceRule(level)
+    level = Integer(level)
+    if level < 1 or level > 12 then return nil end
+    for _, rule in ipairs(ENHANCE_RULES) do
+        if level <= rule.maxLevel then return rule end
     end
-    return stones
+    return nil
+end
+
+local function GoldSpentForLevel(level)
+    local gold = 0
+    for targetLevel = 1, level do
+        local rule = GetEnhanceRule(targetLevel)
+        gold = gold + (rule and rule.gold or 0)
+    end
+    return gold
 end
 
 local function EnhancementBonus(baseStat, rate, level)
@@ -56,26 +68,23 @@ local function EnhancementBonus(baseStat, rate, level)
     return math.max(1, math.floor(baseStat * rate * level))
 end
 
---- Return the gold and enhance stones gained by recycling an equipment item.
+--- Return the gold gained by recycling an equipment item.
 ---@param item table
----@return { gold: number, stones: number }
+---@return { gold: number, enhanceRefund: number }
 function Enhance.Recycle(item)
     local rarity = type(item) == "table" and RARITY[item.rarity] or nil
     if not rarity then
-        return { gold = 0, stones = 0 }
+        return { gold = 0, enhanceRefund = 0 }
     end
 
-    local stoneByRarity = {
-        RARE = 1,
-        EPIC = 2,
-        LEGENDARY = 4,
-    }
     local enhanceLevel = math.min(12, NonNegativeInteger(item.enhance))
-    local returnedStones = math.floor(StonesSpentForLevel(enhanceLevel) * 0.5)
+    local enhanceRefund = math.floor(
+        GoldSpentForLevel(enhanceLevel) * Enhance.ENHANCE_RECYCLE_REFUND_RATE)
 
     return {
-        gold = math.floor(ItemScore(item) * rarity.mult * Enhance.RECYCLE_GOLD_MULTIPLIER),
-        stones = (stoneByRarity[item.rarity] or 0) + returnedStones,
+        gold = math.floor(ItemScore(item) * rarity.mult * Enhance.RECYCLE_GOLD_MULTIPLIER)
+            + enhanceRefund,
+        enhanceRefund = enhanceRefund,
     }
 end
 
@@ -96,15 +105,19 @@ function Enhance.GetNextRarity(sourceRarityKey)
     return rarity and rarity.next or nil
 end
 
---- Validate three forge materials and determine their next rarity.
----@param items3 table[]
+--- Validate forge materials and determine their next rarity.
+---@param items table[]
 ---@return { ok: boolean, reason: string, targetRarity: string|nil }
-function Enhance.ForgePick(items3)
-    if type(items3) ~= "table" or #items3 ~= 3 then
-        return { ok = false, reason = "需要3件装备", targetRarity = nil }
+function Enhance.ForgePick(items)
+    if type(items) ~= "table" or #items ~= Enhance.FORGE_MATERIAL_COUNT then
+        return {
+            ok = false,
+            reason = "需要" .. Enhance.FORGE_MATERIAL_COUNT .. "件装备",
+            targetRarity = nil,
+        }
     end
 
-    local first = items3[1]
+    local first = items[1]
     if type(first) ~= "table" or not RARITY[first.rarity] then
         return { ok = false, reason = "装备品质无效", targetRarity = nil }
     end
@@ -115,8 +128,8 @@ function Enhance.ForgePick(items3)
     end
     local classReq = first.classReq
 
-    for index = 2, 3 do
-        local item = items3[index]
+    for index = 2, Enhance.FORGE_MATERIAL_COUNT do
+        local item = items[index]
         if type(item) ~= "table" or not RARITY[item.rarity] then
             return { ok = false, reason = "装备品质无效", targetRarity = nil }
         end
@@ -142,25 +155,40 @@ function Enhance.ForgePick(items3)
     return { ok = true, reason = "", targetRarity = targetRarity }
 end
 
---- Return the resource cost and failure behavior for reaching level 1 through 12.
+--- Return the gold cost and failure behavior for reaching level 1 through 12.
 ---@param level number
----@return { stones: number, gold: number, successRate: number, dropOnFail: boolean }
+---@return { gold: number, successRate: number, dropOnFail: boolean, failFloor: number }
 function Enhance.EnhanceCost(level)
     level = Integer(level)
-    if level < 1 or level > 12 then
-        return { stones = 0, gold = 0, successRate = 0, dropOnFail = false }
+    local rule = GetEnhanceRule(level)
+    if not rule then
+        return { gold = 0, successRate = 0, dropOnFail = false, failFloor = 0 }
     end
 
-    if level <= 3 then
-        return { stones = 1, gold = 200, successRate = 1.0, dropOnFail = false }
-    end
-    if level <= 6 then
-        return { stones = 2, gold = 500, successRate = 0.9, dropOnFail = false }
-    end
-    if level <= 9 then
-        return { stones = 4, gold = 1500, successRate = 0.7, dropOnFail = true }
-    end
-    return { stones = 8, gold = 4000, successRate = 0.5, dropOnFail = true }
+    return {
+        gold = rule.gold,
+        successRate = rule.successRate,
+        dropOnFail = rule.dropOnFail,
+        failFloor = rule.failFloor,
+    }
+end
+
+--- Return the level kept after an unprotected failed attempt.
+---@param currentLevel number
+---@param targetLevel number
+---@return number
+function Enhance.GetFailureLevel(currentLevel, targetLevel)
+    currentLevel = math.min(12, NonNegativeInteger(currentLevel))
+    local cost = Enhance.EnhanceCost(targetLevel)
+    if not cost.dropOnFail then return currentLevel end
+    return math.max(cost.failFloor or 0, currentLevel - 1)
+end
+
+--- Return cumulative gold spent to reach an enhancement level.
+---@param level number
+---@return number
+function Enhance.GetEnhanceGoldSpent(level)
+    return GoldSpentForLevel(math.min(12, NonNegativeInteger(level)))
 end
 
 --- Return the cumulative stat bonus for an item at the supplied enhance level.

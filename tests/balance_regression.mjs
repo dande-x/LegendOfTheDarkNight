@@ -115,13 +115,15 @@ check(!equipmentPanelSource.includes("BuyPotion")
     && equipmentPanelSource.includes("仅可在安全区商人处购买"),
     "背包重新出现药水购买入口或缺少商人购买提示");
 check(mainSource.includes('elseif kind == "blacksmith" then')
-    && mainSource.includes("GameUI.ShowForgePanel(player_)"),
-    "铁匠 NPC 没有承接锻造入口");
+    && mainSource.includes("GameUI.ShowBlacksmithPanel(player_)"),
+    "铁匠 NPC 没有承接锻造/强化入口");
 check(!equipmentPanelSource.includes("ForgeRecipe")
     && !equipmentPanelSource.includes("ForgeItems"),
     "角色/背包面板重新出现直接锻造逻辑");
-check(gameUISource.includes("自动选 3 件材料 · 每次锻造 1 件")
-    && forgePanelSource.includes("3 件同品质同部位")
+check(!equipmentPanelSource.includes("Inventory.EnhanceItem")
+    && equipmentPanelSource.includes("前往安全区铁匠"),
+    "角色/背包面板重新出现直接强化入口");
+check(forgePanelSource.includes("5 件同品质同部位")
     && forgePanelSource.includes("锻造 1 件 · "),
     "锻造台没有清楚说明材料、次数与费用");
 check(npcSource.includes("BuildHoodedHumanoid")

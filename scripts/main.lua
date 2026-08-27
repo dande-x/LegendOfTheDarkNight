@@ -41,7 +41,10 @@ local HP_POTION_CD = 6.0
 local MP_POTION_CD = 4.5
 
 -- 玩家死亡
+local DEATH_MARK_DURATION = 1.2
 local deathTimer = 0
+local deathPhase = "none" -- none | mark | result
+local deathLossInfo = nil
 local isDead = false
 
 -- 存档系统
@@ -1563,7 +1566,10 @@ function LoadFromSave(saveData)
     Inventory.Init()
 
     -- 恢复背包/装备/金币；失败时不要继续创建一个“半恢复”角色。
-    if not SaveSystem.RestoreInventory(saveData, Inventory.playerData) then
+    -- 第二个返回值用于把旧强化石一次性折算成金币并立刻写回新存档。
+    local inventoryRestored, legacyEnhanceRefund =
+        SaveSystem.RestoreInventory(saveData, Inventory.playerData)
+    if not inventoryRestored then
         currentSlotIndex = nil
         print("[main] ERROR: Failed to restore inventory from save")
         return false
@@ -1657,6 +1663,10 @@ function LoadFromSave(saveData)
     end
 
     GameUI.StartDoorOpen()
+    if (legacyEnhanceRefund or 0) > 0 then
+        GameUI.ShowToast("旧强化石已折算为 " .. legacyEnhanceRefund .. " 金币")
+        SaveCurrentGame()
+    end
     print("[main] Game loaded from save: " .. tostring(player_.className)
         .. " Lv." .. tostring(player_.level))
     return true
@@ -1665,6 +1675,10 @@ end
 --- 手动保存当前游戏到当前槽位
 function SaveCurrentGame()
     if not player_ or not currentSlotIndex then return false end
+    if isDead or (tonumber(player_.hp) or 0) <= 0 then
+        print("[main] Skip saving while player is dead")
+        return false
+    end
     local snapshot = SaveSystem.CreateSnapshot(player_, Inventory.playerData, Combat.killCount)
     if not snapshot then
         print("[main] ERROR: Cannot save invalid current player state")
@@ -2233,20 +2247,11 @@ function SetupGameCallbacks()
                 },
             }
 
-            -- 强化材料货架：与装备/药水共用购买页，资源数量在背包页可见。
-            table.insert(rows, {
-                text = "强化石",
-                hint = "💰" .. Inventory.ENHANCE_STONE_PRICE .. "  当前 " .. Inventory.GetEnhanceStones(),
-                onTap = function()
-                    local ok, msg = Inventory.BuyEnhanceStone()
-                    GameUI.ShowToast(ok and "购买成功：强化石 +1" or (msg or "购买失败"))
-                    GameUI.HideNPCPanel()
-                    openMerchantPanel(1)
-                end,
-            })
+            -- 保护石仍是高阶强化的可选保险；强化本身只在铁匠处消耗金币。
             table.insert(rows, {
                 text = "保护石",
-                hint = "💰" .. Inventory.PROTECT_STONE_PRICE .. "  当前 " .. Inventory.GetProtectStones() .. " · 强化失败不掉级",
+                hint = "💰" .. Inventory.PROTECT_STONE_PRICE .. "  当前 "
+                    .. Inventory.GetProtectStones() .. " · 铁匠强化失败不掉级",
                 onTap = function()
                     local ok, msg = Inventory.BuyProtectStone()
                     GameUI.ShowToast(ok and "购买成功：保护石 +1" or (msg or "购买失败"))
@@ -2260,9 +2265,11 @@ function SetupGameCallbacks()
             for _, tmpl in ipairs(shopItems) do
                 local price = Inventory.GetItemPrice(tmpl)
                 local rarityName = Inventory.GetRarityName(tmpl.rarity)
+                local rarityColor = Inventory.GetRarityColor(tmpl.rarity)
                 local itemCopy = tmpl
                 table.insert(rows, {
                     text = "[" .. rarityName .. "] " .. tmpl.name,
+                    fontColor = rarityColor,
                     hint = "💰" .. price .. "  点击购买",
                     onTap = function()
                         local ok, msg, item = Inventory.BuyItem(itemCopy.id, player_.classId)
@@ -2307,10 +2314,12 @@ function SetupGameCallbacks()
                 for i, item in ipairs(bag) do
                     local sellPrice = Inventory.GetItemSellPrice(item)
                     local rarityName = Inventory.GetRarityName(item.rarity)
+                    local rarityColor = Inventory.GetRarityColor(item.rarity)
                     local enhanceTag = (item.enhance and item.enhance > 0) and (" +" .. item.enhance) or ""
                     local capturedItem = item  -- 捕获实例，避免售出后索引漂移
                     table.insert(rows, {
                         text = "[" .. rarityName .. "] " .. item.name .. enhanceTag,
+                        fontColor = rarityColor,
                         hint = "卖出得 💰" .. sellPrice .. "  点击出售",
                         onTap = function()
                             local function sellCapturedItem()
@@ -2347,9 +2356,9 @@ function SetupGameCallbacks()
         }, selectedTab or 1)
     end
 
-    -- 与铁匠交互：锻造只通过安全区 NPC 开放，不再放进角色面板。
+    -- 与铁匠交互：锻造与强化都只通过安全区 NPC 开放。
     local function openBlacksmithPanel()
-        GameUI.ShowForgePanel(player_)
+        GameUI.ShowBlacksmithPanel(player_)
     end
 
     -- NPC 交互回调（由 HandleUpdate 每帧检测后触发）
@@ -2696,14 +2705,17 @@ end
 function ReturnToMainMenu()
     print("[main] Returning to main menu...")
 
-    -- 退出前自动保存
-    SaveCurrentGame()
+    -- 死亡结算尚未完成时不能把 0 血快照写回存档；正常退出仍自动保存。
+    if not isDead and player_ and (tonumber(player_.hp) or 0) > 0 then
+        SaveCurrentGame()
+    end
 
     -- 清理施法状态
     castState.active = false
     castState.phase = "none"
     GameUI.HideCastBar()
     ShowChargeGlow(false)
+    GameUI.HideDeathPresentation()
 
     -- 关闭角色面板和系统面板
     if GameUI.IsCharacterPanelOpen() then
@@ -2726,6 +2738,8 @@ function ReturnToMainMenu()
     player_ = nil
     isDead = false
     deathTimer = 0
+    deathPhase = "none"
+    deathLossInfo = nil
     hpPotionCD = 0
     mpPotionCD = 0
     currentSlotIndex = nil
@@ -2736,6 +2750,35 @@ function ReturnToMainMenu()
 
     -- 返回存档槽位选择界面
     ShowSaveSlotScreen()
+end
+
+--- 完成死亡结算并在当前地图安全区复活。
+---@param currentMap table|nil
+local function RevivePlayer(currentMap)
+    if not isDead or not player_ or not playerNode_ then return end
+
+    -- 清掉玩家死亡前已经生成的弹道、范围伤害和 Boss 攻击视觉，再重置
+    -- 存活敌人的血量、控制状态与仇恨，确保复活后不会承接旧攻击窗口。
+    Combat.CancelPlayerHostileEffects()
+    local restoredEnemies = Combat.ResetLivingEnemiesForPlayerRevive()
+
+    player_.hp = player_.maxHP
+    player_.mp = player_.maxMP
+    playerNode_.position = currentMap and currentMap.spawnPos or Vector3.ZERO
+    local body = playerNode_:GetComponent("RigidBody")
+    if body then body:SetLinearVelocity(Vector3.ZERO) end
+    PlayerAnim.Play("idle")
+
+    isDead = false
+    deathTimer = 0
+    deathPhase = "none"
+    deathLossInfo = nil
+    GameUI.HideDeathPresentation()
+    GameUI.UpdateGold(Inventory.playerData.gold)
+    autoSaveTimer = 0
+    SaveCurrentGame()
+
+    print("[main] Player revived; restored living enemies: " .. restoredEnemies)
 end
 
 -- ============================================================================
@@ -2897,8 +2940,8 @@ function HandleUpdate(eventType, eventData)
         ProcessPendingQuestMapSwitch()
     end
 
-    -- 自动保存计时
-    if currentSlotIndex then
+    -- 死亡当帧和死亡结算期间都不写入 0 血快照；复活完成后立即存档。
+    if currentSlotIndex and not isDead and (tonumber(player_.hp) or 0) > 0 then
         autoSaveTimer = autoSaveTimer + dt
         if autoSaveTimer >= AUTO_SAVE_INTERVAL then
             autoSaveTimer = 0
@@ -2906,7 +2949,49 @@ function HandleUpdate(eventType, eventData)
         end
     end
 
-    -- 游戏暂停：打开背包/地图/系统面板时暂停游戏逻辑
+    -- 死亡状态
+    if isDead then
+        if deathPhase == "mark" then
+            deathTimer = deathTimer - dt
+            if deathTimer <= 0 then
+                deathTimer = 0
+                deathPhase = "result"
+                GameUI.ShowDeathLossDialog(deathLossInfo, function()
+                    RevivePlayer(MapZone.GetDef(Combat.currentMapId))
+                end)
+            end
+        end
+        UpdateQuestAreaEffect()
+        UpdateCamera(dt)
+        GameUI.UpdateHUD(player_, dt)
+        return
+    end
+
+    -- 检查死亡
+    if player_.hp <= 0 then
+        isDead = true
+        deathTimer = DEATH_MARK_DURATION
+        deathPhase = "mark"
+        deathLossInfo = Inventory.ApplyDeathPenalty()
+        -- 打断施法
+        castState.active = false
+        castState.phase = "none"
+        -- 阵亡当帧就清掉 Boss 攻击、弹道、持续伤害和控制状态；重生时再
+        -- 幂等清理一次，避免死亡演出期间冻结的攻击窗口在复活后继续结算。
+        Combat.CancelPlayerHostileEffects()
+        GameUI.HideCastBar()
+        ShowChargeGlow(false)
+        GameUI.UpdateGold(Inventory.playerData.gold)
+        GameUI.ShowDeathMark(DEATH_MARK_DURATION)
+        print("[main] Player died; waiting for death settlement")
+        UpdateQuestAreaEffect()
+        UpdateCamera(dt)
+        GameUI.UpdateHUD(player_, dt)
+        return
+    end
+
+    -- 游戏暂停：打开背包/地图/系统面板时暂停游戏逻辑。死亡演出也属于
+    -- 暂停界面，但它已在上方单独推进状态机，不能被这个提前 return 冻结。
     if GameUI.IsGamePaused() then
         UpdateQuestAreaEffect()
         UpdateCamera(dt)
@@ -2935,46 +3020,6 @@ function HandleUpdate(eventType, eventData)
         end
         local nextId = MAP_ORDER[(curIdx % #MAP_ORDER) + 1]
         SwitchMap(nextId)
-    end
-
-    -- 死亡状态
-    if isDead then
-        deathTimer = deathTimer - dt
-        if deathTimer <= 0 then
-            isDead = false
-            player_.hp = player_.maxHP
-            player_.mp = player_.maxMP
-            local currentMap = MapZone.GetDef(Combat.currentMapId)
-            playerNode_.position = currentMap and currentMap.spawnPos or Vector3.ZERO
-            local body = playerNode_:GetComponent("RigidBody")
-            if body then body:SetLinearVelocity(Vector3.ZERO) end
-            Combat.CancelPlayerHostileEffects()
-            print("[main] Player revived")
-        end
-        UpdateQuestAreaEffect()
-        UpdateCamera(dt)
-        GameUI.UpdateHUD(player_, dt)
-        return
-    end
-
-    -- 检查死亡
-    if player_.hp <= 0 then
-        isDead = true
-        deathTimer = 3.0
-        -- 打断施法
-        castState.active = false
-        castState.phase = "none"
-        -- 阵亡当帧就清掉 Boss 攻击、弹道、持续伤害和控制状态；重生时再
-        -- 幂等清理一次，避免三秒等待期间冻结的攻击窗口在复活后继续结算。
-        Combat.CancelPlayerHostileEffects()
-        GameUI.HideCastBar()
-        ShowChargeGlow(false)
-        GameUI.AddFloatingText("阵亡!", playerNode_.position, {255, 50, 50, 255})
-        print("[main] Player died, reviving in 3s")
-        UpdateQuestAreaEffect()
-        UpdateCamera(dt)
-        GameUI.UpdateHUD(player_, dt)
-        return
     end
 
     -- 施法状态机更新

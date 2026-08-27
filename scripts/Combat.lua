@@ -1444,6 +1444,55 @@ local function SetEnemyDisengaged(enemy, clearControl)
     end
 end
 
+--- 玩家复活时重置所有仍存活的敌人。已经进入死亡/濒死状态的目标不会
+--- 被重新拉起；存活目标会回满血并清除控制、攻击与仇恨残留。
+---@return number restoredCount
+function Combat.ResetLivingEnemiesForPlayerRevive()
+    local restoredCount = 0
+
+    for _, enemy in ipairs(enemies) do
+        if enemy and enemy.node and enemy.state ~= "dead" and enemy.state ~= "dying" then
+            enemy.hp = enemy.maxHP
+
+            local hadPoison = (enemy.dotTimer or 0) > 0 or enemy.poisonTinted
+            enemy.dotDamage = 0
+            enemy.dotTimer = 0
+            enemy.dotTickAccum = 0
+            enemy.defReduction = 0
+            enemy.defReductionTimer = 0
+            enemy.trapCenter = nil
+            enemy.trapRadius = nil
+            enemy.trapTimer = nil
+            enemy.trapDefReduced = nil
+            enemy.knockbackTimer = 0
+            enemy.knockbackDir = nil
+            enemy.knockbackSpeed = nil
+            enemy.hitStunTimer = 0
+            enemy.hitFlashTimer = 0
+            enemy.dyingTimer = 0
+
+            SetEnemyDisengaged(enemy, true)
+            enemy.attackTimer = math.max(0.35, enemy.attackTimer or 0)
+            enemy.stuckCheckTimer = 0
+            enemy.stuckRecoveries = 0
+            enemy.lastMovePosition = enemy.node.position
+
+            if hadPoison then RemovePoisonTint(enemy) end
+            if enemy.animData then
+                enemy.animData.onComplete = nil
+                MonsterSkeleton.PlayAnim(enemy.animData, "idle", nil)
+            end
+
+            local body = enemy.node:GetComponent("RigidBody")
+            if body then body:SetLinearVelocity(Vector3.ZERO) end
+            restoredCount = restoredCount + 1
+        end
+    end
+
+    lastPlayerTarget = nil
+    return restoredCount
+end
+
 local function UpdateBossStuckRecovery(enemy, dt, isMoving, moveTargetPos)
     if not enemy or enemy.tier ~= "boss" or not enemy.node then return end
     if not isMoving or not moveTargetPos then

@@ -163,7 +163,7 @@ function SaveSystem.CreateSnapshot(player, inventoryData, killCount)
     local now = os.time()
     return {
         -- 元信息
-        version    = 1,
+        version    = 2,
         createdAt  = now,
         updatedAt  = now,
 
@@ -184,7 +184,6 @@ function SaveSystem.CreateSnapshot(player, inventoryData, killCount)
         equipped   = SerializeEquipped(inventoryData.equipped),
         bag        = SerializeBag(inventoryData.bag),
         gold       = SafeInteger(inventoryData.gold, 0, MAX_RESOURCE, 0),
-        enhanceStones = SafeInteger(inventoryData.enhanceStones, 0, MAX_RESOURCE, 0),
         protectStones = SafeInteger(inventoryData.protectStones, 0, MAX_RESOURCE, 0),
         potions    = inventoryData.potions and {
             hp = SafeInteger(inventoryData.potions.hp, 0, MAX_RESOURCE, 0),
@@ -478,11 +477,17 @@ function SaveSystem.RestoreInventory(saveData, inventoryData)
         return false
     end
 
-    -- 恢复金币
+    -- 恢复金币。旧版强化石已经退出系统，按原商店价一次性折算为金币；
+    -- LoadFromSave 会在完整恢复成功后立即保存新版快照，防止重复折算。
     inventoryData.gold = SafeInteger(saveData.gold, 0, MAX_RESOURCE, 0)
+    local legacyEnhanceStones = SafeInteger(
+        saveData.enhanceStones, 0, MAX_RESOURCE, 0)
+    local legacyRefund = math.min(
+        MAX_RESOURCE - inventoryData.gold,
+        legacyEnhanceStones * Inventory.LEGACY_ENHANCE_STONE_REFUND)
+    inventoryData.gold = inventoryData.gold + legacyRefund
+    saveData.enhanceStones = nil
 
-    -- 恢复强化石
-    inventoryData.enhanceStones = SafeInteger(saveData.enhanceStones, 0, MAX_RESOURCE, 0)
     inventoryData.protectStones = SafeInteger(saveData.protectStones, 0, MAX_RESOURCE, 0)
 
     -- 恢复药水
@@ -535,11 +540,11 @@ function SaveSystem.RestoreInventory(saveData, inventoryData)
     Inventory.RecalcBonus()
 
     print("[SaveSystem] Inventory restored: gold=" .. inventoryData.gold
-        .. " stones=" .. (inventoryData.enhanceStones or 0)
+        .. " legacyEnhanceRefund=" .. legacyRefund
         .. " equipped=" .. restoredEquipped
         .. " bag=" .. #inventoryData.bag .. " items"
         .. (droppedBagItems > 0 and (" dropped=" .. droppedBagItems) or ""))
-    return true
+    return true, legacyRefund
 end
 
 --- 将存档数据恢复到 player 运行时对象

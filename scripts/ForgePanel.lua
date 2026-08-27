@@ -105,9 +105,10 @@ local function RequestForge(recipe, options)
     end
 
     if recipe.containsEnhanced then
+        local required = math.max(1, Integer(recipe.required, 5))
         UI.Modal.Confirm {
             title = "确认使用强化材料",
-            message = "本次会消耗背包中的 3 件材料：\n"
+            message = "本次会消耗背包中的 " .. required .. " 件材料：\n"
                 .. FormatMaterials(recipe.materials)
                 .. "\n其中包含强化过的装备；材料的强化等级不会继承到成品。已装备物品不会被消耗。是否继续？",
             confirmText = "消耗材料并锻造",
@@ -160,7 +161,7 @@ local function BuildRuleStep(number, text)
 end
 
 local function BuildRecipeCard(recipe, options)
-    local required = math.max(1, Integer(recipe.required, 3))
+    local required = math.max(1, Integer(recipe.required, 5))
     local totalCount = math.max(0, Integer(recipe.count, 0))
     local selectedCount = math.min(totalCount, required)
     local availableCrafts = math.max(0, Integer(recipe.availableCrafts, 0))
@@ -420,7 +421,7 @@ function ForgePanel.Build(options)
                             alignItems = "flex-start",
                             children = {
                                 UI.Label {
-                                    text = "3 件同品质同部位  →  1 件更高品质",
+                                    text = "5 件同品质同部位  →  1 件更高品质",
                                     fontSize = 16,
                                     fontWeight = "bold",
                                     fontColor = {238, 205, 130, 250},
@@ -460,7 +461,7 @@ function ForgePanel.Build(options)
                     height = 1,
                     backgroundColor = {112, 82, 40, 125},
                 },
-                BuildRuleStep(1, "准备 3 件同品质、同部位的装备；武器还必须属于同一职业。"),
+                BuildRuleStep(1, "准备 5 件同品质、同部位的装备；武器还必须属于同一职业。"),
                 BuildRuleStep(2, "铁匠优先消耗未强化、属性较低的背包装备；已装备物品不会被选中。"),
                 BuildRuleStep(3, "每次消耗卡片所示金币并锻造 1 件；成品有 30% 概率自带 +1~+2 强化。"),
             },
@@ -502,7 +503,7 @@ function ForgePanel.Build(options)
     else
         local forgeableSection = BuildSection(
             "现在可锻造",
-            "点击按钮后，铁匠会自动选择并消耗卡片列出的 3 件装备。",
+            "点击按钮后，铁匠会自动选择并消耗卡片列出的 5 件装备。",
             forgeableRecipes,
             options)
         local blockedSection = BuildSection(
@@ -512,7 +513,7 @@ function ForgePanel.Build(options)
             options)
         local progressSection = BuildSection(
             "继续收集材料",
-            "凑齐 3 件同组装备后，这张卡会自动移到“现在可锻造”。",
+            "凑齐 5 件同组装备后，这张卡会自动移到“现在可锻造”。",
             progressRecipes,
             options)
         local unavailableSection = BuildSection(

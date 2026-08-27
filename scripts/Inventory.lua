@@ -17,7 +17,13 @@ Inventory.ECONOMY = {
     goldDropMultiplier = 0.80,
     -- 主线奖励仍是阶段性补给，但不再一次性覆盖多次强化/购买成本。
     questGoldMultiplier = 0.75,
+    -- 死亡只损失当前持有金币的一小部分；经验、装备与任务进度不受影响。
+    deathGoldLossRatio = 0.10,
 }
+
+-- 旧存档中的强化石按原商店价折算为金币，并在成功载入后立即写回新存档。
+-- 新系统不再创建、购买或消耗强化石。
+Inventory.LEGACY_ENHANCE_STONE_REFUND = 120
 
 -- 分支模块（武器链 / 怪物数据 / 强化规则）
 local WeaponData = require("scripts.WeaponData")
@@ -567,7 +573,6 @@ local playerData = {
     bonusAtk = 0,
     bonusDef = 0,
     bonusHP  = 0,
-    enhanceStones = 0,  -- 强化石数量（经济系统）
     protectStones = 0,  -- 保护石数量（强化失败不掉级）
 }
 
@@ -614,7 +619,6 @@ function Inventory.Init()
     playerData.bonusAtk = 0
     playerData.bonusDef = 0
     playerData.bonusHP  = 0
-    playerData.enhanceStones = 0
     playerData.protectStones = 0
     ---@type table<string, number>
     playerData.potions = { hp = 5, mp = 3 }
@@ -926,6 +930,21 @@ function Inventory.SpendGold(amount)
     return true
 end
 
+--- 结算角色死亡金币损失。所有数值都在经济模块内归一化，避免宿主直接
+--- 修改金币后遗漏异常值边界或与后续经济调参脱节。
+---@return table {goldLost:number,goldRemaining:number,lossRatio:number}
+function Inventory.ApplyDeathPenalty()
+    local current = ClampInteger(playerData.gold, 0, MAX_RESOURCE, 0)
+    local ratio = NormalizeGoldMultiplier(Inventory.ECONOMY.deathGoldLossRatio)
+    local lost = math.floor(current * ratio)
+    playerData.gold = current - lost
+    return {
+        goldLost = lost,
+        goldRemaining = playerData.gold,
+        lossRatio = ratio,
+    }
+end
+
 --- 从商人原子购买一件模板装备。所有校验通过后才同时扣款与入包，
 --- 避免“金币已扣但背包写入失败”。价格始终由本地模板计算；职业参数
 --- 是必需的，防止未来调用绕过商店货架筛选购买异职业武器。
@@ -1146,34 +1165,29 @@ function Inventory.GetRarityName(rarityKey)
 end
 
 -- ============================================================================
--- 经济系统宿主 API（分解 / 锻造 / 精炼）—— 封装 Enhance 纯逻辑 + playerData 状态
+-- 经济系统宿主 API（分解 / 锻造 / 强化）—— 封装 Enhance 纯逻辑 + playerData 状态
 -- ============================================================================
 
---- 获取强化石数量
-function Inventory.GetEnhanceStones()
-    playerData.enhanceStones = ClampInteger(playerData.enhanceStones, 0, MAX_RESOURCE, 0)
-    return playerData.enhanceStones
-end
-
---- 分解装备（回收）：金币 + 强化石入账
+--- 分解装备（回收）：装备基础价值与少量已投入强化金币返还。
 ---@param item table 被分解的装备
----@return boolean, table 成功与否 + {gold, stones}
+---@return boolean, table, string 成功与否 + {gold, enhanceRefund} + 原因
 function Inventory.RecycleItem(item)
-    if not item then return false, { gold = 0, stones = 0 }, "无装备" end
+    if not item then return false, { gold = 0, enhanceRefund = 0 }, "无装备" end
     local locationType, locationKey = FindOwnedItem(item)
     if not locationType then
-        return false, { gold = 0, stones = 0 }, "装备已不存在或不属于当前角色"
+        return false, { gold = 0, enhanceRefund = 0 }, "装备已不存在或不属于当前角色"
     end
     if not IsCanonicalItem(item, nil) then
-        return false, { gold = 0, stones = 0 }, "装备数据异常"
+        return false, { gold = 0, enhanceRefund = 0 }, "装备数据异常"
     end
     local rawResult = Enhance.Recycle(item)
     local result = {
         gold = ClampInteger(rawResult and rawResult.gold, 0, MAX_RESOURCE, 0),
-        stones = ClampInteger(rawResult and rawResult.stones, 0, MAX_RESOURCE, 0),
+        enhanceRefund = ClampInteger(
+            rawResult and rawResult.enhanceRefund, 0, MAX_RESOURCE, 0),
     }
-    if result.gold <= 0 and result.stones <= 0 then
-        return false, { gold = 0, stones = 0 }, "该物品无法分解"
+    if result.gold <= 0 then
+        return false, { gold = 0, enhanceRefund = 0 }, "该物品无法分解"
     end
 
     -- 先移除实例，再发放收益；这样同一个旧引用无法重复结算。
@@ -1184,10 +1198,9 @@ function Inventory.RecycleItem(item)
         Inventory.RecalcBonus()
     end
     local currentGold = ClampInteger(playerData.gold, 0, MAX_RESOURCE, 0)
-    local currentStones = ClampInteger(playerData.enhanceStones, 0, MAX_RESOURCE, 0)
     playerData.gold = math.min(MAX_RESOURCE, currentGold + result.gold)
-    playerData.enhanceStones = math.min(MAX_RESOURCE, currentStones + result.stones)
-    print(string.format("[Inventory] 分解 %s -> +%d金 +%d强化石", item.name or "?", result.gold, result.stones))
+    print(string.format("[Inventory] 分解 %s -> +%d金（强化返还%d）",
+        item.name or "?", result.gold, result.enhanceRefund))
     return true, result, ""
 end
 
@@ -1216,7 +1229,7 @@ function Inventory.RemoveBagItem(bagIndex)
 end
 
 --- 返回当前背包的锻造配方进度。材料按品质、部位和职业自动分组，
---- 每组优先选择未强化、属性较低的三件，避免玩家手动配错材料。
+--- 每组优先选择未强化、属性较低的五件，避免玩家手动配错材料。
 ---@return table[]
 function Inventory.GetForgeRecipes()
     local groups = {}
@@ -1265,7 +1278,7 @@ function Inventory.GetForgeRecipes()
 
         local materials = {}
         local containsEnhanced = false
-        for index = 1, math.min(3, #group.entries) do
+        for index = 1, math.min(Enhance.FORGE_MATERIAL_COUNT, #group.entries) do
             local material = group.entries[index].item
             table.insert(materials, material)
             if ClampInteger(material.enhance, 0, 12, 0) > 0 then
@@ -1277,14 +1290,14 @@ function Inventory.GetForgeRecipes()
         local cost = ClampInteger(
             Enhance.ForgeCost(group.targetRarity), 0, MAX_RESOURCE, 0)
         local targetAvailable = #targets > 0
-        local hasMaterials = count >= 3
+        local hasMaterials = count >= Enhance.FORGE_MATERIAL_COUNT
         local hasGold = currentGold >= cost
         local canForge = targetAvailable and hasMaterials and hasGold and cost > 0
         local reason = ""
         if not targetAvailable then
             reason = "该部位暂无" .. Inventory.GetRarityName(group.targetRarity) .. "配方"
         elseif not hasMaterials then
-            reason = "还差 " .. (3 - count) .. " 件同组装备"
+            reason = "还差 " .. (Enhance.FORGE_MATERIAL_COUNT - count) .. " 件同组装备"
         elseif cost <= 0 then
             reason = "锻造费用异常"
         elseif not hasGold then
@@ -1298,8 +1311,8 @@ function Inventory.GetForgeRecipes()
             itemType = group.itemType,
             classReq = group.classReq,
             count = count,
-            required = 3,
-            availableCrafts = math.floor(count / 3),
+            required = Enhance.FORGE_MATERIAL_COUNT,
+            availableCrafts = math.floor(count / Enhance.FORGE_MATERIAL_COUNT),
             cost = cost,
             targetAvailable = targetAvailable,
             hasMaterials = hasMaterials,
@@ -1331,28 +1344,28 @@ function Inventory.GetForgeRecipes()
     return recipes
 end
 
---- 锻造（三合一）：校验 + 扣金币 + 消耗三件材料，并把产物放回背包。
+--- 锻造（五合一）：校验 + 扣金币 + 消耗五件材料，并把产物放回背包。
 --- 产物为同部位的下一品质模板；第四个返回值为产物实例，旧调用只取前三个
 --- 返回值时仍保持兼容。
----@param items3 table[] 三件材料
+---@param items table[] 五件材料
 ---@return boolean, string, string|nil, table|nil 成功/原因/目标品质 key/产物
-function Inventory.ForgeItems(items3)
-    if type(items3) ~= "table" or #items3 ~= 3 then
-        return false, "需要三件锻造材料", nil
+function Inventory.ForgeItems(items)
+    if type(items) ~= "table" or #items ~= Enhance.FORGE_MATERIAL_COUNT then
+        return false, "需要" .. Enhance.FORGE_MATERIAL_COUNT .. "件锻造材料", nil
     end
-    for _, material in ipairs(items3) do
+    for _, material in ipairs(items) do
         if not IsCanonicalItem(material, nil) then
             return false, "锻造材料数据异常", nil
         end
     end
-    local pick = Enhance.ForgePick(items3)
+    local pick = Enhance.ForgePick(items)
     if not pick.ok then return false, pick.reason, nil end
 
-    -- 材料必须是背包中三个不同的实例，避免重复传入同一对象只消耗一件
+    -- 材料必须是背包中五个不同的实例，避免重复传入同一对象只消耗一件
     -- 却仍判定锻造成功。
     local materialIndices = {}
     local usedIndices = {}
-    for _, material in ipairs(items3) do
+    for _, material in ipairs(items) do
         local foundIndex = nil
         for index, bagItem in ipairs(playerData.bag) do
             if not usedIndices[index] and bagItem == material then
@@ -1367,8 +1380,8 @@ function Inventory.ForgeItems(items3)
         table.insert(materialIndices, foundIndex)
     end
 
-    local itemType = items3[1].itemType or items3[1].slot
-    local preferredClass = items3[1].classReq
+    local itemType = items[1].itemType or items[1].slot
+    local preferredClass = items[1].classReq
 
     -- 目标部位没有对应品质模板时明确失败，不生成无法装备或无法出售的“空壳”装备。
     local candidates = FindForgeTargetTemplates(itemType, pick.targetRarity, preferredClass)
@@ -1406,7 +1419,7 @@ function Inventory.ForgeItems(items3)
     return true, "", pick.targetRarity, resultItem
 end
 
---- 按配方描述自动选择三件合法材料并锻造。调用时会重新读取背包，
+--- 按配方描述自动选择五件合法材料并锻造。调用时会重新读取背包，
 --- 因此 UI 刷新前留下的旧配方不会误消耗其它类别装备。
 ---@param recipe table GetForgeRecipes 返回的配方描述
 ---@return boolean, string, string|nil, table|nil
@@ -1434,21 +1447,22 @@ function Inventory.ForgeRecipe(recipe)
     end
     table.sort(entries, SortForgeEntries)
 
-    if #entries < 3 then
+    if #entries < Enhance.FORGE_MATERIAL_COUNT then
         return false, "材料数量不足，请刷新后重试", nil, nil
     end
 
-    return Inventory.ForgeItems({
-        entries[1].item,
-        entries[2].item,
-        entries[3].item,
-    })
+    local materials = {}
+    for index = 1, Enhance.FORGE_MATERIAL_COUNT do
+        table.insert(materials, entries[index].item)
+    end
+    return Inventory.ForgeItems(materials)
 end
 
---- 精炼（强化）：消耗资源，按成功率判定，失败可能掉级
+--- 铁匠强化：只消耗金币，按成功率判定，失败可能掉级。
+--- 保护强化额外消耗一颗保护石，失败时保持当前等级。
 ---@param item table 待强化装备
 ---@param useProtect boolean 是否使用保护石（失败不掉级）
----@return boolean, string, number 成功/原因/最终强化等级
+---@return boolean, string, number, table|nil 成功/原因/最终强化等级/本次结果
 function Inventory.EnhanceItem(item, useProtect)
     if not item then return false, "无装备", 0 end
     if not FindOwnedItem(item) then
@@ -1461,39 +1475,56 @@ function Inventory.EnhanceItem(item, useProtect)
 
     local nextLevel = cur + 1
     local cost = Enhance.EnhanceCost(nextLevel)
-    local stones = Inventory.GetEnhanceStones()
     local gold = ClampInteger(playerData.gold, 0, MAX_RESOURCE, 0)
     playerData.gold = gold
-    if stones < cost.stones then return false, "强化石不足", cur end
     if gold < cost.gold then return false, "金币不足", cur end
     useProtect = useProtect == true
+    local failureLevel = Enhance.GetFailureLevel(cur, nextLevel)
+    local canDowngrade = failureLevel < cur
+    if useProtect and not canDowngrade then
+        return false, "当前阶段失败不会掉级，无需使用保护石", cur
+    end
     local protectStones = Inventory.GetProtectStones()
     if useProtect and protectStones <= 0 then
         return false, "保护石不足", cur
     end
 
-    -- 扣资源
-    playerData.enhanceStones = stones - cost.stones
+    -- 确认资源充足后一次性扣除。无论成功或失败，本次铁匠服务费都不返还。
     playerData.gold = gold - cost.gold
     if useProtect then
         playerData.protectStones = protectStones - 1
     end
 
+    local result = {
+        previousLevel = cur,
+        targetLevel = nextLevel,
+        finalLevel = cur,
+        goldSpent = cost.gold,
+        successRate = cost.successRate,
+        protected = useProtect,
+        protectStoneSpent = useProtect and 1 or 0,
+        failureLevel = failureLevel,
+        canDowngrade = canDowngrade,
+        downgraded = false,
+    }
+
     -- 成功率判定
     if math.random() < cost.successRate then
         item.enhance = nextLevel
+        result.finalLevel = nextLevel
         Inventory.RecalcBonus()
-        return true, "", nextLevel
+        return true, "", nextLevel, result
     end
 
-    -- 失败：掉级（保护石/掉级保护钳制）
-    if cost.dropOnFail and not useProtect then
-        local dropTo = cur - 1
-        if cur >= 9 then dropTo = math.max(8, dropTo) end  -- +9 以上失败下限钳制到 +8
-        item.enhance = math.max(0, dropTo)
+    -- 失败：普通强化按阶段保底计算掉级；保护强化保持当前等级。
+    if canDowngrade and not useProtect then
+        item.enhance = failureLevel
+        result.downgraded = item.enhance < cur
     end
+    result.finalLevel = item.enhance or cur
     Inventory.RecalcBonus()
-    return false, useProtect and "强化失败（保护石生效）" or "强化失败", item.enhance or cur
+    return false, useProtect and "强化失败（保护石生效）" or "强化失败",
+        result.finalLevel, result
 end
 
 Inventory.MAX_BAG_SLOTS = MAX_BAG_SLOTS
@@ -1523,26 +1554,12 @@ function Inventory.GetItemPrice(item)
         score * mult * Inventory.ECONOMY.itemBuyMultiplier)))
 end
 
-Inventory.ENHANCE_STONE_PRICE = 120
 Inventory.PROTECT_STONE_PRICE = 800
 
 --- 获取保护石数量。
 function Inventory.GetProtectStones()
     playerData.protectStones = ClampInteger(playerData.protectStones, 0, MAX_RESOURCE, 0)
     return playerData.protectStones
-end
-
---- 从商人购买一颗强化石。
----@return boolean, string
-function Inventory.BuyEnhanceStone()
-    if Inventory.GetEnhanceStones() >= MAX_RESOURCE then
-        return false, "强化石已达上限"
-    end
-    if not Inventory.SpendGold(Inventory.ENHANCE_STONE_PRICE) then
-        return false, "金币不足"
-    end
-    playerData.enhanceStones = playerData.enhanceStones + 1
-    return true, ""
 end
 
 --- 从商人购买一颗保护石。

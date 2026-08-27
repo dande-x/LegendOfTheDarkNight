@@ -8,7 +8,7 @@ local UI = require("urhox-libs/UI")
 local CharacterClass = require("scripts.CharacterClass")
 local Inventory = require("scripts.Inventory")
 local EquipmentPanel = require("scripts.EquipmentPanel")
-local ForgePanel = require("scripts.ForgePanel")
+local BlacksmithPanel = require("scripts.BlacksmithPanel")
 local Quest = require("scripts.Quest")
 local MapZone = require("scripts.MapZone")
 local NPC = require("scripts.NPC")
@@ -133,12 +133,17 @@ local uiState = {
     teleportPanelRoot = nil,
     npcPanelOpen = false,
     npcPanelRoot = nil,
+    blacksmithTab = "forge",
+    blacksmithSelectedItem = nil,
     npcInteractBtn = nil,  -- HUD 上的 NPC 交互按钮（靠近时显示）
     dialogueActive = false,
     dialogueLines = nil,      -- 待播放的对话行列表
     dialogueIndex = 0,
     dialogueRoot = nil,
     dialogueOnDone = nil,
+    deathMarkRoot = nil,
+    deathLossModal = nil,
+    deathReviveCallback = nil,
 }
 
 GameUI.state = uiState
@@ -545,6 +550,14 @@ function GameUI._RenderNanoVG()
     local _, _, dpr, sw, sh = _GetScreenMetrics()
     nvgBeginFrame(nvgCtx, sw, sh, dpr)
 
+    -- urhox-libs/UI 与本模块的 HUD 使用不同 NanoVG context；HUD context
+    -- 后创建、通常后绘制。死亡演出期间不再绘制底层 HUD，避免血球、血条、
+    -- 飘字或 Toast 盖到中央“死”字和结算弹窗上。
+    if uiState.deathMarkRoot or uiState.deathLossModal then
+        nvgEndFrame(nvgCtx)
+        return
+    end
+
     -- 绘制 HP/MP 圆球 + EXP 条 (仅游戏阶段，左下角)
     if uiState.phase == "playing" and uiState.player then
         GameUI._DrawOrbs(nvgCtx, sw, sh)
@@ -920,7 +933,8 @@ end
 local function _SyncPauseState()
     if not sceneRef then return end
     if mapState.fullMapOpen or uiState.charPanelOpen or uiState.systemPanelOpen
-        or uiState.teleportPanelOpen or uiState.npcPanelOpen or uiState.dialogueActive then
+        or uiState.teleportPanelOpen or uiState.npcPanelOpen or uiState.dialogueActive
+        or uiState.deathMarkRoot or uiState.deathLossModal then
         sceneRef.timeScale = 0
     else
         sceneRef.timeScale = 1
@@ -983,13 +997,20 @@ end
 
 --- 判断游戏是否应暂停（任何面板打开时暂停）
 function GameUI.IsGamePaused()
-    return mapState.fullMapOpen or uiState.charPanelOpen or uiState.systemPanelOpen or uiState.teleportPanelOpen or uiState.dialogueActive or uiState.npcPanelOpen
+    return mapState.fullMapOpen or uiState.charPanelOpen or uiState.systemPanelOpen
+        or uiState.teleportPanelOpen or uiState.dialogueActive or uiState.npcPanelOpen
+        or uiState.deathMarkRoot ~= nil or uiState.deathLossModal ~= nil
 end
 
 --- 统一处理键盘 ESC / Android 返回键。
 --- 每次只关闭最上层界面；主线对话不在这里跳过，仍由玩家点击逐句推进。
 ---@return boolean handled 是否消费了本次返回操作
 function GameUI.HandleBackAction()
+    -- 死亡演出和结算不能用返回键跳过；必须看完结算并点击“复活”。
+    if uiState.deathMarkRoot or uiState.deathLossModal then
+        return true
+    end
+
     -- 删除、出售、分解确认等 UI.Modal 必须先于宿主面板关闭，
     -- 避免一次返回同时退出确认框和商店/角色面板。
     ---@type any
@@ -1031,6 +1052,303 @@ function GameUI.HandleBackAction()
     end
 
     return false
+end
+
+-- ============================================================================
+-- 角色死亡演出与结算弹窗
+-- ============================================================================
+
+--- 清理中央“死”字演出，但保留之后可能打开的死亡结算弹窗。
+function GameUI.HideDeathMark()
+    if uiState.deathMarkRoot then
+        uiState.deathMarkRoot:Remove()
+        uiState.deathMarkRoot = nil
+        _SyncPauseState()
+    end
+end
+
+--- 显示屏幕中央红色“死”字。使用 UI Widget 而不是 raw NanoVG，确保它在
+--- HUD 之上、能拦截触摸，并自动适配 DPR 与小屏 UI 缩放。
+---@param duration number|nil
+function GameUI.ShowDeathMark(duration)
+    if uiState.deathLossModal then
+        local oldModal = uiState.deathLossModal
+        uiState.deathLossModal = nil
+        uiState.deathReviveCallback = nil
+        oldModal:Close()
+    end
+    GameUI.HideDeathMark()
+
+    local effectDuration = math.max(0.6, tonumber(duration) or 1.2)
+    local glyph = UI.Label {
+        text = "死",
+        width = 260,
+        height = 210,
+        fontSize = 154,
+        fontWeight = "bold",
+        textAlign = "center",
+        verticalAlign = "middle",
+        fontColor = {238, 28, 30, 255},
+        textStroke = { width = 4, color = {72, 0, 0, 255} },
+        textShadow = { offsetX = 0, offsetY = 8, blur = 16, color = {255, 20, 20, 190} },
+        opacity = 0,
+        scale = 2.15,
+        rotate = -8,
+        transformOrigin = "center",
+    }
+    local outerRing = UI.Panel {
+        position = "absolute",
+        left = 20, top = 6,
+        width = 220, height = 220,
+        borderRadius = 110,
+        borderWidth = 3,
+        borderColor = {205, 24, 28, 175},
+        backgroundColor = {95, 0, 0, 42},
+        opacity = 0,
+        scale = 0.45,
+        transformOrigin = "center",
+        pointerEvents = "none",
+    }
+    local innerRing = UI.Panel {
+        position = "absolute",
+        left = 45, top = 31,
+        width = 170, height = 170,
+        borderRadius = 85,
+        borderWidth = 1,
+        borderColor = {255, 92, 72, 150},
+        backgroundColor = {135, 4, 6, 36},
+        opacity = 0,
+        scale = 0.65,
+        transformOrigin = "center",
+        pointerEvents = "none",
+    }
+    local subtitle = UI.Label {
+        text = "魂归安全区",
+        fontSize = 14,
+        fontWeight = "bold",
+        fontColor = {220, 154, 144, 230},
+        letterSpacing = 5,
+        marginTop = -8,
+        opacity = 0,
+        translateY = 10,
+    }
+
+    glyph:Animate({
+        keyframes = {
+            [0] = { opacity = 0, scale = 2.15, rotate = -8 },
+            [0.28] = { opacity = 1, scale = 0.88, rotate = 2 },
+            [0.50] = { opacity = 1, scale = 1.08, rotate = -1 },
+            [0.78] = { opacity = 1, scale = 1.0, rotate = 0 },
+            [1] = { opacity = 0.82, scale = 1.03, rotate = 0 },
+        },
+        duration = effectDuration,
+        easing = "easeOutCubic",
+        fillMode = "forwards",
+    })
+    outerRing:Animate({
+        keyframes = {
+            [0] = { opacity = 0, scale = 0.45 },
+            [0.35] = { opacity = 0.9, scale = 1.0 },
+            [1] = { opacity = 0.12, scale = 1.35 },
+        },
+        duration = effectDuration,
+        easing = "easeOutCubic",
+        fillMode = "forwards",
+    })
+    innerRing:Animate({
+        keyframes = {
+            [0] = { opacity = 0, scale = 0.65 },
+            [0.42] = { opacity = 0.8, scale = 1.0 },
+            [1] = { opacity = 0.18, scale = 1.18 },
+        },
+        duration = effectDuration,
+        easing = "easeOutCubic",
+        fillMode = "forwards",
+    })
+    subtitle:Animate({
+        keyframes = {
+            [0] = { opacity = 0, translateY = 10 },
+            [0.45] = { opacity = 0, translateY = 10 },
+            [0.75] = { opacity = 1, translateY = 0 },
+            [1] = { opacity = 0.75, translateY = 0 },
+        },
+        duration = effectDuration,
+        easing = "easeOutCubic",
+        fillMode = "forwards",
+    })
+
+    uiState.deathMarkRoot = UI.Panel {
+        id = "deathMarkOverlay",
+        position = "absolute",
+        left = 0, top = 0,
+        width = "100%", height = "100%",
+        zIndex = 10000,
+        justifyContent = "center",
+        alignItems = "center",
+        pointerEvents = "auto",
+        backgroundGradient = {
+            type = "radial",
+            innerRadius = 0,
+            outerRadius = 520,
+            from = {112, 0, 0, 178},
+            to = {0, 0, 0, 220},
+        },
+        onClick = function() end,
+        children = {
+            UI.Panel {
+                width = 260,
+                height = 258,
+                justifyContent = "center",
+                alignItems = "center",
+                pointerEvents = "none",
+                children = { outerRing, innerRing, glyph, subtitle },
+            },
+        },
+    }
+
+    if uiState.hudRoot then
+        uiState.hudRoot:AddChild(uiState.deathMarkRoot)
+    else
+        UI.SetRoot(uiState.deathMarkRoot)
+    end
+    _SyncPauseState()
+end
+
+--- 显示死亡损失明细。弹窗只能通过“复活”按钮关闭，避免返回键绕过流程。
+---@param lossInfo table|nil {goldLost,goldRemaining,lossRatio}
+---@param onRevive function|nil
+function GameUI.ShowDeathLossDialog(lossInfo, onRevive)
+    GameUI.HideDeathMark()
+    if uiState.deathLossModal then
+        local oldModal = uiState.deathLossModal
+        uiState.deathLossModal = nil
+        oldModal:Close()
+    end
+
+    lossInfo = type(lossInfo) == "table" and lossInfo or {}
+    local goldLost = math.max(0, math.floor(tonumber(lossInfo.goldLost) or 0))
+    local goldRemaining = math.max(0, math.floor(tonumber(lossInfo.goldRemaining) or 0))
+    local lossPercent = math.max(0, math.floor((tonumber(lossInfo.lossRatio) or 0) * 100 + 0.5))
+    local lossText = goldLost > 0 and ("-" .. goldLost .. " 金币") or "本次未损失金币"
+    local lossColor = goldLost > 0 and {246, 72, 62, 255} or {166, 190, 166, 255}
+
+    local modal
+    local function ConfirmRevive()
+        local callback = uiState.deathReviveCallback
+        uiState.deathReviveCallback = nil
+        if uiState.deathLossModal then
+            local activeModal = uiState.deathLossModal
+            uiState.deathLossModal = nil
+            activeModal:Close()
+        end
+        if callback then callback() end
+        _SyncPauseState()
+    end
+
+    modal = UI.Modal {
+        title = "死亡结算",
+        size = "sm",
+        isOpen = false,
+        showCloseButton = false,
+        closeOnOverlay = false,
+        closeOnEscape = false,
+        backgroundColor = {26, 14, 13, 252},
+        borderWidth = 2,
+        borderColor = {151, 48, 43, 240},
+        titleTextColor = {246, 92, 78, 255},
+        titleFontSize = 18,
+        children = {
+            UI.Panel {
+                width = "100%",
+                alignItems = "center",
+                gap = 8,
+                children = {
+                    UI.Label {
+                        text = "你在战斗中倒下了",
+                        fontSize = 14,
+                        fontColor = {224, 214, 206, 255},
+                    },
+                    UI.Panel {
+                        width = "100%",
+                        paddingVertical = 12,
+                        paddingHorizontal = 14,
+                        alignItems = "center",
+                        backgroundColor = {68, 20, 18, 220},
+                        borderWidth = 1,
+                        borderColor = {162, 55, 48, 220},
+                        borderRadius = 6,
+                        children = {
+                            UI.Label {
+                                text = "金币损失（当前金币的 " .. lossPercent .. "%）",
+                                fontSize = 12,
+                                fontColor = {190, 158, 150, 230},
+                            },
+                            UI.Label {
+                                text = lossText,
+                                fontSize = 24,
+                                fontWeight = "bold",
+                                fontColor = lossColor,
+                                marginTop = 3,
+                            },
+                            UI.Label {
+                                text = "剩余金币：" .. goldRemaining,
+                                fontSize = 12,
+                                fontColor = {198, 190, 180, 230},
+                                marginTop = 3,
+                            },
+                        },
+                    },
+                    UI.Label {
+                        text = "经验、装备、任务进度均保留",
+                        fontSize = 12,
+                        fontColor = {170, 196, 168, 240},
+                    },
+                    UI.Label {
+                        text = "复活时，存活的怪物、精英和 Boss 将恢复满血",
+                        width = "100%",
+                        fontSize = 12,
+                        fontColor = {198, 170, 158, 235},
+                        textAlign = "center",
+                        whiteSpace = "normal",
+                    },
+                    UI.Button {
+                        text = "复活",
+                        width = 132,
+                        height = 38,
+                        marginTop = 6,
+                        variant = "primary",
+                        backgroundColor = {168, 42, 37, 255},
+                        borderWidth = 1,
+                        borderColor = {235, 92, 76, 240},
+                        fontSize = 14,
+                        fontWeight = "bold",
+                        onClick = ConfirmRevive,
+                    },
+                },
+            },
+        },
+    }
+
+    uiState.deathLossModal = modal
+    uiState.deathReviveCallback = onRevive
+    modal:Open()
+    _SyncPauseState()
+end
+
+--- 强制清理死亡演出与弹窗（退出角色会话、重建 HUD、关闭游戏时使用）。
+function GameUI.HideDeathPresentation()
+    uiState.deathReviveCallback = nil
+    GameUI.HideDeathMark()
+    if uiState.deathLossModal then
+        local modal = uiState.deathLossModal
+        uiState.deathLossModal = nil
+        modal:Close()
+    end
+    _SyncPauseState()
+end
+
+function GameUI.IsDeathPresentationActive()
+    return uiState.deathMarkRoot ~= nil or uiState.deathLossModal ~= nil
 end
 
 -- ============================================================================
@@ -2470,6 +2788,7 @@ end
 -- 游戏 HUD（去掉左上角 playerInfo，改由 NanoVG 绘制）
 -- ============================================================================
 function GameUI.ShowGameHUD(player)
+    GameUI.HideDeathPresentation()
     uiState.phase = "playing"
     uiState.player = player
     uiState.charPanelOpen = false
@@ -3142,7 +3461,15 @@ function GameUI.ShowNPCPanel(title, tabs, selectedTab)
                 alignItems = "flex-start",
                 onClick = r.onTap,
                 children = {
-                    UI.Label { text = r.text, fontSize = 14, fontColor = {230, 226, 210, 255}, textAlign = "left" },
+                    -- Rows may provide a contextual title color (for example an
+                    -- equipment rarity). Keep the neutral shop/service color as
+                    -- the fallback so existing NPC rows remain unchanged.
+                    UI.Label {
+                        text = r.text,
+                        fontSize = 14,
+                        fontColor = r.fontColor or {230, 226, 210, 255},
+                        textAlign = "left",
+                    },
                     UI.Label { text = r.hint or "", fontSize = 11, fontColor = {255, 210, 120, 215}, marginTop = 2, textAlign = "left" },
                 },
             })
@@ -3255,41 +3582,72 @@ function GameUI.ShowNPCPanel(title, tabs, selectedTab)
     buildPanel()
 end
 
---- 打开铁匠专属锻造台。锻造不再放在角色面板中，玩家必须在安全区
---- 靠近铁匠后使用该服务。
+--- 打开铁匠服务台。锻造与强化都不放在角色面板中，玩家必须在安全区
+--- 靠近铁匠后使用；刷新时保留当前 Tab 和强化选中的装备。
 ---@param player table
-function GameUI.ShowForgePanel(player)
+function GameUI.ShowBlacksmithPanel(player)
     if not player then
-        GameUI.ShowToast("角色数据不可用，暂时无法锻造")
+        GameUI.ShowToast("角色数据不可用，暂时无法使用铁匠服务")
         return
+    end
+
+    if uiState.blacksmithTab ~= "enhance" then
+        uiState.blacksmithTab = "forge"
+    end
+    if uiState.blacksmithSelectedItem
+        and not Inventory.IsOwnedItem(uiState.blacksmithSelectedItem) then
+        uiState.blacksmithSelectedItem = nil
     end
 
     GameUI.HideNPCPanel()
     uiState.npcPanelOpen = true
     _SyncPauseState()
 
-    local function refreshForgePanel()
+    local function refreshBlacksmithPanel()
         if not uiState.npcPanelOpen then return end
         GameUI.HideNPCPanel()
-        GameUI.ShowForgePanel(player)
+        GameUI.ShowBlacksmithPanel(player)
     end
 
-    local forgeContent = ForgePanel.Build {
+    local blacksmithContent = BlacksmithPanel.Build {
+        player = player,
+        activeTab = uiState.blacksmithTab,
+        selectedEnhanceItem = uiState.blacksmithSelectedItem,
         showToast = function(message) GameUI.ShowToast(message) end,
-        onRefresh = refreshForgePanel,
+        onRefresh = refreshBlacksmithPanel,
         onGoldChanged = function(gold) GameUI.UpdateGold(gold) end,
+        onTabChanged = function(tabId)
+            uiState.blacksmithTab = tabId
+        end,
+        onEnhanceSelect = function(item)
+            if not Inventory.IsOwnedItem(item) then
+                GameUI.ShowToast("装备状态已变化，请重新选择")
+                refreshBlacksmithPanel()
+                return
+            end
+            uiState.blacksmithTab = "enhance"
+            uiState.blacksmithSelectedItem = item
+            refreshBlacksmithPanel()
+        end,
+        onEnhanceSelectionResolved = function(item)
+            uiState.blacksmithSelectedItem = item
+        end,
+        applyDerivedStats = function()
+            -- 强化穿戴中的装备后必须立即同步角色实际攻防与生命上限。
+            CharacterClass.ApplyDerivedStats(player, Inventory.playerData, false)
+        end,
     }
 
     uiState.npcPanelRoot = UI.Panel {
-        id = "forgePanelOverlay",
+        id = "blacksmithPanelOverlay",
         width = "100%", height = "100%",
         backgroundColor = {0, 0, 0, 178},
         justifyContent = "center", alignItems = "center",
         onClick = function() GameUI.HideNPCPanel() end,
         children = {
             UI.Panel {
-                width = "92%", maxWidth = 560,
-                height = "90%", maxHeight = 620,
+                width = "94%", maxWidth = 620,
+                height = "92%", maxHeight = 650,
                 backgroundColor = {16, 12, 9, 252},
                 borderRadius = 12, borderWidth = 2,
                 borderColor = {164, 105, 43, 220},
@@ -3297,19 +3655,21 @@ function GameUI.ShowForgePanel(player)
                 overflow = "hidden",
                 onClick = function() end,
                 children = {
-                    _CreateOverlayHeader("铁匠 · 锻造台", function()
+                    _CreateOverlayHeader("铁匠铺", function()
                         GameUI.HideNPCPanel()
                     end, {
-                        subtitle = "自动选 3 件材料 · 每次锻造 1 件",
+                        subtitle = "五件合成更高品质 · 金币强化至 +12",
                         titleColor = {244, 210, 142, 255},
                         subtitleColor = {202, 154, 92, 220},
+                        marginBottom = 6,
                     }),
-                    UI.ScrollView {
+                    UI.Panel {
                         width = "100%",
                         flexGrow = 1,
                         flexBasis = 0,
-                        showScrollbar = true,
-                        children = { forgeContent },
+                        minHeight = 0,
+                        overflow = "hidden",
+                        children = { blacksmithContent },
                     },
                 },
             },
@@ -3317,7 +3677,14 @@ function GameUI.ShowForgePanel(player)
     }
 
     UI.SetRoot(uiState.npcPanelRoot)
-    print("[GameUI] Blacksmith forge panel opened")
+    print("[GameUI] Blacksmith panel opened, tab=" .. uiState.blacksmithTab)
+end
+
+--- 旧入口兼容：默认打开锻造页。
+---@param player table
+function GameUI.ShowForgePanel(player)
+    uiState.blacksmithTab = "forge"
+    GameUI.ShowBlacksmithPanel(player)
 end
 
 function GameUI.HideNPCPanel()
@@ -4941,6 +5308,7 @@ GameUI.onDebugMaxLevel = nil     -- function() : 一键满级+技能栏填充
 -- 清理
 -- ============================================================================
 function GameUI.Shutdown()
+    GameUI.HideDeathPresentation()
     if nvgCtx then
         nvgDelete(nvgCtx)
         nvgCtx = nil

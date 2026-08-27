@@ -158,8 +158,6 @@ local function ShowItemDetail(options, item, sourceSlot)
     local targetName = targetSlot and (Inventory.SLOT_NAMES[targetSlot] or targetSlot) or "未知槽位"
     local bagFull = #inv.bag >= Inventory.MAX_BAG_SLOTS
     local enhanceLevel = Integer(item.enhance)
-    local enhanceCost = enhanceLevel < 12
-        and Inventory.Enhance.EnhanceCost(enhanceLevel + 1) or nil
     local recycleReward = Inventory.Enhance.Recycle(item)
     local sellPrice = Inventory.GetItemSellPrice(item)
 
@@ -188,28 +186,13 @@ local function ShowItemDetail(options, item, sourceSlot)
         Refresh(options)
     end
 
-    local function doEnhance(useProtect)
-        local ok, reason, finalLevel = Inventory.EnhanceItem(item, useProtect)
-        if ok then
-            ShowToast(options, (item.name or "装备") .. " 强化成功 → +" .. finalLevel)
-            Refresh(options)
-            return
-        end
-
-        ShowToast(options, reason or "强化失败")
-        -- 随机强化失败也会消耗资源，且可能掉级；需要刷新数值与资源显示。
-        if reason and string.find(reason, "强化失败", 1, true) then
-            Refresh(options)
-        end
-    end
-
     local function doRecycle()
         local ok, reward, reason = Inventory.RecycleItem(item)
         if not ok then
             ShowToast(options, reason or "分解失败")
             return
         end
-        ShowToast(options, "已分解 +" .. reward.gold .. "金 +" .. reward.stones .. "石")
+        ShowToast(options, "已分解，获得 " .. reward.gold .. " 金币")
         Refresh(options)
     end
 
@@ -304,8 +287,8 @@ local function ShowItemDetail(options, item, sourceSlot)
     end
 
     table.insert(bodyChildren, UI.Label {
-        text = "商店估值 " .. sellPrice .. " 金 · 分解 "
-            .. recycleReward.gold .. " 金 / " .. recycleReward.stones .. " 石",
+        text = "商店估值 " .. sellPrice .. " 金 · 分解可得 "
+            .. recycleReward.gold .. " 金",
         width = "100%",
         fontSize = 10,
         fontColor = {165, 158, 144, 195},
@@ -361,51 +344,36 @@ local function ShowItemDetail(options, item, sourceSlot)
         marginTop = 12,
     })
 
-    local enhanceInfo = "已强化 +" .. enhanceLevel .. ""
-    if enhanceCost then
-        enhanceInfo = string.format(
-            "下一级需 %d 石 / %d 金 · 成功率 %.0f%%%s",
-            enhanceCost.stones,
-            enhanceCost.gold,
-            enhanceCost.successRate * 100,
-            enhanceCost.dropOnFail and " · 失败可能掉级" or "")
-    else
-        enhanceInfo = "已强化 +12 · 达到上限"
-    end
-    table.insert(bodyChildren, UI.Label {
-        text = enhanceInfo,
+    table.insert(bodyChildren, UI.Panel {
         width = "100%",
-        fontSize = 10,
-        fontColor = {184, 176, 158, 210},
-        marginTop = 4,
+        marginTop = 5,
+        padding = 9,
+        backgroundColor = enhanceLevel >= 12
+            and {30, 48, 31, 205} or {45, 34, 19, 205},
+        borderRadius = 7,
+        borderWidth = 1,
+        borderColor = enhanceLevel >= 12
+            and {92, 168, 105, 175} or {174, 126, 54, 175},
+        gap = 3,
+        children = {
+            UI.Label {
+                text = enhanceLevel >= 12
+                    and "当前 +12 · 已达到强化上限"
+                    or ("当前 +" .. enhanceLevel .. " · 下一等级请前往安全区铁匠"),
+                fontSize = 11,
+                fontWeight = "bold",
+                fontColor = enhanceLevel >= 12
+                    and {142, 220, 151, 240} or {238, 198, 116, 240},
+            },
+            UI.Label {
+                text = "铁匠会在操作前展示金币费用、成功率、失败结果与保护选项。",
+                fontSize = 9,
+                lineHeight = 1.35,
+                whiteSpace = "normal",
+                fontColor = {174, 168, 154, 205},
+            },
+        },
     })
-    table.insert(bodyChildren, UI.Label {
-        text = "当前资源：" .. Inventory.GetEnhanceStones() .. " 强化石 · "
-            .. Inventory.GetProtectStones() .. " 保护石 · " .. inv.gold .. " 金",
-        width = "100%",
-        fontSize = 10,
-        fontColor = {168, 166, 158, 200},
-        marginTop = 3,
-    })
-    table.insert(bodyChildren, UI.Button {
-        text = enhanceLevel >= 12 and "强化已满" or "普通强化",
-        width = "100%", height = 36,
-        marginTop = 7,
-        disabled = enhanceLevel >= 12,
-        onClick = enhanceLevel < 12 and function() doEnhance(false) end or nil,
-    })
-
-    if enhanceCost and enhanceCost.dropOnFail then
-        local protectStones = Inventory.GetProtectStones()
-        table.insert(bodyChildren, UI.Button {
-            text = "保护强化（剩余 " .. protectStones .. "）",
-            width = "100%", height = 36,
-            marginTop = 6,
-            variant = "secondary",
-            disabled = protectStones <= 0,
-            onClick = protectStones > 0 and function() doEnhance(true) end or nil,
-        })
-    end
 
     table.insert(bodyChildren, UI.Button {
         text = sourceSlot and "分解穿戴中装备" or "分解装备",
@@ -639,7 +607,7 @@ function EquipmentPanel.BuildEquipTab(options)
         width = "100%",
         children = {
             UI.Label {
-                text = "点击已穿戴装备查看实际属性、强化、分解或卸下",
+                text = "点击已穿戴装备查看属性、分解或卸下；强化请前往安全区铁匠",
                 fontSize = 10,
                 fontColor = {154, 156, 154, 175},
                 textAlign = "center",
@@ -755,7 +723,6 @@ function EquipmentPanel.BuildBagTab(options)
                 marginBottom = 10,
                 children = {
                     UI.Label { text = "金币 " .. inv.gold, fontSize = 13, fontColor = {228, 230, 228, 255}, fontWeight = "bold" },
-                    UI.Label { text = "强化石 " .. Inventory.GetEnhanceStones(), fontSize = 11, fontColor = {255, 202, 92, 230} },
                     UI.Label { text = "保护石 " .. Inventory.GetProtectStones(), fontSize = 11, fontColor = {126, 190, 242, 225} },
                 },
             },
