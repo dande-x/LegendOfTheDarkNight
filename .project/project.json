@@ -24,14 +24,14 @@
     "icon": "./game_material/ICON_2026-08-28T02-53-21_01.png",
     "screenshots": [
       "./game_material/screenshot_1.png",
-      "./game_material/SCREENSHOT_2026-08-28T11-25-06_02.png",
+      "./game_material/screenshot_2.png",
       "./game_material/SCREENSHOT_2026-08-28T08-13-36_03.png"
     ],
     "promotional_image": "./game_material/PROMO_2026-08-28T02-53-21_01.jpg",
     "icon_url": "https://tapcode-sce.spark.xd.com/assets/game_material/暗夜传奇/ICON_2026-08-28T02-53-21_01.png",
     "screenshot_urls": [
       "https://tapcode-sce.spark.xd.com/assets/game_material/p_538d/screenshot_1.png",
-      "https://tapcode-sce.spark.xd.com/assets/game_material/暗夜传奇/SCREENSHOT_2026-08-28T11-25-06_02.png",
+      "https://tapcode-sce.spark.xd.com/assets/game_material/p_538d/screenshot_2.png",
       "https://tapcode-sce.spark.xd.com/assets/game_material/暗夜传奇/SCREENSHOT_2026-08-28T08-13-36_03.png"
     ],
     "promotional_image_url": "https://tapcode-sce.spark.xd.com/assets/game_material/暗夜传奇/PROMO_2026-08-28T02-53-21_01.jpg",
@@ -41,7 +41,7 @@
     "cover_vertical_url": "https://tapcode-sce.spark.xd.com/assets/game_material/暗夜传奇/COVER_VERTICAL_2026-08-28T02-55-27_01.png"
   },
   "metadata": {
-    "updated_at": "2026-08-28T12:24:30.366Z",
+    "updated_at": "2026-08-28T12:30:14.231Z",
     "promo_dependent_hash": "e20672b545daa771abc3a41cb7cb5a13"
   }
 }
