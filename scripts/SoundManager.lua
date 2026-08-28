@@ -11,9 +11,9 @@
 --   * 设置持久化到 saves/audio_settings.json（与角色存档分离的全局设置）。
 -- ============================================================================
 
+---@class SoundManager
 local SoundManager = {}
 
----@class SoundManager
 local Effects = require("urhox-libs.Effects.Effects")
 
 -- 全局设置（不受单个角色存档影响）
@@ -236,14 +236,16 @@ function SoundManager.PlayMusic(name, options)
     bgmHandle = nil
     currentBgm = nil
 
+    -- 说明：Effects 库的 options.soundType 注解为 number，与引擎实际的字符串
+    -- 类型（SOUND_MUSIC 等）不符，这里改为拿到句柄后直接设置音源属性。
     local handle = Effects.PlaySoundLooped(scene, path, {
         gain = gain,
-        soundType = SOUND_MUSIC,
     })
     if not handle then return end
     -- 音量直接落在音源上，不用属性动画淡入，避免引擎报错。
     if handle.source then
         handle.source.gain = gain
+        handle.source.soundType = SOUND_MUSIC
     end
     bgmHandle = handle
     currentBgm = path
