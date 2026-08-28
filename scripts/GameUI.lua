@@ -5256,6 +5256,49 @@ function GameUI.ShowSystemPanel()
         }
     end
 
+    -- 使用原生左右 Toggle。Toggle 会在触发 onChange 前先更新自身 value，
+    -- 配合 SoundManager 的延迟持久化，点击后可立即显示滑块位置。
+    local function createAudioToggleRow(labelText, enabled, onChange)
+        return UI.Panel {
+            width = "100%",
+            flexDirection = "row",
+            alignItems = "center",
+            justifyContent = "space-between",
+            paddingLeft = 4, paddingRight = 4,
+            children = {
+                UI.Label {
+                    text = labelText,
+                    fontSize = 14,
+                    fontColor = {214, 216, 214, 240},
+                },
+                UI.Toggle {
+                    value = enabled,
+                    width = 52,
+                    height = 28,
+                    trackWidth = 52,
+                    trackHeight = 28,
+                    thumbSize = 22,
+                    borderRadius = 14,
+                    borderWidth = 1,
+                    trackBg = {70, 58, 58, 240},
+                    trackHoverBgColor = {82, 66, 66, 245},
+                    trackBorderColor = {150, 78, 78, 185},
+                    trackHoverBorderColor = {178, 94, 94, 210},
+                    trackCheckedBgColor = {66, 108, 64, 245},
+                    trackCheckedHoverBgColor = {76, 126, 72, 250},
+                    trackCheckedBorderColor = {102, 168, 94, 210},
+                    trackCheckedHoverBorderColor = {122, 190, 112, 230},
+                    thumbColor = {236, 214, 202, 255},
+                    thumbHoverColor = {248, 228, 214, 255},
+                    thumbCheckedColor = {246, 226, 174, 255},
+                    onChange = function(_, value)
+                        onChange(value)
+                    end,
+                },
+            },
+        }
+    end
+
     local systemContent = {
         UI.Panel {
             width = "100%", height = 1,
@@ -5276,84 +5319,13 @@ function GameUI.ShowSystemPanel()
                 end
             end,
         },
-        -- 音效开关：独立控制，与背景音乐互不影响
-        (function()
-            local enabled = SoundManager.IsSoundEnabled()
-            local btn = UI.Button {
-                text = (enabled and "开启" or "关闭"),
-                width = 72, height = 32,
-                backgroundColor = (enabled and {60, 90, 60, 240} or {70, 58, 58, 240}),
-                borderRadius = 6, borderWidth = 1,
-                borderColor = (enabled and {90, 160, 90, 200} or {160, 80, 80, 180}),
-                fontSize = 13,
-                fontColor = (enabled and {180, 255, 180, 255} or {236, 200, 200, 255}),
-                onClick = function(button)
-                    local newEnabled = not SoundManager.IsSoundEnabled()
-                    SoundManager.SetSoundEnabled(newEnabled)
-                    SoundManager.Play("click")
-                    button:SetText(newEnabled and "开启" or "关闭")
-                    button:SetStyle {
-                        backgroundColor = (newEnabled and {60, 90, 60, 240} or {70, 58, 58, 240}),
-                        borderColor = (newEnabled and {90, 160, 90, 200} or {160, 80, 80, 180}),
-                        fontColor = (newEnabled and {180, 255, 180, 255} or {236, 200, 200, 255}),
-                    }
-                end,
-            }
-            return UI.Panel {
-                width = "100%",
-                flexDirection = "row",
-                alignItems = "center",
-                justifyContent = "space-between",
-                paddingLeft = 4, paddingRight = 4,
-                children = {
-                    UI.Label {
-                        text = "音效",
-                        fontSize = 14,
-                        fontColor = {214, 216, 214, 240},
-                    },
-                    btn,
-                },
-            }
-        end)(),
-        -- 背景音乐开关：独立控制，与音效互不影响
-        (function()
-            local enabled = SoundManager.IsMusicEnabled()
-            local btn = UI.Button {
-                text = (enabled and "开启" or "关闭"),
-                width = 72, height = 32,
-                backgroundColor = (enabled and {60, 90, 60, 240} or {70, 58, 58, 240}),
-                borderRadius = 6, borderWidth = 1,
-                borderColor = (enabled and {90, 160, 90, 200} or {160, 80, 80, 180}),
-                fontSize = 13,
-                fontColor = (enabled and {180, 255, 180, 255} or {236, 200, 200, 255}),
-                onClick = function(button)
-                    local newEnabled = not SoundManager.IsMusicEnabled()
-                    SoundManager.SetMusicEnabled(newEnabled)
-                    SoundManager.Play("click")
-                    button:SetText(newEnabled and "开启" or "关闭")
-                    button:SetStyle {
-                        backgroundColor = (newEnabled and {60, 90, 60, 240} or {70, 58, 58, 240}),
-                        borderColor = (newEnabled and {90, 160, 90, 200} or {160, 80, 80, 180}),
-                        fontColor = (newEnabled and {180, 255, 180, 255} or {236, 200, 200, 255}),
-                    }
-                end,
-            }
-            return UI.Panel {
-                width = "100%",
-                flexDirection = "row",
-                alignItems = "center",
-                justifyContent = "space-between",
-                paddingLeft = 4, paddingRight = 4,
-                children = {
-                    UI.Label {
-                        text = "背景音乐",
-                        fontSize = 14,
-                        fontColor = {214, 216, 214, 240},
-                    },
-                    btn,
-                },
-            }
-        end)(),
+        -- 音效与背景音乐相互独立；滑块先反馈，再异步保存设置。
+        createAudioToggleRow("音效", SoundManager.IsSoundEnabled(), function(value)
+            SoundManager.SetSoundEnabled(value)
+        end),
+        createAudioToggleRow("背景音乐", SoundManager.IsMusicEnabled(), function(value)
+            SoundManager.SetMusicEnabled(value)
+        end),
         createVolumeRow("音效音量", SoundManager.GetSfxGain(), function(value, persist)
             SoundManager.SetSfxGain(value, persist)
         end),

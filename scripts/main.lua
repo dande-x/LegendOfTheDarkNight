@@ -283,6 +283,8 @@ function Stop()
     end
     -- 当前角色会话结束即清空神兽召唤与成长状态。
     DivineBeast.Clear()
+    -- 音频设置平时延迟写入，退出前强制落盘，避免最后一次操作丢失。
+    SoundManager.FlushSettings()
     -- 停止背景音乐，避免退出时残留循环节点
     SoundManager.StopMusic()
     UI.Shutdown()
@@ -293,6 +295,7 @@ end
 ---@param eventData table|nil
 function HandleAppWillEnterBackground(eventType, eventData)
     SaveCurrentGame(true)
+    SoundManager.FlushSettings()
 end
 
 --- 应用收到终止通知时保存一次当前角色。
@@ -300,6 +303,7 @@ end
 ---@param eventData table|nil
 function HandleAppTerminating(eventType, eventData)
     SaveCurrentGame(true)
+    SoundManager.FlushSettings()
 end
 
 -- ============================================================================
@@ -2667,7 +2671,11 @@ function SetupGameCallbacks()
             GameUI.AddFloatingText("护盾吸收", playerPos, {120, 190, 255, 255})
         else
             GameUI.AddFloatingText("-" .. math.floor(dmg), playerPos, {255, 80, 60, 255})
-            SoundManager.Play("hurt", { position = playerPos, gender = player_ and player_.gender })
+            -- 致死一击下一帧会播放专用死亡音效，不再叠加受伤声；其余
+            -- 连续命中由 SoundManager.PlayHurt 做 0.45 秒全局节流。
+            if not player_ or (tonumber(player_.hp) or 0) > 0 then
+                SoundManager.PlayHurt({ position = playerPos, gender = player_ and player_.gender })
+            end
         end
     end
 
@@ -3152,6 +3160,9 @@ end
 -- ============================================================================
 function HandleUpdate(eventType, eventData)
     local dt = eventData["TimeStep"]:GetFloat()
+
+    -- 推进受伤音效节流，即使当前处于启动 Logo、暂停或死亡演出也不冻结。
+    SoundManager.Update(dt)
 
     -- 安全区 NPC 的待机动画独立于玩家状态更新，暂停/死亡演出期间也
     -- 保持微光环、金币和火花的轻量活动感；动画只作用于视觉子节点。

@@ -16,12 +16,24 @@ local SoundManager = {}
 
 local Effects = require("urhox-libs.Effects.Effects")
 
+-- 默认音量与受伤反馈调优。
+-- 音效总增益负责整体舒适度，受伤音效另设倍率，避免密集战斗里盖过
+-- 技能、背景音乐和重要的死亡提示。
+local SETTINGS_VERSION = 2
+local DEFAULT_MUSIC_GAIN = 0.5
+local DEFAULT_SFX_GAIN = 0.6
+local LEGACY_DEFAULT_SFX_GAIN = 0.8
+local HURT_SOUND_GAIN = 0.45
+local HURT_SOUND_COOLDOWN = 0.45
+local SETTINGS_SAVE_DELAY = 0.20
+local MUSIC_APPLY_DEFER_FRAMES = 1
+
 -- 全局设置（不受单个角色存档影响）
 local settings = {
     soundEnabled = true,  -- 一次性音效开关（独立）
     musicEnabled = true,  -- 背景音乐开关（独立）
-    musicGain = 0.5,      -- 背景音乐音量
-    sfxGain = 0.8,        -- 一次性音效音量
+    musicGain = DEFAULT_MUSIC_GAIN, -- 背景音乐音量
+    sfxGain = DEFAULT_SFX_GAIN,     -- 一次性音效音量
 }
 
 -- 运行期缓存
@@ -30,6 +42,11 @@ local currentBgm = nil      -- 当前背景音乐路径
 local currentBgmKey = nil   -- 当前背景音乐键（menu/battle），用于关闭后恢复
 local settingsPath = "saves/audio_settings.json"
 local settingsLoaded = false
+local hurtSoundCooldown = 0
+local settingsDirty = false
+local settingsSaveTimer = 0
+local pendingMusicEnabled = nil
+local pendingMusicFrames = 0
 
 -- 音效路径表（完整路径字面量，便于引用计算打包）
 local SOUND_PATHS = {
@@ -67,6 +84,18 @@ local MUSIC_PATHS = {
 
 SoundManager.SOUND_PATHS = SOUND_PATHS
 SoundManager.MUSIC_PATHS = MUSIC_PATHS
+SoundManager.DEFAULT_SFX_GAIN = DEFAULT_SFX_GAIN
+SoundManager.DEFAULT_MUSIC_GAIN = DEFAULT_MUSIC_GAIN
+SoundManager.HURT_SOUND_GAIN = HURT_SOUND_GAIN
+SoundManager.HURT_SOUND_COOLDOWN = HURT_SOUND_COOLDOWN
+
+-- 各类音效的相对增益。options.gain 仍可用于单次微调，最终还会乘以
+-- 系统菜单中的音效总音量。
+local SOUND_GAIN_MULTIPLIERS = {
+    hurt = HURT_SOUND_GAIN,
+    hurt_male = HURT_SOUND_GAIN,
+    hurt_female = HURT_SOUND_GAIN,
+}
 
 -- ============================================================================
 -- 设置持久化
@@ -83,6 +112,13 @@ local function ToGain(value, fallback)
     local n = tonumber(value)
     if not n or n ~= n or n == math.huge or n == -math.huge then return fallback end
     return math.max(0.0, math.min(1.0, n))
+end
+
+--- 标记设置需要保存。所有菜单改动都走短暂 debounce，避免点击或拖动回调
+--- 被同步文件 IO 阻塞。
+local function MarkSettingsDirty()
+    settingsDirty = true
+    settingsSaveTimer = SETTINGS_SAVE_DELAY
 end
 
 --- 加载设置（幂等，多次调用只读一次）
@@ -104,19 +140,34 @@ function SoundManager.LoadSettings()
     -- 兼容仅保存过旧版 soundEnabled 的设置：旧开关同时代表两类音频，
     -- 因此在缺少 musicEnabled 时沿用旧值，避免升级后背景音乐意外恢复。
     settings.musicEnabled = ToBool(data.musicEnabled, settings.soundEnabled)
-    settings.musicGain = ToGain(data.musicGain, 0.5)
-    settings.sfxGain = ToGain(data.sfxGain, 0.8)
+    settings.musicGain = ToGain(data.musicGain, DEFAULT_MUSIC_GAIN)
+
+    -- v1 的默认音效音量是 0.8。只迁移“仍等于旧默认值”的存档，
+    -- 其他用户已经主动调过的音量保留，避免覆盖玩家偏好。
+    local savedVersion = tonumber(data.version) or 1
+    local savedSfxGain = tonumber(data.sfxGain)
+    local shouldMigrateLegacyDefault = savedVersion < SETTINGS_VERSION
+        and (savedSfxGain == nil or math.abs(savedSfxGain - LEGACY_DEFAULT_SFX_GAIN) < 0.001)
+    settings.sfxGain = ToGain(savedSfxGain, DEFAULT_SFX_GAIN)
+    if shouldMigrateLegacyDefault then
+        settings.sfxGain = DEFAULT_SFX_GAIN
+        -- 立即写回新版本，后续启动不再重复走迁移分支。
+        SoundManager.SaveSettings()
+    end
+
     print("[SoundManager] Loaded settings: soundEnabled=" .. tostring(settings.soundEnabled)
-        .. " musicEnabled=" .. tostring(settings.musicEnabled))
+        .. " musicEnabled=" .. tostring(settings.musicEnabled)
+        .. " sfxGain=" .. string.format("%.2f", settings.sfxGain))
 end
 
 --- 保存设置
+---@return boolean 是否成功写入
 function SoundManager.SaveSettings()
     if not fileSystem:DirExists("saves") then
         fileSystem:CreateDir("saves")
     end
     local data = {
-        version = 1,
+        version = SETTINGS_VERSION,
         soundEnabled = settings.soundEnabled,
         musicEnabled = settings.musicEnabled,
         musicGain = settings.musicGain,
@@ -125,14 +176,24 @@ function SoundManager.SaveSettings()
     local ok, jsonStr = pcall(cjson.encode, data)
     if not ok or type(jsonStr) ~= "string" then
         print("[SoundManager] SaveSettings encode failed")
-        return
+        return false
     end
     local file = File(settingsPath, FILE_WRITE)
-    if not file:IsOpen() then return end
+    if not file:IsOpen() then return false end
     file:WriteString(jsonStr)
     file:Close()
+    settingsDirty = false
+    settingsSaveTimer = 0
     print("[SoundManager] Saved settings: soundEnabled=" .. tostring(settings.soundEnabled)
         .. " musicEnabled=" .. tostring(settings.musicEnabled))
+    return true
+end
+
+--- 立即落盘尚未保存的设置；退出或进入后台时调用。
+function SoundManager.FlushSettings()
+    if settingsDirty then
+        SoundManager.SaveSettings()
+    end
 end
 
 -- ============================================================================
@@ -148,8 +209,10 @@ end
 --- 设置一次性音效开关（不影响背景音乐）。
 ---@param enabled boolean
 function SoundManager.SetSoundEnabled(enabled)
-    settings.soundEnabled = enabled == true
-    SoundManager.SaveSettings()
+    local newEnabled = enabled == true
+    if settings.soundEnabled == newEnabled then return end
+    settings.soundEnabled = newEnabled
+    MarkSettingsDirty()
 end
 
 --- 背景音乐是否开启（与一次性音效相互独立）
@@ -161,15 +224,15 @@ end
 --- 设置背景音乐开关。关闭时停止背景音乐；重新开启时播放关闭前保留的音乐键。
 ---@param enabled boolean
 function SoundManager.SetMusicEnabled(enabled)
-    settings.musicEnabled = enabled == true
-    if not settings.musicEnabled then
-        SoundManager.StopMusic(true)  -- 保留音乐键，重新开启时可恢复
-    else
-        if currentBgmKey then
-            SoundManager.PlayMusic(currentBgmKey)
-        end
-    end
-    SoundManager.SaveSettings()
+    local newEnabled = enabled == true
+    if settings.musicEnabled == newEnabled then return end
+    settings.musicEnabled = newEnabled
+
+    -- 音源停止/恢复可能触发资源加载。先让 UI Toggle 完成一帧视觉反馈，
+    -- 再由 Update 统一应用最后一次状态，快速连点也不会反复重建音源。
+    pendingMusicEnabled = newEnabled
+    pendingMusicFrames = MUSIC_APPLY_DEFER_FRAMES
+    MarkSettingsDirty()
 end
 
 --- 获取背景音乐音量
@@ -188,28 +251,75 @@ end
 ---
 --- 立即应用到当前正在播放的背景音乐。
 ---@param gain number
----@param persist? boolean 是否立即持久化；滑块拖动过程中可传 false
+---@param persist? boolean 保留兼容；设置统一延迟持久化
 function SoundManager.SetMusicGain(gain, persist)
     settings.musicGain = ToGain(gain, settings.musicGain)
     -- 当前 BGM 不需要重启；直接修改音源即可让滑块即时生效。
     if bgmHandle and bgmHandle.source then
         bgmHandle.source.gain = settings.musicGain
     end
-    if persist ~= false then
-        SoundManager.SaveSettings()
-    end
+    MarkSettingsDirty()
 end
 
 --- 设置一次性音效音量（0.0 - 1.0）。
 ---
 --- 新播放的音效会使用新音量；已播放的短音效无需追踪和修改。
 ---@param gain number
----@param persist? boolean 是否立即持久化；滑块拖动过程中可传 false
+---@param persist? boolean 保留兼容；设置统一延迟持久化
 function SoundManager.SetSfxGain(gain, persist)
     settings.sfxGain = ToGain(gain, settings.sfxGain)
-    if persist ~= false then
-        SoundManager.SaveSettings()
+    MarkSettingsDirty()
+end
+
+--- 每帧推进瞬态音频状态。
+---
+--- 受伤音效节流不依赖真实时间 API，暂停、死亡演出和移动端帧率变化时
+--- 也能按游戏帧稳定恢复。
+---@param dt number
+function SoundManager.Update(dt)
+    local timeStep = tonumber(dt) or 0
+    if timeStep > 0 then
+        hurtSoundCooldown = math.max(0, hurtSoundCooldown - timeStep)
     end
+
+    if pendingMusicEnabled ~= nil then
+        if pendingMusicFrames > 0 then
+            pendingMusicFrames = pendingMusicFrames - 1
+        else
+            local shouldEnable = pendingMusicEnabled
+            pendingMusicEnabled = nil
+            if shouldEnable then
+                if currentBgmKey then
+                    SoundManager.PlayMusic(currentBgmKey)
+                end
+            else
+                SoundManager.StopMusic(true)  -- 保留音乐键，重新开启时可恢复
+            end
+        end
+    end
+
+    if settingsDirty and timeStep > 0 then
+        settingsSaveTimer = math.max(0, settingsSaveTimer - timeStep)
+        if settingsSaveTimer <= 0 then
+            SoundManager.SaveSettings()
+        end
+    end
+end
+
+--- 播放受伤音效（带全局节流）。
+---
+--- 同一时间被多只怪物命中时，视觉伤害数字仍完整显示，但声音在短窗口内
+--- 只保留一次，避免连续尖叫/撞击声形成噪音墙。
+---@param options? {position?: Vector3, scene?: Scene, gender?: string, gain?: number}
+---@return table|nil 音效句柄；处于节流窗口或音效关闭时返回 nil
+function SoundManager.PlayHurt(options)
+    if hurtSoundCooldown > 0 then return nil end
+
+    local handle = SoundManager.Play("hurt", options)
+    if handle then
+        hurtSoundCooldown = HURT_SOUND_COOLDOWN
+    end
+    return handle
 end
 
 --- 播放一次性音效
@@ -236,7 +346,8 @@ function SoundManager.Play(name, options)
     local scene = options.scene or SoundManager.currentScene
     if not scene then return nil end
 
-    local gain = (options.gain or 1.0) * settings.sfxGain
+    local gainMultiplier = SOUND_GAIN_MULTIPLIERS[name] or 1.0
+    local gain = (options.gain or 1.0) * gainMultiplier * settings.sfxGain
     if gain <= 0.01 then return nil end
 
     return Effects.PlaySound(scene, path, {
