@@ -209,26 +209,27 @@ function SoundManager.PlayMusic(name, options)
 
     local gain = (options.gain or settings.musicGain)
 
-    -- 停止旧 BGM
-    if bgmHandle and bgmHandle.FadeOut then
-        bgmHandle:FadeOut(0.6, true)
-    elseif bgmHandle and bgmHandle.Stop then
+    -- 停止旧 BGM。
+    -- 说明：Effects.FadeOutSound 依赖 ValueAnimation + SetAttributeAnimation("Gain")，
+    -- 在宿主引擎上会触发 "Invalid value type" 报错，因此这里走直接 Stop/Remove，避开该路径。
+    if bgmHandle and bgmHandle.Stop then
         bgmHandle:Stop()
     end
     bgmHandle = nil
     currentBgm = nil
 
     local handle = Effects.PlaySoundLooped(scene, path, {
-        gain = 0, -- 从 0 淡入
+        gain = gain,
         soundType = SOUND_MUSIC,
     })
     if not handle then return end
+    -- 音量直接落在音源上，不用属性动画淡入，避免引擎报错。
+    if handle.source then
+        handle.source.gain = gain
+    end
     bgmHandle = handle
     currentBgm = path
     currentBgmKey = name
-    if handle.FadeIn then
-        handle:FadeIn(1.0, gain)
-    end
     print("[SoundManager] PlayMusic: " .. path)
 end
 
@@ -236,9 +237,8 @@ end
 ---@param keepKey? boolean 停止后是否保留音乐键（用于关闭音效后可恢复）
 function SoundManager.StopMusic(keepKey)
     if bgmHandle then
-        if bgmHandle.FadeOut then
-            bgmHandle:FadeOut(0.4, true)
-        elseif bgmHandle.Stop then
+        -- 同上：优先直接 Stop/Remove，避免 SetAttributeAnimation 触发 "Invalid value type"。
+        if bgmHandle.Stop then
             bgmHandle:Stop()
         end
         bgmHandle = nil

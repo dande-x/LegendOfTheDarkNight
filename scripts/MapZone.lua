@@ -42,7 +42,7 @@ MapZone.DEFS = {
         -- 盟重自然生态；显式首领遭遇也通过 Combat 的统一生成入口创建。
         spawnPool = { "狼", "石魔", "红野猪", "黑野猪" },
         boss = "白野猪",
-        spawnSettings = { initialCount = 12, maxEnemies = 28, interval = 0.95 },
+        spawnSettings = { initialCount = 10, maxEnemies = 24, interval = 1.20 },
         spawnPos = Vector3.ZERO,
         safeZoneRadius = 8,
         teleportCost = 100,
@@ -60,9 +60,10 @@ MapZone.DEFS = {
         groundColor = Color(0.06, 0.17, 0.31, 1.0),
         fogColor = Color(0.12, 0.42, 0.46, 1.0),
         -- 水城自然生态维持 25~34 级，不再临时补入指定任务怪。
-        spawnPool = { "石像鬼", "海妖", "巨蜥" },
+        -- 减少蛇类比例：用已有的非蛇怪（赤焰魔/石像鬼）替换巨蜥，避免“全是蛇”。
+        spawnPool = { "石像鬼", "海妖", "赤焰魔" },
         boss = "蚁后",
-        spawnSettings = { initialCount = 12, maxEnemies = 30, interval = 1.00 },
+        spawnSettings = { initialCount = 8, maxEnemies = 22, interval = 1.50 },
         spawnPos = Vector3.ZERO,
         safeZoneRadius = 8,
         teleportCost = 100,
@@ -82,7 +83,7 @@ MapZone.DEFS = {
         -- 沃玛自然生态；任务不会改变这里的怪物构成。
         spawnPool = { "岩甲兽", "黑鳞蟒", "深渊恶鬼" },
         boss = "沃玛教主",
-        spawnSettings = { initialCount = 10, maxEnemies = 26, interval = 1.10 },
+        spawnSettings = { initialCount = 8, maxEnemies = 20, interval = 1.50 },
         spawnPos = Vector3.ZERO,
         safeZoneRadius = 8,
         teleportCost = 100,
@@ -102,7 +103,7 @@ MapZone.DEFS = {
         -- 祖玛卫士保留精英身份，由 Combat 以较低权重混入常规生态。
         spawnPool = { "熔岩巨兽", "魔龙幼崽", "祖玛卫士" },
         boss = { "牛魔王", "火龙王" },
-        spawnSettings = { initialCount = 8, maxEnemies = 22, interval = 1.20 },
+        spawnSettings = { initialCount = 6, maxEnemies = 18, interval = 1.70 },
         spawnPos = Vector3.ZERO,
         safeZoneRadius = 8,
         teleportCost = 100,

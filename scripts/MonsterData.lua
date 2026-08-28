@@ -353,19 +353,10 @@ MonsterData.DROP_TABLES = {
         },
     },
     ["赤焰魔"] = {
+        -- 赤焰魔作为水城（Lv25~34）精英混入常规生态，掉率略高但掉落贴水城等级带，
+        -- 避免中期提前打出顶级龙装。
         goldMin = 130, goldMax = 234, dropChance = 0.44,
-        items = {
-            { id = "sword_dragon", weight = 14 },
-            { id = "armor_dragon", weight = 16 },
-            { id = "neck_dragon", weight = 14 },
-            { id = "staff_arcane", weight = 12 },
-            { id = "bell_holy", weight = 12 },
-            { id = "ring_dragon", weight = 10 },
-            { id = "helm_dragon", weight = 10 },
-            { id = "brace_dragon", weight = 10 },
-            { id = "belt_dragon", weight = 10 },
-            { id = "boots_dragon", weight = 10 },
-        },
+        items = WATER_CITY_ITEMS,
     },
     ["巨蟒"] = {
         goldMin = 156, goldMax = 273, dropChance = 0.46,
