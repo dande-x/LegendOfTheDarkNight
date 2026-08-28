@@ -10,14 +10,15 @@ local CharacterClass = require("scripts.CharacterClass")
 -- resolve the legacy `assets/scripts/` mirror first, so keep the UI module
 -- rooted at the canonical scripts asset directory.
 local GameUI = require("GameUI")
-local Combat = require("scripts.Combat")
+-- 刷怪与地图配置必须命中 canonical scripts/，避免加载 assets/scripts 旧镜像。
+local Combat = require("Combat")
 local Inventory = require("scripts.Inventory")
 local PlayerAnim = require("scripts.PlayerAnim")
 -- Apply the same canonical-root rule to cloud-save APIs; the legacy mirror can
 -- omit newer methods such as SaveSystem.LoadFromCloud.
 local SaveSystem = require("SaveSystem")
 local Quest = require("scripts.Quest")
-local MapZone = require("scripts.MapZone")
+local MapZone = require("MapZone")
 -- NPC has a newer canonical implementation under scripts/NPC.lua.  The
 -- `scripts.` module name can resolve the legacy assets/scripts mirror first.
 local NPC = require("NPC")
