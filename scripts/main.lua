@@ -53,6 +53,9 @@ local isDead = false
 local currentSlotIndex = nil  -- 当前使用的存档槽位 (1 或 2)
 local autoSaveTimer = 0
 local AUTO_SAVE_INTERVAL = 30  -- 每30秒自动保存一次
+local startupLogoReady = false
+local cloudSaveReady = false
+local cloudSyncResult = nil
 
 -- 商人货架：同一地图/角色会话内保持稳定，避免每次打开面板都随机换货；
 -- 五分钟后自动刷新，也可由玩家付费手动刷新。
@@ -187,9 +190,32 @@ function Start()
     CreateScene()
     SetupCamera()
 
-    -- 初始化存档系统
+    -- 初始化本地存档后异步读取平台云存档。存档选择页要等云端合并完成，
+    -- 避免玩家在云数据返回前点击并把旧本地状态再次写回云端。
     SaveSystem.Init()
-    SyncAccountLeaderboard()
+    local function EnterSaveSlotsWhenReady()
+        if not startupLogoReady or not cloudSaveReady then return end
+        SyncAccountLeaderboard()
+        ShowSaveSlotScreen()
+        if cloudSyncResult then
+            if cloudSyncResult.ok and cloudSyncResult.source == "local_uploaded" then
+                GameUI.ShowToast("本地存档已同步到云端")
+            elseif cloudSyncResult.ok
+                and (cloudSyncResult.source == "cloud" or cloudSyncResult.source == "merged") then
+                GameUI.ShowToast("云存档已同步")
+            elseif not cloudSyncResult.ok and cloudSyncResult.code ~= "unavailable" then
+                GameUI.ShowToast("云存档暂不可用，已使用本地存档")
+            end
+        end
+    end
+    SaveSystem.LoadFromCloud(function(result)
+        cloudSyncResult = result
+        cloudSaveReady = true
+        print("[main] Cloud save startup sync: source=" .. tostring(result.source)
+            .. " ok=" .. tostring(result.ok)
+            .. (result.reason and (" reason=" .. tostring(result.reason)) or ""))
+        EnterSaveSlotsWhenReady()
+    end)
     -- 初始化音效管理：绑定场景、加载设置、播放主界面背景音乐
     SoundManager.SetScene(scene_)
     SoundManager.LoadSettings()
@@ -197,7 +223,8 @@ function Start()
 
     -- 先展示启动 Logo，再进入存档槽位选择界面
     GameUI.ShowStartupLogo(function()
-        ShowSaveSlotScreen()
+        startupLogoReady = true
+        EnterSaveSlotsWhenReady()
     end)
 
     SubscribeToEvent("Update", "HandleUpdate")
