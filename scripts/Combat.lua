@@ -9,7 +9,9 @@ local Balance = require("scripts.Balance")
 local MonsterSkeleton = require("scripts.MonsterSkeleton")
 local DivineBeast = require("scripts.DivineBeast")
 local MonsterData = require("scripts.MonsterData")
-local MapZone = require("scripts.MapZone")
+-- `assets/` 与 `scripts/` 同时是资源根；根模块名确保命中 canonical
+-- scripts/MapZone.lua，而不是旧的 assets/scripts 镜像。
+local MapZone = require("MapZone")
 local SoundManager = require("scripts.SoundManager")
 
 local Combat = {}
@@ -312,6 +314,14 @@ local ENEMY_MAX_SPEED = 3.0
 -- 遭遇本体或任务波次。按水平距离判断，Boss 离场/死亡后会自动恢复原频率。
 local BOSS_NEARBY_SPAWN_RADIUS = 20.0
 local BOSS_NEARBY_SPAWN_INTERVAL_MULTIPLIER = 2.5
+
+-- 自然生态按“玩家附近密度”补充，而不是只看全地图总数。initialCount
+-- 同时作为玩家周围的目标数量；全地图 maxEnemies 仍是硬上限。
+local SPAWNER_LOCAL_DENSITY_RADIUS = 34.0
+-- 只回收明显离开镜头和交战区的普通自然怪，避免玩家看到实体瞬移/消失。
+local SPAWNER_FAR_RECYCLE_DISTANCE = 42.0
+local SPAWNER_EMPTY_INTERVAL_MULTIPLIER = 0.55
+local SPAWNER_REFILL_INTERVAL_MULTIPLIER = 0.82
 
 -- 将技能倍率集中在一个入口，避免职业被动只停留在 CharacterClass 数据描述里。
 local function GetSkillDamage(player, skill)
@@ -1961,8 +1971,11 @@ function Combat.UpdateEnemies(dt, playerNode, player)
                 e.state = "chase"
             else
                 if not e.patrolTarget or e.patrolWait <= 0 then
-                    local rx = pos.x + (math.random() - 0.5) * 8
-                    local rz = pos.z + (math.random() - 0.5) * 8
+                    -- 围绕出生点巡逻，避免以当前位置连续随机游走，最终把
+                    -- 全图怪物漂移并堆积到玩家已经离开的区域。
+                    local patrolCenter = e.homePosition or pos
+                    local rx = patrolCenter.x + (math.random() - 0.5) * 8
+                    local rz = patrolCenter.z + (math.random() - 0.5) * 8
                     local patrolTarget = MoveOutsideSafeZone(Vector3(rx, 0, rz), currentMapId, 0.85)
                     e.patrolTarget = MapZone.ClampToArena(patrolTarget, 0.75) or patrolTarget
                     e.patrolWait = 3 + math.random() * 3
@@ -4611,27 +4624,114 @@ function Combat.EnsureEncounter(scene, playerNode, player, request, dt)
     return spawned
 end
 
+---@param playerPosition Vector3
+---@return number
+local function CountNearbyEnemiesForSpawner(playerPosition)
+    local radiusSquared = SPAWNER_LOCAL_DENSITY_RADIUS * SPAWNER_LOCAL_DENSITY_RADIUS
+    local count = 0
+    for _, enemy in ipairs(enemies) do
+        if IsEnemyTargetable(enemy) then
+            local position = enemy.node.position
+            local dx = position.x - playerPosition.x
+            local dz = position.z - playerPosition.z
+            if dx * dx + dz * dz <= radiusSquared then
+                count = count + 1
+            end
+        end
+    end
+    return count
+end
+
+---@param enemy table|nil
+---@return boolean
+local function IsNaturalEnemyRecyclableForSpawner(enemy)
+    if not enemy or not enemy.node or enemy == lastPlayerTarget then return false end
+    local spawnSource = enemy.spawnSource or "natural"
+    return spawnSource == "natural"
+        and enemy.tier ~= "boss"
+        and not enemy.encounterId
+        and not enemy.questGroupId
+        and enemy.state == "patrol"
+        and IsEnemyTargetable(enemy)
+        and (enemy.dotTimer or 0) <= 0
+        and (enemy.defReductionTimer or 0) <= 0
+        and (enemy.hitStunTimer or 0) <= 0
+        and (enemy.knockbackTimer or 0) <= 0
+        and not enemy.trapTimer
+end
+
+--- 全图达到硬上限、但玩家附近缺怪时，回收最远的一只闲置自然怪。
+--- 不触发击杀、经验、掉落或任务进度；Boss、任务敌群和交战实体均受保护。
+---@param playerPosition Vector3
+---@return boolean
+local function RecycleFarNaturalEnemyForSpawner(playerPosition)
+    local minimumDistanceSquared = SPAWNER_FAR_RECYCLE_DISTANCE
+        * SPAWNER_FAR_RECYCLE_DISTANCE
+    local farthestDistanceSquared = minimumDistanceSquared
+    local candidate = nil
+
+    for _, enemy in ipairs(enemies) do
+        if IsNaturalEnemyRecyclableForSpawner(enemy) then
+            local position = enemy.node.position
+            local dx = position.x - playerPosition.x
+            local dz = position.z - playerPosition.z
+            local distanceSquared = dx * dx + dz * dz
+            if distanceSquared > farthestDistanceSquared then
+                farthestDistanceSquared = distanceSquared
+                candidate = enemy
+            end
+        end
+    end
+
+    return candidate ~= nil and RemoveEnemyImmediately(candidate)
+end
+
 function Combat.UpdateSpawner(scene, dt, playerNode, player)
     if not playerNode or not player then return end
 
     -- 地图自然生态始终使用同一套刷新逻辑，不读取或加权任何任务目标。
-    spawnTimer = spawnTimer + dt
+    -- initialCount 是玩家附近希望维持的基础密度；maxEnemies 只控制全图硬上限。
     local spawnSettings = MapZone.GetSpawnSettings(currentMapId)
-    local baseInterval = spawnSettings.interval
-    local dynamicInterval = baseInterval
-    if #enemies > spawnSettings.maxEnemies * 0.80 then
-        dynamicInterval = baseInterval * 1.6
-    elseif #enemies < spawnSettings.maxEnemies * 0.40 then
-        dynamicInterval = baseInterval * 0.70
+    local maxEnemies = math.max(1, math.floor(tonumber(spawnSettings.maxEnemies) or 24))
+    local localTarget = math.max(1, math.min(maxEnemies,
+        math.floor(tonumber(spawnSettings.initialCount) or 8)))
+    local nearbyCount = CountNearbyEnemiesForSpawner(playerNode.position)
+
+    -- 附近已经达到地图基础密度时不继续向玩家身边堆怪。玩家移动、击杀或
+    -- 怪物离开范围后，再从零开始计时补充，避免一进图迅速堆满全图上限。
+    if nearbyCount >= localTarget then
+        spawnTimer = 0
+        return
     end
+
+    spawnTimer = spawnTimer + dt
+    local baseInterval = spawnSettings.interval
+    local densityRatio = nearbyCount / localTarget
+    local dynamicInterval = baseInterval * (densityRatio <= 0.5
+        and SPAWNER_EMPTY_INTERVAL_MULTIPLIER
+        or SPAWNER_REFILL_INTERVAL_MULTIPLIER)
 
     if IsBossNearbyForSpawner(playerNode.position) then
         dynamicInterval = dynamicInterval * BOSS_NEARBY_SPAWN_INTERVAL_MULTIPLIER
     end
 
     if spawnTimer >= dynamicInterval then
-        spawnTimer = 0
-        Combat.SpawnEnemy(scene, playerNode.position, player.level, nil, currentMapId)
+        -- 全图容量已满时，把远处、未交战的普通自然怪换到玩家附近；不扩大
+        -- 总量，也不会删除任务敌群或 Boss。没有安全候选时等待下次再试。
+        if #enemies >= maxEnemies
+            and not RecycleFarNaturalEnemyForSpawner(playerNode.position) then
+            spawnTimer = 0
+            return
+        end
+
+        local spawned = Combat.SpawnEnemy(
+            scene, playerNode.position, player.level, nil, currentMapId)
+        if spawned then
+            spawnTimer = 0
+        else
+            -- 配置或临时容量异常时保留半段进度，避免逐帧重试。
+            spawnTimer = dynamicInterval * 0.5
+        end
     end
 end
 

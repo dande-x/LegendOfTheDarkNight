@@ -516,6 +516,8 @@ function CharacterClass.CreatePlayer(classId, level, modelStyle, gender)
         className = classDef.name,
         modelStyle = modelStyle or "old",
         gender = gender or "male",
+        -- 激励广告奖励：完整观看后永久解锁当前角色的使用回城卷轴。
+        returnScrollUnlocked = false,
         level     = level,
         exp       = 0,
         expToNext = CharacterClass.GetExpToNext(level),

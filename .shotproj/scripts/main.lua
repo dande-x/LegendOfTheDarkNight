@@ -53,6 +53,13 @@ local currentSlotIndex = nil  -- 当前使用的存档槽位 (1 或 2)
 local autoSaveTimer = 0
 local AUTO_SAVE_INTERVAL = 30  -- 每30秒自动保存一次
 
+-- 激励广告请求状态：兼容同步/异步回调、请求拒绝和迟到回调。
+local rewardAdInFlight = false
+local rewardAdElapsed = 0
+local rewardAdFinish = nil
+local rewardAdRequestSerial = 0
+local REWARD_AD_WATCHDOG_SECONDS = 60.0
+
 -- 商人货架：同一地图/角色会话内保持稳定，避免每次打开面板都随机换货；
 -- 五分钟后自动刷新，也可由玩家付费手动刷新。
 local merchantShopState = {
@@ -2153,6 +2160,127 @@ function SetupGameCallbacks()
         ReturnToMainMenu()
     end
 
+    -- 激励视频广告：仅 result.success == true 才解锁使用回城卷轴。
+    GameUI.onRewardAdRequested = function()
+        if rewardAdInFlight then
+            GameUI.ShowToast("广告正在播放，请稍候", 2.0)
+            return
+        end
+        if not player_ or not playerNode_ or isDead then
+            GameUI.ShowRewardAdResult(false, "当前无法观看广告，请稍后再试。")
+            return
+        end
+
+        rewardAdRequestSerial = rewardAdRequestSerial + 1
+        local requestSerial = rewardAdRequestSerial
+        local watchedPlayer = player_
+        local completed = false
+        local callbackFired = false
+        rewardAdInFlight = true
+        rewardAdElapsed = 0
+
+        local function finish(result)
+            if completed or requestSerial ~= rewardAdRequestSerial then return end
+            completed = true
+            rewardAdInFlight = false
+            rewardAdElapsed = 0
+            rewardAdFinish = nil
+
+            if result and result.success == true then
+                if player_ ~= watchedPlayer or not player_ or not playerNode_ or isDead then
+                    print("[main] Reward ad completed after player session ended; reward ignored")
+                    return
+                end
+                local wasUnlocked = player_.returnScrollUnlocked == true
+                player_.returnScrollUnlocked = true
+                if type(GameUI.RefreshReturnScrollAccess) == "function" then
+                    pcall(GameUI.RefreshReturnScrollAccess)
+                end
+                SaveCurrentGame()
+                GameUI.ShowRewardAdResult(
+                    true,
+                    wasUnlocked
+                        and "感谢再次支持！“使用回城卷轴”功能已解锁。"
+                        or "获得“使用回城卷轴”功能！")
+                return
+            end
+
+            local message = result and result.msg == "embed manual close"
+                and "需完整观看广告才能获得奖励。"
+                or "广告暂不可用，请稍后再试。"
+            GameUI.ShowRewardAdResult(false, message)
+        end
+
+        rewardAdFinish = finish
+        local sdkObject = rawget(_G, "sdk")
+        if not sdkObject then
+            finish({ success = false, msg = "unsupported platform" })
+            return
+        end
+
+        local accepted = nil
+        local ok, err = pcall(function()
+            accepted = sdkObject:ShowRewardVideoAd(function(result)
+                callbackFired = true
+                finish(result)
+            end)
+        end)
+        if not ok then
+            print("[main] ShowRewardVideoAd failed: " .. tostring(err))
+            finish({ success = false, msg = "广告暂不可用" })
+        elseif accepted == false and not callbackFired then
+            finish({ success = false, msg = "广告暂不可用" })
+        end
+    end
+
+    -- 使用回城卷轴：仅返回当前地图安全区，不切图、不重刷怪物或掉落。
+    GameUI.onUseReturnScroll = function()
+        if not player_ or not playerNode_ or isDead
+            or (tonumber(player_.hp) or 0) <= 0 then
+            return
+        end
+        if player_.returnScrollUnlocked ~= true then
+            GameUI.ShowSupportAuthorDialog()
+            return
+        end
+
+        local mapId = Combat.currentMapId
+        if not MapZone.GetDef(mapId) then mapId = MapZone.GetCurrentMapId() end
+        local mapDef = MapZone.GetDef(mapId)
+        if not mapDef then
+            GameUI.ShowToast("当前地图状态异常，请稍后再试", 2.0)
+            return
+        end
+
+        Combat.CancelPlayerHostileEffects()
+        Combat.CancelDash()
+        castState.active = false
+        castState.phase = "none"
+        castState.skill = nil
+        castState.slot = 0
+        castState.elapsed = 0
+        GameUI.HideCastBar()
+        ShowChargeGlow(false)
+        GameUI.SetNPCInteract(false)
+        if GameUI._ResetJoystickState then GameUI._ResetJoystickState() end
+
+        local target = mapDef.spawnPos or Vector3.ZERO
+        playerNode_.position = Vector3(target.x, target.y, target.z)
+        local body = playerNode_:GetComponent("RigidBody")
+        if body then body:SetLinearVelocity(Vector3.ZERO) end
+        if player_.classId == "taoist" then
+            DivineBeast.OnMapChanged(playerNode_.position)
+        end
+        PlayerAnim.Play("idle")
+        autoSaveTimer = 0
+        GameUI.ShowToast("已使用回城卷轴，返回安全区", 2.0)
+        GameUI.AddFloatingText(
+            "使用回城卷轴",
+            playerNode_.position + Vector3(0, 1.2, 0),
+            {160, 210, 255, 255})
+        SaveCurrentGame()
+    end
+
     -- Debug 等级调整回调
     GameUI.onDebugLevelChange = function(delta)
         if not player_ then return end
@@ -2277,14 +2405,13 @@ function SetupGameCallbacks()
             or Quest.GetTargetMapId(currentQuest)
         local isQuestDestination = questTargetMapId == mapId
 
-        -- 当前主线地图始终可返回且免费，避免玩家传走后因等级或金币不足
-        -- 被锁在别处；其它路线继续遵守原有等级与费用规则。
+        -- 当前主线目标地图仍可按任务流程提前解锁，但传送一律按目的地收取金币。
         if not isQuestDestination and not MapZone.IsLevelAllowed(mapId, player_.level) then
             GameUI.ShowToast("等级不足，" .. MapZone.GetLevelRequirement(mapId), 2.0)
             return false
         end
 
-        local cost = isQuestDestination and 0 or MapZone.GetTeleportCost(currentMapId)
+        local cost = MapZone.GetTeleportCost(mapId)
         if cost > 0 and not Inventory.SpendGold(cost) then
             GameUI.ShowToast("金币不足，需要 " .. cost .. " 金币", 2.0)
             return false
@@ -2308,17 +2435,12 @@ function SetupGameCallbacks()
         if currentMapId then
             options = NPC.GetTeleportOptions(currentMapId, player_.level)
             local currentQuest = Quest.GetCurrent()
-            local questTravelPending = Quest.IsTravelPending()
             local questTargetMapId = Quest.GetTravelTargetMapId()
                 or Quest.GetTargetMapId(currentQuest)
             for _, option in ipairs(options) do
                 if option.id == questTargetMapId then
                     option.locked = false
                     option.lockReason = nil
-                    option.cost = 0
-                    option.questTarget = true
-                    option.questTargetLabel = questTravelPending
-                        and "下一段主线地图" or "当前任务目标地图"
                 end
             end
         end
@@ -2832,6 +2954,11 @@ end
 function ReturnToMainMenu()
     print("[main] Returning to main menu...")
 
+    rewardAdRequestSerial = rewardAdRequestSerial + 1
+    rewardAdInFlight = false
+    rewardAdElapsed = 0
+    rewardAdFinish = nil
+
     -- 死亡结算尚未完成时不能把 0 血快照写回存档；正常退出仍自动保存。
     if not isDead and player_ and (tonumber(player_.hp) or 0) > 0 then
         SaveCurrentGame()
@@ -3033,6 +3160,13 @@ end
 -- ============================================================================
 function HandleUpdate(eventType, eventData)
     local dt = eventData["TimeStep"]:GetFloat()
+
+    if rewardAdInFlight then
+        rewardAdElapsed = rewardAdElapsed + math.max(0, dt)
+        if rewardAdElapsed >= REWARD_AD_WATCHDOG_SECONDS and rewardAdFinish then
+            rewardAdFinish({ success = false, msg = "广告响应超时" })
+        end
+    end
 
     -- 启动 Logo：只更新开场 UI，结束后回调进入存档界面
     if GameUI.UpdateStartupLogo(dt) then

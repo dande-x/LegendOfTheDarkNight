@@ -65,6 +65,14 @@ local startupLogoReady = false
 local cloudSaveReady = false
 local cloudSyncResult = nil
 
+-- 激励广告请求状态。SDK 可能同步回调、异步回调，也可能在请求未受理时
+-- 完全不回调；序列号和 watchdog 共同保证迟到回调不会重复发奖或卡住入口。
+local rewardAdInFlight = false
+local rewardAdElapsed = 0
+local rewardAdFinish = nil
+local rewardAdRequestSerial = 0
+local REWARD_AD_WATCHDOG_SECONDS = 60.0
+
 -- 商人货架：同一地图/角色会话内保持稳定，避免每次打开面板都随机换货；
 -- 五分钟后自动刷新，也可由玩家付费手动刷新。
 local merchantShopState = {
@@ -2260,6 +2268,136 @@ function SetupGameCallbacks()
         ReturnToMainMenu()
     end
 
+    -- 激励视频广告：只有 SDK 回调明确返回 result.success == true 时才解锁。
+    GameUI.onRewardAdRequested = function()
+        if rewardAdInFlight then
+            GameUI.ShowToast("广告正在播放，请稍候", 2.0)
+            return
+        end
+        if not player_ or not playerNode_ or isDead then
+            GameUI.ShowRewardAdResult(false, "当前无法观看广告，请稍后再试。")
+            return
+        end
+
+        rewardAdRequestSerial = rewardAdRequestSerial + 1
+        local requestSerial = rewardAdRequestSerial
+        local watchedPlayer = player_
+        local completed = false
+        local callbackFired = false
+        rewardAdInFlight = true
+        rewardAdElapsed = 0
+
+        local function finish(result)
+            -- 页面已销毁或本次请求已被新请求取代时，忽略迟到回调。
+            if completed or requestSerial ~= rewardAdRequestSerial then return end
+            completed = true
+            rewardAdInFlight = false
+            rewardAdElapsed = 0
+            rewardAdFinish = nil
+
+            if result and result.success == true then
+                -- 广告期间若角色会话已结束，不把奖励发给新角色或空会话。
+                if player_ ~= watchedPlayer or not player_ or not playerNode_ or isDead then
+                    print("[main] Reward ad completed after player session ended; reward ignored")
+                    return
+                end
+
+                local wasUnlocked = player_.returnScrollUnlocked == true
+                player_.returnScrollUnlocked = true
+                if type(GameUI.RefreshReturnScrollAccess) == "function" then
+                    pcall(GameUI.RefreshReturnScrollAccess)
+                end
+                SaveCurrentGame()
+                GameUI.ShowRewardAdResult(
+                    true,
+                    wasUnlocked
+                        and "感谢再次支持！“使用回城卷轴”功能已解锁。"
+                        or "获得“使用回城卷轴”功能！")
+                return
+            end
+
+            local message = result and result.msg == "embed manual close"
+                and "需完整观看广告才能获得奖励。"
+                or "广告暂不可用，请稍后再试。"
+            GameUI.ShowRewardAdResult(false, message)
+        end
+
+        rewardAdFinish = finish
+        local sdkObject = rawget(_G, "sdk")
+        if not sdkObject then
+            finish({ success = false, msg = "unsupported platform" })
+            return
+        end
+
+        local accepted = nil
+        local ok, err = pcall(function()
+            accepted = sdkObject:ShowRewardVideoAd(function(result)
+                callbackFired = true
+                finish(result)
+            end)
+        end)
+
+        if not ok then
+            print("[main] ShowRewardVideoAd failed: " .. tostring(err))
+            finish({ success = false, msg = "广告暂不可用" })
+        elseif accepted == false and not callbackFired then
+            -- API 明确返回 false 且没有同步回调时，立即结束本次请求，
+            -- 避免按钮状态永久占用；其它异常返回值交给 watchdog。
+            finish({ success = false, msg = "广告暂不可用" })
+        end
+    end
+
+    -- 使用回城卷轴：只移动到当前地图安全区，不切图、不重刷怪物或掉落。
+    GameUI.onUseReturnScroll = function()
+        if not player_ or not playerNode_ or isDead
+            or (tonumber(player_.hp) or 0) <= 0 then
+            return
+        end
+        if player_.returnScrollUnlocked ~= true then
+            GameUI.ShowSupportAuthorDialog()
+            return
+        end
+
+        local mapId = Combat.currentMapId
+        if not MapZone.GetDef(mapId) and type(MapZone.GetCurrentMapId) == "function" then
+            mapId = MapZone.GetCurrentMapId()
+        end
+        local mapDef = MapZone.GetDef(mapId)
+        if not mapDef then
+            GameUI.ShowToast("当前地图状态异常，请稍后再试", 2.0)
+            return
+        end
+
+        Combat.CancelPlayerHostileEffects()
+        Combat.CancelDash()
+
+        castState.active = false
+        castState.phase = "none"
+        castState.skill = nil
+        castState.slot = 0
+        castState.elapsed = 0
+        GameUI.HideCastBar()
+        ShowChargeGlow(false)
+        if GameUI.SetNPCInteract then GameUI.SetNPCInteract(false) end
+        if GameUI._ResetJoystickState then GameUI._ResetJoystickState() end
+
+        local target = mapDef.spawnPos or Vector3.ZERO
+        playerNode_.position = Vector3(target.x, target.y, target.z)
+        local body = playerNode_:GetComponent("RigidBody")
+        if body then body:SetLinearVelocity(Vector3.ZERO) end
+        if player_.classId == "taoist" then
+            DivineBeast.OnMapChanged(playerNode_.position)
+        end
+        PlayerAnim.Play("idle")
+        autoSaveTimer = 0
+        GameUI.ShowToast("已使用回城卷轴，返回安全区", 2.0)
+        GameUI.AddFloatingText(
+            "使用回城卷轴",
+            playerNode_.position + Vector3(0, 1.2, 0),
+            {160, 210, 255, 255})
+        SaveCurrentGame()
+    end
+
     -- Debug 等级调整回调
     GameUI.onDebugLevelChange = function(delta)
         if not player_ then return end
@@ -2384,14 +2522,13 @@ function SetupGameCallbacks()
             or Quest.GetTargetMapId(currentQuest)
         local isQuestDestination = questTargetMapId == mapId
 
-        -- 当前主线地图始终可返回且免费，避免玩家传走后因等级或金币不足
-        -- 被锁在别处；其它路线继续遵守原有等级与费用规则。
+        -- 当前主线目标地图仍可按任务流程提前解锁，但传送一律按目的地收取金币。
         if not isQuestDestination and not MapZone.IsLevelAllowed(mapId, player_.level) then
             GameUI.ShowToast("等级不足，" .. MapZone.GetLevelRequirement(mapId), 2.0)
             return false
         end
 
-        local cost = isQuestDestination and 0 or MapZone.GetTeleportCost(currentMapId)
+        local cost = MapZone.GetTeleportCost(mapId)
         if cost > 0 and not Inventory.SpendGold(cost) then
             GameUI.ShowToast("金币不足，需要 " .. cost .. " 金币", 2.0)
             return false
@@ -2418,17 +2555,12 @@ function SetupGameCallbacks()
         if currentMapId then
             options = NPC.GetTeleportOptions(currentMapId, player_.level)
             local currentQuest = Quest.GetCurrent()
-            local questTravelPending = Quest.IsTravelPending()
             local questTargetMapId = Quest.GetTravelTargetMapId()
                 or Quest.GetTargetMapId(currentQuest)
             for _, option in ipairs(options) do
                 if option.id == questTargetMapId then
                     option.locked = false
                     option.lockReason = nil
-                    option.cost = 0
-                    option.questTarget = true
-                    option.questTargetLabel = questTravelPending
-                        and "下一段主线地图" or "当前任务目标地图"
                 end
             end
         end
@@ -2672,7 +2804,7 @@ function SetupGameCallbacks()
         else
             GameUI.AddFloatingText("-" .. math.floor(dmg), playerPos, {255, 80, 60, 255})
             -- 致死一击下一帧会播放专用死亡音效，不再叠加受伤声；其余
-            -- 连续命中由 SoundManager.PlayHurt 做 0.45 秒全局节流。
+            -- 连续命中由 SoundManager.PlayHurt 做 0.65 秒全局节流。
             if not player_ or (tonumber(player_.hp) or 0) > 0 then
                 SoundManager.PlayHurt({ position = playerPos, gender = player_ and player_.gender })
             end
@@ -2957,6 +3089,12 @@ end
 function ReturnToMainMenu()
     print("[main] Returning to main menu...")
 
+    -- 角色会话销毁后，广告回调即使迟到也不得给新角色发奖。
+    rewardAdRequestSerial = rewardAdRequestSerial + 1
+    rewardAdInFlight = false
+    rewardAdElapsed = 0
+    rewardAdFinish = nil
+
     -- 死亡结算尚未完成时不能把 0 血快照写回存档；正常退出仍自动保存。
     if not isDead and player_ and (tonumber(player_.hp) or 0) > 0 then
         SaveCurrentGame()
@@ -3160,6 +3298,14 @@ end
 -- ============================================================================
 function HandleUpdate(eventType, eventData)
     local dt = eventData["TimeStep"]:GetFloat()
+
+    -- 无回调 watchdog：只结束为失败，绝不根据等待时长发放奖励。
+    if rewardAdInFlight then
+        rewardAdElapsed = rewardAdElapsed + math.max(0, dt)
+        if rewardAdElapsed >= REWARD_AD_WATCHDOG_SECONDS and rewardAdFinish then
+            rewardAdFinish({ success = false, msg = "广告响应超时" })
+        end
+    end
 
     -- 推进受伤音效节流，即使当前处于启动 Logo、暂停或死亡演出也不冻结。
     SoundManager.Update(dt)

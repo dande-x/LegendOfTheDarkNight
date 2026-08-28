@@ -588,23 +588,21 @@ end
 ---@return table[] {id, name, cost, current}
 function NPC.GetTeleportOptions(currentMapId, playerLevel)
     local options = {}
-    local currentCost = MapZone.GetTeleportCost(currentMapId)
+    local level = tonumber(playerLevel)
     for mapId, def in pairs(MapZone.DEFS) do
-        if mapId ~= currentMapId then
-            local requiredLevel = def.minLevel or 1
-            local level = tonumber(playerLevel)
-            local locked = level ~= nil and level < requiredLevel
-            table.insert(options, {
-                id = mapId,
-                name = def.name,
-                minLevel = def.minLevel,
-                maxLevel = def.maxLevel,
-                cost = currentCost,  -- 从当前图传送出去的费用统一
-                locked = locked,
-                lockReason = locked and ("需要 Lv." .. requiredLevel) or nil,
-                current = false,
-            })
-        end
+        local requiredLevel = def.minLevel or 1
+        local isCurrent = mapId == currentMapId
+        local locked = not isCurrent and level ~= nil and level < requiredLevel
+        table.insert(options, {
+            id = mapId,
+            name = def.name,
+            minLevel = def.minLevel,
+            maxLevel = def.maxLevel,
+            cost = MapZone.GetTeleportCost(mapId),  -- 按目的地地图收取费用
+            locked = locked,
+            lockReason = locked and ("需要 Lv." .. requiredLevel) or nil,
+            current = isCurrent,
+        })
     end
     -- 按 minLevel 排序
     table.sort(options, function(a, b) return a.minLevel < b.minLevel end)

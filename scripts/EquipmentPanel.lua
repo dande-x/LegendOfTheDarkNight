@@ -157,9 +157,6 @@ local function ShowItemDetail(options, item, sourceSlot)
     local targetItem = (not sourceSlot and targetSlot) and inv.equipped[targetSlot] or nil
     local targetName = targetSlot and (Inventory.SLOT_NAMES[targetSlot] or targetSlot) or "未知槽位"
     local bagFull = #inv.bag >= Inventory.MAX_BAG_SLOTS
-    -- 背包装备只保留查看、穿戴和前往商人出售的路径；分解操作仅保留在
-    -- 已穿戴装备详情中，避免玩家在背包里直接把掉落物变成金币。
-    local recycleReward = sourceSlot and Inventory.Enhance.Recycle(item) or nil
     local sellPrice = Inventory.GetItemSellPrice(item)
 
     local function doEquip()
@@ -185,33 +182,6 @@ local function ShowItemDetail(options, item, sourceSlot)
         end
         ShowToast(options, "已卸下 " .. (item.name or "装备"))
         Refresh(options)
-    end
-
-    local function doRecycle()
-        local ok, reward, reason = Inventory.RecycleItem(item)
-        if not ok then
-            ShowToast(options, reason or "分解失败")
-            return
-        end
-        ShowToast(options, "已分解，获得 " .. reward.gold .. " 金币")
-        Refresh(options)
-    end
-
-    local function requestRecycle()
-        local isLegendary = item.rarity == "LEGENDARY"
-        local isEquipped = sourceSlot ~= nil
-        if isLegendary or isEquipped then
-            local warning = isEquipped and "这件装备当前正在穿戴。" or ""
-            UI.Modal.Confirm {
-                title = isLegendary and "确认分解传说装备" or "确认分解穿戴中装备",
-                message = warning .. "【" .. (item.name or "装备") .. "】分解后无法恢复，确定继续吗？",
-                confirmText = "确认分解",
-                cancelText = "保留装备",
-                onConfirm = doRecycle,
-            }
-            return
-        end
-        doRecycle()
     end
 
     local bodyChildren = {
@@ -289,8 +259,7 @@ local function ShowItemDetail(options, item, sourceSlot)
 
     table.insert(bodyChildren, UI.Label {
         text = sourceSlot
-            and ("卸下后可出售 " .. sellPrice .. " 金 · 分解可得 "
-                .. recycleReward.gold .. " 金")
+            and ("卸下后可出售 " .. sellPrice .. " 金 · 请前往安全区商人")
             or ("出售可得 " .. sellPrice .. " 金 · 请前往安全区商人"),
         width = "100%",
         fontSize = 10,
@@ -338,15 +307,6 @@ local function ShowItemDetail(options, item, sourceSlot)
         })
     end
 
-    if sourceSlot then
-        table.insert(bodyChildren, UI.Button {
-            text = "分解穿戴中装备",
-            width = "100%", height = 36,
-            marginTop = 12,
-            variant = "danger",
-            onClick = requestRecycle,
-        })
-    end
     table.insert(bodyChildren, UI.Panel { width = "100%", height = 8 })
 
     local detailPanel = UI.Panel {
@@ -588,7 +548,7 @@ function EquipmentPanel.BuildEquipTab(options)
         width = "100%",
         children = {
             UI.Label {
-                text = "点击已穿戴装备查看属性、分解或卸下；背包装备可出售，强化请前往安全区铁匠",
+                text = "点击已穿戴装备查看属性或卸下；背包装备可出售，强化请前往安全区铁匠",
                 fontSize = 10,
                 fontColor = {154, 156, 154, 175},
                 textAlign = "center",

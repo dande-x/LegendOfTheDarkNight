@@ -14,6 +14,14 @@ const mirrors = [
     ".shotproj/scripts",
 ];
 
+const expectedTeleportCosts = [
+    ["map_bq", 100],
+    ["map_mz", 200],
+    ["map_sc", 500],
+    ["map_wm", 1000],
+    ["map_zm", 2000],
+];
+
 function blockBetween(source, startMarker, endMarker) {
     const start = source.indexOf(startMarker);
     check(start >= 0, `缺少代码块: ${startMarker}`);
@@ -25,8 +33,28 @@ function blockBetween(source, startMarker, endMarker) {
 // 旅行状态必须在三份运行时脚本中保持同一套契约，避免发布镜像退回自动切图。
 for (const dir of mirrors) {
     const quest = read(`${dir}/Quest.lua`);
+    const mapZone = read(`${dir}/MapZone.lua`);
+    const npc = read(`${dir}/NPC.lua`);
     const main = read(`${dir}/main.lua`);
     const ui = read(`${dir}/GameUI.lua`);
+
+    for (const [mapId, cost] of expectedTeleportCosts) {
+        const mapStart = mapZone.indexOf(`${mapId} = {`);
+        check(mapStart >= 0, `${dir}/MapZone.lua 缺少 ${mapId} 地图定义`);
+        const mapEnd = mapZone.indexOf("\n    },", mapStart);
+        check(mapEnd > mapStart, `${dir}/MapZone.lua 缺少 ${mapId} 定义边界`);
+        const mapBlock = mapZone.slice(mapStart, mapEnd);
+        check(mapBlock.includes(`teleportCost = ${cost}`),
+            `${dir}/MapZone.lua ${mapId} 传送费用不是 ${cost} 金币`);
+    }
+
+    check(npc.includes("local isCurrent = mapId == currentMapId")
+        && npc.includes("current = isCurrent")
+        && npc.includes("cost = MapZone.GetTeleportCost(mapId)"),
+        `${dir}/NPC.lua 没有展示当前地图或按目的地计算传送费用`);
+    check(!npc.includes("if mapId ~= currentMapId")
+        && npc.includes("local locked = not isCurrent"),
+        `${dir}/NPC.lua 仍排除当前地图，或当前地图被错误标记为锁定`);
 
     check(/QUEST_SAVE_VERSION\s*=\s*3/.test(quest), `${dir}/Quest.lua 未使用 v3 存档`);
     for (const api of [
@@ -124,15 +152,40 @@ for (const dir of mirrors) {
     );
     check(teleportBlock.includes("Quest.GetTravelTargetMapId()"),
         `${dir}/main.lua 传送校验没有优先使用旅行目标`);
-    check(teleportBlock.includes("local cost = isQuestDestination and 0"),
-        `${dir}/main.lua 下一段主线地图没有免费传送`);
+    check(teleportBlock.includes("local cost = MapZone.GetTeleportCost(mapId)")
+        && teleportBlock.includes("Inventory.SpendGold(cost)"),
+        `${dir}/main.lua 没有按目的地扣除传送金币`);
+    check(!teleportBlock.includes("local cost = isQuestDestination and 0")
+        && !teleportBlock.includes("MapZone.GetTeleportCost(currentMapId)"),
+        `${dir}/main.lua 仍存在主线免费或按出发地图计费逻辑`);
+
+    const stewardBlock = blockBetween(
+        main,
+        "local function openStewardPanel",
+        "-- 与商人交互",
+    );
+    check(!stewardBlock.includes("option.cost = 0"),
+        `${dir}/main.lua 主线目标传送仍被设置为免费`);
 
     check(ui.includes("Quest.IsTravelPending()"),
         `${dir}/GameUI.lua 任务追踪没有显示旅行阶段`);
     check(ui.includes("请找管家传送"),
         `${dir}/GameUI.lua 没有显示管家传送提示`);
-    check(ui.includes("下一段主线地图免费"),
-        `${dir}/GameUI.lua 没有说明主线地图免费`);
+    const teleportPanelBlock = blockBetween(
+        ui,
+        "function GameUI.ShowTeleportPanel",
+        "function GameUI.HideTeleportPanel",
+    );
+    check(teleportPanelBlock.includes("传送费用按目的地收取；当前位置不可传送")
+        && teleportPanelBlock.includes("local costText = isCurrent and \"当前位置\"")
+        && teleportPanelBlock.includes("onClick = handleClick")
+        && teleportPanelBlock.includes('text = isCurrent and "不可传送"')
+        && teleportPanelBlock.includes("cost > 0 and (tostring(cost) .. \" 金币\")"),
+        `${dir}/GameUI.lua 没有展示目的地费用或禁用当前位置`);
+    check(!teleportPanelBlock.includes("下一段主线地图免费")
+        && !teleportPanelBlock.includes("主线免费")
+        && !teleportPanelBlock.includes('or "免费"'),
+        `${dir}/GameUI.lua 仍展示主线免费或免费传送文案`);
 }
 
 // 用与 Quest._CompleteCurrent / OnMapEntered 相同的状态转移做行为探针：

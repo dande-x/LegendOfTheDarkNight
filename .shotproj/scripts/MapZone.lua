@@ -29,7 +29,7 @@ MapZone.DEFS = {
         spawnSettings = { initialCount = 10, maxEnemies = 24, interval = 1.10 },
         spawnPos = Vector3.ZERO,
         safeZoneRadius = 6,     -- 方形安全区半边长（不刷怪）
-        teleportCost = 100,      -- 管家传送统一收取 100 金
+        teleportCost = 100,      -- 传送到比奇省收取 100 金
         mapColor = { 40, 70, 42, 245 },
         landmarks = {
             { name = "荒村废墟", x = -30, z = -22 },
@@ -49,7 +49,7 @@ MapZone.DEFS = {
         spawnSettings = { initialCount = 12, maxEnemies = 28, interval = 0.95 },
         spawnPos = Vector3.ZERO,
         safeZoneRadius = 6,
-        teleportCost = 100,
+        teleportCost = 200,
         mapColor = { 105, 76, 42, 245 },
         landmarks = {
             { name = "北城残垣", x = 0, z = 40 },
@@ -69,7 +69,7 @@ MapZone.DEFS = {
         spawnSettings = { initialCount = 12, maxEnemies = 30, interval = 1.00 },
         spawnPos = Vector3.ZERO,
         safeZoneRadius = 6,
-        teleportCost = 100,
+        teleportCost = 500,
         mapColor = { 20, 70, 88, 245 },
         landmarks = {
             { name = "灯塔", x = 0, z = 38 },
@@ -89,7 +89,7 @@ MapZone.DEFS = {
         spawnSettings = { initialCount = 10, maxEnemies = 26, interval = 1.10 },
         spawnPos = Vector3.ZERO,
         safeZoneRadius = 6,
-        teleportCost = 100,
+        teleportCost = 1000,
         mapColor = { 58, 62, 72, 245 },
         landmarks = {
             { name = "封印祭坛", x = 0, z = 18 },
@@ -109,7 +109,7 @@ MapZone.DEFS = {
         spawnSettings = { initialCount = 8, maxEnemies = 22, interval = 1.20 },
         spawnPos = Vector3.ZERO,
         safeZoneRadius = 6,
-        teleportCost = 100,
+        teleportCost = 2000,
         mapColor = { 82, 30, 24, 245 },
         landmarks = {
             { name = "熔岩池", x = -26, z = 22 },
@@ -162,7 +162,7 @@ function MapZone.SetCurrentMap(mapId)
 end
 
 --- 判断角色是否达到地图进入等级。NPC 手动传送据此锁定普通路线；
---- 当前主线目标地图由宿主在管家面板中显式解锁并设为免费。
+--- 当前主线目标地图仍可由宿主在管家面板中显式解锁，但传送仍按目的地收费。
 ---@param mapId string
 ---@param playerLevel number|nil
 ---@return boolean
@@ -229,7 +229,7 @@ function MapZone.ClampToArena(position, padding)
     return Vector3(x, position.y, z), x ~= position.x or z ~= position.z
 end
 
---- 从指定地图传送出去的费用
+--- 传送到指定目的地地图的费用
 ---@param mapId string
 ---@return number
 function MapZone.GetTeleportCost(mapId)

@@ -3460,7 +3460,7 @@ end
 -- 传送面板（地图选择）
 -- ============================================================================
 
---- 打开传送面板（列出当前地图之外的可选目的地）
+--- 打开传送面板（列出全部地图，并标记当前位置）
 ---@param maps table[]|nil {id, name, minLevel, maxLevel, cost, locked, current}
 function GameUI.ShowTeleportPanel(maps)
     if uiState.teleportPanelOpen then return end
@@ -3474,12 +3474,12 @@ function GameUI.ShowTeleportPanel(maps)
         -- 显式捕获本轮数据，避免点击回调依赖循环变量后续变化。
         local option = m
         local isCurrent = option.current == true
-        local locked = option.locked == true
-        local questTarget = option.questTarget == true
+        local locked = option.locked == true and not isCurrent
         local minLevel = math.max(1, math.floor(tonumber(option.minLevel) or 1))
         local maxLevel = math.max(minLevel, math.floor(tonumber(option.maxLevel) or minLevel))
         local cost = math.max(0, math.floor(tonumber(option.cost) or 0))
-        local costText = questTarget and "主线免费" or (cost > 0 and (tostring(cost) .. " 金币") or "免费")
+        local costText = isCurrent and "当前位置"
+            or (cost > 0 and (tostring(cost) .. " 金币") or "不可用")
 
         local function handleClick()
             if isCurrent then
@@ -3525,9 +3525,7 @@ function GameUI.ShowTeleportPanel(maps)
                     children = {
                         UI.Label {
                             text = tostring(option.name or option.id or "未知地图")
-                                .. (isCurrent and "（当前）"
-                                    or questTarget and (option.questTargetLabel == "下一段主线地图"
-                                        and "（下一段主线）" or "（主线）") or ""),
+                                .. (isCurrent and "（当前）" or ""),
                             fontSize = 14,
                             fontColor = isCurrent and {180, 230, 180, 255}
                                 or locked and {138, 134, 128, 190}
@@ -3535,8 +3533,7 @@ function GameUI.ShowTeleportPanel(maps)
                             fontWeight = isCurrent and "bold" or "normal",
                         },
                         UI.Label {
-                            text = questTarget and (option.questTargetLabel or "当前任务目标地图")
-                                or locked and ("需要 Lv." .. minLevel)
+                            text = locked and ("需要 Lv." .. minLevel)
                                 or ("推荐 Lv." .. minLevel .. "-" .. maxLevel),
                             fontSize = 11,
                             fontColor = locked and {150, 128, 118, 190}
@@ -3558,7 +3555,7 @@ function GameUI.ShowTeleportPanel(maps)
                             fontWeight = "bold",
                         },
                         UI.Label {
-                            text = locked and "未解锁" or isCurrent and "当前位置" or "点击传送",
+                            text = isCurrent and "不可传送" or locked and "未解锁" or "点击传送",
                             fontSize = 10,
                             fontColor = locked and {170, 105, 90, 205}
                                 or isCurrent and {150, 205, 150, 215}
@@ -3621,7 +3618,7 @@ function GameUI.ShowTeleportPanel(maps)
                         GameUI.HideTeleportPanel()
                     end),
                     UI.Label {
-                        text = "达到目的地等级后可传送；下一段主线地图免费",
+                        text = "传送费用按目的地收取；当前位置不可传送",
                         fontSize = 10,
                         fontColor = {150, 150, 145, 180},
                         marginBottom = 12,
@@ -4801,6 +4798,30 @@ function GameUI.ShowCharacterPanel(player, tab)
         }
     end
 
+    -- 排行榜属于角色/账号信息入口，放在角色面板的 Tab 行中。
+    -- 内容仍复用独立排行榜浮层，避免在角色面板里嵌套异步 ScrollView。
+    local function makeLeaderboardTab()
+        return UI.Panel {
+            flex = 1, height = 36, borderRadius = 6,
+            backgroundColor = {30, 31, 33, 195},
+            borderWidth = 1,
+            borderColor = {82, 84, 88, 150},
+            justifyContent = "center", alignItems = "center",
+            onClick = function()
+                if GameUI.onLeaderboardPressed then
+                    GameUI.onLeaderboardPressed()
+                end
+            end,
+            children = {
+                UI.Label {
+                    text = "排行榜",
+                    fontSize = 15,
+                    fontColor = {180, 182, 184, 210},
+                },
+            },
+        }
+    end
+
     -- 构建内容区
     local content
     if activeTab == "equip" then
@@ -4842,6 +4863,7 @@ function GameUI.ShowCharacterPanel(player, tab)
                             makeTab("装备", "equip"),
                             makeTab("技能", "skill"),
                             makeTab("背包", "bag"),
+                            makeLeaderboardTab(),
                         },
                     },
                     -- 分隔线
@@ -5187,6 +5209,80 @@ function GameUI.IsLeaderboardPanelOpen()
 end
 
 -- ============================================================================
+-- 使用回城卷轴 / 鼓励作者
+-- ============================================================================
+
+--- 当前角色是否已经通过完整观看激励广告解锁“使用回城卷轴”。
+---@return boolean
+function GameUI.IsReturnScrollUnlocked()
+    return uiState.player ~= nil and uiState.player.returnScrollUnlocked == true
+end
+
+--- 刷新系统面板中的使用回城卷轴入口文案。
+---@return boolean unlocked
+function GameUI.RefreshReturnScrollAccess()
+    local unlocked = GameUI.IsReturnScrollUnlocked()
+    local button = uiState.refs.returnScrollButton
+    local status = uiState.refs.returnScrollStatus
+    if button then
+        button:SetText("使用回城卷轴")
+        local backgroundColor = unlocked
+            and {44, 82, 70, 245} or {68, 55, 34, 238}
+        button:SetStyle {
+            backgroundColor = backgroundColor,
+            hoverBackgroundColor = unlocked
+                and {58, 102, 86, 250} or {86, 70, 43, 245},
+            pressedBackgroundColor = unlocked
+                and {34, 66, 56, 245} or {54, 44, 27, 238},
+            borderColor = unlocked
+                and {104, 188, 148, 210} or {170, 132, 66, 190},
+            textColor = unlocked
+                and {208, 242, 220, 255} or {245, 220, 156, 255},
+        }
+    end
+    if status then
+        status:SetText(unlocked
+            and "已解锁：可随时返回当前地图安全区"
+            or "观看广告后永久解锁“使用回城卷轴”")
+    end
+    return unlocked
+end
+
+--- 打开“鼓励作者”说明弹窗；真正的 SDK 请求由 main.lua 注入回调。
+function GameUI.ShowSupportAuthorDialog()
+    UI.Modal.Confirm {
+        title = "鼓励作者",
+        message = "祝大家玩的开心，如果喜欢这个游戏，可观看广告鼓励一下作者，非常感谢，观看广告完成有小奖励。",
+        confirmText = "观看广告",
+        cancelText = "暂不观看",
+        onConfirm = function()
+            if GameUI.onRewardAdRequested then
+                GameUI.onRewardAdRequested()
+            else
+                UI.Modal.Alert {
+                    title = "广告暂不可用",
+                    message = "广告服务暂不可用，请稍后再试。",
+                    buttonText = "知道了",
+                }
+            end
+        end,
+    }
+end
+
+--- 展示激励广告完成/失败结果。
+---@param success boolean
+---@param message string|nil
+function GameUI.ShowRewardAdResult(success, message)
+    UI.Modal.Alert {
+        title = success and "奖励已获得" or "广告未完成",
+        message = message or (success
+            and "获得“使用回城卷轴”功能！"
+            or "需完整观看广告才能获得奖励。"),
+        buttonText = "知道了",
+    }
+end
+
+-- ============================================================================
 -- 系统面板（退出 + DBG）
 -- ============================================================================
 function GameUI.ShowSystemPanel()
@@ -5197,6 +5293,10 @@ function GameUI.ShowSystemPanel()
     SoundManager.Play("open_panel")
     uiState.systemPanelOpen = true
     _SyncPauseState()
+
+    -- 系统面板每次重建都重新绑定入口引用，避免更新到已移除的旧控件。
+    uiState.refs.returnScrollButton = nil
+    uiState.refs.returnScrollStatus = nil
 
     -- 音量滑块使用 0~1 的统一范围；百分比标签让触屏调节时有明确反馈。
     local function formatVolume(gain)
@@ -5299,25 +5399,66 @@ function GameUI.ShowSystemPanel()
         }
     end
 
+    local returnScrollUnlocked = GameUI.IsReturnScrollUnlocked()
+    local returnScrollStatus = UI.Label {
+        text = returnScrollUnlocked
+            and "已解锁：可随时返回当前地图安全区"
+            or "观看广告后永久解锁“使用回城卷轴”",
+        width = "100%",
+        fontSize = 11,
+        fontColor = returnScrollUnlocked
+            and {154, 204, 162, 225} or {178, 166, 142, 210},
+        textAlign = "center",
+    }
+    local returnScrollButton = UI.Button {
+        text = "使用回城卷轴",
+        width = "100%", maxWidth = 270, height = 42,
+        backgroundColor = returnScrollUnlocked
+            and {44, 82, 70, 245} or {68, 55, 34, 238},
+        borderRadius = 6, borderWidth = 1,
+        borderColor = returnScrollUnlocked
+            and {104, 188, 148, 210} or {170, 132, 66, 190},
+        fontSize = 14,
+        textColor = returnScrollUnlocked
+            and {208, 242, 220, 255} or {245, 220, 156, 255},
+        onClick = function()
+            if not GameUI.IsReturnScrollUnlocked() then
+                GameUI.ShowSupportAuthorDialog()
+                return
+            end
+            GameUI.HideSystemPanel()
+            if GameUI.onUseReturnScroll then
+                GameUI.onUseReturnScroll()
+            else
+                GameUI.ShowToast("使用回城卷轴暂不可用，请稍后再试", 2.0)
+            end
+        end,
+    }
+    uiState.refs.returnScrollButton = returnScrollButton
+    uiState.refs.returnScrollStatus = returnScrollStatus
+    local returnScrollPanel = UI.Panel {
+        width = "100%",
+        backgroundColor = {28, 28, 26, 180},
+        borderRadius = 6, borderWidth = 1,
+        borderColor = {92, 88, 70, 150},
+        padding = 8,
+        alignItems = "center",
+        gap = 6,
+        children = {
+            UI.Label {
+                text = "便捷功能",
+                fontSize = 10,
+                fontColor = {154, 150, 136, 190},
+            },
+            returnScrollStatus,
+            returnScrollButton,
+        },
+    }
+
     local systemContent = {
         UI.Panel {
             width = "100%", height = 1,
             backgroundColor = {72, 74, 76, 110},
-        },
-        UI.Button {
-            text = "排行榜",
-            width = "100%", height = 40,
-            backgroundColor = {48, 42, 28, 238},
-            borderRadius = 6, borderWidth = 1,
-            borderColor = {170, 132, 66, 190},
-            fontSize = 14,
-            fontColor = {245, 220, 156, 255},
-            onClick = function()
-                GameUI.HideSystemPanel()
-                if GameUI.onLeaderboardPressed then
-                    GameUI.onLeaderboardPressed()
-                end
-            end,
         },
         -- 音效与背景音乐相互独立；滑块先反馈，再异步保存设置。
         createAudioToggleRow("音效", SoundManager.IsSoundEnabled(), function(value)
@@ -5332,6 +5473,7 @@ function GameUI.ShowSystemPanel()
         createVolumeRow("背景音乐音量", SoundManager.GetMusicGain(), function(value, persist)
             SoundManager.SetMusicGain(value, persist)
         end),
+        returnScrollPanel,
         UI.Button {
             text = "返回主菜单",
             width = 180, height = 40,
@@ -5419,6 +5561,24 @@ function GameUI.ShowSystemPanel()
         })
     end
 
+    -- 鼓励作者始终是系统菜单最底部的最后一项（调试内容也在它之前）。
+    table.insert(systemContent, UI.Panel {
+        width = "100%", height = 1,
+        backgroundColor = {70, 72, 74, 90},
+    })
+    table.insert(systemContent, UI.Button {
+        text = "鼓励作者",
+        width = 180, height = 40,
+        backgroundColor = {48, 42, 28, 238},
+        borderRadius = 6, borderWidth = 1,
+        borderColor = {170, 132, 66, 190},
+        fontSize = 14,
+        textColor = {245, 220, 156, 255},
+        onClick = function()
+            GameUI.ShowSupportAuthorDialog()
+        end,
+    })
+
     uiState.systemPanelRoot = UI.Panel {
         id = "systemPanelOverlay",
         width = "100%", height = "100%",
@@ -5428,8 +5588,8 @@ function GameUI.ShowSystemPanel()
         children = {
             UI.Panel {
                 width = "88%", maxWidth = 320,
-                height = GameUI.debugMode and "88%" or "72%",
-                maxHeight = GameUI.debugMode and 500 or 340,
+                height = GameUI.debugMode and "90%" or "82%",
+                maxHeight = GameUI.debugMode and 560 or 420,
                 backgroundColor = {16, 12, 10, 248},
                 borderRadius = 8, borderWidth = 2,
                 borderColor = {124, 126, 130, 198},
@@ -6063,6 +6223,8 @@ GameUI.onSkillPressed = nil
 GameUI.onUseHpPotion = nil
 GameUI.onUseMpPotion = nil
 GameUI.onMenuPressed = nil
+GameUI.onRewardAdRequested = nil
+GameUI.onUseReturnScroll = nil
 GameUI.onCharacterPanelToggle = nil
 GameUI.onSystemPanelToggle = nil
 GameUI.onLeaderboardPressed = nil

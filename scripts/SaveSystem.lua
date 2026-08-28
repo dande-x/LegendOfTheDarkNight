@@ -294,6 +294,7 @@ function SaveSystem.CreateSnapshot(player, inventoryData, killCount)
         className  = player.className,
         modelStyle = player.modelStyle or "old",
         gender     = player.gender or "male",
+        returnScrollUnlocked = player.returnScrollUnlocked == true,
         level      = SafeInteger(player.level, 1, LEVEL_SANITY_LIMIT, 1),
         exp        = SafeInteger(player.exp, 0, MAX_RESOURCE, 0),
         expToNext  = SafeInteger(player.expToNext, 1, MAX_RESOURCE, 1),
@@ -1248,6 +1249,7 @@ function SaveSystem.RestorePlayer(saveData, player)
     player.className = classDef.name
     player.gender = NormalizeGender(saveData.gender)
     player.modelStyle = NormalizeModelStyle(saveData.modelStyle, player.gender)
+    player.returnScrollUnlocked = saveData.returnScrollUnlocked == true
     print("[SaveSystem] Player restored: " .. tostring(player.className) .. " Lv." .. player.level)
     return true
 end

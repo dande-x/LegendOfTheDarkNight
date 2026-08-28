@@ -159,12 +159,13 @@ check(itemDetailStart >= 0 && itemDetailEnd > itemDetailStart,
     "装备详情入口结构缺失，无法验证背包操作边界");
 const itemDetailSource = equipmentPanelSource.slice(itemDetailStart, itemDetailEnd);
 check(itemDetailSource.includes('or ("出售可得 " .. sellPrice .. " 金 · 请前往安全区商人")')
-    && itemDetailSource.includes('text = "分解穿戴中装备"')
+    && itemDetailSource.includes('and ("卸下后可出售 " .. sellPrice .. " 金 · 请前往安全区商人")')
     && itemDetailSource.includes("if sourceSlot then"),
-    "装备详情没有区分背包出售与已穿戴分解操作");
-check(!itemDetailSource.includes('or "分解装备"')
-    && !itemDetailSource.includes('text = "分解装备"'),
-    "背包装备详情仍暴露分解装备按钮");
+    "装备详情没有区分背包出售与已穿戴卸下操作");
+check(!itemDetailSource.includes("RecycleItem")
+    && !itemDetailSource.includes("Enhance.Recycle")
+    && !itemDetailSource.includes("分解"),
+    "装备详情仍暴露分解操作或分解收益");
 const skillDescriptionStart = gameUISource.indexOf('text = skill.desc or ""');
 const skillDescriptionEnd = gameUISource.indexOf("UI.Label {", skillDescriptionStart + 1);
 const skillDescriptionSource = gameUISource.slice(skillDescriptionStart, skillDescriptionEnd);

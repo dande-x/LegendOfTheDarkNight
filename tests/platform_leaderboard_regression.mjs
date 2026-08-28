@@ -227,13 +227,22 @@ for (const dir of mirrors) {
     const leaderboardUiBlock = blockBetween(ui,
         "function GameUI.ShowLeaderboardPanel(options, boardId)",
         "function GameUI.HideLeaderboardPanel()", `${dir}/GameUI.lua`);
+    const characterUiBlock = blockBetween(ui,
+        "function GameUI.ShowCharacterPanel(player, tab)",
+        "function GameUI.HideCharacterPanel()", `${dir}/GameUI.lua`);
+    const systemUiBlock = blockBetween(ui,
+        "function GameUI.ShowSystemPanel()",
+        "function GameUI.HideSystemPanel()", `${dir}/GameUI.lua`);
     for (const [id, , boardLabel] of expectedBoards) {
         check(ui.includes(`id = "${id}"`) && ui.includes(`label = "${boardLabel}"`),
             `${dir}/GameUI.lua 缺少 ${boardLabel} Tab`);
     }
-    check(ui.includes('text = "排行榜"')
-        && ui.includes("GameUI.onLeaderboardPressed"),
-    `${dir}/GameUI.lua 系统菜单缺少排行榜入口`);
+    check(characterUiBlock.includes("makeLeaderboardTab()")
+        && characterUiBlock.includes('text = "排行榜"')
+        && characterUiBlock.includes("GameUI.onLeaderboardPressed"),
+    `${dir}/GameUI.lua 角色菜单缺少排行榜入口`);
+    check(!systemUiBlock.includes('text = "排行榜"'),
+        `${dir}/GameUI.lua 排行榜入口仍位于系统菜单`);
     check(leaderboardUiBlock.includes('_CreateOverlayHeader("平台排行榜"')
         && (leaderboardUiBlock.includes('backText = "X"') || ui.includes('options.backText or "X"')),
     `${dir}/GameUI.lua 排行榜缺少固定 X 关闭入口`);
