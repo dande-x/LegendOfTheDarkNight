@@ -67,51 +67,51 @@ local ENEMY_DEFS = {
     {
         name = "鹿", monsterType = "deer",
         level = 1,  hp = 90,   atk = 8,  def = 3,
-        speed = 3.0, chaseRange = 8, attackRange = 1.5, attackCD = 2.0,
+        speed = 3.0, chaseRange = 5.3, attackRange = 1.5, attackCD = 2.0,
         faceYawOffset = 0,
         exp = 30, scale = 0.9, tier = "normal",
     },
     {
         name = "幽灵", monsterType = "mech_humanoid",
         level = 3, hp = 180, atk = 16, def = 8,
-        speed = 2.4, chaseRange = 10, attackRange = 1.65, attackCD = 1.9,
+        speed = 2.4, chaseRange = 6.7, attackRange = 1.65, attackCD = 1.9,
         exp = 62, scale = 1.0, tier = "normal",
     },
     {
         name = "稻草人", monsterType = "scarecrow",
         level = 2,  hp = 110,  atk = 10, def = 4,
-        speed = 2.2, chaseRange = 7, attackRange = 1.5, attackCD = 1.8,
+        speed = 2.2, chaseRange = 4.7, attackRange = 1.5, attackCD = 1.8,
         exp = 40, scale = 1.0, tier = "normal",
     },
     {
         name = "骷髅",   monsterType = "skeleton",
         level = 4,  hp = 135,  atk = 14, def = 5,
-        speed = 2.6, chaseRange = 10, attackRange = 1.5, attackCD = 1.5,
+        speed = 2.6, chaseRange = 6.7, attackRange = 1.5, attackCD = 1.5,
         exp = 55, scale = 1.08, tier = "normal",
     },
     {
         name = "毒蜘蛛", monsterType = "spider",
         level = 6,  hp = 120,  atk = 16, def = 4,
-        speed = 3.5, chaseRange = 12, attackRange = 1.5, attackCD = 1.2,
+        speed = 3.5, chaseRange = 8.0, attackRange = 1.5, attackCD = 1.2,
         exp = 65, scale = 0.85, tier = "normal",
     },
     {
         name = "半兽人", monsterType = "orc",
         level = 8,  hp = 210,  atk = 20, def = 8,
-        speed = 2.0, chaseRange = 8, attackRange = 1.5, attackCD = 2.2,
+        speed = 2.0, chaseRange = 5.3, attackRange = 1.5, attackCD = 2.2,
         exp = 90, scale = 1.1, tier = "normal",
     },
     -- === 中级区 10~25 ===
     {
         name = "狼",   monsterType = "wolf",
         level = 10, hp = 260,  atk = 24, def = 10,
-        speed = 3.2, chaseRange = 12, attackRange = 1.5, attackCD = 1.5,
+        speed = 3.2, chaseRange = 8.0, attackRange = 1.5, attackCD = 1.5,
         exp = 120, scale = 1.15, tier = "normal",
     },
     {
         name = "石魔",   monsterType = "golem",
         level = 14, hp = 400,  atk = 28, def = 16,
-        speed = 1.6, chaseRange = 8, attackRange = 1.5, attackCD = 2.5,
+        speed = 1.6, chaseRange = 5.3, attackRange = 1.5, attackCD = 2.5,
         exp = 180, scale = 1.6, tier = "normal",
     },
     {
@@ -119,9 +119,9 @@ local ENEMY_DEFS = {
         -- 水上城市守关 Boss。最终属性由 Balance 的 Lv34 Boss 曲线派生，
         -- 衔接白野猪与终章沃玛教主。
         level = 34, hp = 900,  atk = 38, def = 16,
-        speed = 3.4, chaseRange = 20, attackRange = 6.0, attackCD = 1.8,
+        speed = 3.4, chaseRange = 13.3, attackRange = 6.0, attackCD = 1.8,
         attackMode = "venom_spit", attackDamageScale = 0.95,
-        encounterOffsetZ = 6.0, leashRange = 30, guardRadius = 2.4,
+        encounterOffsetZ = 6.0, leashRange = 20.0, guardRadius = 2.4,
         exp = 480, scale = 1.8, tier = "boss",
     },
     {
@@ -129,57 +129,57 @@ local ENEMY_DEFS = {
         -- 第三幕位于 Lv25~34 水上城市；旧值 Lv22 会被任务补池绕过地图
         -- 等级带，造成 UI 标注与实际怪物数据冲突。
         level = 26, hp = 500,  atk = 38, def = 14,
-        speed = 2.4, chaseRange = 12, attackRange = 1.5, attackCD = 1.8,
+        speed = 2.4, chaseRange = 8.0, attackRange = 1.5, attackCD = 1.8,
         exp = 300, scale = 1.3, tier = "elite",
     },
     -- === 高级区 25~40 ===
     {
         name = "赤焰魔", monsterType = "golem",
         level = 28, hp = 750,  atk = 45, def = 20,
-        speed = 2.0, chaseRange = 10, attackRange = 1.5, attackCD = 2.0,
+        speed = 2.0, chaseRange = 6.7, attackRange = 1.5, attackCD = 2.0,
         exp = 450, scale = 1.8, tier = "elite",
     },
     {
         name = "巨蟒",   monsterType = "serpent",
         level = 32, hp = 950,  atk = 50, def = 18,
-        speed = 2.8, chaseRange = 14, attackRange = 1.5, attackCD = 1.8,
+        speed = 2.8, chaseRange = 9.3, attackRange = 1.5, attackCD = 1.8,
         exp = 550, scale = 2.0, tier = "elite",
     },
     {
         name = "噬魂兽", monsterType = "orc",
         level = 36, hp = 1100, atk = 55, def = 22,
-        speed = 2.5, chaseRange = 12, attackRange = 1.5, attackCD = 1.5,
+        speed = 2.5, chaseRange = 8.0, attackRange = 1.5, attackCD = 1.5,
         exp = 700, scale = 1.5, tier = "elite",
     },
     {
         name = "麒麟", monsterType = "qilin",
         level = 38, hp = 1350, atk = 62, def = 24,
-        speed = 2.6, chaseRange = 14, attackRange = 1.8, attackCD = 1.8,
+        speed = 2.6, chaseRange = 9.3, attackRange = 1.8, attackCD = 1.8,
         exp = 850, scale = 1.4, tier = "elite",
     },
     -- === Boss 区 (大型压迫感怪物) ===
     {
         name = "沃玛教主", monsterType = "golem",
         level = 44, hp = 1200, atk = 41, def = 18, hpScale = 0.80,
-        speed = 2.4, chaseRange = 20, attackRange = 4.2, attackCD = 2.6,
+        speed = 2.4, chaseRange = 13.3, attackRange = 4.2, attackCD = 2.6,
         attackMode = "ground_slam", attackDamageScale = 1.08,
-        leashRange = 32, guardRadius = 2.5,
+        leashRange = 21.3, guardRadius = 2.5,
         exp = 700, scale = 2.5, tier = "boss",
     },
     {
         name = "火龙王", monsterType = "fire_dragon",
         level = 48, hp = 1700, atk = 48, def = 20,
-        speed = 2.9, chaseRange = 24, attackRange = 7.5, attackCD = 2.4,
+        speed = 2.9, chaseRange = 16.0, attackRange = 7.5, attackCD = 2.4,
         attackMode = "fire_breath", attackDamageScale = 1.0,
-        leashRange = 36, guardRadius = 3.0,
+        leashRange = 24.0, guardRadius = 3.0,
         exp = 1000, scale = 2.7, tier = "boss",
     },
     {
         name = "牛魔王", monsterType = "golem",
         level = 50, hp = 2200, atk = 54, def = 23, atkScale = 1.12,
-        speed = 2.6, chaseRange = 22, attackRange = 4.6, attackCD = 2.5,
+        speed = 2.6, chaseRange = 14.7, attackRange = 4.6, attackCD = 2.5,
         attackMode = "ground_slam", attackDamageScale = 1.18,
-        encounterOffsetZ = -6.0, leashRange = 36, guardRadius = 3.0,
+        encounterOffsetZ = -6.0, leashRange = 24.0, guardRadius = 3.0,
         exp = 1300, scale = 3.0, tier = "boss",
     },
 }
@@ -439,7 +439,7 @@ local GOLD_MAGNET_ACCEL = 25.0   -- 吸附加速度
 local GOLD_MAGNET_MAX_SPEED = 18.0
 local GOLD_PICKUP_DIST = 0.5     -- 拾取判定距离
 local ITEM_PICKUP_DIST = 0.65    -- 装备拾取距离：必须踩到装备上才拾取
-local ITEM_PICKUP_DELAY = 2.0    -- 装备刚掉落后延迟拾取(秒)
+local ITEM_PICKUP_DELAY = 1.0    -- 装备刚掉落后延迟拾取(秒)，由 2 秒缩短一半
 local ITEM_BLINK_INTERVAL = 0.16 -- 装备可拾取前的闪烁半周期(秒)
 local ITEM_LIFETIME = 60.0       -- 装备存在时间(秒)
 local GOLD_LIFETIME = 30.0       -- 金币存在时间(秒)
@@ -1306,7 +1306,7 @@ function Combat.SpawnEnemy(scene, playerPos, playerLevel, forceDef, mapId, optio
         exp = scaledEXP,
         state = isBoss and "guard" or "patrol",
         homePosition = Vector3(spawnPos.x, spawnPos.y, spawnPos.z),
-        leashRange = tonumber(def.leashRange) or math.max(18, (def.chaseRange or 10) * 1.5),
+        leashRange = tonumber(def.leashRange) or math.max(12, (def.chaseRange or 10) * 1.5),
         guardRadius = tonumber(def.guardRadius) or 2.0,
         returnSpeed = (def.speed or ENEMY_MOVE_SPEED) * 1.15,
         chargeRange = tonumber(def.chargeRange) or 8.0,
@@ -4971,7 +4971,7 @@ function Combat.UpdateGroundItems(dt, playerNode)
             toPlayer.y = 0
             local dist = toPlayer:Length()
 
-            -- 装备刚掉落的前 2 秒不可拾取，之后必须踩到装备上才触发
+            -- 装备刚掉落的前 1 秒不可拾取，之后必须踩到装备上才触发
             g.pickupDelayTimer = math.min(ITEM_PICKUP_DELAY, (g.pickupDelayTimer or 0) + dt)
             g.pickupRetryTimer = math.max(0, (g.pickupRetryTimer or 0) - dt)
             local canPickup = not g.falling and g.pickupDelayTimer >= ITEM_PICKUP_DELAY

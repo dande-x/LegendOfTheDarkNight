@@ -51,6 +51,14 @@ const expectedModes = new Map([
     ["火龙王", "fire_breath"],
     ["牛魔王", "ground_slam"],
 ]);
+const expectedRanges = new Map([
+    ["半兽勇士", { chase: 12.0, leash: 18.0 }],
+    ["白野猪", { chase: 13.3, leash: 20.0 }],
+    ["蚁后", { chase: 13.3, leash: 20.0 }],
+    ["沃玛教主", { chase: 13.3, leash: 21.3 }],
+    ["火龙王", { chase: 16.0, leash: 24.0 }],
+    ["牛魔王", { chase: 14.7, leash: 24.0 }],
+]);
 
 for (const names of Object.values(bossGroups)) {
     check(names.length === 2, "三类 Boss 玩法没有保持均衡分配");
@@ -61,7 +69,12 @@ for (const [name, mode] of expectedModes) {
     check(block.includes('tier = "boss"'), `${name} 未标记为 Boss`);
     check(block.includes(`attackMode = "${mode}"`), `${name} 攻击模式应为 ${mode}`);
     check(numberField(block, "speed") >= 2.4, `${name} 移动速度过低`);
-    check(numberField(block, "chaseRange") >= 18, `${name} 警戒范围不足`);
+    const expected = expectedRanges.get(name);
+    check(expected, `${name} 缺少新的距离基线`);
+    check(numberField(block, "chaseRange") === expected.chase,
+        `${name} 警戒范围未按约 1/3 缩短`);
+    check(numberField(block, "leashRange") === expected.leash,
+        `${name} 持续追踪/回位边界未按约 1/3 缩短`);
     check(numberField(block, "leashRange") > numberField(block, "chaseRange"),
         `${name} 脱战边界没有覆盖正常追击范围`);
     check(numberField(block, "guardRadius") >= 2, `${name} 缺少守点巡弋空间`);
@@ -85,6 +98,8 @@ check(/enemy\.tier == "boss" and "return" or "patrol"/.test(combatSource),
     "Boss 失去目标后不会回位");
 check(combatSource.includes('enemy.state == "guard" or enemy.state == "return"'),
     "守点或回位中的 Boss 受击后不会重新追击");
+check(combatSource.includes("chaseTargetDist > e.chaseRange * 1.5"),
+    "持续追踪阈值没有继续使用缩短后的警戒距离");
 
 const stuckRecovery = functionBlock(combatSource, "UpdateBossStuckRecovery");
 check(stuckRecovery.includes("enemy.stuckRecoveries >= 3"), "Boss 卡位恢复缺少最终兜底");

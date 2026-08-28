@@ -140,15 +140,19 @@ check(mainSource.includes("hpCfg.healRatio * 100") && mainSource.includes("mpCfg
 check(inventorySource.includes("Inventory.POTION_BUY_PRICE = 100"),
     "药水商店价格不再是统一的 100 金币");
 check((inventorySource.match(/price = Inventory\.POTION_BUY_PRICE/g) ?? []).length === 2,
-    "血药和蓝药没有共用统一商店价格");
+    "强效金创药和法力药水没有共用统一商店价格");
 check(mainSource.includes('Inventory.BuyPotionFromMerchant("hp")')
     && mainSource.includes('Inventory.BuyPotionFromMerchant("mp")'),
     "安全区商人没有承接两种药水购买");
 check(!mainSource.includes("Inventory.BuyPotion("),
     "仍存在绕过商人的旧药水购买调用");
 check(!equipmentPanelSource.includes("BuyPotion")
-    && equipmentPanelSource.includes("仅可在安全区商人处购买"),
-    "背包重新出现药水购买入口或缺少商人购买提示");
+    && !equipmentPanelSource.includes("仅可在安全区商人处购买"),
+    "背包重新出现药水购买入口或恢复了已移除的商人购买提示");
+check(!gameUISource.includes("魂归安全区"),
+    "死亡演出仍显示已移除的“魂归安全区”文案");
+check(!read("scripts/EnhancePanel.lua").includes("只收金币"),
+    "铁匠强化页仍显示已移除的“只收金币”文案");
 const itemDetailStart = equipmentPanelSource.indexOf("local function ShowItemDetail");
 const itemDetailEnd = equipmentPanelSource.indexOf("function EquipmentPanel.BuildEquipTab", itemDetailStart);
 check(itemDetailStart >= 0 && itemDetailEnd > itemDetailStart,

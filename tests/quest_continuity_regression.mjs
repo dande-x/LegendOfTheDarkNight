@@ -58,9 +58,16 @@ for (const api of [
 ]) {
     check(questSource.includes(`function ${api}`), `缺少连续性接口 ${api}`);
 }
-check(/QUEST_SAVE_VERSION\s*=\s*2/.test(questSource), "任务存档未升级到 v2");
+check(/QUEST_SAVE_VERSION\s*=\s*3/.test(questSource), "任务存档未升级到 v3");
 check(questSource.includes("modeState"), "任务存档未保存模式状态");
 check(questSource.includes("legacyCount"), "旧击杀进度没有迁移入口");
+
+// 跨地图任务完成后只建立“前往下一张地图”阶段；玩家手动进入目标图后
+// 才清除等待标记并启动下一条任务，不能在任务开始回调里自动切图。
+check(questSource.includes("function Quest.IsTravelPending"), "缺少跨地图等待状态查询");
+check(questSource.includes("function Quest.GetTravelTargetMapId"), "缺少跨地图目标查询");
+check(questSource.includes("function Quest.OnMapEntered"), "缺少手动进入目标地图的任务激活入口");
+check(questSource.includes("state.travelMapId = crossedMap and next.mapId or nil"), "跨地图完成未建立等待状态");
 
 check(!combatSource.includes('require("scripts.Quest")'), "Combat 仍反向依赖 Quest");
 check(!combatSource.includes("questTarget"), "自然刷怪仍会注入任务怪物");
@@ -81,6 +88,12 @@ check(mainSource.includes("Quest.onObjectiveReached"), "主流程未接入巡查
 check(mainSource.includes("Quest.onAreaStateChanged"), "主流程未接入坚守区域回调");
 check(mainSource.includes("Quest.onSurviveWave"), "主流程未接入坚守波次回调");
 check(mainSource.includes("UpdateQuestAreaEffect"), "主流程未同步坚守区域视觉状态");
+check(mainSource.includes("Quest.OnMapEntered"), "主流程未在手动切图后激活下一地图任务");
+
+const questStartStart = mainSource.indexOf("local function PresentQuestStart");
+const questStartEnd = mainSource.indexOf("local function PresentQuestCompletion", questStartStart);
+const questStartBlock = mainSource.slice(questStartStart, questStartEnd);
+check(!questStartBlock.includes("QueueQuestMapSwitch"), "任务开始仍会自动传送到目标地图");
 
 const loadStart = mainSource.indexOf("function LoadFromSave");
 const loadEnd = mainSource.indexOf("function SaveCurrentGame", loadStart);
@@ -95,6 +108,7 @@ check(!deathBlock.includes("playerNode_.position = Vector3(0, 0, 0)"), "重生�
 
 check(uiSource.includes("Quest.GetObjectiveText"), "任务栏未使用模式化目标文本");
 check(uiSource.includes("Quest.GetObjectiveMarker"), "小地图未显示普通任务地点");
+check(questSource.includes("前往下一张地图"), "跨地图等待阶段缺少明确任务目标文案");
 
 console.log("quest_continuity_regression: PASS");
 console.table(Object.fromEntries(modeCounts));

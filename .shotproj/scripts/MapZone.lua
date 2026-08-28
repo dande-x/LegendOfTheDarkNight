@@ -161,8 +161,8 @@ function MapZone.SetCurrentMap(mapId)
     return true
 end
 
---- 判断角色是否达到地图进入等级。NPC 手动传送据此锁定地图；
---- 剧情自动传送由宿主直接切图，不经过该门槛。
+--- 判断角色是否达到地图进入等级。NPC 手动传送据此锁定普通路线；
+--- 当前主线目标地图由宿主在管家面板中显式解锁并设为免费。
 ---@param mapId string
 ---@param playerLevel number|nil
 ---@return boolean

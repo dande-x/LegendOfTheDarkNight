@@ -42,6 +42,8 @@ local SOUND_PATHS = {
     buff        = "audio/sfx/sfx_buff.mp3",
     dash        = "audio/sfx/sfx_dash.mp3",
     hurt        = "audio/sfx/sfx_hurt.mp3",
+    hurt_male   = "audio/sfx/sfx_hurt_male.mp3",
+    hurt_female = "audio/sfx/sfx_hurt_female.mp3",
     enemy_hit   = "audio/sfx/sfx_enemy_hit.mp3",
     enemy_death = "audio/sfx/sfx_enemy_death.mp3",
     death       = "audio/sfx/sfx_death.mp3",
@@ -99,7 +101,9 @@ function SoundManager.LoadSettings()
     if not ok or type(data) ~= "table" then return end
 
     settings.soundEnabled = ToBool(data.soundEnabled, true)
-    settings.musicEnabled = ToBool(data.musicEnabled, true)
+    -- 兼容仅保存过旧版 soundEnabled 的设置：旧开关同时代表两类音频，
+    -- 因此在缺少 musicEnabled 时沿用旧值，避免升级后背景音乐意外恢复。
+    settings.musicEnabled = ToBool(data.musicEnabled, settings.soundEnabled)
     settings.musicGain = ToGain(data.musicGain, 0.5)
     settings.sfxGain = ToGain(data.sfxGain, 0.8)
     print("[SoundManager] Loaded settings: soundEnabled=" .. tostring(settings.soundEnabled)
@@ -180,18 +184,55 @@ function SoundManager.GetSfxGain()
     return settings.sfxGain
 end
 
+--- 设置背景音乐音量（0.0 - 1.0）。
+---
+--- 立即应用到当前正在播放的背景音乐。
+---@param gain number
+---@param persist? boolean 是否立即持久化；滑块拖动过程中可传 false
+function SoundManager.SetMusicGain(gain, persist)
+    settings.musicGain = ToGain(gain, settings.musicGain)
+    -- 当前 BGM 不需要重启；直接修改音源即可让滑块即时生效。
+    if bgmHandle and bgmHandle.source then
+        bgmHandle.source.gain = settings.musicGain
+    end
+    if persist ~= false then
+        SoundManager.SaveSettings()
+    end
+end
+
+--- 设置一次性音效音量（0.0 - 1.0）。
+---
+--- 新播放的音效会使用新音量；已播放的短音效无需追踪和修改。
+---@param gain number
+---@param persist? boolean 是否立即持久化；滑块拖动过程中可传 false
+function SoundManager.SetSfxGain(gain, persist)
+    settings.sfxGain = ToGain(gain, settings.sfxGain)
+    if persist ~= false then
+        SoundManager.SaveSettings()
+    end
+end
+
 --- 播放一次性音效
 ---@param name string 音效键名（SoundManager.SOUND_PATHS 的键）
----@param options? {gain?: number, position?: Vector3, scene?: Scene}
+---@param options? {gain?: number, position?: Vector3, scene?: Scene, gender?: string}
 ---@return table|nil 音效句柄
 function SoundManager.Play(name, options)
     if not settings.soundEnabled then return nil end
+    options = options or {}
     local path = SOUND_PATHS[name]
+    -- 受击音效按角色性别区分：hurt + gender 时优先使用对应性别的音效
+    if name == "hurt" then
+        local gender = options.gender
+        if gender == "female" then
+            path = SOUND_PATHS.hurt_female
+        elseif gender == "male" then
+            path = SOUND_PATHS.hurt_male
+        end
+    end
     if not path then
         print("[SoundManager] Unknown sound: " .. tostring(name))
         return nil
     end
-    options = options or {}
     local scene = options.scene or SoundManager.currentScene
     if not scene then return nil end
 

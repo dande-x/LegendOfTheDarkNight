@@ -21,19 +21,19 @@ MonsterData.NEW_ENEMIES = {
     {
         name = "蛤蟆", monsterType = "toad",
         level = 2, hp = 100, atk = 9, def = 3,
-        speed = 2.4, chaseRange = 7, attackRange = 1.5, attackCD = 1.8,
+        speed = 2.4, chaseRange = 4.7, attackRange = 1.5, attackCD = 1.8,
         exp = 38, scale = 0.9, tier = "normal",
     },
     {
         name = "多钩猫", monsterType = "cat",
         level = 3, hp = 115, atk = 11, def = 4,
-        speed = 3.0, chaseRange = 8, attackRange = 1.5, attackCD = 1.6,
+        speed = 3.0, chaseRange = 5.3, attackRange = 1.5, attackCD = 1.6,
         exp = 45, scale = 0.95, tier = "normal",
     },
     {
         name = "钉耙猫", monsterType = "cat",
         level = 4, hp = 130, atk = 13, def = 5,
-        speed = 3.1, chaseRange = 8, attackRange = 1.5, attackCD = 1.5,
+        speed = 3.1, chaseRange = 5.3, attackRange = 1.5, attackCD = 1.5,
         exp = 52, scale = 0.95, tier = "normal",
     },
     {
@@ -42,9 +42,9 @@ MonsterData.NEW_ENEMIES = {
         -- boss tier，导致 q_006 永远无法生成目标。当前约 2900 HP，
         -- 作为第一幕高潮但不拖成持久战。
         level = 9, hp = 300, atk = 24, def = 10,
-        speed = 2.8, chaseRange = 18, attackRange = 2.4, attackCD = 2.0,
+        speed = 2.8, chaseRange = 12.0, attackRange = 2.4, attackCD = 2.0,
         attackMode = "charge", attackDamageScale = 1.05,
-        leashRange = 27, guardRadius = 2.2,
+        leashRange = 18.0, guardRadius = 2.2,
         exp = 120, scale = 1.5, tier = "boss",
     },
     {
@@ -52,76 +52,76 @@ MonsterData.NEW_ENEMIES = {
         -- 第二幕 Boss：当前约 6800 HP。此前 1800 × 5 反而比后续
         -- 多个 Boss 更耐打，导致第二幕节奏异常陡峭。
         level = 20, hp = 640, atk = 32, def = 14,
-        speed = 2.7, chaseRange = 20, attackRange = 2.7, attackCD = 2.8,
+        speed = 2.7, chaseRange = 13.3, attackRange = 2.7, attackCD = 2.8,
         attackMode = "charge", attackDamageScale = 1.10,
-        leashRange = 30, guardRadius = 2.4,
+        leashRange = 20.0, guardRadius = 2.4,
         exp = 300, scale = 2.2, tier = "boss",
     },
     {
         name = "红野猪", monsterType = "boar",
         level = 18, hp = 520, atk = 34, def = 15,
-        speed = 2.1, chaseRange = 10, attackRange = 1.6, attackCD = 1.9,
+        speed = 2.1, chaseRange = 6.7, attackRange = 1.6, attackCD = 1.9,
         exp = 240, scale = 1.35, tier = "normal",
     },
     {
         name = "黑野猪", monsterType = "boar",
         level = 22, hp = 640, atk = 39, def = 18,
-        speed = 2.2, chaseRange = 11, attackRange = 1.6, attackCD = 1.8,
+        speed = 2.2, chaseRange = 7.3, attackRange = 1.6, attackCD = 1.8,
         exp = 300, scale = 1.45, tier = "normal",
     },
     -- === 25~50 区间补齐（同类物种进阶变体，合理复用骨架）===
     {
         name = "石像鬼", monsterType = "golem",
         level = 26, hp = 620, atk = 40, def = 20,
-        speed = 1.8, chaseRange = 9, attackRange = 1.5, attackCD = 2.2,
+        speed = 1.8, chaseRange = 6.0, attackRange = 1.5, attackCD = 2.2,
         exp = 320, scale = 1.5, tier = "normal",
     },
     {
         name = "海妖", monsterType = "serpent",
         level = 30, hp = 720, atk = 46, def = 16,
-        speed = 2.6, chaseRange = 13, attackRange = 1.5, attackCD = 1.7,
+        speed = 2.6, chaseRange = 8.7, attackRange = 1.5, attackCD = 1.7,
         exp = 400, scale = 1.7, tier = "normal",
     },
     {
         name = "巨蜥", monsterType = "serpent",
         level = 33, hp = 840, atk = 50, def = 19,
-        speed = 2.4, chaseRange = 12, attackRange = 1.5, attackCD = 1.6,
+        speed = 2.4, chaseRange = 8.0, attackRange = 1.5, attackCD = 1.6,
         exp = 480, scale = 1.9, tier = "normal",
     },
     {
         name = "岩甲兽", monsterType = "golem",
         level = 37, hp = 1020, atk = 58, def = 24,
-        speed = 1.6, chaseRange = 9, attackRange = 1.5, attackCD = 2.0,
+        speed = 1.6, chaseRange = 6.0, attackRange = 1.5, attackCD = 2.0,
         exp = 620, scale = 1.7, tier = "normal",
     },
     {
         name = "黑鳞蟒", monsterType = "serpent",
         level = 40, hp = 1150, atk = 64, def = 20,
-        speed = 2.7, chaseRange = 14, attackRange = 1.5, attackCD = 1.5,
+        speed = 2.7, chaseRange = 9.3, attackRange = 1.5, attackCD = 1.5,
         exp = 720, scale = 2.1, tier = "normal",
     },
     {
         name = "深渊恶鬼", monsterType = "orc",
         level = 43, hp = 1300, atk = 70, def = 26,
-        speed = 2.3, chaseRange = 13, attackRange = 1.5, attackCD = 1.4,
+        speed = 2.3, chaseRange = 8.7, attackRange = 1.5, attackCD = 1.4,
         exp = 850, scale = 1.4, tier = "normal",
     },
     {
         name = "熔岩巨兽", monsterType = "golem",
         level = 46, hp = 1500, atk = 76, def = 30,
-        speed = 1.7, chaseRange = 10, attackRange = 1.6, attackCD = 1.9,
+        speed = 1.7, chaseRange = 6.7, attackRange = 1.6, attackCD = 1.9,
         exp = 1000, scale = 1.9, tier = "normal",
     },
     {
         name = "魔龙幼崽", monsterType = "serpent",
         level = 48, hp = 1700, atk = 82, def = 28,
-        speed = 2.8, chaseRange = 15, attackRange = 1.6, attackCD = 1.6,
+        speed = 2.8, chaseRange = 10.0, attackRange = 1.6, attackCD = 1.6,
         exp = 1200, scale = 2.2, tier = "normal",
     },
     {
         name = "祖玛卫士", monsterType = "orc",
         level = 50, hp = 2000, atk = 88, def = 32,
-        speed = 2.2, chaseRange = 13, attackRange = 1.6, attackCD = 1.5,
+        speed = 2.2, chaseRange = 8.7, attackRange = 1.6, attackCD = 1.5,
         exp = 1400, scale = 1.5, tier = "elite",
     },
 }

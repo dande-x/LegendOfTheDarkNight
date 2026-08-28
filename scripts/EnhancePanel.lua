@@ -590,7 +590,7 @@ function EnhancePanel.Build(options)
                 gap = 8,
                 children = {
                     UI.Label {
-                        text = "铁匠强化 · 只收金币",
+                        text = "铁匠强化",
                         flex = 1,
                         flexShrink = 1,
                         fontSize = 15,

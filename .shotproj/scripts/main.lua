@@ -15,6 +15,7 @@ local Quest = require("Quest")
 local MapZone = require("MapZone")
 local NPC = require("NPC")
 local DivineBeast = require("DivineBeast")
+local PlatformLeaderboard = require("PlatformLeaderboard")
 require "urhox-libs.UI.GameHUD"
 
 -- ============================================================================
@@ -64,10 +65,12 @@ local MERCHANT_STOCK_SIZE = 6
 local MERCHANT_STOCK_TTL = 300
 local MERCHANT_REFRESH_COST = 100
 
--- 任务完成回调可能发生在 Combat.Update 的敌人遍历期间。切图会清空战斗表，
--- 因此任务驱动的切图必须推迟到下一帧的安全边界，不能在死亡回调中直接执行。
-local pendingQuestMapId = nil
-local ProcessPendingQuestMapSwitch = nil
+-- 跨地图任务完成后不再由任务系统主动切图。玩家通过安全区管家手动
+-- 传送到目标地图，切图完成后把任务激活动作排到下一帧，避免在传送
+-- 面板的点击回调里直接替换对话根节点。
+local pendingQuestActivation = false
+local ProcessPendingQuestActivation = nil
+local HandleQuestMapEntered = nil
 local pendingQuestPresentation = nil
 local questPresentationDelayHint = 0
 local ProcessPendingQuestPresentation = nil
@@ -115,6 +118,64 @@ local DEFAULT_CAST_TIMES = {
 local chargeGlowNode = nil
 
 -- ============================================================================
+-- 平台排行榜：同一 TapTap 账号的两个角色槽位各项取最高值
+-- ============================================================================
+local function NormalizeLeaderboardValue(value)
+    local number = tonumber(value)
+    if not number or number ~= number or number == math.huge or number == -math.huge then
+        return 0
+    end
+    return math.max(0, math.min(1000000000, math.floor(number)))
+end
+
+local function MergeLeaderboardScores(scores, source)
+    scores.level = math.max(scores.level, NormalizeLeaderboardValue(source and source.level))
+    scores.monster_kills = math.max(scores.monster_kills,
+        NormalizeLeaderboardValue(source and source.killCount))
+    scores.gold = math.max(scores.gold, NormalizeLeaderboardValue(source and source.gold))
+end
+
+local function CollectAccountLeaderboardScores()
+    local scores = { level = 0, monster_kills = 0, gold = 0 }
+    local slotCount = tonumber(SaveSystem.MAX_SLOTS) or 2
+    for slotIndex = 1, slotCount do
+        local source = SaveSystem.GetSlot(slotIndex)
+        local useRuntime = slotIndex == currentSlotIndex and player_ ~= nil
+        if useRuntime then
+            source = {
+                level = player_.level,
+                killCount = type(Combat.GetKillCount) == "function"
+                    and Combat.GetKillCount() or Combat.killCount,
+                gold = Inventory.playerData and Inventory.playerData.gold or 0,
+            }
+        end
+        if useRuntime or SaveSystem.IsLoadable(source) then
+            MergeLeaderboardScores(scores, source)
+        end
+    end
+    return scores
+end
+
+local function SyncAccountLeaderboard(callbacks)
+    return PlatformLeaderboard.Sync(CollectAccountLeaderboardScores(), callbacks)
+end
+
+local function LoadPlatformLeaderboardBoard(boardId, callback)
+    local fetchStarted = false
+    local function fetchBoard()
+        if fetchStarted then return end
+        fetchStarted = true
+        PlatformLeaderboard.Fetch(boardId, PlatformLeaderboard.TOP_COUNT, callback)
+    end
+    local syncStarted = SyncAccountLeaderboard({
+        ok = fetchBoard,
+        error = function() fetchBoard() end,
+    })
+    if not syncStarted and not fetchStarted then fetchBoard() end
+    return true
+end
+
+-- ============================================================================
 -- 引擎入口
 -- ============================================================================
 function Start()
@@ -127,6 +188,7 @@ function Start()
 
     -- 初始化存档系统
     SaveSystem.Init()
+    SyncAccountLeaderboard()
 
     -- 先展示启动 Logo，再进入存档槽位选择界面
     GameUI.ShowStartupLogo(function()
@@ -273,7 +335,7 @@ function CreateFloor(groundColor)
     -- 因而只需把节点中心抬到高度的一半即可保证底部落地、顶部尖锐。
     local rayOuterMat = Material:new()
     rayOuterMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
-    rayOuterMat:SetShaderParameter("MatDiffColor", Variant(Color(0.18, 0.55, 1.0, 0.16)))
+    rayOuterMat:SetShaderParameter("MatDiffColor", Variant(Color(0.18, 0.55, 1.0, 0.10)))
     rayOuterMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.25, 0.85, 2.6, 1.0)))
     rayOuterMat:SetShaderParameter("Metallic", Variant(0.0))
     rayOuterMat:SetShaderParameter("Roughness", Variant(0.16))
@@ -281,16 +343,16 @@ function CreateFloor(groundColor)
 
     local rayCoreMat = Material:new()
     rayCoreMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
-    rayCoreMat:SetShaderParameter("MatDiffColor", Variant(Color(0.68, 0.9, 1.0, 0.50)))
+    rayCoreMat:SetShaderParameter("MatDiffColor", Variant(Color(0.68, 0.9, 1.0, 0.32)))
     rayCoreMat:SetShaderParameter("MatEmissiveColor", Variant(Color(1.6, 2.6, 4.2, 1.0)))
     rayCoreMat:SetShaderParameter("Metallic", Variant(0.0))
     rayCoreMat:SetShaderParameter("Roughness", Variant(0.12))
 
     local gapInterval = safeRadius * 2 / 8   -- 每条边分 8 段（虚线间隔）
     local segLen = gapInterval * 0.5          -- 每段实线长度（占间隔一半）
-    local rayHeight = 1.55
+    local rayHeight = 1.15
     local rayDiameter = 0.22
-    local rayCoreHeight = 1.40
+    local rayCoreHeight = 1.02
     local rayCoreDiameter = 0.07
     for side = 0, 3 do
         -- side 0=上边(z=-half), 1=右边(x=+half), 2=下边(z=+half), 3=左边(x=-half)
@@ -323,7 +385,7 @@ function CreateFloor(groundColor)
             dashModel:SetMaterial(borderMat)
             dashModel.castShadows = false
 
-            -- 每个虚线段都放置一组更小、更矮的竖直锥形光芒，提升边界密度；
+            -- 每个虚线段都放置一组更小、更矮、更通透的竖直锥形光芒，提升边界密度；
             -- 锥体的底面位于边界线上，顶部保持清晰的尖角轮廓。
             local rayIndex = seg
             local ray = scene_:CreateChild("SafeZoneRay_" .. side .. "_" .. rayIndex)
@@ -1552,9 +1614,14 @@ function ShowSaveSlotScreen()
         end,
         onDelete = function(slotIndex, onDone)
             -- 删除角色
-            SaveSystem.DeleteSlot(slotIndex)
-            print("[main] Slot " .. slotIndex .. " deleted")
-            if onDone then onDone() end
+            local deleted = SaveSystem.DeleteSlot(slotIndex)
+            if deleted then
+                SyncAccountLeaderboard()
+                print("[main] Slot " .. slotIndex .. " deleted")
+            else
+                GameUI.ShowToast("删除角色失败，请重试")
+            end
+            if onDone then onDone(deleted) end
             -- 刷新界面（会重建预览）
             ShowSaveSlotScreen()
         end,
@@ -1577,6 +1644,7 @@ function LoadFromSave(saveData)
     -- 载入另一个角色时先结束旧会话，避免单例神兽、旧敌人和旧玩家节点
     -- 泄漏到新角色；随后只恢复击杀数，神兽从未召唤的 Lv.1 状态开始。
     Combat.Clear(true, true)
+    pendingQuestActivation = false
     pendingQuestPresentation = nil
     questPresentationDelayHint = 0
     if playerNode_ then
@@ -1655,13 +1723,21 @@ function LoadFromSave(saveData)
     GameUI.ShowGameHUD(player_)
     SetupGameCallbacks()
 
+    -- 如果存档是在目标地图切换完成后、任务开场演出尚未消费前写下的，
+    -- 读档边界也必须完成一次“进入目标地图”激活；不能把旅行状态卡住。
+    local activatedOnLoad = HandleQuestMapEntered(mapId)
+
     -- 刷新任务追踪条
     local cur = Quest.GetCurrent()
     local p, c = Quest.GetProgress()
     GameUI.UpdateQuestTracker(cur, p, c)
 
     -- 触发当前任务剧情对话（读档后首次进入播放）
-    Quest.TriggerCurrentStart()
+    if not activatedOnLoad then
+        Quest.TriggerCurrentStart()
+    else
+        SaveCurrentGame()
+    end
 
     -- 最终击杀已落盘、但尾声尚未看完时（例如真机被系统中断），读档后
     -- 补播一次；播完会写入 endingSeen，之后不再重复。
@@ -1690,6 +1766,7 @@ function LoadFromSave(saveData)
         GameUI.ShowToast("旧强化石已折算为 " .. legacyEnhanceRefund .. " 金币")
         SaveCurrentGame()
     end
+    SyncAccountLeaderboard()
     print("[main] Game loaded from save: " .. tostring(player_.className)
         .. " Lv." .. tostring(player_.level))
     return true
@@ -1709,6 +1786,7 @@ function SaveCurrentGame()
     end
     local ok = SaveSystem.SaveToSlot(currentSlotIndex, snapshot)
     if ok then
+        SyncAccountLeaderboard()
         print("[main] Auto-saved to slot " .. currentSlotIndex)
     end
     return ok
@@ -1813,6 +1891,10 @@ function SwitchMap(mapId)
     GameUI.ShowToast("进入：" .. mapDef.name)
     GameUI.AddFloatingText(mapDef.name, playerNode_.position + Vector3(0, 1.2, 0), {255, 215, 0, 255})
 
+    -- 地图进入可能刚好完成一次等待中的跨地图任务激活；先消费状态，
+    -- 再保存，确保崩溃恢复后不会回到“已到图但仍待传送”的假状态。
+    HandleQuestMapEntered(mapId)
+
     -- 立即存档（地图落盘）
     SaveCurrentGame()
 
@@ -1820,23 +1902,32 @@ function SwitchMap(mapId)
     return true
 end
 
---- 请求由任务触发的地图切换。
---- 任务完成可能在 Combat.UpdateEnemies 的遍历中发生；这里只记录目标地图，
---- 由 HandleUpdate 的下一帧安全边界统一执行，避免清空 enemies 后继续索引 nil。
-local function QueueQuestMapSwitch(mapId)
-    if not MapZone.GetDef(mapId) then
-        print("[main] QueueQuestMapSwitch: unknown map " .. tostring(mapId))
-        return false
-    end
-    pendingQuestMapId = mapId
+--- 处理地图进入后的跨地图任务激活。
+--- 只由 SwitchMap / LoadFromSave 调用 OnMapEntered；真正的开场演出排到
+--- 下一帧，确保管家传送面板已经关闭，不会被 HUD 根节点覆盖。
+HandleQuestMapEntered = function(mapId)
+    local activated = Quest.OnMapEntered(mapId)
+    if not activated then return false end
+
+    pendingQuestActivation = true
+    local quest = Quest.GetCurrent()
+    local progress, count = Quest.GetProgress()
+    GameUI.UpdateQuestTracker(quest, progress, count)
     return true
 end
 
-ProcessPendingQuestMapSwitch = function()
-    local mapId = pendingQuestMapId
-    pendingQuestMapId = nil
-    if not mapId or Combat.currentMapId == mapId then return false end
-    return SwitchMap(mapId)
+ProcessPendingQuestActivation = function()
+    if not pendingQuestActivation then return false end
+    -- 传送面板、其它对话或系统浮层仍在顶层时，继续等待；否则会把
+    -- 新任务对话立即替换掉玩家当前正在看的界面。
+    if GameUI.IsGamePaused() then return false end
+
+    pendingQuestActivation = false
+    local started = Quest.TriggerCurrentStart()
+    if started then
+        SaveCurrentGame()
+    end
+    return started
 end
 
 -- 任务世界坐标统一从目标数据生成。Quest 只保存纯坐标，主流程负责补齐
@@ -2040,7 +2131,7 @@ function SetupGameCallbacks()
             return
         end
         if not Inventory.UsePotion("hp") then
-            GameUI.AddFloatingText("血药已空", playerNode_.position, {200, 200, 200, 200})
+            GameUI.AddFloatingText("强效金创药已空", playerNode_.position, {200, 200, 200, 200})
             return
         end
         local cfg = Inventory.POTION_CONFIG.hp
@@ -2063,7 +2154,7 @@ function SetupGameCallbacks()
             return
         end
         if not Inventory.UsePotion("mp") then
-            GameUI.AddFloatingText("蓝药已空", playerNode_.position, {200, 200, 200, 200})
+            GameUI.AddFloatingText("法力药水已空", playerNode_.position, {200, 200, 200, 200})
             return
         end
         local cfg = Inventory.POTION_CONFIG.mp
@@ -2152,6 +2243,13 @@ function SetupGameCallbacks()
         end
     end
 
+    GameUI.onLeaderboardPressed = function()
+        GameUI.ShowLeaderboardPanel({
+            boards = PlatformLeaderboard.GetBoards(),
+            loadBoard = LoadPlatformLeaderboardBoard,
+        })
+    end
+
     -- 传送面板回调（已改为 NPC 管家对话传送，此回调保留用于兼容但不再由按钮触发）
     GameUI.onTeleportToggle = nil
 
@@ -2195,7 +2293,8 @@ function SetupGameCallbacks()
         end
 
         local currentQuest = Quest.GetCurrent()
-        local questTargetMapId = Quest.GetTargetMapId(currentQuest)
+        local questTargetMapId = Quest.GetTravelTargetMapId()
+            or Quest.GetTargetMapId(currentQuest)
         local isQuestDestination = questTargetMapId == mapId
 
         -- 当前主线地图始终可返回且免费，避免玩家传走后因等级或金币不足
@@ -2228,13 +2327,18 @@ function SetupGameCallbacks()
         local options = {}
         if currentMapId then
             options = NPC.GetTeleportOptions(currentMapId, player_.level)
-            local questTargetMapId = Quest.GetTargetMapId(Quest.GetCurrent())
+            local currentQuest = Quest.GetCurrent()
+            local questTravelPending = Quest.IsTravelPending()
+            local questTargetMapId = Quest.GetTravelTargetMapId()
+                or Quest.GetTargetMapId(currentQuest)
             for _, option in ipairs(options) do
                 if option.id == questTargetMapId then
                     option.locked = false
                     option.lockReason = nil
                     option.cost = 0
                     option.questTarget = true
+                    option.questTargetLabel = questTravelPending
+                        and "下一段主线地图" or "当前任务目标地图"
                 end
             end
         end
@@ -2258,14 +2362,14 @@ function SetupGameCallbacks()
             local mpCfg = Inventory.POTION_CONFIG.mp
             local rows = {
                 {
-                    text = "血药（恢复 " .. math.floor(hpCfg.healRatio * 100 + 0.5) .. "% 生命）",
+                    text = "强效金创药（恢复 " .. math.floor(hpCfg.healRatio * 100 + 0.5) .. "% 生命）",
                     hint = "💰" .. hpCfg.price .. "  拥有 "
                         .. Inventory.GetPotionCount("hp") .. "/" .. hpCfg.max,
                     onTap = function()
                         local ok, msg = Inventory.BuyPotionFromMerchant("hp")
                         if ok then
                             GameUI.UpdatePotionCount("hp", Inventory.GetPotionCount("hp"))
-                            GameUI.ShowToast("购买成功：血药 +1")
+                            GameUI.ShowToast("购买成功：强效金创药 +1")
                         else
                             GameUI.ShowToast(msg or "购买失败")
                         end
@@ -2274,14 +2378,14 @@ function SetupGameCallbacks()
                     end,
                 },
                 {
-                    text = "蓝药（恢复 " .. math.floor(mpCfg.healRatio * 100 + 0.5) .. "% 法力）",
+                    text = "法力药水（恢复 " .. math.floor(mpCfg.healRatio * 100 + 0.5) .. "% 法力）",
                     hint = "💰" .. mpCfg.price .. "  拥有 "
                         .. Inventory.GetPotionCount("mp") .. "/" .. mpCfg.max,
                     onTap = function()
                         local ok, msg = Inventory.BuyPotionFromMerchant("mp")
                         if ok then
                             GameUI.UpdatePotionCount("mp", Inventory.GetPotionCount("mp"))
-                            GameUI.ShowToast("购买成功：蓝药 +1")
+                            GameUI.ShowToast("购买成功：法力药水 +1")
                         else
                             GameUI.ShowToast(msg or "购买失败")
                         end
@@ -2423,13 +2527,6 @@ function SetupGameCallbacks()
 
     local function PresentQuestStart(quest)
         if not quest then return end
-
-        -- 普通击杀与 Boss 任务统一按任务目标路由到正确地图。此前只处理
-        -- Boss，导致 q007 之后若玩家停留在旧地图会永远刷不到当前目标。
-        local targetMap = Quest.GetTargetMapId(quest)
-        if targetMap and Combat.currentMapId ~= targetMap then
-            QueueQuestMapSwitch(targetMap)
-        end
 
         if quest.dialogues and #quest.dialogues > 0 then
             GameUI.PlayDialogue(quest.dialogues, function()
@@ -2584,6 +2681,15 @@ function SetupGameCallbacks()
         GameUI.ShowToast("任务完成：【" .. quest.name .. "】")
         GameUI.AddFloatingText("任务完成 +" .. (quest.rewardExp or 0) .. "经验", playerNode_.position, {255, 215, 0, 255})
 
+        -- 跨地图完成后不再自动切图；把下一张地图和入口直接告诉玩家，
+        -- 避免任务完成只剩下一个泛化 toast，玩家不知道下一步去哪。
+        if Quest.IsTravelPending() then
+            local travelMap = MapZone.GetDef(Quest.GetTravelTargetMapId())
+            if travelMap then
+                GameUI.ShowToast("下一步：前往" .. travelMap.name .. "，找管家传送", 3.0)
+            end
+        end
+
         -- 刷新任务追踪条
         local cur = Quest.GetCurrent()
         local p, c = Quest.GetProgress()
@@ -2727,16 +2833,21 @@ function OnClassSelected(classId, modelStyle, gender)
     Combat.SetMap("map_bq")  -- 新角色从比奇省开始
     Combat.SetKillCount(0)
     MapZone.SetCurrentMap("map_bq")
-    pendingQuestMapId = nil
+    pendingQuestActivation = false
     pendingQuestPresentation = nil
     questPresentationDelayHint = 0
     local newPlayer = CharacterClass.CreatePlayer(classId, 1, modelStyle, gender)
 
     if currentSlotIndex then
         local snapshot = SaveSystem.CreateSnapshot(newPlayer, Inventory.playerData, 0)
-        SaveSystem.SaveToSlot(currentSlotIndex, snapshot)
-        GameUI.SetSelectedSlot(currentSlotIndex)
-        print("[main] Created character in slot " .. currentSlotIndex)
+        local saved = snapshot and SaveSystem.SaveToSlot(currentSlotIndex, snapshot)
+        if saved then
+            SyncAccountLeaderboard()
+            GameUI.SetSelectedSlot(currentSlotIndex)
+            print("[main] Created character in slot " .. currentSlotIndex)
+        else
+            GameUI.ShowToast("创建角色失败，请重试")
+        end
     end
 
     GameUI.HideClassSelect()
@@ -2788,7 +2899,7 @@ function ReturnToMainMenu()
     mpPotionCD = 0
     currentSlotIndex = nil
     autoSaveTimer = 0
-    pendingQuestMapId = nil
+    pendingQuestActivation = false
     pendingQuestPresentation = nil
     questPresentationDelayHint = 0
 
@@ -2978,10 +3089,10 @@ function HandleUpdate(eventType, eventData)
         ProcessPendingQuestPresentation(dt)
     end
 
-    -- 任务切图在战斗回调或延迟演出中排队后，于这里安全执行。
-    -- 放在暂停判断前，保证任务对话打开时也能完成章节路由。
-    if canAdvanceQuestEvents and ProcessPendingQuestMapSwitch then
-        ProcessPendingQuestMapSwitch()
+    -- 地图切换完成后再激活下一段主线。放在暂停判断前，但自身会在
+    -- 传送面板仍打开时等待，避免 UI 根节点互相覆盖。
+    if canAdvanceQuestEvents and ProcessPendingQuestActivation then
+        ProcessPendingQuestActivation()
     end
 
     -- 死亡当帧和死亡结算期间都不写入 0 血快照；复活完成后立即存档。

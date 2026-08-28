@@ -91,7 +91,8 @@ end
 -- ============================================================================
 local beast = {
     -- summoned 表示这只神兽是否曾经被召唤过；它与 alive 分离，
-    -- 这样神兽死亡后仍能保存等级/经验/成长属性，重新召唤不会回到 1 级。
+    -- 这样神兽死亡后仍能保留成长状态；死亡惩罚会先扣级并清零经验，
+    -- 重新召唤时沿用惩罚后的等级，不会直接回到初始状态。
     summoned = false,
     alive = false,
     node = nil,
@@ -450,7 +451,7 @@ function DivineBeast.Summon(scene, playerPos, playerAtk, player)
         ClearBeastEntity()
     end
 
-    -- 第一次召唤初始化成长；死亡后再次召唤必须保留已有成长。
+    -- 第一次召唤初始化成长；死亡后再次召唤必须保留死亡惩罚后的成长。
     if not beast.summoned then
         beast.summoned = true
         beast.level = 1
@@ -550,9 +551,17 @@ end
 function DivineBeast.Die()
     if not beast.alive and not beast.node then return end
     print("[DivineBeast] 神兽阵亡!")
-    -- 只清理实体；等级、经验、属性和 summoned 标记保留到存档/下次召唤。
+    -- 神兽死亡会受到成长惩罚：清空当前经验，且等级大于 1 时下降 1 级。
+    -- 这里只处理真正的死亡；地图切换/异常节点清理仍只调用 ClearBeastEntity。
+    local previousLevel = math.max(1, math.min(MAX_BEAST_LEVEL,
+        SafeNonNegativeInteger(beast.level, 1, MAX_BEAST_LEVEL)))
+    beast.level = math.max(1, previousLevel - 1)
+    beast.exp = 0
+    beast.expToNext = LEVEL_EXP[beast.level]
     ClearBeastEntity()
     beast.hp = 0
+    print("[DivineBeast] 死亡惩罚：Lv." .. previousLevel .. " -> Lv." .. beast.level
+        .. "，经验已清零")
 end
 
 -- ============================================================================

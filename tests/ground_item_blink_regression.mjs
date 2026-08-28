@@ -19,6 +19,7 @@ function blockBetween(startMarker, endMarker) {
 const delay = Number(source.match(/local ITEM_PICKUP_DELAY = ([0-9.]+)/)?.[1]);
 const interval = Number(source.match(/local ITEM_BLINK_INTERVAL = ([0-9.]+)/)?.[1]);
 check(Number.isFinite(delay) && delay > 0, "装备拾取延迟必须是正数");
+check(delay === 1, "装备拾取延迟应为 1 秒（由原 2 秒缩短一半）");
 check(Number.isFinite(interval) && interval > 0 && interval < delay,
     "装备闪烁间隔应小于拾取延迟");
 
@@ -90,4 +91,4 @@ check(state.blinkVisible === true && state.blinkActive === false && state.blinkT
     "装备可拾取后没有保持常亮并停止计时");
 
 console.log("ground_item_blink_regression: PASS");
-console.log(`checked pickup delay ${delay}s and blink interval ${interval}s`);
+console.log(`checked equipment pickup delay ${delay}s and blink interval ${interval}s`);

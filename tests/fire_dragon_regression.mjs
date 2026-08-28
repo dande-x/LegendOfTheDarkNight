@@ -28,7 +28,7 @@ check(fireDragon.includes('attackMode = "fire_breath"'), "火龙王缺少火焰�
 
 const value = (field) => Number(fireDragon.match(new RegExp(`${field} = ([0-9.]+)`))?.[1]);
 check(value("speed") >= 2.7, "火龙王移动速度不足，追击表现会像静止摆件");
-check(value("chaseRange") >= 20, "火龙王追击范围不足");
+check(value("chaseRange") === 16, "火龙王警戒范围未按约 1/3 缩短");
 check(value("attackRange") >= 6 && value("attackRange") <= 9, "火焰吐息范围不合理");
 check(value("attackCD") >= 2 && value("attackCD") <= 3, "火焰吐息间隔不合理");
 

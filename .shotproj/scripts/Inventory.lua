@@ -639,8 +639,8 @@ Inventory.playerData = playerData
 -- ============================================================================
 Inventory.POTION_BUY_PRICE = 100
 Inventory.POTION_CONFIG = {
-    hp = { max = 10, price = Inventory.POTION_BUY_PRICE, healRatio = 0.30, dropChance = 0.12, label = "血药" },
-    mp = { max = 8,  price = Inventory.POTION_BUY_PRICE, healRatio = 0.40, dropChance = 0.08, label = "蓝药" },
+    hp = { max = 10, price = Inventory.POTION_BUY_PRICE, healRatio = 0.30, dropChance = 0.12, label = "强效金创药" },
+    mp = { max = 8,  price = Inventory.POTION_BUY_PRICE, healRatio = 0.40, dropChance = 0.08, label = "法力药水" },
 }
 
 local function EnsurePotions()

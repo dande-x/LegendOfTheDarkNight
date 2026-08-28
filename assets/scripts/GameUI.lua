@@ -147,6 +147,11 @@ local uiState = {
     itemDetailRoot = nil,
     systemPanelOpen = false,
     systemPanelRoot = nil,
+    leaderboardOpen = false,
+    leaderboardRoot = nil,
+    leaderboardActiveBoard = "level",
+    leaderboardRequestSerial = 0,
+    leaderboardOptions = nil,
     teleportPanelOpen = false,
     teleportPanelRoot = nil,
     npcPanelOpen = false,
@@ -260,8 +265,8 @@ local function _CreateOverlayHeader(title, onBack, options)
                 children = headingChildren,
             },
             UI.Button {
-                text = options.backText or "← 返回",
-                width = options.backWidth or 82,
+                text = options.backText or "X",
+                width = options.backWidth or 34,
                 height = 34,
                 flexShrink = 0,
                 variant = "outline",
@@ -1027,6 +1032,7 @@ end
 local function _SyncPauseState()
     if not sceneRef then return end
     if mapState.fullMapOpen or uiState.charPanelOpen or uiState.systemPanelOpen
+        or uiState.leaderboardOpen
         or uiState.teleportPanelOpen or uiState.npcPanelOpen or uiState.dialogueActive
         or uiState.deathMarkRoot or uiState.deathLossModal then
         sceneRef.timeScale = 0
@@ -1076,7 +1082,8 @@ function GameUI.ToggleFullMap()
 
     -- 任何其他模态界面打开时，不允许 M 键把全图压到其上方。
     -- 关闭当前模态后，玩家可以再主动打开全图。
-    if uiState.charPanelOpen or uiState.systemPanelOpen or uiState.teleportPanelOpen
+    if uiState.charPanelOpen or uiState.systemPanelOpen or uiState.leaderboardOpen
+        or uiState.teleportPanelOpen
         or uiState.npcPanelOpen or uiState.dialogueActive then
         return false
     else
@@ -1092,6 +1099,7 @@ end
 --- 判断游戏是否应暂停（任何面板打开时暂停）
 function GameUI.IsGamePaused()
     return mapState.fullMapOpen or uiState.charPanelOpen or uiState.systemPanelOpen
+        or uiState.leaderboardOpen
         or uiState.teleportPanelOpen or uiState.dialogueActive or uiState.npcPanelOpen
         or uiState.deathMarkRoot ~= nil or uiState.deathLossModal ~= nil
 end
@@ -1126,6 +1134,10 @@ function GameUI.HandleBackAction()
     end
     if uiState.teleportPanelOpen then
         GameUI.HideTeleportPanel()
+        return true
+    end
+    if uiState.leaderboardOpen then
+        GameUI.HideLeaderboardPanel()
         return true
     end
     if uiState.systemPanelOpen then
@@ -1216,17 +1228,6 @@ function GameUI.ShowDeathMark(duration)
         transformOrigin = "center",
         pointerEvents = "none",
     }
-    local subtitle = UI.Label {
-        text = "魂归安全区",
-        fontSize = 14,
-        fontWeight = "bold",
-        fontColor = {220, 154, 144, 230},
-        letterSpacing = 5,
-        marginTop = -8,
-        opacity = 0,
-        translateY = 10,
-    }
-
     glyph:Animate({
         keyframes = {
             [0] = { opacity = 0, scale = 2.15, rotate = -8 },
@@ -1259,18 +1260,6 @@ function GameUI.ShowDeathMark(duration)
         easing = "easeOutCubic",
         fillMode = "forwards",
     })
-    subtitle:Animate({
-        keyframes = {
-            [0] = { opacity = 0, translateY = 10 },
-            [0.45] = { opacity = 0, translateY = 10 },
-            [0.75] = { opacity = 1, translateY = 0 },
-            [1] = { opacity = 0.75, translateY = 0 },
-        },
-        duration = effectDuration,
-        easing = "easeOutCubic",
-        fillMode = "forwards",
-    })
-
     uiState.deathMarkRoot = UI.Panel {
         id = "deathMarkOverlay",
         position = "absolute",
@@ -1295,7 +1284,7 @@ function GameUI.ShowDeathMark(duration)
                 justifyContent = "center",
                 alignItems = "center",
                 pointerEvents = "none",
-                children = { outerRing, innerRing, glyph, subtitle },
+                children = { outerRing, innerRing, glyph },
             },
         },
     }
@@ -2190,6 +2179,9 @@ function GameUI.ShowSaveSlots(slots, callbacks)
     uiState.charPanelRoot = nil
     uiState.systemPanelOpen = false
     uiState.systemPanelRoot = nil
+    uiState.leaderboardOpen = false
+    uiState.leaderboardRoot = nil
+    uiState.leaderboardOptions = nil
 
     -- 当前选中的槽位索引（优先使用持久化值，否则默认选第一个有数据的，或1）
     local selectedSlot = persistedSelectedSlot_ or 1
@@ -2646,6 +2638,9 @@ function GameUI.ShowClassSelect(onSelected, overlayMode, overlaySlotIndex, onCan
     uiState.charPanelRoot = nil
     uiState.systemPanelOpen = false
     uiState.systemPanelRoot = nil
+    uiState.leaderboardOpen = false
+    uiState.leaderboardRoot = nil
+    uiState.leaderboardOptions = nil
 
     local classOrder = {"warrior", "mage", "taoist"}
     local classIcons = {
@@ -2812,10 +2807,10 @@ function GameUI.ShowClassSelect(onSelected, overlayMode, overlaySlotIndex, onCan
         alignItems = "center",
         children = {
             overlayMode and UI.Button {
-                text = "← 返回",
+                text = "X",
                 position = "absolute",
                 left = 8, top = 8,
-                width = 76, height = 32,
+                width = 34, height = 32,
                 variant = "outline",
                 fontSize = 12,
                 onClick = function()
@@ -2902,6 +2897,9 @@ function GameUI.ShowGameHUD(player)
     uiState.player = player
     uiState.charPanelOpen = false
     uiState.systemPanelOpen = false
+    uiState.leaderboardOpen = false
+    uiState.leaderboardRoot = nil
+    uiState.leaderboardOptions = nil
     -- HUD 重建会替换小地图/全图的 widget 实例；旧位置缓存不能复用。
     uiState.miniMapVisuals = {}
     uiState.fullMapVisuals = {}
@@ -3118,10 +3116,10 @@ function GameUI.ShowGameHUD(player)
         end,
         children = {
             UI.Button {
-                text = "← 返回",
+                text = "X",
                 position = "absolute",
                 left = 16, top = 16,
-                width = 86, height = 36,
+                width = 34, height = 36,
                 variant = "outline",
                 fontSize = 13,
                 onClick = function()
@@ -3225,12 +3223,17 @@ function GameUI.UpdateQuestTracker(quest, progress, count)
         }
     else
         local done = progress >= count
-        -- 使用任务的唯一地图路由，不能按章节硬编码：终章前段仍在沃玛寺庙。
-        local targetMapId = Quest.GetTargetMapId(quest)
+        local travelPending = Quest.IsTravelPending()
+        -- 旅行阶段的目标是“下一段主线地图”，不应显示成已进入地图
+        -- 后的普通任务地点；地图名和传送提示仍来自同一任务数据源。
+        local targetMapId = travelPending and Quest.GetTravelTargetMapId()
+            or Quest.GetTargetMapId(quest)
         local targetMap = targetMapId and MapZone.GetDef(targetMapId) or nil
         local mapName = targetMap and targetMap.name or ""
         local offTargetMap = targetMapId and MapZone.GetCurrentMapId() ~= targetMapId
         local objectiveText = Quest.GetObjectiveText(quest, progress, count)
+        local mapHint = travelPending and " · 请找管家传送"
+            or offTargetMap and " · 返回后继续" or ""
         content = UI.Panel {
             flexDirection = "column",
             backgroundColor = {16, 14, 12, 215},
@@ -3258,9 +3261,10 @@ function GameUI.UpdateQuestTracker(quest, progress, count)
                     marginTop = 3,
                 },
                 (mapName ~= "") and UI.Label {
-                    text = "📍 " .. mapName .. (offTargetMap and " · 返回后继续" or ""),
+                    text = "📍 " .. mapName .. mapHint,
                     fontSize = 10,
-                    fontColor = offTargetMap and {255, 190, 105, 225} or {140, 190, 220, 200},
+                    fontColor = (travelPending or offTargetMap)
+                        and {255, 190, 105, 225} or {140, 190, 220, 200},
                     marginTop = 2,
                 } or nil,
             },
@@ -3347,7 +3351,9 @@ function GameUI.ShowTeleportPanel(maps)
                     children = {
                         UI.Label {
                             text = tostring(option.name or option.id or "未知地图")
-                                .. (isCurrent and "（当前）" or questTarget and "（主线）" or ""),
+                                .. (isCurrent and "（当前）"
+                                    or questTarget and (option.questTargetLabel == "下一段主线地图"
+                                        and "（下一段主线）" or "（主线）") or ""),
                             fontSize = 14,
                             fontColor = isCurrent and {180, 230, 180, 255}
                                 or locked and {138, 134, 128, 190}
@@ -3355,7 +3361,7 @@ function GameUI.ShowTeleportPanel(maps)
                             fontWeight = isCurrent and "bold" or "normal",
                         },
                         UI.Label {
-                            text = questTarget and "当前任务目标地图"
+                            text = questTarget and (option.questTargetLabel or "当前任务目标地图")
                                 or locked and ("需要 Lv." .. minLevel)
                                 or ("推荐 Lv." .. minLevel .. "-" .. maxLevel),
                             fontSize = 11,
@@ -3441,7 +3447,7 @@ function GameUI.ShowTeleportPanel(maps)
                         GameUI.HideTeleportPanel()
                     end),
                     UI.Label {
-                        text = "达到目的地等级后可传送，费用按当前地图收取",
+                        text = "达到目的地等级后可传送；下一段主线地图免费",
                         fontSize = 10,
                         fontColor = {150, 150, 145, 180},
                         marginBottom = 12,
@@ -4730,11 +4736,284 @@ function GameUI.RefreshSkillButtons(player)
 end
 
 -- ============================================================================
+-- 平台排行榜（等级 / 消灭怪物 / 金币）
+-- ============================================================================
+
+local DEFAULT_LEADERBOARD_BOARDS = {
+    { id = "level", label = "等级", valueLabel = "等级" },
+    { id = "monster_kills", label = "消灭怪物", valueLabel = "击杀" },
+    { id = "gold", label = "金币", valueLabel = "金币" },
+}
+
+local function _GetLeaderboardBoard(boards, boardId)
+    for _, board in ipairs(boards or {}) do
+        if board.id == boardId then return board end
+    end
+    return boards and boards[1] or nil
+end
+
+local function _FormatLeaderboardNumber(value)
+    local number = math.max(0, math.floor(tonumber(value) or 0))
+    local text = tostring(number)
+    local sign, digits = text:match("^([%-]?)(%d+)$")
+    if not digits then return text end
+    local formatted = digits
+    while true do
+        local nextValue, replaced = formatted:gsub("^(%d+)(%d%d%d)", "%1,%2")
+        formatted = nextValue
+        if replaced == 0 then break end
+    end
+    return sign .. formatted
+end
+
+local function _LeaderboardRankColor(rank)
+    rank = tonumber(rank) or 0
+    if rank == 1 then return {255, 215, 92, 255} end
+    if rank == 2 then return {214, 220, 228, 255} end
+    if rank == 3 then return {214, 150, 96, 255} end
+    return {190, 192, 190, 225}
+end
+
+--- 显示平台排行榜浮层。
+--- options = { boards = {...}, loadBoard = function(boardId, callback) ... end }
+---@param options table|nil
+---@param boardId string|nil
+function GameUI.ShowLeaderboardPanel(options, boardId)
+    options = type(options) == "table" and options or {}
+    if uiState.leaderboardOpen then
+        GameUI.HideLeaderboardPanel()
+    end
+    if uiState.charPanelOpen then GameUI.HideCharacterPanel() end
+    if uiState.systemPanelOpen then GameUI.HideSystemPanel() end
+    if uiState.npcPanelOpen then GameUI.HideNPCPanel() end
+    if uiState.teleportPanelOpen then GameUI.HideTeleportPanel() end
+    if mapState.fullMapOpen then GameUI._CloseFullMap() end
+
+    local boards = type(options.boards) == "table" and options.boards or DEFAULT_LEADERBOARD_BOARDS
+    if #boards == 0 then boards = DEFAULT_LEADERBOARD_BOARDS end
+    uiState.leaderboardOpen = true
+    uiState.leaderboardOptions = options
+    uiState.leaderboardActiveBoard = (_GetLeaderboardBoard(boards, boardId or "level") or boards[1]).id
+    uiState.leaderboardRequestSerial = uiState.leaderboardRequestSerial + 1
+    _SyncPauseState()
+
+    local function renderBoard(requestedId)
+        if not uiState.leaderboardOpen then return end
+        local board = _GetLeaderboardBoard(boards, requestedId) or boards[1]
+        if not board then return end
+        uiState.leaderboardActiveBoard = board.id
+        uiState.leaderboardRequestSerial = uiState.leaderboardRequestSerial + 1
+        local requestSerial = uiState.leaderboardRequestSerial
+
+        local tabChildren = {}
+        for _, tabBoard in ipairs(boards) do
+            local active = tabBoard.id == board.id
+            table.insert(tabChildren, UI.Button {
+                text = tabBoard.label or tabBoard.id,
+                flex = 1,
+                minWidth = 0,
+                height = 36,
+                backgroundColor = active and {72, 58, 32, 245} or {30, 31, 33, 220},
+                borderRadius = 6,
+                borderWidth = active and 1.5 or 1,
+                borderColor = active and {210, 166, 82, 230} or {82, 84, 88, 150},
+                fontSize = 13,
+                fontColor = active and {255, 225, 156, 255} or {180, 182, 184, 210},
+                onClick = function()
+                    if tabBoard.id ~= uiState.leaderboardActiveBoard then
+                        renderBoard(tabBoard.id)
+                    end
+                end,
+            })
+        end
+
+        local statusRoot = UI.Panel {
+            width = "100%",
+            flexGrow = 1,
+            flexBasis = 0,
+            minHeight = 0,
+            justifyContent = "center",
+            alignItems = "center",
+            children = {
+                UI.Label {
+                    text = "正在加载排行榜…",
+                    fontSize = 15,
+                    fontColor = {205, 198, 180, 235},
+                },
+                UI.Label {
+                    text = "正在从平台读取前 20 名",
+                    fontSize = 11,
+                    fontColor = {150, 150, 146, 185},
+                    marginTop = 7,
+                },
+            },
+        }
+
+        local function createResultContent(success, payload)
+            if not success then
+                local reason = type(payload) == "table" and payload.reason or nil
+                reason = (reason and tostring(reason) ~= "" and tostring(reason))
+                    or "平台暂时无法提供排行榜数据"
+                return UI.Panel {
+                    width = "100%", flexGrow = 1, flexBasis = 0,
+                    justifyContent = "center", alignItems = "center",
+                    padding = 18,
+                    children = {
+                        UI.Label { text = "排行榜加载失败", fontSize = 16, fontColor = {238, 150, 125, 245}, fontWeight = "bold" },
+                        UI.Label { text = reason, fontSize = 12, fontColor = {180, 170, 160, 215}, marginTop = 8, textAlign = "center" },
+                        UI.Button {
+                            text = "重新加载", width = 120, height = 36,
+                            marginTop = 16, backgroundColor = {56, 48, 30, 240},
+                            borderRadius = 6, borderWidth = 1,
+                            borderColor = {170, 132, 66, 205},
+                            fontSize = 13, fontColor = {245, 220, 156, 255},
+                            onClick = function() renderBoard(board.id) end,
+                        },
+                    },
+                }
+            end
+
+            payload = type(payload) == "table" and payload or {}
+            local entries = type(payload.entries) == "table" and payload.entries or {}
+            local rows = {
+                UI.Panel {
+                    width = "100%", flexDirection = "row", alignItems = "center",
+                    paddingHorizontal = 10, paddingVertical = 6,
+                    backgroundColor = {38, 34, 26, 220}, borderRadius = 5,
+                    children = {
+                        UI.Label { text = "排名", width = 48, fontSize = 11, fontColor = {170, 160, 138, 220} },
+                        UI.Label { text = "玩家", flex = 1, fontSize = 11, fontColor = {170, 160, 138, 220} },
+                        UI.Label { text = board.valueLabel or "数值", width = 92, textAlign = "right", fontSize = 11, fontColor = {170, 160, 138, 220} },
+                    },
+                },
+            }
+            if #entries == 0 then
+                table.insert(rows, UI.Panel {
+                    width = "100%", minHeight = 120,
+                    justifyContent = "center", alignItems = "center",
+                    children = {
+                        UI.Label { text = "暂无上榜玩家", fontSize = 15, fontColor = {196, 190, 176, 225} },
+                        UI.Label { text = "完成游戏后会自动同步你的记录", fontSize = 11, fontColor = {150, 150, 146, 180}, marginTop = 7 },
+                    },
+                })
+            else
+                for _, entry in ipairs(entries) do
+                    local rank = math.max(1, math.floor(tonumber(entry.rank) or 1))
+                    local isMe = entry.isMe == true
+                    table.insert(rows, UI.Panel {
+                        width = "100%", minHeight = 42,
+                        flexDirection = "row", alignItems = "center",
+                        paddingHorizontal = 10, paddingVertical = 7,
+                        backgroundColor = isMe and {62, 56, 34, 245} or {24, 23, 22, 220},
+                        borderRadius = 5,
+                        borderWidth = isMe and 1.5 or 1,
+                        borderColor = isMe and {218, 174, 84, 220} or {58, 60, 62, 120},
+                        children = {
+                            UI.Label { text = "#" .. rank, width = 48, fontSize = 13, fontColor = _LeaderboardRankColor(rank), fontWeight = "bold" },
+                            UI.Label { text = tostring(entry.nickname or "未知玩家") .. (isMe and "（我）" or ""), flex = 1, fontSize = 13, fontColor = isMe and {255, 232, 170, 255} or {222, 222, 216, 235} },
+                            UI.Label { text = _FormatLeaderboardNumber(entry.score), width = 92, textAlign = "right", fontSize = 13, fontColor = _LeaderboardRankColor(rank), fontWeight = "bold" },
+                        },
+                    })
+                end
+            end
+
+            local myRank = tonumber(payload.myRank)
+            local personalText = myRank and myRank > 0
+                and ("我的排名：#" .. math.floor(myRank) .. "  ·  " .. _FormatLeaderboardNumber(payload.myScore or 0))
+                or "我的排名：暂未上榜"
+            table.insert(rows, UI.Panel {
+                width = "100%", marginTop = 8, padding = 9,
+                backgroundColor = {28, 30, 32, 225}, borderRadius = 5,
+                borderWidth = 1, borderColor = {88, 92, 96, 155},
+                alignItems = "center",
+                children = { UI.Label { text = personalText, fontSize = 12, fontColor = {205, 210, 210, 235}, fontWeight = "bold" } },
+            })
+            return UI.ScrollView {
+                width = "100%", flexGrow = 1, flexBasis = 0,
+                showScrollbar = true,
+                children = { UI.Panel { width = "100%", gap = 6, children = rows } },
+            }
+        end
+
+        local contentPanel = UI.Panel {
+            width = "92%", maxWidth = 560,
+            height = "88%", maxHeight = 570,
+            backgroundColor = {16, 12, 10, 250},
+            borderRadius = 10, borderWidth = 2,
+            borderColor = {154, 120, 62, 215},
+            padding = 15, alignItems = "center", overflow = "hidden",
+            onClick = function() end,
+            children = {
+                _CreateOverlayHeader("平台排行榜", function() GameUI.HideLeaderboardPanel() end, {
+                    subtitle = "账号最佳记录 · 前 20 名",
+                    titleColor = {248, 218, 150, 255},
+                    subtitleColor = {190, 164, 112, 210},
+                }),
+                UI.Panel { width = "100%", flexDirection = "row", gap = 6, marginBottom = 10, children = tabChildren },
+                statusRoot,
+            },
+        }
+        uiState.leaderboardRoot = UI.Panel {
+            id = "leaderboardOverlay",
+            width = "100%", height = "100%",
+            backgroundColor = {0, 0, 0, 178},
+            justifyContent = "center", alignItems = "center",
+            onClick = function() GameUI.HideLeaderboardPanel() end,
+            children = { contentPanel },
+        }
+        UI.SetRoot(uiState.leaderboardRoot)
+        _RefreshMouseHoverAfterRootSwitch()
+
+        local loader = options.loadBoard
+        if type(loader) ~= "function" then
+            statusRoot:Remove()
+            contentPanel:AddChild(createResultContent(false, { reason = "排行榜服务未配置" }))
+            return
+        end
+        local callbackCalled = false
+        local function onLoaded(success, payload)
+            if callbackCalled then return end
+            callbackCalled = true
+            if not uiState.leaderboardOpen or requestSerial ~= uiState.leaderboardRequestSerial then return end
+            statusRoot:Remove()
+            contentPanel:AddChild(createResultContent(success == true, payload))
+            _RefreshMouseHoverAfterRootSwitch()
+        end
+        local ok, result = pcall(loader, board.id, onLoaded)
+        if not ok then
+            onLoaded(false, { reason = tostring(result) })
+        elseif result == false then
+            onLoaded(false, { reason = "排行榜请求未发出" })
+        end
+    end
+
+    renderBoard(uiState.leaderboardActiveBoard)
+    print("[GameUI] Leaderboard panel opened, board=" .. tostring(uiState.leaderboardActiveBoard))
+end
+
+function GameUI.HideLeaderboardPanel()
+    if not uiState.leaderboardOpen then return end
+    uiState.leaderboardOpen = false
+    uiState.leaderboardRequestSerial = uiState.leaderboardRequestSerial + 1
+    uiState.leaderboardOptions = nil
+    uiState.leaderboardRoot = nil
+    _SyncPauseState()
+    if uiState.hudRoot then UI.SetRoot(uiState.hudRoot) end
+    GameUI._ResetJoystickState()
+    print("[GameUI] Leaderboard panel closed")
+end
+
+function GameUI.IsLeaderboardPanelOpen()
+    return uiState.leaderboardOpen
+end
+
+-- ============================================================================
 -- 系统面板（退出 + DBG）
 -- ============================================================================
 function GameUI.ShowSystemPanel()
     -- 关闭角色面板（互斥）
     if uiState.charPanelOpen then GameUI.HideCharacterPanel() end
+    if uiState.leaderboardOpen then GameUI.HideLeaderboardPanel() end
     if uiState.systemPanelOpen then return end
     uiState.systemPanelOpen = true
     _SyncPauseState()
@@ -4743,6 +5022,19 @@ function GameUI.ShowSystemPanel()
         UI.Panel {
             width = "100%", height = 1,
             backgroundColor = {72, 74, 76, 110},
+        },
+        UI.Button {
+            text = "排行榜",
+            width = "100%", height = 40,
+            backgroundColor = {48, 42, 28, 238},
+            borderRadius = 6, borderWidth = 1,
+            borderColor = {170, 132, 66, 190},
+            fontSize = 14,
+            fontColor = {245, 220, 156, 255},
+            onClick = function()
+                GameUI.HideSystemPanel()
+                if GameUI.onLeaderboardPressed then GameUI.onLeaderboardPressed() end
+            end,
         },
         UI.Button {
             text = "返回主菜单",
@@ -5425,6 +5717,7 @@ GameUI.onUseMpPotion = nil
 GameUI.onMenuPressed = nil
 GameUI.onCharacterPanelToggle = nil
 GameUI.onSystemPanelToggle = nil
+GameUI.onLeaderboardPressed = nil
 GameUI.onCharacterPanelClosed = nil
 GameUI.onTeleportToggle = nil
 GameUI.onTeleportSelected = nil
@@ -5438,6 +5731,7 @@ GameUI.onDebugBootsSlotActivated = nil -- function() : 鞋子槽五连击调试�
 -- ============================================================================
 function GameUI.Shutdown()
     ResetEquipmentSlotDebugSequence()
+    GameUI.HideLeaderboardPanel()
     GameUI.HideDeathPresentation()
     if nvgCtx then
         nvgDelete(nvgCtx)

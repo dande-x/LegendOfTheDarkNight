@@ -268,7 +268,10 @@ Quest.CHAIN = {
 -- ============================================================================
 -- 运行时状态
 -- ============================================================================
-local QUEST_SAVE_VERSION = 2
+-- v3 adds a persisted cross-map travel phase. The next quest is selected as
+-- usual, but its dialogue/objective cannot start until the player enters the
+-- destination map through the normal manual teleport flow.
+local QUEST_SAVE_VERSION = 3
 Quest.SAVE_VERSION = QUEST_SAVE_VERSION
 
 local state = {
@@ -278,6 +281,7 @@ local state = {
     finished = false, -- 是否已通关全部主线
     dialogueRead = {}, -- 已看过的任务开场对话，避免读档重复播放
     endingSeen = false, -- 最终 Boss 尾声是否完整播放
+    travelMapId = nil, -- 跨地图任务之间等待玩家手动前往的目标地图
     lastNotifiedProgress = -1,
     -- 以下状态不单独持久化：是否已触发首波可由 progress 推导，波次索引也
     -- 由已保存的坚守秒数推导，避免为一次性演出再引入第二套存档真源。
@@ -292,7 +296,7 @@ Quest.onProgressUpdate = nil  -- function(quest, progress, count) 进度变化�
 Quest.onQuestStart = nil      -- function(quest) 任务开始时触发（播放剧情对话）
 Quest.onObjectiveReached = nil -- function(quest, point, progress) 巡逻点首次到达
 Quest.onAreaStateChanged = nil -- function(quest, active, area, firstActivation) 坚守区域状态
-Quest.onSurviveWave = nil      -- function(quest, waveIndex, area) 坚守波次触发
+Quest.onSurviveWave = nil      -- function(quest, waveIndex, area) 返回 false 时保留该波次并重试
 
 -- ============================================================================
 -- 查询接口
@@ -391,6 +395,20 @@ function Quest.GetTargetMapId(quest)
     return resolved and resolved.mapId or nil
 end
 
+--- 是否正在等待玩家手动前往下一张地图。
+--- 旅行阶段仍保留下一条真实任务作为当前任务，便于 HUD/传送面板
+--- 读取同一个目标地图；但任务进度、遭遇和开场对话在抵达前不会启动。
+---@return boolean
+function Quest.IsTravelPending()
+    return not state.finished and type(state.travelMapId) == "string"
+end
+
+--- 获取等待前往的地图 ID。
+---@return string|nil mapId
+function Quest.GetTravelTargetMapId()
+    return Quest.IsTravelPending() and state.travelMapId or nil
+end
+
 --- 返回可直接用于 HUD 的当前目标文案。
 ---@param quest table|nil
 ---@param progress number|nil
@@ -398,6 +416,9 @@ end
 ---@return string
 function Quest.GetObjectiveText(quest, progress, count)
     if not quest then return "主线已完成" end
+    if Quest.IsTravelPending() then
+        return "前往下一张地图"
+    end
     local currentProgress = math.floor(tonumber(progress) or state.progress or 0)
     local targetCount = math.max(1, math.floor(tonumber(count) or quest.count or 1))
 
@@ -423,7 +444,7 @@ end
 ---@return table|nil
 function Quest.GetObjectiveMarker(quest)
     quest = quest or Quest.GetCurrent()
-    if not quest then return nil end
+    if not quest or Quest.IsTravelPending() then return nil end
 
     local source = nil
     if quest.mode == "patrol" then
@@ -450,7 +471,10 @@ end
 ---@return table|nil
 function Quest.GetEncounterRequest()
     local quest = Quest.GetCurrent()
-    if not quest or quest.mode ~= "encounter" or state.progress >= quest.count then return nil end
+    if Quest.IsTravelPending() or not quest or quest.mode ~= "encounter"
+        or state.progress >= quest.count then
+        return nil
+    end
     local location = quest.encounter or {}
     return {
         id = quest.id,
@@ -486,6 +510,7 @@ function Quest.GetState()
         finished = state.finished,
         dialogueRead = dialogueRead,
         endingSeen = state.endingSeen,
+        travelMapId = Quest.GetTravelTargetMapId(),
     }
 end
 
@@ -498,6 +523,7 @@ function Quest.Restore(saved)
         state.finished = false
         state.dialogueRead = {}
         state.endingSeen = false
+        state.travelMapId = nil
         state.lastNotifiedProgress = -1
         ResetObjectiveRuntimeState(Quest.GetCurrent(), 0)
         return
@@ -513,6 +539,7 @@ function Quest.Restore(saved)
 
     state.questIndex = questIndex
     state.finished = saved.finished == true or questIndex > #Quest.CHAIN
+    state.travelMapId = nil
     if state.finished then
         state.questIndex = #Quest.CHAIN + 1
         state.progress = 0
@@ -521,7 +548,10 @@ function Quest.Restore(saved)
     else
         local current = Quest.CHAIN[state.questIndex]
         local progress = IsFiniteNumber(tonumber(saved.progress)) and tonumber(saved.progress) or 0
-        local sameSchema = tonumber(saved.version) == QUEST_SAVE_VERSION
+        -- v2 already stored modeState with the same shape; accept it without
+        -- discarding progress while only v3 understands travelMapId.
+        local savedVersion = tonumber(saved.version)
+        local sameSchema = (savedVersion == QUEST_SAVE_VERSION or savedVersion == 2)
             and saved.questId == current.id and saved.mode == current.mode
             and type(saved.modeState) == "table"
 
@@ -558,6 +588,17 @@ function Quest.Restore(saved)
         end
         SetProgress(current, progress)
         ResetObjectiveRuntimeState(current, progress)
+
+        -- Only trust a travel marker that points at this exact quest's map and
+        -- follows a real map boundary in the chain. This keeps malformed JSON
+        -- from manufacturing a permanently blocked travel phase.
+        local previous = Quest.CHAIN[state.questIndex - 1]
+        if savedVersion == QUEST_SAVE_VERSION
+            and type(saved.travelMapId) == "string"
+            and saved.travelMapId == current.mapId
+            and previous and previous.mapId ~= current.mapId then
+            state.travelMapId = saved.travelMapId
+        end
     end
 
     state.dialogueRead = {}
@@ -584,6 +625,7 @@ function Quest.Reset()
     state.finished = false
     state.dialogueRead = {}
     state.endingSeen = false
+    state.travelMapId = nil
     state.lastNotifiedProgress = -1
     ResetObjectiveRuntimeState(Quest.GetCurrent(), 0)
     SyncModeState(Quest.GetCurrent())
@@ -603,20 +645,23 @@ local function NotifyProgress(q, force)
 end
 
 local function NotifySurviveWaves(q)
-    if not q or q.mode ~= "survive" then return end
+    if not q or q.mode ~= "survive" then return true end
 
     -- 到达 50 秒这一刻任务会直接完成，不再额外生成“完成后的”波次。
     local cappedProgress = math.min(state.progress, math.max(0, q.count - 0.0001))
     local waveIndex = math.floor(cappedProgress / SURVIVE_WAVE_INTERVAL)
     local previousWave = state.surviveWaveIndex or 0
-    if waveIndex <= previousWave then return end
+    if waveIndex <= previousWave then return true end
 
-    state.surviveWaveIndex = waveIndex
     for index = previousWave + 1, waveIndex do
         if Quest.onSurviveWave then
-            Quest.onSurviveWave(q, index, q.area)
+            local handled = Quest.onSurviveWave(q, index, q.area)
+            if handled == false then return false end
         end
+        -- 只有外部系统确认波次已处理后才消费索引，失败会在下一帧重试。
+        state.surviveWaveIndex = index
     end
+    return true
 end
 
 local function AdvanceCurrent(amount, objective)
@@ -627,14 +672,21 @@ local function AdvanceCurrent(amount, objective)
 
     SetProgress(q, state.progress + increment)
 
+    local surviveWavesReady = true
     if q.mode == "patrol" and objective and Quest.onObjectiveReached then
         Quest.onObjectiveReached(q, objective, math.floor(state.progress))
     elseif q.mode == "survive" then
-        NotifySurviveWaves(q)
+        surviveWavesReady = NotifySurviveWaves(q)
     end
 
     if state.progress >= q.count then
-        Quest._CompleteCurrent()
+        -- 坚守结束前先确保所有应到波次都已真实生成，不能用计时完成掩盖
+        -- 一次容量失败。成功后会在同一帧正常完成任务。
+        if q.mode ~= "survive" or surviveWavesReady then
+            Quest._CompleteCurrent()
+        else
+            NotifyProgress(q, false)
+        end
     else
         NotifyProgress(q, false)
     end
@@ -649,7 +701,7 @@ end
 ---@param encounterId string|nil
 ---@return boolean
 function Quest.OnKill(enemyName, tier, mapId, encounterId)
-    if state.finished or type(enemyName) ~= "string" then return false end
+    if state.finished or Quest.IsTravelPending() or type(enemyName) ~= "string" then return false end
     local q = Quest.GetCurrent()
     if not q then
         state.finished = true
@@ -694,7 +746,7 @@ end
 ---@return boolean
 function Quest.Update(dt, mapId, playerPos, isAlive)
     local q = Quest.GetCurrent()
-    if not q then return false end
+    if not q or Quest.IsTravelPending() then return false end
 
     -- 坚守区域离图/死亡时显式熄灭“生效”状态，但不清空已累计秒数；
     -- 回到区域后只恢复状态，不重复触发首波（除非本次任务从未触发过）。
@@ -756,6 +808,8 @@ function Quest._CompleteCurrent()
     end
 
     local next = Quest.GetCurrent()
+    local crossedMap = next and q.mapId and next.mapId and q.mapId ~= next.mapId
+    state.travelMapId = crossedMap and next.mapId or nil
     ResetObjectiveRuntimeState(next, 0)
     SyncModeState(next)
 
@@ -763,8 +817,9 @@ function Quest._CompleteCurrent()
         Quest.onQuestComplete(q)
     end
 
-    -- 新任务开始时触发（播放剧情对话）
-    if next and Quest.onQuestStart then
+    -- 同地图任务继续即时开始；跨地图任务先停在“前往下一张地图”，
+    -- 等宿主确认玩家已经手动传送到目标地图后再触发剧情与目标。
+    if next and not crossedMap and Quest.onQuestStart then
         Quest.onQuestStart(next)
         if not next.dialogues or #next.dialogues == 0 then
             state.dialogueRead[next.id] = true
@@ -772,10 +827,30 @@ function Quest._CompleteCurrent()
     end
 end
 
+--- 玩家进入等待中的目标地图后，正式激活下一条任务。
+--- 地图切换本身由宿主完成；本接口只改变任务状态，不主动切图或播放 UI。
+---@param mapId string|nil
+---@return boolean activated
+function Quest.OnMapEntered(mapId)
+    if not Quest.IsTravelPending() or mapId ~= state.travelMapId then return false end
+
+    state.travelMapId = nil
+    local quest = Quest.GetCurrent()
+    if not quest then
+        state.travelMapId = nil
+        return false
+    end
+
+    state.lastNotifiedProgress = -1
+    ResetObjectiveRuntimeState(quest, state.progress)
+    SyncModeState(quest)
+    return true
+end
+
 --- 手动触发当前任务的开始（进入游戏/读档后调用，播放当前任务对话）
 function Quest.TriggerCurrentStart()
     local q = Quest.GetCurrent()
-    if not q or not Quest.onQuestStart then return false end
+    if Quest.IsTravelPending() or not q or not Quest.onQuestStart then return false end
     if state.dialogueRead[q.id] == true then return false end
     if q.dialogues and #q.dialogues > 0 then
         Quest.onQuestStart(q)

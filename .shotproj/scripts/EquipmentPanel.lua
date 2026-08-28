@@ -157,7 +157,6 @@ local function ShowItemDetail(options, item, sourceSlot)
     local targetItem = (not sourceSlot and targetSlot) and inv.equipped[targetSlot] or nil
     local targetName = targetSlot and (Inventory.SLOT_NAMES[targetSlot] or targetSlot) or "未知槽位"
     local bagFull = #inv.bag >= Inventory.MAX_BAG_SLOTS
-    local enhanceLevel = Integer(item.enhance)
     -- 背包装备只保留查看、穿戴和前往商人出售的路径；分解操作仅保留在
     -- 已穿戴装备详情中，避免玩家在背包里直接把掉落物变成金币。
     local recycleReward = sourceSlot and Inventory.Enhance.Recycle(item) or nil
@@ -339,46 +338,6 @@ local function ShowItemDetail(options, item, sourceSlot)
         })
     end
 
-    table.insert(bodyChildren, UI.Label {
-        text = "强化",
-        width = "100%",
-        fontSize = 12,
-        fontColor = {222, 202, 150, 235},
-        fontWeight = "bold",
-        marginTop = 12,
-    })
-
-    table.insert(bodyChildren, UI.Panel {
-        width = "100%",
-        marginTop = 5,
-        padding = 9,
-        backgroundColor = enhanceLevel >= 12
-            and {30, 48, 31, 205} or {45, 34, 19, 205},
-        borderRadius = 7,
-        borderWidth = 1,
-        borderColor = enhanceLevel >= 12
-            and {92, 168, 105, 175} or {174, 126, 54, 175},
-        gap = 3,
-        children = {
-            UI.Label {
-                text = enhanceLevel >= 12
-                    and "当前 +12 · 已达到强化上限"
-                    or ("当前 +" .. enhanceLevel .. " · 下一等级请前往安全区铁匠"),
-                fontSize = 11,
-                fontWeight = "bold",
-                fontColor = enhanceLevel >= 12
-                    and {142, 220, 151, 240} or {238, 198, 116, 240},
-            },
-            UI.Label {
-                text = "铁匠会在操作前展示金币费用、成功率、失败结果与保护选项。",
-                fontSize = 9,
-                lineHeight = 1.35,
-                whiteSpace = "normal",
-                fontColor = {174, 168, 154, 205},
-            },
-        },
-    })
-
     if sourceSlot then
         table.insert(bodyChildren, UI.Button {
             text = "分解穿戴中装备",
@@ -422,8 +381,8 @@ local function ShowItemDetail(options, item, sourceSlot)
                                 fontWeight = "bold",
                             },
                             UI.Button {
-                                text = "← 返回",
-                                width = 82, height = 34,
+                                text = "X",
+                                width = 34, height = 34,
                                 variant = "secondary",
                                 onClick = function() CloseDetail(options) end,
                             },
@@ -753,11 +712,6 @@ function EquipmentPanel.BuildBagTab(options)
                 gap = 6,
                 marginBottom = 11,
                 children = {
-                    UI.Label {
-                        text = "药水 · 仅可在安全区商人处购买",
-                        fontSize = 11,
-                        fontColor = {180, 182, 180, 205},
-                    },
                     UI.Panel {
                         width = "100%",
                         flexDirection = "row",
@@ -774,8 +728,7 @@ function EquipmentPanel.BuildBagTab(options)
                                 borderColor = {142, 67, 55, 155},
                                 children = {
                                     UI.Label {
-                                        text = "血药 " .. inv.potions.hp .. "/" .. Inventory.POTION_CONFIG.hp.max
-                                            .. " · 商人价 " .. Inventory.POTION_CONFIG.hp.price .. " 金币",
+                                        text = "强效金创药 " .. inv.potions.hp .. "/" .. Inventory.POTION_CONFIG.hp.max,
                                         fontSize = 10,
                                         fontColor = {224, 188, 178, 225},
                                     },
@@ -791,8 +744,7 @@ function EquipmentPanel.BuildBagTab(options)
                                 borderColor = {61, 94, 157, 155},
                                 children = {
                                     UI.Label {
-                                        text = "蓝药 " .. inv.potions.mp .. "/" .. Inventory.POTION_CONFIG.mp.max
-                                            .. " · 商人价 " .. Inventory.POTION_CONFIG.mp.price .. " 金币",
+                                        text = "法力药水 " .. inv.potions.mp .. "/" .. Inventory.POTION_CONFIG.mp.max,
                                         fontSize = 10,
                                         fontColor = {178, 196, 228, 225},
                                     },
