@@ -344,9 +344,9 @@ function CreateFloor(groundColor)
 
     local gapInterval = safeRadius * 2 / 8   -- 每条边分 8 个锥形光芒位置
     local segLen = gapInterval * 0.5          -- 光芒沿边界居中分布
-    local rayHeight = 1.15
+    local rayHeight = 0.77
     local rayDiameter = 0.22
-    local rayCoreHeight = 1.02
+    local rayCoreHeight = 0.68
     local rayCoreDiameter = 0.07
     for side = 0, 3 do
         -- side 0=上边(z=-half), 1=右边(x=+half), 2=下边(z=+half), 3=左边(x=-half)
@@ -2374,19 +2374,6 @@ function SetupGameCallbacks()
                     end,
                 },
             }
-
-            -- 保护石仍是高阶强化的可选保险；强化本身只在铁匠处消耗金币。
-            table.insert(rows, {
-                text = "保护石",
-                hint = "💰" .. Inventory.PROTECT_STONE_PRICE .. "  当前 "
-                    .. Inventory.GetProtectStones() .. " · 铁匠强化失败不掉级",
-                onTap = function()
-                    local ok, msg = Inventory.BuyProtectStone()
-                    GameUI.ShowToast(ok and "购买成功：保护石 +1" or (msg or "购买失败"))
-                    GameUI.HideNPCPanel()
-                    openMerchantPanel(1)
-                end,
-            })
 
             -- 装备货架：按职业/等级筛选，并在五分钟内保持不变。
             local shopItems = EnsureMerchantStock(Combat.currentMapId, player_)

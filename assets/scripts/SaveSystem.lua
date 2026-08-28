@@ -186,7 +186,6 @@ function SaveSystem.CreateSnapshot(player, inventoryData, killCount)
         equipped   = SerializeEquipped(inventoryData.equipped),
         bag        = SerializeBag(inventoryData.bag),
         gold       = SafeInteger(inventoryData.gold, 0, MAX_RESOURCE, 0),
-        protectStones = SafeInteger(inventoryData.protectStones, 0, MAX_RESOURCE, 0),
         potions    = inventoryData.potions and {
             hp = SafeInteger(inventoryData.potions.hp, 0, MAX_RESOURCE, 0),
             mp = SafeInteger(inventoryData.potions.mp, 0, MAX_RESOURCE, 0),
@@ -489,8 +488,6 @@ function SaveSystem.RestoreInventory(saveData, inventoryData)
         legacyEnhanceStones * Inventory.LEGACY_ENHANCE_STONE_REFUND)
     inventoryData.gold = inventoryData.gold + legacyRefund
     saveData.enhanceStones = nil
-
-    inventoryData.protectStones = SafeInteger(saveData.protectStones, 0, MAX_RESOURCE, 0)
 
     -- 恢复药水
     local savedPotions = type(saveData.potions) == "table" and saveData.potions or {}

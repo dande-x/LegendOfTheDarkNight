@@ -81,7 +81,7 @@ for (const dir of mirrors) {
     const loadBlock = blockBetween(
         main,
         "function LoadFromSave(saveData)",
-        "function SaveCurrentGame()",
+        "function SaveCurrentGame(",
     );
     check(loadBlock.includes("local activatedOnLoad = HandleQuestMapEntered(mapId)"),
         `${dir}/main.lua 读档后没有恢复已抵达目标地图的任务`);

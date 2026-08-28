@@ -3973,6 +3973,7 @@ local _skillBarIcons = {
     w_basic = "image/icon_w_basic_20260617040401_round.png",
     w_thrust = "image/icon_w_thrust_20260617040358_round.png",
     w_crescent = "image/icon_w_crescent_20260617040403_round.png",
+    w_earthsplit = "image/icon_w_earthsplit_20260827_round.png",
     w_charge = "image/icon_w_charge_20260617040402_round.png",
     w_fire = "image/icon_w_fire_20260617040854_round.png",
     w_shield = "image/icon_w_shield_20260617040850_round.png",

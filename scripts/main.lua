@@ -6,15 +6,15 @@
 
 local UI = require("urhox-libs/UI")
 local CharacterClass = require("scripts.CharacterClass")
-local GameUI = require("scripts.GameUI")
+-- Both `assets/` and `scripts/` are asset roots. A `scripts.` prefix can
+-- resolve the legacy `assets/scripts/` mirror first, so keep the UI module
+-- rooted at the canonical scripts asset directory.
+local GameUI = require("GameUI")
 local Combat = require("scripts.Combat")
 local Inventory = require("scripts.Inventory")
 local PlayerAnim = require("scripts.PlayerAnim")
--- `scripts/` is configured as an asset root.  Requiring the module with a
--- `scripts.` prefix resolves to the legacy `assets/scripts/` mirror instead of
--- this canonical implementation, which can omit newer APIs such as
--- SaveSystem.LoadFromCloud.  Keep this import rooted at the canonical scripts
--- asset directory.
+-- Apply the same canonical-root rule to cloud-save APIs; the legacy mirror can
+-- omit newer methods such as SaveSystem.LoadFromCloud.
 local SaveSystem = require("SaveSystem")
 local Quest = require("scripts.Quest")
 local MapZone = require("scripts.MapZone")
@@ -437,9 +437,9 @@ function CreateFloor(groundColor)
 
     local gapInterval = safeRadius * 2 / 8   -- 每条边分 8 个锥形光芒位置
     local segLen = gapInterval * 0.5          -- 光芒沿边界居中分布
-    local rayHeight = 1.15
+    local rayHeight = 0.77
     local rayDiameter = 0.22
-    local rayCoreHeight = 1.02
+    local rayCoreHeight = 0.68
     local rayCoreDiameter = 0.07
     for side = 0, 3 do
         -- side 0=上边(z=-half), 1=右边(x=+half), 2=下边(z=+half), 3=左边(x=-half)
@@ -3149,6 +3149,10 @@ end
 -- ============================================================================
 function HandleUpdate(eventType, eventData)
     local dt = eventData["TimeStep"]:GetFloat()
+
+    -- 安全区 NPC 的待机动画独立于玩家状态更新，暂停/死亡演出期间也
+    -- 保持微光环、金币和火花的轻量活动感；动画只作用于视觉子节点。
+    NPC.Update(dt)
 
     -- 推进云读取的本地超时兜底，即使启动 Logo 仍在播放也不能停止计时。
     if type(SaveSystem.Update) == "function" then

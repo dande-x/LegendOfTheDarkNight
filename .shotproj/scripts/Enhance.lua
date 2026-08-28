@@ -18,14 +18,14 @@ local RARITY = {
     LEGENDARY = { mult = 2.5, tier = 4, next = nil },
 }
 
--- 强化改为铁匠收取纯金币，不再要求强化石。金币档位折算了旧版金币与
--- 强化石商店价值，避免移除材料后强化成本骤降。高阶失败设阶段保底：
--- +7~+9 不跌破 +6，+10~+12 不跌破 +9。
+-- 强化改为铁匠收取纯金币，不再要求强化石。成功才升级；失败不掉级，只损失
+-- 本次铁匠服务费。失败不掉级，让强化回报更直观、风险不劝退。
+-- 费用档位折算旧版金币与强化石商店价值，避免移除材料后成本骤降。
 local ENHANCE_RULES = {
-    { maxLevel = 3,  gold = 300,  successRate = 1.0, dropOnFail = false, failFloor = 0 },
-    { maxLevel = 6,  gold = 750,  successRate = 0.9, dropOnFail = false, failFloor = 3 },
-    { maxLevel = 9,  gold = 2000, successRate = 0.7, dropOnFail = true,  failFloor = 6 },
-    { maxLevel = 12, gold = 5000, successRate = 0.5, dropOnFail = true,  failFloor = 9 },
+    { maxLevel = 3,  gold = 300,  successRate = 1.0 },
+    { maxLevel = 6,  gold = 750,  successRate = 0.9 },
+    { maxLevel = 9,  gold = 2000, successRate = 0.7 },
+    { maxLevel = 12, gold = 5000, successRate = 0.5 },
 }
 
 local function Integer(value)
@@ -155,33 +155,21 @@ function Enhance.ForgePick(items)
     return { ok = true, reason = "", targetRarity = targetRarity }
 end
 
---- Return the gold cost and failure behavior for reaching level 1 through 12.
+--- Return the gold cost and success rate for reaching level 1 through 12.
+--- 失败不掉级：只需要金币与成功率，用于 UI 点击前如实说明花费与风险。
 ---@param level number
----@return { gold: number, successRate: number, dropOnFail: boolean, failFloor: number }
+---@return { gold: number, successRate: number }
 function Enhance.EnhanceCost(level)
     level = Integer(level)
     local rule = GetEnhanceRule(level)
     if not rule then
-        return { gold = 0, successRate = 0, dropOnFail = false, failFloor = 0 }
+        return { gold = 0, successRate = 0 }
     end
 
     return {
         gold = rule.gold,
         successRate = rule.successRate,
-        dropOnFail = rule.dropOnFail,
-        failFloor = rule.failFloor,
     }
-end
-
---- Return the level kept after an unprotected failed attempt.
----@param currentLevel number
----@param targetLevel number
----@return number
-function Enhance.GetFailureLevel(currentLevel, targetLevel)
-    currentLevel = math.min(12, NonNegativeInteger(currentLevel))
-    local cost = Enhance.EnhanceCost(targetLevel)
-    if not cost.dropOnFail then return currentLevel end
-    return math.max(cost.failFloor or 0, currentLevel - 1)
 end
 
 --- Return cumulative gold spent to reach an enhancement level.

@@ -199,11 +199,11 @@ for (const dir of mirrors) {
         .test(slotScreenBlock), `${dir}/main.lua 删除角色成功后没有同步排行榜`);
     const loadBlock = blockBetween(main,
         "function LoadFromSave(saveData)",
-        "function SaveCurrentGame()", `${dir}/main.lua`);
+        "function SaveCurrentGame(", `${dir}/main.lua`);
     check(loadBlock.includes("SyncAccountLeaderboard()"),
         `${dir}/main.lua 成功读档后没有同步排行榜`);
     const saveBlock = blockBetween(main,
-        "function SaveCurrentGame()",
+        "function SaveCurrentGame(",
         "-- ============================================================================\n-- 地图切换", `${dir}/main.lua`);
     check(/if ok then[\s\S]*SyncAccountLeaderboard\(\)/.test(saveBlock),
         `${dir}/main.lua 成功保存后没有同步排行榜`);

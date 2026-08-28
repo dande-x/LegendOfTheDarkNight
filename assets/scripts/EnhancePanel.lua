@@ -310,11 +310,8 @@ local function BuildSelectedDetails(selectedItem, selectedEntry, options)
     local currentLevel = ClampLevel(selectedItem)
     local nextLevel = currentLevel + 1
     local cost = Inventory.Enhance.EnhanceCost(nextLevel)
-    local failureLevel = Inventory.Enhance.GetFailureLevel(currentLevel, nextLevel)
-    local failureDrops = failureLevel < currentLevel
     local guaranteedSuccess = (tonumber(cost.successRate) or 0) >= 1
     local gold = math.max(0, Integer(Inventory.playerData.gold, 0))
-    local protectStones = Inventory.GetProtectStones()
     local rarityColor = Inventory.GetRarityColor(selectedItem.rarity)
     local statRows = BuildStatPreview(selectedItem, nextLevel)
 
@@ -432,17 +429,12 @@ local function BuildSelectedDetails(selectedItem, selectedEntry, options)
     local riskBackground
     local riskBorder
     if guaranteedSuccess then
-        riskText = "本次必定成功，不会失败或掉级；完成后提升至 +" .. nextLevel .. "。"
+        riskText = "本次必定成功；完成后提升至 +" .. nextLevel .. "。"
         riskColor = {150, 222, 158, 240}
         riskBackground = {27, 50, 30, 205}
         riskBorder = {78, 145, 88, 180}
-    elseif failureDrops then
-        riskText = "失败结果：本次会降至 +" .. failureLevel .. "（服务费不返还）"
-        riskColor = {244, 146, 96, 240}
-        riskBackground = {55, 29, 20, 205}
-        riskBorder = {144, 73, 48, 170}
     else
-        riskText = "失败结果：等级保持 +" .. currentLevel .. "（阶段保底，不会掉级）"
+        riskText = "失败结果：等级保持 +" .. currentLevel .. "（不掉级，只损失服务费）"
         riskColor = {166, 205, 153, 230}
         riskBackground = {29, 47, 30, 200}
         riskBorder = {82, 136, 88, 170}
@@ -473,46 +465,24 @@ local function BuildSelectedDetails(selectedItem, selectedEntry, options)
         },
     })
 
-    if failureDrops then
-        table.insert(infoChildren, UI.Label {
-            text = protectStones > 0
-                and ("保护石 " .. protectStones .. " 颗 · 可让失败时保持 +" .. currentLevel)
-                or "暂无保护石 · 可在商人处购买；保护石只在会掉级的阶段生效",
-            width = "100%",
-            fontSize = 10,
-            lineHeight = 1.3,
-            whiteSpace = "normal",
-            wordBreak = "break-word",
-            fontColor = protectStones > 0 and {148, 201, 238, 225} or {168, 158, 142, 195},
-            marginTop = 1,
-        })
-    end
-
     local function NotifyGold()
         if options.onGoldChanged then
             options.onGoldChanged(Inventory.playerData.gold)
         end
     end
 
-    local function FinishEnhance(useProtect)
-        local ok, message, finalLevel, result = Inventory.EnhanceItem(selectedItem, useProtect)
+    local function FinishEnhance()
+        local ok, message, finalLevel, result = Inventory.EnhanceItem(selectedItem)
         NotifyGold()
         if result and options.applyDerivedStats then options.applyDerivedStats() end
 
         result = result or {}
-        local currentText = "+" .. currentLevel
         local finalText = "+" .. Integer(finalLevel, currentLevel)
         if ok then
             ShowToast(options, "强化成功：" .. (selectedItem.name or "装备") .. " " .. finalText
                 .. " · 花费 " .. Integer(result.goldSpent, cost.gold) .. " 金币")
-        elseif result.downgraded then
-            ShowToast(options, "强化失败：等级由 " .. currentText .. " 降至 " .. finalText
-                .. " · 花费 " .. Integer(result.goldSpent, cost.gold) .. " 金币")
-        elseif result.protected then
-            ShowToast(options, "强化失败：保护石生效，等级保持 " .. currentText
-                .. " · 花费 " .. Integer(result.goldSpent, cost.gold) .. " 金币")
         elseif result.goldSpent then
-            ShowToast(options, "强化失败：等级保持 " .. currentText
+            ShowToast(options, "强化失败：等级保持 +" .. currentLevel
                 .. " · 花费 " .. Integer(result.goldSpent, cost.gold) .. " 金币")
         else
             ShowToast(options, message or "强化失败")
@@ -521,37 +491,26 @@ local function BuildSelectedDetails(selectedItem, selectedEntry, options)
         if options.onRefresh then options.onRefresh() end
     end
 
-    local function RequestEnhance(useProtect)
+    local function RequestEnhance()
         if gold < cost.gold then
             ShowToast(options, "金币不足，还需要 " .. (cost.gold - gold) .. " 金币")
             return
         end
-        if useProtect and protectStones <= 0 then
-            ShowToast(options, "保护石不足，请先到商人处购买")
-            return
-        end
-        if useProtect and not failureDrops then
-            ShowToast(options, "当前阶段失败不会掉级，无需消耗保护石")
-            return
-        end
-
-        if not useProtect and failureDrops then
+        if not guaranteedSuccess then
             UI.Modal.Confirm {
-                title = "确认高风险强化",
+                title = "确认强化",
                 message = "强化到 +" .. nextLevel .. " 需要 " .. cost.gold .. " 金币，成功率 "
-                    .. FormatPercent(cost.successRate) .. "。失败后会降至 +" .. failureLevel
-                    .. "，服务费不返还。确定继续吗？",
+                    .. FormatPercent(cost.successRate) .. "。失败不掉级，只损失服务费。确定继续吗？",
                 confirmText = "确认强化",
                 cancelText = "再看一眼",
-                onConfirm = function() FinishEnhance(false) end,
+                onConfirm = function() FinishEnhance() end,
             }
             return
         end
-        FinishEnhance(useProtect)
+        FinishEnhance()
     end
 
-    local actionLabel = guaranteedSuccess and "必成强化"
-        or (failureDrops and "普通强化" or "稳级强化")
+    local actionLabel = guaranteedSuccess and "必成强化" or "强化"
     table.insert(infoChildren, UI.Button {
         text = gold >= cost.gold
             and (actionLabel .. " · " .. cost.gold .. " 金币")
@@ -562,37 +521,21 @@ local function BuildSelectedDetails(selectedItem, selectedEntry, options)
         variant = gold >= cost.gold and "primary" or "outline",
         disabled = gold < cost.gold,
         fontSize = 12,
-        onClick = function() RequestEnhance(false) end,
+        onClick = function() RequestEnhance() end,
     })
 
-    if failureDrops then
-        local protectEnabled = protectStones > 0 and gold >= cost.gold
-        table.insert(infoChildren, UI.Button {
-            text = protectStones > 0
-                and ("保护强化 · 消耗 1 保护石 + " .. cost.gold .. " 金币")
-                or "保护强化 · 先购买保护石",
-            width = "100%",
-            minHeight = 38,
-            marginTop = 1,
-            variant = "outline",
-            disabled = not protectEnabled,
-            fontSize = 11,
-            onClick = function() RequestEnhance(true) end,
-        })
-    else
-        table.insert(infoChildren, UI.Label {
-            text = guaranteedSuccess
-                and "本次成功率为 100%，无需使用保护石。"
-                or "失败时会保持当前等级，无需使用保护石。",
-            width = "100%",
-            fontSize = 9,
-            lineHeight = 1.3,
-            whiteSpace = "normal",
-            wordBreak = "break-word",
-            fontColor = {158, 188, 148, 205},
-            marginTop = 2,
-        })
-    end
+    table.insert(infoChildren, UI.Label {
+        text = guaranteedSuccess
+            and "本次成功率为 100%，完成后提升至 +" .. nextLevel .. "。"
+            or "失败不掉级，本次只消耗铁匠服务费。",
+        width = "100%",
+        fontSize = 9,
+        lineHeight = 1.3,
+        whiteSpace = "normal",
+        wordBreak = "break-word",
+        fontColor = {158, 188, 148, 205},
+        marginTop = 2,
+    })
 
     return UI.Panel {
         width = "100%",

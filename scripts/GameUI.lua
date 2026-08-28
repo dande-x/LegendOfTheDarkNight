@@ -61,6 +61,10 @@ local NVG_ALIGN_BOTTOM = 32
 local NVG_CW  = 1
 local NVG_CCW = 2
 
+-- 药瓶图标中心距屏幕底部（NanoVG 720 高设计单位）。
+-- 下移后可拉开与移动摇杆圆盘的距离，减少左手触控区域互相干扰。
+local POTION_CENTER_FROM_BOTTOM = 72
+
 -- ============================================================================
 -- NanoVG 状态
 -- ============================================================================
@@ -1133,8 +1137,8 @@ function GameUI._DrawPotionCD(ctx, sw, sh)
     local btnSize = math.max(30 * toRaw, 38 * scale)  -- 匹配 potionSize (含下限)
     local gap = math.max(4 * toRaw, 6 * scale)
     local baseLeft = (72 + 52 + 10) * scale
-    -- 球心距底 = 105*scale, 药瓶垂直居中于球心
-    local baseBottom = 105 * scale - btnSize / 2
+    -- 与 UI 药瓶图标共用中心位置，确保旧 NanoVG CD 扇形不会错位。
+    local baseBottom = POTION_CENTER_FROM_BOTTOM * scale - btnSize / 2
 
     local potions = {
         { ratio = cd.hp, idx = 0 },
@@ -4199,13 +4203,14 @@ function GameUI._CreatePotions(player)
     local uiSysScale = math.max(UI.GetScale(), 0.001)
     local toUI = rawScale * dpr / uiSysScale
 
-    -- 血量球参数 (来自 _DrawOrbs): cx=72, r=52, cy_from_bottom=105 (NanoVG 设计单位)
-    -- 药瓶放在球右边缘右侧
+    -- 血量球参数 (来自 _DrawOrbs): cx=72, r=52 (NanoVG 设计单位)
+    -- 药瓶保持在球右侧，并下移以拉开与移动摇杆圆盘的距离。
     local potionSize = math.floor(math.max(30, 38 * toUI))
     local innerSize = math.floor(potionSize * 0.74)
     local labelH = math.floor(math.max(14, 16 * toUI))
     local potionLeft = math.floor((72 + 52 + 10) * toUI)     -- 球右边缘 + 间距
-    local potionBottom = math.floor(105 * toUI - potionSize / 2 - labelH * 0.55)  -- 图标垂直居中于球心，数字在下方
+    local potionBottom = math.floor(
+        POTION_CENTER_FROM_BOTTOM * toUI - potionSize / 2 - labelH) -- 数字在图标下方
     local potionGap = math.floor(math.max(4, 6 * toUI))
     local potionFontSize = math.max(11, math.floor(12 * toUI))
 
