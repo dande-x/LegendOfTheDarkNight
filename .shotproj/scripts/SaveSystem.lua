@@ -6,6 +6,7 @@
 local SaveSystem = {}
 
 local Quest = require("Quest")
+local Balance = require("Balance")
 
 -- ============================================================================
 -- 常量
@@ -14,7 +15,8 @@ local MAX_SLOTS = 2
 local SAVE_DIR = "saves"
 local SAVE_FILE = "saves/characters.json"
 local SAVE_BACKUP_FILE = "saves/characters.backup.json"
-local MAX_PLAYER_LEVEL = 50
+-- 仅限制损坏存档/异常浮点值；正常玩法等级不设上限。
+local LEVEL_SANITY_LIMIT = Balance.LEVEL_SANITY_LIMIT
 local MAX_RESOURCE = 1000000000
 
 SaveSystem.MAX_SLOTS = MAX_SLOTS
@@ -172,7 +174,7 @@ function SaveSystem.CreateSnapshot(player, inventoryData, killCount)
         className  = player.className,
         modelStyle = player.modelStyle or "old",
         gender     = player.gender or "male",
-        level      = SafeInteger(player.level, 1, MAX_PLAYER_LEVEL, 1),
+        level      = SafeInteger(player.level, 1, LEVEL_SANITY_LIMIT, 1),
         exp        = SafeInteger(player.exp, 0, MAX_RESOURCE, 0),
         expToNext  = SafeInteger(player.expToNext, 1, MAX_RESOURCE, 1),
 
@@ -445,7 +447,7 @@ function SaveSystem.DeleteSlot(slotIndex)
     local classId = SaveSystem.NormalizeClassId(slots[index].classId)
     local classDef = classId and GetCharacterClass(classId) or nil
     local name = classDef and classDef.name or tostring(slots[index].className or "???")
-    local level = SafeInteger(slots[index].level, 1, MAX_PLAYER_LEVEL, 1)
+    local level = SafeInteger(slots[index].level, 1, LEVEL_SANITY_LIMIT, 1)
     local previous = slots[index]
     slots[index] = nil
     print("[SaveSystem] Deleted slot " .. index .. " (" .. name .. " Lv." .. level .. ")")
@@ -569,7 +571,7 @@ function SaveSystem.RestorePlayer(saveData, player)
         return false
     end
 
-    local level = SafeInteger(saveData.level, 1, MAX_PLAYER_LEVEL, 1)
+    local level = SafeInteger(saveData.level, 1, LEVEL_SANITY_LIMIT, 1)
     player.level = level
     player.expToNext = CharacterClass.GetExpToNext(level)
     player.exp = SafeInteger(saveData.exp, 0, math.max(0, player.expToNext - 1), 0)

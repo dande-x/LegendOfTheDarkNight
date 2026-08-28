@@ -8,6 +8,10 @@
 
 local MapZone = {}
 
+-- 所有地图统一使用 6m 半边长的方形安全区（总尺寸 12m × 12m）。
+-- 视觉边界、刷怪过滤、战斗保护和地图 UI 都通过该值保持一致。
+MapZone.DEFAULT_SAFE_ZONE_RADIUS = 6
+
 -- 所有地图共用 120m × 120m 的可玩区域。场景地面、刷怪边界与地图 UI
 -- 统一读取这里，避免视觉地图与实际可走范围逐渐漂移。
 MapZone.ARENA_SIZE = 120
@@ -22,9 +26,9 @@ MapZone.DEFS = {
         -- 比奇自然生态；任务只统计行为，不改动候选池或刷新权重。
         spawnPool = { "稻草人", "蛤蟆", "多钩猫", "钉耙猫", "鹿", "幽灵", "骷髅", "半兽人", "毒蜘蛛" },
         boss = "半兽勇士",
-        spawnSettings = { initialCount = 10, maxEnemies = 24, interval = 1.10 },
+        spawnSettings = { initialCount = 12, maxEnemies = 28, interval = 0.95 },
         spawnPos = Vector3.ZERO,
-        safeZoneRadius = 8,     -- 方形安全区半边长（不刷怪）
+        safeZoneRadius = 6,     -- 方形安全区半边长（不刷怪）
         teleportCost = 100,      -- 管家传送统一收取 100 金
         mapColor = { 40, 70, 42, 245 },
         landmarks = {
@@ -44,7 +48,7 @@ MapZone.DEFS = {
         boss = "白野猪",
         spawnSettings = { initialCount = 10, maxEnemies = 24, interval = 1.20 },
         spawnPos = Vector3.ZERO,
-        safeZoneRadius = 8,
+        safeZoneRadius = 6,
         teleportCost = 100,
         mapColor = { 105, 76, 42, 245 },
         landmarks = {
@@ -65,7 +69,7 @@ MapZone.DEFS = {
         boss = "蚁后",
         spawnSettings = { initialCount = 8, maxEnemies = 22, interval = 1.50 },
         spawnPos = Vector3.ZERO,
-        safeZoneRadius = 8,
+        safeZoneRadius = 6,
         teleportCost = 100,
         mapColor = { 20, 70, 88, 245 },
         landmarks = {
@@ -85,7 +89,7 @@ MapZone.DEFS = {
         boss = "沃玛教主",
         spawnSettings = { initialCount = 8, maxEnemies = 20, interval = 1.50 },
         spawnPos = Vector3.ZERO,
-        safeZoneRadius = 8,
+        safeZoneRadius = 6,
         teleportCost = 100,
         mapColor = { 58, 62, 72, 245 },
         landmarks = {
@@ -95,7 +99,7 @@ MapZone.DEFS = {
         },
     },
     map_zm = {
-        name = "祖玛寺庙",
+        name = "火龙魔窟",
         minLevel = 45,
         maxLevel = 50,
         groundColor = Color(0.22, 0.08, 0.04, 1.0),
@@ -105,7 +109,7 @@ MapZone.DEFS = {
         boss = { "牛魔王", "火龙王" },
         spawnSettings = { initialCount = 6, maxEnemies = 18, interval = 1.70 },
         spawnPos = Vector3.ZERO,
-        safeZoneRadius = 8,
+        safeZoneRadius = 6,
         teleportCost = 100,
         mapColor = { 82, 30, 24, 245 },
         landmarks = {
@@ -200,7 +204,8 @@ end
 ---@return number
 function MapZone.GetSafeZoneRadius(mapId)
     local mapDef = MapZone.GetDef(mapId)
-    return mapDef and (mapDef.safeZoneRadius or 8) or 8
+    return mapDef and (mapDef.safeZoneRadius or MapZone.DEFAULT_SAFE_ZONE_RADIUS)
+        or MapZone.DEFAULT_SAFE_ZONE_RADIUS
 end
 
 --- 判断世界坐标是否位于地图可玩边界内。

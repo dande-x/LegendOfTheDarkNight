@@ -256,8 +256,9 @@ local function IsInSafeZone(position, mapId)
     if not position then return false end
     local activeMapId = mapId or currentMapId
     local center = GetSafeZoneCenter(activeMapId)
-    local halfExtent = tonumber(MapZone.GetSafeZoneRadius(activeMapId)) or 8
-    if not IsFiniteNumber(halfExtent) then halfExtent = 8 end
+    local halfExtent = tonumber(MapZone.GetSafeZoneRadius(activeMapId))
+        or MapZone.DEFAULT_SAFE_ZONE_RADIUS
+    if not IsFiniteNumber(halfExtent) then halfExtent = MapZone.DEFAULT_SAFE_ZONE_RADIUS end
     halfExtent = math.max(0, halfExtent)
     local dx = position.x - center.x
     local dz = position.z - center.z
@@ -272,8 +273,9 @@ local function MoveOutsideSafeZone(position, mapId, margin)
     if not position then return nil end
     local activeMapId = mapId or currentMapId
     local center = GetSafeZoneCenter(activeMapId)
-    local halfExtent = tonumber(MapZone.GetSafeZoneRadius(activeMapId)) or 8
-    if not IsFiniteNumber(halfExtent) then halfExtent = 8 end
+    local halfExtent = tonumber(MapZone.GetSafeZoneRadius(activeMapId))
+        or MapZone.DEFAULT_SAFE_ZONE_RADIUS
+    if not IsFiniteNumber(halfExtent) then halfExtent = MapZone.DEFAULT_SAFE_ZONE_RADIUS end
     halfExtent = math.max(0, halfExtent)
     local dx = position.x - center.x
     local dz = position.z - center.z
@@ -1070,7 +1072,8 @@ function Combat.SpawnEnemy(scene, playerPos, playerLevel, forceDef, mapId, optio
     local spawnMapId = mapId or currentMapId
     local spawnSettings = MapZone.GetSpawnSettings(spawnMapId)
     if #enemies >= spawnSettings.maxEnemies then return nil end
-    local safePlayerLevel = SafeInteger(playerLevel, 1, 1, 50)
+    -- 玩家等级在 Lv.50 后仍可增长；这里只沿用 Balance 的异常数据安全边界。
+    local safePlayerLevel = SafeInteger(playerLevel, 1, 1, Balance.LEVEL_SANITY_LIMIT)
     local mapDef = MapZone.GetDef(spawnMapId)
     local mapMinLevel = mapDef and tonumber(mapDef.minLevel) or nil
     local mapMaxLevel = mapDef and tonumber(mapDef.maxLevel) or nil
@@ -1082,7 +1085,7 @@ function Combat.SpawnEnemy(scene, playerPos, playerLevel, forceDef, mapId, optio
     else
         -- 按当前地图怪物池选取；未指定地图时回退到全表按等级选取。
         -- candidateDefs 一旦来自地图池，后续所有兜底都必须继续留在该池内，
-        -- 否则低等级越级进入祖玛寺庙时会刷出“鹿”等跨图怪物。
+        -- 否则低等级越级进入火龙魔窟时会刷出“鹿”等跨图怪物。
         -- 始终使用独立候选数组，地图池缺失或损坏时也不能污染全局定义。
         local candidateDefs = {}
         for _, enemyDef in ipairs(ENEMY_DEFS) do

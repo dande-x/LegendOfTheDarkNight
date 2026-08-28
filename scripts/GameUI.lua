@@ -167,6 +167,29 @@ local uiState = {
 
 GameUI.state = uiState
 
+-- 装备栏隐藏调试：同一角色面板内连续点击鞋子槽五次才触发。
+local equipmentSlotDebugState = { clickCount = 0 }
+
+local function ResetEquipmentSlotDebugSequence()
+    equipmentSlotDebugState.clickCount = 0
+end
+
+function GameUI._HandleEquipmentSlotClick(slotKey)
+    if slotKey ~= Inventory.SLOT.BOOTS then
+        ResetEquipmentSlotDebugSequence()
+        return false
+    end
+
+    equipmentSlotDebugState.clickCount = equipmentSlotDebugState.clickCount + 1
+    if equipmentSlotDebugState.clickCount < 5 then return false end
+
+    ResetEquipmentSlotDebugSequence()
+    if GameUI.onDebugBootsSlotActivated then
+        return GameUI.onDebugBootsSlotActivated() == true
+    end
+    return false
+end
+
 -- 游戏内浮层统一使用固定标题栏，确保返回入口不会被长列表挤出屏幕。
 -- 保持在用户代码中实现；urhox-libs/UI 参考副本只读，不能修改。
 local function _CreateOverlayHeader(title, onBack, options)
@@ -816,7 +839,9 @@ function GameUI._DrawOrbs(ctx, sw, sh)
     local lvText = "Lv." .. player.level
     local lvFontSize = math.floor(13 * scale)
     local pillH = math.floor(18 * scale)
-    local pillW = math.floor(46 * scale)
+    -- 等级不再止步于 50；按数字位数扩展药丸宽度，避免 Lv.100 以后文字被边框挤压。
+    local levelDigits = #tostring(math.max(1, math.floor(tonumber(player.level) or 1)))
+    local pillW = math.floor(math.max(46, 27 + levelDigits * 9) * scale)
     local pillX = cx - pillW / 2
     local pillY = cy + r - pillH * 0.45  -- 向上嵌入球底边缘
 
@@ -2120,6 +2145,7 @@ end
 ---@param slots table[] 存档槽位数组 (最多2个，nil表示空槽)
 ---@param callbacks table { onSelect(idx), onContinue(idx), onCreate(idx), onDelete(idx, onDone) }
 function GameUI.ShowSaveSlots(slots, callbacks)
+    ResetEquipmentSlotDebugSequence()
     local overlayMode = false
     if uiState.selectRoot then
         GameUI.HideClassSelect()
@@ -2577,6 +2603,7 @@ end
 ---@param overlaySlotIndex integer|nil
 ---@param onCancelled function|nil
 function GameUI.ShowClassSelect(onSelected, overlayMode, overlaySlotIndex, onCancelled)
+    ResetEquipmentSlotDebugSequence()
     overlayMode = overlayMode == true
     overlaySlotIndex = overlaySlotIndex or 1
     uiState.phase = "select"
@@ -2838,6 +2865,7 @@ end
 -- ============================================================================
 function GameUI.ShowGameHUD(player)
     GameUI.HideDeathPresentation()
+    ResetEquipmentSlotDebugSequence()
     uiState.phase = "playing"
     uiState.player = player
     uiState.charPanelOpen = false
@@ -4477,6 +4505,7 @@ end
 local function _BuildEquipmentPanelOptions(player, tab)
     return {
         player = player,
+        onEquipmentSlotClick = GameUI._HandleEquipmentSlotClick,
         showToast = function(message) GameUI.ShowToast(message) end,
         closeDetail = GameUI.HideItemDetail,
         openDetail = function(detailPanel)
@@ -4517,6 +4546,7 @@ function GameUI.CloseCharacterPanel()
 end
 
 function GameUI.ShowCharacterPanel(player, tab)
+    ResetEquipmentSlotDebugSequence()
     -- 关闭系统面板（互斥）
     if uiState.systemPanelOpen then GameUI.HideSystemPanel() end
     if uiState.charPanelOpen then
@@ -4621,6 +4651,7 @@ function GameUI.ShowCharacterPanel(player, tab)
 end
 
 function GameUI.HideCharacterPanel()
+    ResetEquipmentSlotDebugSequence()
     if not uiState.charPanelOpen then return end
     SoundManager.Play("close_panel")
     GameUI.HideItemDetail()
@@ -4685,23 +4716,23 @@ function GameUI.ShowSystemPanel()
             width = "100%", height = 1,
             backgroundColor = {72, 74, 76, 110},
         },
-        -- 音效开关：控制全部音效与背景音乐
+        -- 音效开关：独立控制，与背景音乐互不影响
         (function()
-            local sfxEnabled = SoundManager.IsSoundEnabled()
-            local sfxButton = UI.Button {
-                text = (sfxEnabled and "开启" or "关闭"),
+            local enabled = SoundManager.IsSoundEnabled()
+            local btn = UI.Button {
+                text = (enabled and "开启" or "关闭"),
                 width = 72, height = 32,
-                backgroundColor = (sfxEnabled and {60, 90, 60, 240} or {70, 58, 58, 240}),
+                backgroundColor = (enabled and {60, 90, 60, 240} or {70, 58, 58, 240}),
                 borderRadius = 6, borderWidth = 1,
-                borderColor = (sfxEnabled and {90, 160, 90, 200} or {160, 80, 80, 180}),
+                borderColor = (enabled and {90, 160, 90, 200} or {160, 80, 80, 180}),
                 fontSize = 13,
-                fontColor = (sfxEnabled and {180, 255, 180, 255} or {236, 200, 200, 255}),
+                fontColor = (enabled and {180, 255, 180, 255} or {236, 200, 200, 255}),
                 onClick = function()
                     local newEnabled = not SoundManager.IsSoundEnabled()
                     SoundManager.SetSoundEnabled(newEnabled)
                     SoundManager.Play("click")
-                    sfxButton:SetText(newEnabled and "开启" or "关闭")
-                    sfxButton:SetStyle {
+                    btn:SetText(newEnabled and "开启" or "关闭")
+                    btn:SetStyle {
                         backgroundColor = (newEnabled and {60, 90, 60, 240} or {70, 58, 58, 240}),
                         borderColor = (newEnabled and {90, 160, 90, 200} or {160, 80, 80, 180}),
                         fontColor = (newEnabled and {180, 255, 180, 255} or {236, 200, 200, 255}),
@@ -4720,7 +4751,46 @@ function GameUI.ShowSystemPanel()
                         fontSize = 14,
                         fontColor = {214, 216, 214, 240},
                     },
-                    sfxButton,
+                    btn,
+                },
+            }
+        end)(),
+        -- 背景音乐开关：独立控制，与音效互不影响
+        (function()
+            local enabled = SoundManager.IsMusicEnabled()
+            local btn = UI.Button {
+                text = (enabled and "开启" or "关闭"),
+                width = 72, height = 32,
+                backgroundColor = (enabled and {60, 90, 60, 240} or {70, 58, 58, 240}),
+                borderRadius = 6, borderWidth = 1,
+                borderColor = (enabled and {90, 160, 90, 200} or {160, 80, 80, 180}),
+                fontSize = 13,
+                fontColor = (enabled and {180, 255, 180, 255} or {236, 200, 200, 255}),
+                onClick = function()
+                    local newEnabled = not SoundManager.IsMusicEnabled()
+                    SoundManager.SetMusicEnabled(newEnabled)
+                    SoundManager.Play("click")
+                    btn:SetText(newEnabled and "开启" or "关闭")
+                    btn:SetStyle {
+                        backgroundColor = (newEnabled and {60, 90, 60, 240} or {70, 58, 58, 240}),
+                        borderColor = (newEnabled and {90, 160, 90, 200} or {160, 80, 80, 180}),
+                        fontColor = (newEnabled and {180, 255, 180, 255} or {236, 200, 200, 255}),
+                    }
+                end,
+            }
+            return UI.Panel {
+                width = "100%",
+                flexDirection = "row",
+                alignItems = "center",
+                justifyContent = "space-between",
+                paddingLeft = 4, paddingRight = 4,
+                children = {
+                    UI.Label {
+                        text = "背景音乐",
+                        fontSize = 14,
+                        fontColor = {214, 216, 214, 240},
+                    },
+                    btn,
                 },
             }
         end)(),
@@ -5408,11 +5478,13 @@ GameUI.onTeleportSelected = nil
 GameUI.onNPCInteract = nil
 GameUI.onDebugLevelChange = nil  -- function(delta) : +1 升级, -1 降级
 GameUI.onDebugMaxLevel = nil     -- function() : 一键满级+技能栏填充
+GameUI.onDebugBootsSlotActivated = nil -- function() : 鞋子槽五连击调试入口
 
 -- ============================================================================
 -- 清理
 -- ============================================================================
 function GameUI.Shutdown()
+    ResetEquipmentSlotDebugSequence()
     GameUI.HideDeathPresentation()
     if nvgCtx then
         nvgDelete(nvgCtx)

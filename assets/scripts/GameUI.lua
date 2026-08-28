@@ -166,6 +166,29 @@ local uiState = {
 
 GameUI.state = uiState
 
+-- 装备栏隐藏调试：同一角色面板内连续点击鞋子槽五次才触发。
+local equipmentSlotDebugState = { clickCount = 0 }
+
+local function ResetEquipmentSlotDebugSequence()
+    equipmentSlotDebugState.clickCount = 0
+end
+
+function GameUI._HandleEquipmentSlotClick(slotKey)
+    if slotKey ~= Inventory.SLOT.BOOTS then
+        ResetEquipmentSlotDebugSequence()
+        return false
+    end
+
+    equipmentSlotDebugState.clickCount = equipmentSlotDebugState.clickCount + 1
+    if equipmentSlotDebugState.clickCount < 5 then return false end
+
+    ResetEquipmentSlotDebugSequence()
+    if GameUI.onDebugBootsSlotActivated then
+        return GameUI.onDebugBootsSlotActivated() == true
+    end
+    return false
+end
+
 -- 游戏内浮层统一使用固定标题栏，确保返回入口不会被长列表挤出屏幕。
 -- 保持在用户代码中实现；urhox-libs/UI 参考副本只读，不能修改。
 local function _CreateOverlayHeader(title, onBack, options)
@@ -815,7 +838,9 @@ function GameUI._DrawOrbs(ctx, sw, sh)
     local lvText = "Lv." .. player.level
     local lvFontSize = math.floor(13 * scale)
     local pillH = math.floor(18 * scale)
-    local pillW = math.floor(46 * scale)
+    -- 等级不再止步于 50；按数字位数扩展药丸宽度，避免 Lv.100 以后文字被边框挤压。
+    local levelDigits = #tostring(math.max(1, math.floor(tonumber(player.level) or 1)))
+    local pillW = math.floor(math.max(46, 27 + levelDigits * 9) * scale)
     local pillX = cx - pillW / 2
     local pillY = cy + r - pillH * 0.45  -- 向上嵌入球底边缘
 
@@ -2119,6 +2144,7 @@ end
 ---@param slots table[] 存档槽位数组 (最多2个，nil表示空槽)
 ---@param callbacks table { onSelect(idx), onContinue(idx), onCreate(idx), onDelete(idx, onDone) }
 function GameUI.ShowSaveSlots(slots, callbacks)
+    ResetEquipmentSlotDebugSequence()
     local overlayMode = false
     if uiState.selectRoot then
         GameUI.HideClassSelect()
@@ -2576,6 +2602,7 @@ end
 ---@param overlaySlotIndex integer|nil
 ---@param onCancelled function|nil
 function GameUI.ShowClassSelect(onSelected, overlayMode, overlaySlotIndex, onCancelled)
+    ResetEquipmentSlotDebugSequence()
     overlayMode = overlayMode == true
     overlaySlotIndex = overlaySlotIndex or 1
     uiState.phase = "select"
@@ -2837,6 +2864,7 @@ end
 -- ============================================================================
 function GameUI.ShowGameHUD(player)
     GameUI.HideDeathPresentation()
+    ResetEquipmentSlotDebugSequence()
     uiState.phase = "playing"
     uiState.player = player
     uiState.charPanelOpen = false
@@ -4473,6 +4501,7 @@ end
 local function _BuildEquipmentPanelOptions(player, tab)
     return {
         player = player,
+        onEquipmentSlotClick = GameUI._HandleEquipmentSlotClick,
         showToast = function(message) GameUI.ShowToast(message) end,
         closeDetail = GameUI.HideItemDetail,
         openDetail = function(detailPanel)
@@ -4513,6 +4542,7 @@ function GameUI.CloseCharacterPanel()
 end
 
 function GameUI.ShowCharacterPanel(player, tab)
+    ResetEquipmentSlotDebugSequence()
     -- 关闭系统面板（互斥）
     if uiState.systemPanelOpen then GameUI.HideSystemPanel() end
     if uiState.charPanelOpen then
@@ -4616,6 +4646,7 @@ function GameUI.ShowCharacterPanel(player, tab)
 end
 
 function GameUI.HideCharacterPanel()
+    ResetEquipmentSlotDebugSequence()
     if not uiState.charPanelOpen then return end
     GameUI.HideItemDetail()
     uiState.charPanelOpen = false
@@ -5361,11 +5392,13 @@ GameUI.onTeleportSelected = nil
 GameUI.onNPCInteract = nil
 GameUI.onDebugLevelChange = nil  -- function(delta) : +1 升级, -1 降级
 GameUI.onDebugMaxLevel = nil     -- function() : 一键满级+技能栏填充
+GameUI.onDebugBootsSlotActivated = nil -- function() : 鞋子槽五连击调试入口
 
 -- ============================================================================
 -- 清理
 -- ============================================================================
 function GameUI.Shutdown()
+    ResetEquipmentSlotDebugSequence()
     GameUI.HideDeathPresentation()
     if nvgCtx then
         nvgDelete(nvgCtx)

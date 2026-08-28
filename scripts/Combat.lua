@@ -257,8 +257,9 @@ local function IsInSafeZone(position, mapId)
     if not position then return false end
     local activeMapId = mapId or currentMapId
     local center = GetSafeZoneCenter(activeMapId)
-    local halfExtent = tonumber(MapZone.GetSafeZoneRadius(activeMapId)) or 8
-    if not IsFiniteNumber(halfExtent) then halfExtent = 8 end
+    local halfExtent = tonumber(MapZone.GetSafeZoneRadius(activeMapId))
+        or MapZone.DEFAULT_SAFE_ZONE_RADIUS
+    if not IsFiniteNumber(halfExtent) then halfExtent = MapZone.DEFAULT_SAFE_ZONE_RADIUS end
     halfExtent = math.max(0, halfExtent)
     local dx = position.x - center.x
     local dz = position.z - center.z
@@ -273,8 +274,9 @@ local function MoveOutsideSafeZone(position, mapId, margin)
     if not position then return nil end
     local activeMapId = mapId or currentMapId
     local center = GetSafeZoneCenter(activeMapId)
-    local halfExtent = tonumber(MapZone.GetSafeZoneRadius(activeMapId)) or 8
-    if not IsFiniteNumber(halfExtent) then halfExtent = 8 end
+    local halfExtent = tonumber(MapZone.GetSafeZoneRadius(activeMapId))
+        or MapZone.DEFAULT_SAFE_ZONE_RADIUS
+    if not IsFiniteNumber(halfExtent) then halfExtent = MapZone.DEFAULT_SAFE_ZONE_RADIUS end
     halfExtent = math.max(0, halfExtent)
     local dx = position.x - center.x
     local dz = position.z - center.z
@@ -1073,7 +1075,8 @@ function Combat.SpawnEnemy(scene, playerPos, playerLevel, forceDef, mapId, optio
     local spawnMapId = mapId or currentMapId
     local spawnSettings = MapZone.GetSpawnSettings(spawnMapId)
     if #enemies >= spawnSettings.maxEnemies then return nil end
-    local safePlayerLevel = SafeInteger(playerLevel, 1, 1, 50)
+    -- 玩家等级在 Lv.50 后仍可增长；这里只沿用 Balance 的异常数据安全边界。
+    local safePlayerLevel = SafeInteger(playerLevel, 1, 1, Balance.LEVEL_SANITY_LIMIT)
     local mapDef = MapZone.GetDef(spawnMapId)
     local mapMinLevel = mapDef and tonumber(mapDef.minLevel) or nil
     local mapMaxLevel = mapDef and tonumber(mapDef.maxLevel) or nil
@@ -1085,7 +1088,7 @@ function Combat.SpawnEnemy(scene, playerPos, playerLevel, forceDef, mapId, optio
     else
         -- 按当前地图怪物池选取；未指定地图时回退到全表按等级选取。
         -- candidateDefs 一旦来自地图池，后续所有兜底都必须继续留在该池内，
-        -- 否则低等级越级进入祖玛寺庙时会刷出“鹿”等跨图怪物。
+        -- 否则低等级越级进入火龙魔窟时会刷出“鹿”等跨图怪物。
         -- 始终使用独立候选数组，地图池缺失或损坏时也不能污染全局定义。
         local candidateDefs = {}
         for _, enemyDef in ipairs(ENEMY_DEFS) do
@@ -1219,7 +1222,12 @@ function Combat.SpawnEnemy(scene, playerPos, playerLevel, forceDef, mapId, optio
         candidate = MapZone.ClampToArena(candidate, 1.0) or candidate
         spawnPos = MoveOutsideSafeZone(candidate, spawnMapId, 1.0) or candidate
     else
-        for attempt = 1, 16 do
+        -- 自然刷新点距离安全区（地图出生点）越远，越容易被选中；越靠近
+        -- 安全区越少刷。先采集一批合法候选，再按“偏离安全区的程度”加权，
+        -- 保证玩家周围环形约束不变的同时，安全区附近明显稀疏。
+        local safeCenter = GetSafeZoneCenter(spawnMapId)
+        local candidates = {}
+        for _ = 1, 16 do
             local angle = math.random() * math.pi * 2
             local dist = minSpawnDist + math.random() * (maxSpawnDist - minSpawnDist)
             local candidate = Vector3(
@@ -1227,10 +1235,32 @@ function Combat.SpawnEnemy(scene, playerPos, playerLevel, forceDef, mapId, optio
                 0,
                 playerPos.z + math.sin(angle) * dist
             )
-            -- 距离地图出生点(安全区中心)的距离
             if MapZone.IsInsideArena(candidate, 1.0) and not IsInSafeZone(candidate, spawnMapId) then
-                spawnPos = candidate
-                break
+                local dx = candidate.x - safeCenter.x
+                local dz = candidate.z - safeCenter.z
+                local centerDist = math.sqrt(dx * dx + dz * dz)
+                -- 权重与偏离安全区中心的距离成正比；等于安全区半径时权重为 0。
+                local weight = math.max(0, centerDist - safeRadius)
+                table.insert(candidates, { pos = candidate, weight = weight })
+            end
+        end
+        if #candidates > 0 then
+            local totalWeight = 0
+            for _, c in ipairs(candidates) do totalWeight = totalWeight + c.weight end
+            if totalWeight > 0 then
+                local roll = math.random() * totalWeight
+                local acc = 0
+                spawnPos = candidates[1].pos
+                for _, c in ipairs(candidates) do
+                    acc = acc + c.weight
+                    if roll <= acc then
+                        spawnPos = c.pos
+                        break
+                    end
+                end
+            else
+                -- 所有候选都贴边（玩家紧贴安全区边缘），此时均匀随机即可。
+                spawnPos = candidates[math.random(#candidates)].pos
             end
         end
     end

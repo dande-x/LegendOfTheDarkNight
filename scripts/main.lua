@@ -247,8 +247,9 @@ function CreateFloor(groundColor)
     floorModel:SetMaterial(darkSoilMat)
     floorModel.castShadows = false
 
-    -- 安全区视觉：仅外围蓝色发光针状虚线边界（无地面发光）。中心必须
-    -- 与 Combat 的 spawnPos 判定一致，避免以后地图出生点移动后视觉错位。
+    -- 安全区视觉：低矮的方形虚线边界 + 竖直锥形光芒。
+    -- 光芒底部贴地、锥尖朝上；中心必须与 Combat 的 spawnPos 判定一致，
+    -- 避免以后地图出生点移动后视觉错位。
     local currentMapDef = MapZone.GetDef(MapZone.GetCurrentMapId())
     local safeCenter = (currentMapDef and currentMapDef.spawnPos) or Vector3.ZERO
     local safeRadius = MapZone.GetSafeZoneRadius(MapZone.GetCurrentMapId())
@@ -269,13 +270,35 @@ function CreateFloor(groundColor)
         return safeCenter.x + safeRadius + (padding or 0) + 2.0, safeCenter.z
     end
 
-    -- 蓝色发光尖锐针状虚线边界（方形四边，针尖朝外）
-    local needleMat = Material:new()
-    needleMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
-    needleMat:SetShaderParameter("MatDiffColor", Variant(Color(0.3, 0.65, 1.0, 1.0)))
-    needleMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.8, 1.4, 2.4, 1.0)))
+    -- 方形边界的低矮虚线，给玩家一个明确的地面轮廓。
+    local borderMat = Material:new()
+    borderMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
+    borderMat:SetShaderParameter("MatDiffColor", Variant(Color(0.3, 0.65, 1.0, 1.0)))
+    borderMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.8, 1.4, 2.4, 1.0)))
+
+    -- 透明外锥 + 高亮窄芯组成“光芒”轮廓。Cone 的默认轴向为 Y，
+    -- 因而只需把节点中心抬到高度的一半即可保证底部落地、顶部尖锐。
+    local rayOuterMat = Material:new()
+    rayOuterMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+    rayOuterMat:SetShaderParameter("MatDiffColor", Variant(Color(0.18, 0.55, 1.0, 0.28)))
+    rayOuterMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.25, 0.85, 2.6, 1.0)))
+    rayOuterMat:SetShaderParameter("Metallic", Variant(0.0))
+    rayOuterMat:SetShaderParameter("Roughness", Variant(0.16))
+    rayOuterMat:SetCullMode(CULL_NONE)
+
+    local rayCoreMat = Material:new()
+    rayCoreMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
+    rayCoreMat:SetShaderParameter("MatDiffColor", Variant(Color(0.68, 0.9, 1.0, 1.0)))
+    rayCoreMat:SetShaderParameter("MatEmissiveColor", Variant(Color(1.6, 2.6, 4.2, 1.0)))
+    rayCoreMat:SetShaderParameter("Metallic", Variant(0.0))
+    rayCoreMat:SetShaderParameter("Roughness", Variant(0.12))
+
     local gapInterval = safeRadius * 2 / 8   -- 每条边分 8 段（虚线间隔）
     local segLen = gapInterval * 0.5          -- 每段实线长度（占间隔一半）
+    local rayHeight = 2.4
+    local rayDiameter = 0.34
+    local rayCoreHeight = 2.18
+    local rayCoreDiameter = 0.11
     for side = 0, 3 do
         -- side 0=上边(z=-half), 1=右边(x=+half), 2=下边(z=+half), 3=左边(x=-half)
         for seg = 0, 7 do
@@ -284,19 +307,14 @@ function CreateFloor(groundColor)
             local cx = (t0 + t1) / 2
             local len = (t1 - t0)
             local pos = Vector3(safeCenter.x, 0.045, safeCenter.z)
-            local needleDir = Vector3(1, 0, 0)
             if side == 0 then
                 pos = Vector3(safeCenter.x + cx, 0.045, safeCenter.z - half)
-                needleDir = Vector3(0, 0, -1)
             elseif side == 1 then
                 pos = Vector3(safeCenter.x + half, 0.045, safeCenter.z + cx)
-                needleDir = Vector3(1, 0, 0)
             elseif side == 2 then
                 pos = Vector3(safeCenter.x + cx, 0.045, safeCenter.z + half)
-                needleDir = Vector3(0, 0, 1)
             else
                 pos = Vector3(safeCenter.x - half, 0.045, safeCenter.z + cx)
-                needleDir = Vector3(-1, 0, 0)
             end
 
             -- 边线虚线：实际使用 segLen，避免此前算出长度却仍画成竖直小柱。
@@ -309,22 +327,29 @@ function CreateFloor(groundColor)
             end
             local dashModel = dash:CreateComponent("StaticModel")
             dashModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
-            dashModel:SetMaterial(needleMat)
+            dashModel:SetMaterial(borderMat)
             dashModel.castShadows = false
 
-            -- 每段中央向外伸出一根短针，组合成清晰的方形针状警戒线。
-            local needleLength = 0.72
-            local needle = scene_:CreateChild("SafeZoneNeedle_" .. side .. "_" .. seg)
-            needle.position = pos + needleDir * (needleLength * 0.42)
-            if side == 0 or side == 2 then
-                needle.scale = Vector3(0.07, 0.05, needleLength)
-            else
-                needle.scale = Vector3(needleLength, 0.05, 0.07)
+            -- 每隔一个虚线段放置一组竖直锥形光芒，避免边界过密；
+            -- 锥体的底面位于边界线上，顶部保持清晰的尖角轮廓。
+            if seg % 2 == 0 then
+                local rayIndex = math.floor(seg / 2)
+                local ray = scene_:CreateChild("SafeZoneRay_" .. side .. "_" .. rayIndex)
+                ray.position = Vector3(pos.x, pos.y + rayHeight * 0.5, pos.z)
+                ray.scale = Vector3(rayDiameter, rayHeight, rayDiameter)
+                local rayModel = ray:CreateComponent("StaticModel")
+                rayModel:SetModel(cache:GetResource("Model", "Models/Cone.mdl"))
+                rayModel:SetMaterial(rayOuterMat)
+                rayModel.castShadows = false
+
+                local core = scene_:CreateChild("SafeZoneRayCore_" .. side .. "_" .. rayIndex)
+                core.position = Vector3(pos.x, pos.y + rayCoreHeight * 0.5, pos.z)
+                core.scale = Vector3(rayCoreDiameter, rayCoreHeight, rayCoreDiameter)
+                local coreModel = core:CreateComponent("StaticModel")
+                coreModel:SetModel(cache:GetResource("Model", "Models/Cone.mdl"))
+                coreModel:SetMaterial(rayCoreMat)
+                coreModel.castShadows = false
             end
-            local needleModel = needle:CreateComponent("StaticModel")
-            needleModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
-            needleModel:SetMaterial(needleMat)
-            needleModel.castShadows = false
         end
     end
 
@@ -1038,7 +1063,7 @@ function CreateMapDecorations(mapId, mapDef)
         CreateMapModel("WomarGateDarkness", "Models/Box.mdl", Vector3(30, 1.65, -27.55),
             Vector3(3.2, 3.3, 0.08), solid(Color(0.025, 0.02, 0.035, 1.0), 1.0), nil)
     elseif mapId == "map_zm" then
-        -- 祖玛寺庙：真正自发光的岩浆池、裂隙和带碰撞的熔岩石。
+        -- 火龙魔窟：真正自发光的岩浆池、裂隙和带碰撞的熔岩石。
         -- 火龙王遭遇中心必须保持净空，避免动态刚体出生后被场景碰撞夹住。
         local lavaMat = solid(Color(0.82, 0.16, 0.025, 1.0), 0.26, Color(2.8, 0.46, 0.06, 1.0))
         local lavaGlowMat = solid(Color(1.0, 0.36, 0.04, 1.0), 0.16, Color(4.0, 0.85, 0.10, 1.0))
@@ -1721,7 +1746,7 @@ local DECOR_PREFIXES = {
     "WomarGate",
     "LavaPool_", "LavaCrack_", "LavaRock_",
     "DragonSlayer", "DragonLair_", "AbyssThrone",
-    "SafeZone", "SafeZoneDash_", "SafeZoneNeedle_", "SafeZoneRing_",
+    "SafeZone", "SafeZoneDash_", "SafeZoneNeedle_", "SafeZoneRay_", "SafeZoneRayCore_", "SafeZoneRing_",
     "QuestSignal", "QuestAreaEffect",
 }
 
@@ -2073,10 +2098,10 @@ function SetupGameCallbacks()
     -- Debug 等级调整回调
     GameUI.onDebugLevelChange = function(delta)
         if not player_ then return end
-        local newLevel = player_.level + delta
-        if newLevel < 1 then newLevel = 1 end
-        if newLevel > 50 then newLevel = 50 end
-        if newLevel == player_.level then return end
+        local currentLevel = CharacterClass.NormalizeLevel(player_.level)
+        local newLevel = CharacterClass.NormalizeLevel(
+            currentLevel + (tonumber(delta) or 0))
+        if newLevel == currentLevel then return end
 
         player_.level = newLevel
         CharacterClass.ApplyDerivedStats(player_, Inventory.playerData, true)
@@ -2087,10 +2112,10 @@ function SetupGameCallbacks()
         GameUI.RefreshSkillButtons(player_)
     end
 
-    -- 一键满级：设为50级 + 填充全部技能栏
+    -- 一键满级（兼容旧按钮）：至少设为 Lv.50 + 填充全部技能栏。
     GameUI.onDebugMaxLevel = function()
         if not player_ then return end
-        local maxLv = 50
+        local maxLv = math.max(CharacterClass.NormalizeLevel(player_.level), 50)
         player_.level = maxLv
         CharacterClass.ApplyDerivedStats(player_, Inventory.playerData, true)
         player_.expToNext = CharacterClass.GetExpToNext(maxLv)
@@ -2099,6 +2124,27 @@ function SetupGameCallbacks()
         CharacterClass.RebuildEquippedSkills(player_, true)
         print("[Debug] MAX LEVEL! Lv." .. maxLv .. " all skills equipped")
         GameUI.RefreshSkillButtons(player_)
+    end
+
+    -- 隐藏调试入口：连续点击角色装备栏“鞋子”槽五次，至少升到 Lv.50。
+    GameUI.onDebugBootsSlotActivated = function()
+        if not player_ then return false end
+
+        local targetLevel = math.max(CharacterClass.NormalizeLevel(player_.level), 50)
+        player_.level = targetLevel
+        CharacterClass.ApplyDerivedStats(player_, Inventory.playerData, true)
+        player_.expToNext = CharacterClass.GetExpToNext(targetLevel)
+        player_.exp = 0
+        CharacterClass.RebuildEquippedSkills(player_, true)
+
+        -- 鞋子槽点击发生在角色面板内；重建面板后立即让等级和技能显示同步。
+        local reopenCharacterPanel = GameUI.IsCharacterPanelOpen()
+        if reopenCharacterPanel then GameUI.HideCharacterPanel() end
+        GameUI.RefreshSkillButtons(player_)
+        if reopenCharacterPanel then GameUI.ShowCharacterPanel(player_, "equip") end
+
+        print("[Debug] Boots slot sequence activated; level set to Lv." .. targetLevel)
+        return true
     end
 
     -- 角色面板切换回调

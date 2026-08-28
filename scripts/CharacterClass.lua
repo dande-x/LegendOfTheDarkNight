@@ -6,7 +6,9 @@
 local CharacterClass = {}
 local Balance = require("scripts.Balance")
 
+-- 兼容旧调用方；Balance.MAX_LEVEL 是 math.huge，仅作“不设玩法上限”的哨兵。
 CharacterClass.MAX_LEVEL = Balance.MAX_LEVEL
+local LEVEL_SANITY_LIMIT = Balance.LEVEL_SANITY_LIMIT
 
 local function IsFiniteNumber(value)
     return type(value) == "number"
@@ -16,9 +18,7 @@ local function IsFiniteNumber(value)
 end
 
 function CharacterClass.NormalizeLevel(level)
-    local number = tonumber(level)
-    if not IsFiniteNumber(number) then return 1 end
-    return math.max(1, math.min(CharacterClass.MAX_LEVEL, math.floor(number)))
+    return Balance.NormalizeLevel(level)
 end
 
 -- ============================================================================
@@ -82,7 +82,8 @@ CharacterClass.PASSIVE_MODIFIERS = {
     },
 }
 
--- 全职业共用统一升级曲线。职业差异只影响战斗，不再让道士提前十多级毕业。
+-- 全职业共用统一升级曲线。职业差异只影响战斗，不再让道士提前十多级毕业；
+-- Lv.50 之后继续沿用同一曲线。
 function CharacterClass.GetExpToNext(level)
     return Balance.GetExpToNext(level)
 end
@@ -609,10 +610,10 @@ function CharacterClass.LevelUp(player)
     local classDef = CharacterClass.Classes[player.classId]
     if not classDef then return nil end
     player.level = CharacterClass.NormalizeLevel(player.level)
-    if player.level >= CharacterClass.MAX_LEVEL then
-        player.level = CharacterClass.MAX_LEVEL
+    -- 仅防止损坏存档在安全边界处继续自增；正常玩法不会触达此值。
+    if player.level >= LEVEL_SANITY_LIMIT then
         player.exp = 0
-        player.expToNext = CharacterClass.GetExpToNext(CharacterClass.MAX_LEVEL)
+        player.expToNext = CharacterClass.GetExpToNext(player.level)
         return nil
     end
     player.level = player.level + 1
@@ -636,7 +637,7 @@ function CharacterClass.LevelUp(player)
     return #newlyUnlocked > 0 and newlyUnlocked or nil
 end
 
---- 统一处理经验获取、连续升级与 Lv.50 上限，避免击杀和任务奖励维护两套循环。
+--- 统一处理经验获取与连续升级，Lv.50 之后仍可继续升级，避免击杀和任务奖励维护两套循环。
 ---@param player table
 ---@param amount number
 ---@return string[]|nil newlyUnlocked
@@ -652,19 +653,12 @@ function CharacterClass.AddExperience(player, amount)
         player.expToNext = CharacterClass.GetExpToNext(player.level)
     end
 
-    if player.level >= CharacterClass.MAX_LEVEL then
-        player.level = CharacterClass.MAX_LEVEL
-        player.exp = 0
-        player.expToNext = CharacterClass.GetExpToNext(CharacterClass.MAX_LEVEL)
-        return nil
-    end
-
     local currentExp = tonumber(player.exp)
     if not IsFiniteNumber(currentExp) or currentExp < 0 then currentExp = 0 end
     player.exp = math.min(1000000000, currentExp + gain)
 
     local newlyUnlocked = {}
-    while player.level < CharacterClass.MAX_LEVEL and player.exp >= player.expToNext do
+    while player.level < LEVEL_SANITY_LIMIT and player.exp >= player.expToNext do
         player.exp = player.exp - player.expToNext
         local names = CharacterClass.LevelUp(player)
         if names then
@@ -674,10 +668,10 @@ function CharacterClass.AddExperience(player, amount)
         end
     end
 
-    if player.level >= CharacterClass.MAX_LEVEL then
-        player.level = CharacterClass.MAX_LEVEL
+    if player.level >= LEVEL_SANITY_LIMIT then
+        -- 与 LevelUp 的安全边界保持一致，避免坏数据反复触发升级循环。
         player.exp = 0
-        player.expToNext = CharacterClass.GetExpToNext(CharacterClass.MAX_LEVEL)
+        player.expToNext = CharacterClass.GetExpToNext(player.level)
     end
 
     return #newlyUnlocked > 0 and newlyUnlocked or nil

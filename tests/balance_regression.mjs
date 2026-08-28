@@ -349,13 +349,16 @@ const monsters = new Map(quests.filter((quest) => quest.target)
 const expToNext = (level) => Math.floor(75 + 38 * level + 1.6 * level * level);
 let playerLevel = 1;
 let playerExp = 0;
+const levelSanityLimit = 1_000_000_000;
 const checkpoints = new Map([
     ["q_006", 10], ["q_009", 25], ["q_012b", 35], ["q_014b", 45], ["q_016", 50],
 ]);
 
 function addPlayerExp(amount) {
     playerExp += amount;
-    while (playerLevel < 50 && playerExp >= expToNext(playerLevel)) {
+    // Lv.50 is a story checkpoint, not a gameplay cap. Keep only the same
+    // corruption guard as the runtime model.
+    while (playerLevel < levelSanityLimit && playerExp >= expToNext(playerLevel)) {
         playerExp -= expToNext(playerLevel);
         playerLevel += 1;
     }

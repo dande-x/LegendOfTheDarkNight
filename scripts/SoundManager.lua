@@ -6,7 +6,8 @@
 -- 设计要点：
 --   * 所有音效资源集中在 assets/audio/sfx/ 与 assets/audio/music/。
 --   * 通过 cache:GetResource("Sound", path) 加载；Sound 支持 .mp3。
---   * 音效开关关闭时，一次性音效直接跳过；背景音乐淡出停止。
+--   * 音效开关关闭时，一次性音效直接跳过；背景音乐开关关闭时背景音乐停止。
+--   * 音效与背景音乐是两个相互独立的开关。
 --   * 设置持久化到 saves/audio_settings.json（与角色存档分离的全局设置）。
 -- ============================================================================
 
@@ -17,7 +18,8 @@ local Effects = require("urhox-libs.Effects.Effects")
 
 -- 全局设置（不受单个角色存档影响）
 local settings = {
-    soundEnabled = true,  -- 音效总开关（含背景音乐）
+    soundEnabled = true,  -- 一次性音效开关（独立）
+    musicEnabled = true,  -- 背景音乐开关（独立）
     musicGain = 0.5,      -- 背景音乐音量
     sfxGain = 0.8,        -- 一次性音效音量
 }
@@ -97,9 +99,11 @@ function SoundManager.LoadSettings()
     if not ok or type(data) ~= "table" then return end
 
     settings.soundEnabled = ToBool(data.soundEnabled, true)
+    settings.musicEnabled = ToBool(data.musicEnabled, true)
     settings.musicGain = ToGain(data.musicGain, 0.5)
     settings.sfxGain = ToGain(data.sfxGain, 0.8)
-    print("[SoundManager] Loaded settings: soundEnabled=" .. tostring(settings.soundEnabled))
+    print("[SoundManager] Loaded settings: soundEnabled=" .. tostring(settings.soundEnabled)
+        .. " musicEnabled=" .. tostring(settings.musicEnabled))
 end
 
 --- 保存设置
@@ -110,6 +114,7 @@ function SoundManager.SaveSettings()
     local data = {
         version = 1,
         soundEnabled = settings.soundEnabled,
+        musicEnabled = settings.musicEnabled,
         musicGain = settings.musicGain,
         sfxGain = settings.sfxGain,
     }
@@ -122,27 +127,40 @@ function SoundManager.SaveSettings()
     if not file:IsOpen() then return end
     file:WriteString(jsonStr)
     file:Close()
-    print("[SoundManager] Saved settings: soundEnabled=" .. tostring(settings.soundEnabled))
+    print("[SoundManager] Saved settings: soundEnabled=" .. tostring(settings.soundEnabled)
+        .. " musicEnabled=" .. tostring(settings.musicEnabled))
 end
 
 -- ============================================================================
 -- 对外 API
 -- ============================================================================
 
---- 音效是否开启
+--- 一次性音效是否开启（与背景音乐相互独立）
 ---@return boolean
 function SoundManager.IsSoundEnabled()
     return settings.soundEnabled
 end
 
---- 设置音效总开关。关闭时同时停止背景音乐。
+--- 设置一次性音效开关（不影响背景音乐）。
 ---@param enabled boolean
 function SoundManager.SetSoundEnabled(enabled)
     settings.soundEnabled = enabled == true
-    if not settings.soundEnabled then
+    SoundManager.SaveSettings()
+end
+
+--- 背景音乐是否开启（与一次性音效相互独立）
+---@return boolean
+function SoundManager.IsMusicEnabled()
+    return settings.musicEnabled
+end
+
+--- 设置背景音乐开关。关闭时停止背景音乐；重新开启时播放关闭前保留的音乐键。
+---@param enabled boolean
+function SoundManager.SetMusicEnabled(enabled)
+    settings.musicEnabled = enabled == true
+    if not settings.musicEnabled then
         SoundManager.StopMusic(true)  -- 保留音乐键，重新开启时可恢复
     else
-        -- 重新打开时按关闭前保留的音乐键恢复背景音乐
         if currentBgmKey then
             SoundManager.PlayMusic(currentBgmKey)
         end
@@ -195,8 +213,8 @@ function SoundManager.PlayMusic(name, options)
         print("[SoundManager] Unknown music: " .. tostring(name))
         return
     end
-    if not settings.soundEnabled then
-        -- 音效关闭时仅记录音乐意图，重新开启后可据此恢复
+    if not settings.musicEnabled then
+        -- 背景音乐关闭时仅记录音乐意图，重新开启后可据此恢复
         currentBgmKey = name
         return
     end

@@ -4,18 +4,22 @@
 -- 目标：
 --   1. 玩家、怪物和神兽统一使用递减收益防御公式，杜绝高防御后长期只掉 1 点血。
 --   2. 怪物属性由实际等级、攻击间隔、物种定位和品阶共同派生。
---   3. 主线五张地图在 Lv10 / 25 / 35 / 45 / 50 附近形成稳定检查点。
+--   3. 主线五张地图在 Lv10 / 25 / 35 / 45 / 50 附近形成稳定检查点；
+--      Lv.50 是终章检查点，不再作为玩家等级上限。
 --
 -- 本模块不依赖引擎对象，可由离线数值检查直接加载。
 -- ============================================================================
 
 local Balance = {}
 
-Balance.MAX_LEVEL = 50
+-- 兼容旧调用方的“等级上限”字段。math.huge 表示不设玩法上限；
+-- LEVEL_SANITY_LIMIT 仅用于防止损坏存档或极端浮点数把战斗数值推到无穷大。
+Balance.MAX_LEVEL = math.huge
 Balance.DEFENSE_CONSTANT = 100
 Balance.REFERENCE_ATTACK_INTERVAL = 1.7
 
 local MAX_VALUE = 1000000000
+Balance.LEVEL_SANITY_LIMIT = MAX_VALUE
 
 local function IsFiniteNumber(value)
     return type(value) == "number"
@@ -35,11 +39,12 @@ local function Clamp(value, minValue, maxValue)
 end
 
 function Balance.NormalizeLevel(level)
-    return math.floor(Clamp(SafeNumber(level, 1), 1, Balance.MAX_LEVEL))
+    local normalized = math.floor(SafeNumber(level, 1))
+    return math.max(1, math.min(Balance.LEVEL_SANITY_LIMIT, normalized))
 end
 
--- 玩家升级曲线。总经验约 11.5 万；配合主线奖励后，各章节结束等级约为
--- 10 / 25 / 35 / 45 / 50，避免中期任务把角色直接灌到满级。
+-- 玩家升级曲线。总经验约 11.5 万可把主线推进到 Lv.50 左右；
+-- 主线之后仍沿用同一曲线继续升级，不再在 Lv.50 清空经验。
 function Balance.GetExpToNext(level)
     level = Balance.NormalizeLevel(level)
     return math.floor(75 + 38 * level + 1.6 * level * level)

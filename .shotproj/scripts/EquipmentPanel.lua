@@ -497,6 +497,20 @@ local function MakeSlotCell(options, slotKey, width, height)
 
     local capturedItem = item
     local capturedSlot = slotKey
+    local function handleCellClick()
+        local handled = false
+        if type(options.onEquipmentSlotClick) == "function" then
+            -- GameUI 统一维护连续点击状态；返回 true 表示本次点击已被
+            -- 隐藏调试入口消费，不能再打开装备详情。
+            handled = options.onEquipmentSlotClick(capturedSlot) == true
+        end
+
+        if handled then return end
+        if capturedItem then
+            ShowItemDetail(options, capturedItem, capturedSlot)
+        end
+    end
+
     return UI.Panel {
         width = width or 72,
         height = height or 72,
@@ -509,9 +523,7 @@ local function MakeSlotCell(options, slotKey, width, height)
         alignItems = "center",
         paddingHorizontal = 3,
         paddingVertical = 3,
-        onClick = capturedItem and function()
-            ShowItemDetail(options, capturedItem, capturedSlot)
-        end or nil,
+        onClick = handleCellClick,
         children = children,
     }
 end

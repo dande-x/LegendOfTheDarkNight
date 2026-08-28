@@ -196,7 +196,7 @@ Quest.CHAIN = {
         },
     },
 
-    -- ============ 终章「屠龙之战」（沃玛 Lv35~44 → 祖玛 Lv45~50）============
+    -- ============ 终章「屠龙之战」（沃玛 Lv35~44 → 火龙魔窟 Lv45~50）============
     {
         id = "q_013", name = "噬魂之潮", chapter = "终章 · 屠龙之战",
         mode = "clear", mapId = "map_wm", count = 12, legacyCount = 12,
@@ -218,7 +218,7 @@ Quest.CHAIN = {
         desc = "循着屠龙宝刀残片的共鸣，穿过石柱廊与封印祭坛，抵达教主殿。",
         rewardExp = 13440, rewardGold = 4500,
         dialogues = {
-            { speaker = "旁白", text = "屠龙宝刀散落大陆。要打开祖玛封印，必须集齐残片。" },
+            { speaker = "旁白", text = "屠龙宝刀散落大陆。要打开火龙魔窟的封印，必须集齐残片。" },
             { speaker = "你", text = "牛魔王也盯上了残片。绝不能让它先得手。" },
         },
     },
@@ -226,7 +226,7 @@ Quest.CHAIN = {
         id = "q_014b", name = "沃玛教主", chapter = "终章 · 屠龙之战",
         mode = "encounter", mapId = "map_wm", target = "沃玛教主", count = 1, legacyCount = 1,
         encounter = { name = "教主殿", x = 30, z = -28 },
-        desc = "沃玛寺庙深处，沃玛教主祭起黑暗法阵。击败它，夺回通往祖玛的钥匙。",
+        desc = "沃玛寺庙深处，沃玛教主祭起黑暗法阵。击败它，夺回通往火龙魔窟的钥匙。",
         rewardExp = 14000, rewardGold = 7000,
         dialogues = {
             { speaker = "旁白", text = "沃玛寺庙深处，师父当年封印的黑暗，终于现出真身。" },
@@ -238,10 +238,10 @@ Quest.CHAIN = {
         id = "q_015", name = "熔火龙巢", chapter = "终章 · 屠龙之战",
         mode = "encounter", mapId = "map_zm", target = "火龙王", count = 1, legacyCount = 1,
         encounter = { name = "熔火龙巢", x = 0, z = -32 },
-        desc = "祖玛寺庙深处，火龙王在熔火龙巢中巡猎，守护着最后的封印。",
+        desc = "火龙魔窟深处，火龙王在熔火龙巢中巡猎，守护着最后的封印。",
         rewardExp = 10000, rewardGold = 8000,
         dialogues = {
-            { speaker = "旁白", text = "祖玛寺庙深处，火龙王在熔岩深渊中缓缓睁开眼。" },
+            { speaker = "旁白", text = "火龙魔窟深处，火龙王在熔岩深渊中缓缓睁开眼。" },
             { speaker = "旁白", text = "这是最后的守护。屠龙宝刀在此觉醒。" },
         },
     },
@@ -249,11 +249,11 @@ Quest.CHAIN = {
         id = "q_016", name = "深渊领主", chapter = "终章 · 屠龙之战",
         mode = "encounter", mapId = "map_zm", target = "牛魔王", count = 1, legacyCount = 1,
         encounter = { name = "深渊王座", x = 30, z = 26 },
-        desc = "祖玛封印撑过了熔岩冲击，却仍在崩解。牛魔王正从深渊王座踏入人间。",
+        desc = "火龙魔窟的封印撑过了熔岩冲击，却仍在崩解。牛魔王正从深渊王座踏入人间。",
         rewardExp = 15000, rewardGold = 15000,
         dialogues = {
-            { speaker = "旁白", text = "祖玛寺庙最深处，牛魔王挡住了你的去路。" },
-            { speaker = "牛魔王", text = "渺小的凡人，也敢踏足祖玛圣地！" },
+            { speaker = "旁白", text = "火龙魔窟最深处，牛魔王挡住了你的去路。" },
+            { speaker = "牛魔王", text = "渺小的凡人，也敢踏足火龙魔窟！" },
             { speaker = "旁白", text = "用屠龙宝刀，斩断这场延续百年的战争。让玛法大陆，重归和平。" },
         },
         completionDialogues = {
