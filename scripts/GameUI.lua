@@ -5287,12 +5287,12 @@ function GameUI.ShowSystemPanel()
                 borderColor = (enabled and {90, 160, 90, 200} or {160, 80, 80, 180}),
                 fontSize = 13,
                 fontColor = (enabled and {180, 255, 180, 255} or {236, 200, 200, 255}),
-                onClick = function()
+                onClick = function(button)
                     local newEnabled = not SoundManager.IsSoundEnabled()
                     SoundManager.SetSoundEnabled(newEnabled)
                     SoundManager.Play("click")
-                    btn:SetText(newEnabled and "开启" or "关闭")
-                    btn:SetStyle {
+                    button:SetText(newEnabled and "开启" or "关闭")
+                    button:SetStyle {
                         backgroundColor = (newEnabled and {60, 90, 60, 240} or {70, 58, 58, 240}),
                         borderColor = (newEnabled and {90, 160, 90, 200} or {160, 80, 80, 180}),
                         fontColor = (newEnabled and {180, 255, 180, 255} or {236, 200, 200, 255}),
@@ -5326,12 +5326,12 @@ function GameUI.ShowSystemPanel()
                 borderColor = (enabled and {90, 160, 90, 200} or {160, 80, 80, 180}),
                 fontSize = 13,
                 fontColor = (enabled and {180, 255, 180, 255} or {236, 200, 200, 255}),
-                onClick = function()
+                onClick = function(button)
                     local newEnabled = not SoundManager.IsMusicEnabled()
                     SoundManager.SetMusicEnabled(newEnabled)
                     SoundManager.Play("click")
-                    btn:SetText(newEnabled and "开启" or "关闭")
-                    btn:SetStyle {
+                    button:SetText(newEnabled and "开启" or "关闭")
+                    button:SetStyle {
                         backgroundColor = (newEnabled and {60, 90, 60, 240} or {70, 58, 58, 240}),
                         borderColor = (newEnabled and {90, 160, 90, 200} or {160, 80, 80, 180}),
                         fontColor = (newEnabled and {180, 255, 180, 255} or {236, 200, 200, 255}),
