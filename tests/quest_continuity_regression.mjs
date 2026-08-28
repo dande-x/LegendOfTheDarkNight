@@ -47,9 +47,9 @@ check(!/type = "(?:kill|boss)"/.test(questSource), "旧 kill/boss 任务类型�
 for (const id of ["q_004", "q_011"]) {
     const block = questBlock(id);
     check(/mode = "survive"/.test(block), `${id} 不是坚守任务`);
-    check(/count = 50\b/.test(block), `${id} 坚守时间没有统一为 50 秒`);
+    check(/count = 30\b/.test(block), `${id} 坚守时间没有统一为 30 秒`);
 }
-check(/SURVIVE_DURATION\s*=\s*50/.test(questSource), "坚守时长常量不是 50 秒");
+check(/SURVIVE_DURATION\s*=\s*30/.test(questSource), "坚守时长常量不是 30 秒");
 
 for (const api of [
     "Quest.Update", "Quest.OnKill", "Quest.GetObjectiveText",

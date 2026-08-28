@@ -12,7 +12,9 @@
 
 local NPC = {}
 
-local MapZone = require("scripts.MapZone")
+-- Resolve the canonical map definitions alongside this canonical NPC module;
+-- the `scripts.` prefix can select the legacy assets/scripts mirror first.
+local MapZone = require("MapZone")
 local G = require("classes.GeomUtils")
 
 -- 所有 NPC 的出生点偏移集中在这里，主场景和小地图都通过本模块读取，
@@ -147,39 +149,49 @@ local function AddRoleAccessory(root, kind, materials)
         -- 金色权杖与头顶印记，远处也能和商人区分。
         local staff = root:CreateChild("StewardStaff")
         parts.staff = staff
+        -- 把摆动支点放在权杖底部；子部件改用相对坐标，避免绕
+        -- visualRoot 原点旋转时整根权杖发生明显平移。
+        local staffPivot = Vector3(0.57, 0.43, 0.04)
+        staff.position = staffPivot
         AddModelPart(staff, "Shaft", "Models/Cylinder.mdl", materials.leather,
-            Vector3(0.57, 0.77, 0.04), Vector3(0.055, 1.24, 0.055),
+            Vector3(0, 0.34, 0), Vector3(0.055, 1.24, 0.055),
             Quaternion(0, 0, -6))
         AddModelPart(staff, "Seal", "Models/Sphere.mdl", materials.accent,
-            Vector3(0.64, 1.39, 0.04), Vector3(0.18, 0.18, 0.18))
+            Vector3(0.07, 0.96, 0), Vector3(0.18, 0.18, 0.18))
         AddModelPart(staff, "Tip", "Models/Cone.mdl", materials.gold,
-            Vector3(0.64, 1.57, 0.04), Vector3(0.09, 0.14, 0.09))
+            Vector3(0.07, 1.14, 0), Vector3(0.09, 0.14, 0.09))
     elseif kind == "merchant" then
         -- 斜挎带和钱袋，明确表达买卖服务。
         local satchel = root:CreateChild("MerchantSatchel")
         parts.satchel = satchel
-        AddModelPart(satchel, "Strap", "Models/Box.mdl", materials.leather,
-            Vector3(-0.06, 1.16, 0.285), Vector3(0.055, 0.76, 0.045),
+        -- 钱袋以胸腹附近为摆动支点，保持配件整体位置稳定。
+        local satchelPivot = Vector3(-0.20, 0.90, 0.24)
+        satchel.position = satchelPivot
+        AddModelPart(satchel, "MerchantSatchelStrap", "Models/Box.mdl", materials.leather,
+            Vector3(0.14, 0.26, 0.045), Vector3(0.055, 0.76, 0.045),
             Quaternion(0, 0, -28))
-        AddModelPart(satchel, "Pouch", "Models/Sphere.mdl", materials.accent,
-            Vector3(-0.33, 0.72, 0.24), Vector3(0.28, 0.31, 0.17))
-        AddModelPart(satchel, "Clasp", "Models/Sphere.mdl", materials.gold,
-            Vector3(-0.33, 0.78, 0.335), Vector3(0.075, 0.075, 0.045))
-        AddModelPart(satchel, "PouchTrim", "Models/Cylinder.mdl", materials.gold,
-            Vector3(-0.33, 0.64, 0.24), Vector3(0.19, 0.028, 0.12))
+        AddModelPart(satchel, "MerchantCoinPouch", "Models/Sphere.mdl", materials.accent,
+            Vector3(-0.13, -0.18, 0), Vector3(0.28, 0.31, 0.17))
+        AddModelPart(satchel, "MerchantPouchClasp", "Models/Sphere.mdl", materials.gold,
+            Vector3(-0.13, -0.12, 0.095), Vector3(0.075, 0.075, 0.045))
+        AddModelPart(satchel, "MerchantPouchTrim", "Models/Cylinder.mdl", materials.gold,
+            Vector3(-0.13, -0.26, 0), Vector3(0.19, 0.028, 0.12))
     elseif kind == "blacksmith" then
         -- 侧握铁锤；锤头用深金属，中心保留炉火橙标识。
         local hammerRotation = Quaternion(0, 0, -18)
         local hammer = root:CreateChild("BlacksmithHammer")
         parts.hammer = hammer
-        AddModelPart(hammer, "Handle", "Models/Box.mdl", materials.leather,
-            Vector3(0.49, 0.80, 0.07), Vector3(0.065, 0.72, 0.065), hammerRotation)
-        AddModelPart(hammer, "Head", "Models/Box.mdl", materials.metal,
-            Vector3(0.60, 1.13, 0.07), Vector3(0.34, 0.16, 0.20), hammerRotation)
-        AddModelPart(hammer, "Ember", "Models/Sphere.mdl", materials.accent,
-            Vector3(0.60, 1.13, 0.18), Vector3(0.11, 0.08, 0.045), hammerRotation)
-        AddModelPart(hammer, "Pommel", "Models/Sphere.mdl", materials.gold,
-            Vector3(0.48, 0.43, 0.07), Vector3(0.10, 0.10, 0.10), hammerRotation)
+        -- 以锤柄底部为支点做轻微待机摆动，避免整个锤子绕 NPC 原点漂移。
+        local hammerPivot = Vector3(0.48, 0.43, 0.07)
+        hammer.position = hammerPivot
+        AddModelPart(hammer, "BlacksmithHammerHandle", "Models/Box.mdl", materials.leather,
+            Vector3(0.01, 0.37, 0), Vector3(0.065, 0.72, 0.065), hammerRotation)
+        AddModelPart(hammer, "BlacksmithHammerHead", "Models/Box.mdl", materials.metal,
+            Vector3(0.12, 0.70, 0), Vector3(0.34, 0.16, 0.20), hammerRotation)
+        AddModelPart(hammer, "BlacksmithEmber", "Models/Sphere.mdl", materials.accent,
+            Vector3(0.12, 0.70, 0.11), Vector3(0.11, 0.08, 0.045), hammerRotation)
+        AddModelPart(hammer, "BlacksmithHammerPommel", "Models/Sphere.mdl", materials.gold,
+            Vector3(0, 0, 0), Vector3(0.10, 0.10, 0.10), hammerRotation)
     end
     return parts
 end
@@ -508,9 +520,8 @@ function NPC.Update(dt)
                 if satchel then
                     satchel.rotation = Quaternion(math.sin(t * 1.45) * 3.5, Vector3.FORWARD)
                 end
-                if effects.coinOrbit then
-                    effects.coinOrbit.rotation = Quaternion(t * 24, Vector3.UP)
-                end
+                -- 金币位置本身已经按角度推进；轨道父节点保持静止，避免
+                --“位置角度 + 父节点旋转”叠加成过快且偏心的双重轨道。
                 for index, coin in ipairs(effects.coins or {}) do
                     local angle = t * 1.75 + (index - 1) * (math.pi * 2 / 3)
                     local radius = 0.40 + math.sin(t * 2.1 + index) * 0.018

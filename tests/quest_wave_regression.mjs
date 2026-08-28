@@ -60,7 +60,7 @@ const notifyBlock = functionBlock(
     "local function NotifySurviveWaves(",
     ["\nlocal function AdvanceCurrent("],
 );
-const callbackAt = notifyBlock.indexOf("Quest.onSurviveWave(q, index, q.area)");
+const callbackAt = notifyBlock.indexOf("pcall(Quest.onSurviveWave, q, index, q.area)");
 const consumeAt = notifyBlock.indexOf("state.surviveWaveIndex = index");
 check(callbackAt >= 0 && consumeAt > callbackAt,
     "坚守波次仍在实际处理前就被标记为已触发");
@@ -74,8 +74,11 @@ const advanceBlock = functionBlock(
 );
 check(advanceBlock.includes("surviveWavesReady = NotifySurviveWaves(q)"),
     "坚守推进没有接收波次实际处理结果");
-check(advanceBlock.includes('if q.mode ~= "survive" or surviveWavesReady then'),
-    "坚守可能在应到波次尚未生成时直接完成");
+check(advanceBlock.includes("Quest._CompleteCurrent()")
+    && !advanceBlock.includes('if q.mode ~= "survive" or surviveWavesReady then'),
+    "坚守波次失败不应阻塞已满足条件的任务完成");
+check(notifyBlock.includes("pcall(Quest.onSurviveWave"),
+    "坚守波次回调异常会阻断任务更新");
 
 const waveBlock = functionBlock(
     mainSource,
@@ -91,5 +94,41 @@ check(waveBlock.includes("if spawned ~= requestedCount then return false end"),
 check(waveBlock.includes("return true"),
     "完整敌群生成后没有确认波次成功");
 
+// 构建时 assets/scripts 会优先解析为 scripts.* 模块；两份发布镜像必须
+// 保持和 canonical scripts/ 相同的坚守契约，否则运行时会重新出现 1/4
+// 敌群和任务链卡住的问题。
+for (const dir of ["assets/scripts", ".shotproj/scripts"]) {
+    const mirrorCombat = read(`${dir}/Combat.lua`);
+    const mirrorQuest = read(`${dir}/Quest.lua`);
+    const mirrorMain = read(`${dir}/main.lua`);
+
+    check(mirrorQuest.includes("local SURVIVE_DURATION = 30")
+        && mirrorQuest.includes('id = "q_004"')
+        && mirrorQuest.includes('id = "q_011"')
+        && (mirrorQuest.match(/mode = "survive", mapId = "map_[^"]+", count = 30\b/g) ?? []).length === 2,
+    `${dir}/Quest.lua 坚守时长没有统一为 30 秒`);
+
+    check(mirrorCombat.includes("local function MakeQuestGroupRoom(")
+        && mirrorCombat.includes("if #candidates < slotsNeeded then return false, 0 end")
+        && mirrorCombat.includes("if spawned ~= count then")
+        && mirrorCombat.includes("RemoveEnemyImmediately(enemy)"),
+    `${dir}/Combat.lua 没有任务敌群完整容量保护`);
+
+    const mirrorWaveBlock = functionBlock(
+        mirrorMain,
+        "Quest.onSurviveWave = function(",
+        ["\n    Quest.onQuestStart = function("],
+    );
+    const mirrorActualSpawnAt = mirrorWaveBlock.indexOf("Combat.SpawnEnemyGroup(");
+    const mirrorToastAt = mirrorWaveBlock.indexOf("GameUI.ShowToast(waveLabel");
+    check(mirrorActualSpawnAt >= 0 && mirrorToastAt > mirrorActualSpawnAt
+        && mirrorWaveBlock.includes("if spawned ~= requestedCount then return false end")
+        && mirrorWaveBlock.includes("return true"),
+    `${dir}/main.lua 坚守波次没有按实际刷怪结果确认成功`);
+    check(mirrorMain.includes("Quest.SURVIVE_DURATION or 30")
+        && mirrorMain.includes("最后 30 秒由"),
+    `${dir}/main.lua 仍保留 50 秒坚守提示`);
+}
+
 console.log("quest_wave_regression: PASS");
-console.log("verified capacity reservation, protected entities, actual-first UI, and retry semantics");
+console.log("verified canonical and release mirrors for capacity reservation, protected entities, actual-first UI, and retry semantics");

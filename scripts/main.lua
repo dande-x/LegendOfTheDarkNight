@@ -18,7 +18,9 @@ local PlayerAnim = require("scripts.PlayerAnim")
 local SaveSystem = require("SaveSystem")
 local Quest = require("scripts.Quest")
 local MapZone = require("scripts.MapZone")
-local NPC = require("scripts.NPC")
+-- NPC has a newer canonical implementation under scripts/NPC.lua.  The
+-- `scripts.` module name can resolve the legacy assets/scripts mirror first.
+local NPC = require("NPC")
 local DivineBeast = require("scripts.DivineBeast")
 local SoundManager = require("scripts.SoundManager")
 local PlatformLeaderboard = require("scripts.PlatformLeaderboard")
@@ -2843,7 +2845,7 @@ function SetupGameCallbacks()
         local areaName = (area and area.name) or "目标区域"
         if firstActivation then
             Combat.SpawnQuestSignal(scene_, position, "survive")
-            local surviveDuration = Quest.SURVIVE_DURATION or 50
+            local surviveDuration = Quest.SURVIVE_DURATION or 30
             GameUI.ShowToast("区域生效：" .. areaName .. " · 坚守 "
                 .. tostring(surviveDuration) .. " 秒", 2.6)
             if playerNode_ then
@@ -2860,7 +2862,7 @@ function SetupGameCallbacks()
         end
     end
 
-    -- 坚守每累计 10 秒触发一波敌群（10/20/30/40 秒），最后 50 秒由
+    -- 坚守每累计 10 秒触发一波敌群（10/20 秒），最后 30 秒由
     -- 任务完成处理，不再额外生成“完成后的”波次。
     Quest.onSurviveWave = function(quest, waveIndex, area)
         if not quest or quest.mode ~= "survive" or not scene_ or not player_

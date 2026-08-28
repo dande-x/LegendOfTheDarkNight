@@ -11,7 +11,9 @@ local EquipmentPanel = require("scripts.EquipmentPanel")
 local BlacksmithPanel = require("scripts.BlacksmithPanel")
 local Quest = require("scripts.Quest")
 local MapZone = require("scripts.MapZone")
-local NPC = require("scripts.NPC")
+-- Keep UI and gameplay on the same canonical NPC module instance; using
+-- `scripts.NPC` here would select the legacy assets/scripts mirror instead.
+local NPC = require("NPC")
 local PlayerAnim = require("scripts.PlayerAnim")
 local DivineBeast = require("scripts.DivineBeast")
 local ServiceScrollView = require("scripts.ServiceScrollView")

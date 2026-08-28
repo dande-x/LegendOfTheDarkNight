@@ -20,9 +20,9 @@
 
 local Quest = {}
 
--- 坚守类任务统一使用 50 秒；波次按“已坚守时间”触发，而不是按现实时间，
+-- 坚守类任务统一使用 30 秒；波次按“已坚守时间”触发，而不是按现实时间，
 -- 这样离开区域、死亡、暂停和读档都不会偷偷消耗波次间隔。
-local SURVIVE_DURATION = 50
+local SURVIVE_DURATION = 30
 local SURVIVE_WAVE_INTERVAL = 10
 Quest.SURVIVE_DURATION = SURVIVE_DURATION
 Quest.SURVIVE_WAVE_INTERVAL = SURVIVE_WAVE_INTERVAL
@@ -71,7 +71,7 @@ Quest.CHAIN = {
     },
     {
         id = "q_004", name = "半兽人先锋", chapter = "第一幕 · 边城烽火",
-        mode = "survive", mapId = "map_bq", count = 50, legacyCount = 10,
+        mode = "survive", mapId = "map_bq", count = 30, legacyCount = 10,
         area = { name = "断桥", x = 15, z = 12, radius = 9 },
         desc = "敌人正有组织地穿过断桥。守住桥头，阻止它们继续向城门推进。",
         rewardExp = 690, rewardGold = 180,
@@ -157,11 +157,11 @@ Quest.CHAIN = {
     },
     {
         id = "q_011", name = "熔火之门", chapter = "第三幕 · 怒海寻踪",
-        mode = "survive", mapId = "map_sc", count = 50, legacyCount = 10,
+        mode = "survive", mapId = "map_sc", count = 30, legacyCount = 10,
         area = { name = "灯塔", x = 0, z = 38, radius = 9 },
         desc = "水城的航路被熔火封锁。守住灯塔，让城中的船只完成撤离。",
-        -- 坚守延长到 50 秒后会多经历约 10 只同期怪；下调任务本体经验，
-        -- 保持第三幕结束仍落在既定 Lv35 阶段，而不是提前溢出到下一档。
+        -- 坚守调整为 30 秒；经验保持第三幕结束仍落在既定 Lv35 阶段，
+        -- 避免任务奖励把角色提前溢出到下一档。
         rewardExp = 5300, rewardGold = 2400,
         dialogues = {
             { speaker = "旁白", text = "海底的熔火并非自然异变，焦黑岩壁上残留着熟悉的黑暗符文。" },
@@ -647,7 +647,7 @@ end
 local function NotifySurviveWaves(q)
     if not q or q.mode ~= "survive" then return true end
 
-    -- 到达 50 秒这一刻任务会直接完成，不再额外生成“完成后的”波次。
+    -- 到达 30 秒这一刻任务会直接完成，不再额外生成“完成后的”波次。
     local cappedProgress = math.min(state.progress, math.max(0, q.count - 0.0001))
     local waveIndex = math.floor(cappedProgress / SURVIVE_WAVE_INTERVAL)
     local previousWave = state.surviveWaveIndex or 0
@@ -655,7 +655,13 @@ local function NotifySurviveWaves(q)
 
     for index = previousWave + 1, waveIndex do
         if Quest.onSurviveWave then
-            local handled = Quest.onSurviveWave(q, index, q.area)
+            -- 波次属于附加演出；宿主刷怪/特效实现异常时不能让任务
+            -- 更新直接抛错，从而阻断坚守计时和后续任务链。
+            local callbackOk, handled = pcall(Quest.onSurviveWave, q, index, q.area)
+            if not callbackOk then
+                print("[Quest] Survive wave callback failed: " .. tostring(handled))
+                handled = false
+            end
             if handled == false then return false end
         end
         -- 只有外部系统确认波次已处理后才消费索引，失败会在下一帧重试。
@@ -680,13 +686,14 @@ local function AdvanceCurrent(amount, objective)
     end
 
     if state.progress >= q.count then
-        -- 坚守结束前先确保所有应到波次都已真实生成，不能用计时完成掩盖
-        -- 一次容量失败。成功后会在同一帧正常完成任务。
-        if q.mode ~= "survive" or surviveWavesReady then
-            Quest._CompleteCurrent()
-        else
-            NotifyProgress(q, false)
+        -- 波次是任务完成的附加演出，不是任务完成条件。刷怪容量不足、
+        -- 场景切换或演出回调异常时，不能把已经满足的坚守任务卡在“已完成”。
+        -- 未成功消费的波次会在本次推进中保留，但任务链必须继续结算。
+        if q.mode == "survive" and not surviveWavesReady then
+            print("[Quest] Survive wave presentation unavailable; completing "
+                .. tostring(q.id))
         end
+        Quest._CompleteCurrent()
     else
         NotifyProgress(q, false)
     end

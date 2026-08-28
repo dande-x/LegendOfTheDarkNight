@@ -2729,7 +2729,7 @@ function SetupGameCallbacks()
         local areaName = (area and area.name) or "目标区域"
         if firstActivation then
             Combat.SpawnQuestSignal(scene_, position, "survive")
-            local surviveDuration = Quest.SURVIVE_DURATION or 50
+            local surviveDuration = Quest.SURVIVE_DURATION or 30
             GameUI.ShowToast("区域生效：" .. areaName .. " · 坚守 "
                 .. tostring(surviveDuration) .. " 秒", 2.6)
             if playerNode_ then
@@ -2746,17 +2746,26 @@ function SetupGameCallbacks()
         end
     end
 
-    -- 坚守每累计 10 秒触发一波敌群（10/20/30/40 秒），最后 50 秒由
+    -- 坚守每累计 10 秒触发一波敌群（10/20 秒），最后 30 秒由
     -- 任务完成处理，不再额外生成“完成后的”波次。
     Quest.onSurviveWave = function(quest, waveIndex, area)
         if not quest or quest.mode ~= "survive" or not scene_ or not player_
             or Combat.currentMapId ~= quest.mapId then
-            return
+            return false
         end
 
         local position = GetQuestWorldPosition(area, 0)
-        if not position then return end
+        if not position then return false end
 
+        local requestedCount = 4
+        local spawned = Combat.SpawnEnemyGroup(scene_, position, player_.level, quest.mapId, {
+            count = requestedCount,
+            radius = 6.0,
+            groupId = quest.id .. ":wave:" .. tostring(waveIndex or 0),
+        })
+        if spawned ~= requestedCount then return false end
+
+        -- 只有完整敌群已经创建后才播报，避免“敌群来袭”与实际场景脱节。
         Combat.SpawnQuestSignal(scene_, position, "survive")
         local waveLabel = "敌群来袭 · 第" .. tostring(waveIndex or 1) .. "波"
         GameUI.ShowToast(waveLabel, 1.8)
@@ -2764,11 +2773,7 @@ function SetupGameCallbacks()
             GameUI.AddFloatingText(waveLabel,
                 position + Vector3(0, 1.25, 0), {255, 120, 70, 255})
         end
-        Combat.SpawnEnemyGroup(scene_, position, player_.level, quest.mapId, {
-            count = 4,
-            radius = 6.0,
-            groupId = quest.id .. ":wave:" .. tostring(waveIndex or 0),
-        })
+        return true
     end
 
     Quest.onQuestStart = function(quest)
