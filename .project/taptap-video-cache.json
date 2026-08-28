@@ -1,0 +1,14 @@
+{
+  "version": "1.0",
+  "entries": [
+    {
+      "source": "https://tapcode-sce.spark.xd.com/videos/842ee758-45b6-42cd-9207-9d4ad37a5f2f/1787919868961-uploaded_41632467.mp4",
+      "source_type": "remote",
+      "video_id": 5862079,
+      "sha256": "b72ad02417dc4c1af40c165961d8ae2e925d925a916bf5a2981e58d719569c2c",
+      "etag": "\"E3773FBDEB965C19A6D3D7B0514BD70F\"",
+      "last_modified": "Fri, 28 Aug 2026 12:24:30 GMT",
+      "content_length": 16228724
+    }
+  ]
+}

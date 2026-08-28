@@ -5,7 +5,7 @@
     "id": "1805106705"
   },
   "entry": "main.lua",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "taptap_publish": {
     "title": "暗夜传奇",
     "description": "真正的热血传奇是埋藏在少年记忆的武士烈火、道士火符、法师雷电，而不是自动打怪、氪金抽卡和全屏爆装备。",
@@ -17,7 +17,8 @@
     "developer_id": 322902,
     "app_id": 920372,
     "miniapp_id": "tapmcojpzvdmrnnqcy",
-    "release_phase": "public_test"
+    "release_phase": "public_test",
+    "gameplay_demo_video_source": "https://tapcode-sce.spark.xd.com/videos/842ee758-45b6-42cd-9207-9d4ad37a5f2f/1787919868961-uploaded_41632467.mp4"
   },
   "assets": {
     "icon": "./game_material/ICON_2026-08-28T02-53-21_01.png",
@@ -40,7 +41,7 @@
     "cover_vertical_url": "https://tapcode-sce.spark.xd.com/assets/game_material/暗夜传奇/COVER_VERTICAL_2026-08-28T02-55-27_01.png"
   },
   "metadata": {
-    "updated_at": "2026-08-28T07:47:19.180Z",
+    "updated_at": "2026-08-28T12:24:30.366Z",
     "promo_dependent_hash": "e20672b545daa771abc3a41cb7cb5a13"
   }
 }
