@@ -5,7 +5,7 @@
     "id": "1805106705"
   },
   "entry": "main.lua",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "taptap_publish": {
     "title": "暗夜传奇",
     "description": "真正的热血传奇是埋藏在少年记忆的武士烈火、道士火符、法师雷电，而不是自动打怪、氪金抽卡和全屏爆装备。",
@@ -25,14 +25,14 @@
     "screenshots": [
       "./game_material/screenshot_1.png",
       "./game_material/screenshot_2.png",
-      "./game_material/SCREENSHOT_2026-08-28T08-13-36_03.png"
+      "./game_material/screenshot_3.png"
     ],
     "promotional_image": "./game_material/PROMO_2026-08-28T02-53-21_01.jpg",
     "icon_url": "https://tapcode-sce.spark.xd.com/assets/game_material/暗夜传奇/ICON_2026-08-28T02-53-21_01.png",
     "screenshot_urls": [
       "https://tapcode-sce.spark.xd.com/assets/game_material/p_538d/screenshot_1.png",
       "https://tapcode-sce.spark.xd.com/assets/game_material/p_538d/screenshot_2.png",
-      "https://tapcode-sce.spark.xd.com/assets/game_material/暗夜传奇/SCREENSHOT_2026-08-28T08-13-36_03.png"
+      "https://tapcode-sce.spark.xd.com/assets/game_material/p_538d/screenshot_3.png"
     ],
     "promotional_image_url": "https://tapcode-sce.spark.xd.com/assets/game_material/暗夜传奇/PROMO_2026-08-28T02-53-21_01.jpg",
     "cover_horizontal": "./game_material/COVER_HORIZONTAL_2026-08-28T02-55-06_01.png",
@@ -41,7 +41,7 @@
     "cover_vertical_url": "https://tapcode-sce.spark.xd.com/assets/game_material/暗夜传奇/COVER_VERTICAL_2026-08-28T02-55-27_01.png"
   },
   "metadata": {
-    "updated_at": "2026-08-28T12:30:14.231Z",
+    "updated_at": "2026-08-28T12:32:50.237Z",
     "promo_dependent_hash": "e20672b545daa771abc3a41cb7cb5a13"
   }
 }
