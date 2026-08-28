@@ -9,7 +9,7 @@
   "taptap_publish": {
     "title": "暗夜传奇",
     "description": "<game description>",
-    "category": "<game category: rpg, casual, action, strategy, simulation, trivia, arcade, adventure, card, sports, racing, puzzle, educational, music, word, board>",
+    "category": "rpg",
     "screen_orientation": "landscape",
     "collection_type": "sce",
     "trial_note": "<developer's note>",
@@ -17,8 +17,26 @@
     "developer_id": 322902
   },
   "assets": {
-    "icon": "",
-    "screenshots": [],
-    "promotional_image": ""
+    "icon": "./game_material/ICON_2026-08-28T02-30-56_01.png",
+    "screenshots": [
+      "./game_material/SCREENSHOT_2026-08-28T02-30-56_01.png",
+      "./game_material/SCREENSHOT_2026-08-28T02-30-56_02.png",
+      "./game_material/SCREENSHOT_2026-08-28T02-30-56_03.png"
+    ],
+    "promotional_image": "./game_material/PROMO_2026-08-28T02-30-56_01.jpg",
+    "icon_url": "https://tapcode-sce.spark.xd.com/assets/game_material/暗夜传奇/ICON_2026-08-28T02-30-56_01.png",
+    "screenshot_urls": [
+      "https://tapcode-sce.spark.xd.com/assets/game_material/暗夜传奇/SCREENSHOT_2026-08-28T02-30-56_01.png",
+      "https://tapcode-sce.spark.xd.com/assets/game_material/暗夜传奇/SCREENSHOT_2026-08-28T02-30-56_02.png",
+      "https://tapcode-sce.spark.xd.com/assets/game_material/暗夜传奇/SCREENSHOT_2026-08-28T02-30-56_03.png"
+    ],
+    "promotional_image_url": "https://tapcode-sce.spark.xd.com/assets/game_material/暗夜传奇/PROMO_2026-08-28T02-30-56_01.jpg",
+    "cover_horizontal": "./game_material/COVER_HORIZONTAL_2026-08-28T02-32-16_01.png",
+    "cover_horizontal_url": "https://tapcode-sce.spark.xd.com/assets/game_material/暗夜传奇/COVER_HORIZONTAL_2026-08-28T02-32-16_01.png",
+    "cover_vertical": "./game_material/COVER_VERTICAL_2026-08-28T02-32-55_01.png",
+    "cover_vertical_url": "https://tapcode-sce.spark.xd.com/assets/game_material/暗夜传奇/COVER_VERTICAL_2026-08-28T02-32-55_01.png"
+  },
+  "metadata": {
+    "updated_at": "2026-08-28T02:33:04.737Z"
   }
 }
