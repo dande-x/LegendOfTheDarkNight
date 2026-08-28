@@ -34,6 +34,21 @@
       "persistent_world": {
         "enabled": false
       }
+    },
+    "ad": {
+      "status": 1,
+      "ad_spaces": [
+        {
+          "id": "1054323",
+          "type": 1
+        },
+        {
+          "id": "1054324",
+          "type": 2
+        }
+      ],
+      "top_on_placements": [],
+      "synced_at": "2026-08-28T11:26:50.111Z"
     }
   }
 }
