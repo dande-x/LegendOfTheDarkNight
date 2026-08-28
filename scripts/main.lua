@@ -10,7 +10,12 @@ local GameUI = require("scripts.GameUI")
 local Combat = require("scripts.Combat")
 local Inventory = require("scripts.Inventory")
 local PlayerAnim = require("scripts.PlayerAnim")
-local SaveSystem = require("scripts.SaveSystem")
+-- `scripts/` is configured as an asset root.  Requiring the module with a
+-- `scripts.` prefix resolves to the legacy `assets/scripts/` mirror instead of
+-- this canonical implementation, which can omit newer APIs such as
+-- SaveSystem.LoadFromCloud.  Keep this import rooted at the canonical scripts
+-- asset directory.
+local SaveSystem = require("SaveSystem")
 local Quest = require("scripts.Quest")
 local MapZone = require("scripts.MapZone")
 local NPC = require("scripts.NPC")
@@ -185,6 +190,10 @@ end
 function Start()
     graphics.windowTitle = "暗夜传奇"
 
+    startupLogoReady = false
+    cloudSaveReady = false
+    cloudSyncResult = nil
+
     GameUI.InitUI()
     GameUI.InitNanoVG()
     CreateScene()
@@ -208,14 +217,42 @@ function Start()
             end
         end
     end
-    SaveSystem.LoadFromCloud(function(result)
+    local function HandleCloudSaveStartup(result)
+        -- A stale runtime/module cache must not prevent the local save-slot
+        -- screen from opening.  The canonical module normally supplies a
+        -- result; this guard also covers older runtimes without cloud saves.
+        if cloudSaveReady then return end
+        result = type(result) == "table" and result or {
+            ok = false,
+            code = "unavailable",
+            source = "local_only",
+            reason = "平台云存档接口不可用",
+        }
         cloudSyncResult = result
         cloudSaveReady = true
         print("[main] Cloud save startup sync: source=" .. tostring(result.source)
             .. " ok=" .. tostring(result.ok)
             .. (result.reason and (" reason=" .. tostring(result.reason)) or ""))
         EnterSaveSlotsWhenReady()
-    end)
+    end
+
+    if type(SaveSystem.LoadFromCloud) == "function" then
+        local cloudCallOk, cloudCallError = pcall(function()
+            SaveSystem.LoadFromCloud(HandleCloudSaveStartup)
+        end)
+        if not cloudCallOk then
+            print("[main] Cloud save startup sync failed: " .. tostring(cloudCallError))
+            HandleCloudSaveStartup({
+                ok = false,
+                code = "exception",
+                source = "local_only",
+                reason = tostring(cloudCallError),
+            })
+        end
+    else
+        print("[main] Cloud save API unavailable; continuing with local saves")
+        HandleCloudSaveStartup()
+    end
     -- 初始化音效管理：绑定场景、加载设置、播放主界面背景音乐
     SoundManager.SetScene(scene_)
     SoundManager.LoadSettings()
@@ -229,15 +266,37 @@ function Start()
 
     SubscribeToEvent("Update", "HandleUpdate")
     SubscribeToEvent("PostUpdate", "HandlePostUpdate")
+    SubscribeToEvent("AppWillEnterBackground", "HandleAppWillEnterBackground")
+    SubscribeToEvent("AppTerminating", "HandleAppTerminating")
     print("=== 暗夜传奇 Started ===")
 end
 
 function Stop()
+    -- 退出前先把当前运行时状态落到本地，并发起一次 best-effort 云同步。
+    -- 云端请求未必能在进程结束前完成，但本地存档会保留，下一次启动时
+    -- 仍会继续上传，因此不会因退出时网络抖动丢失最近进度。
+    if type(SaveCurrentGame) == "function" then
+        SaveCurrentGame(true)
+    end
     -- 当前角色会话结束即清空神兽召唤与成长状态。
     DivineBeast.Clear()
     -- 停止背景音乐，避免退出时残留循环节点
     SoundManager.StopMusic()
     UI.Shutdown()
+end
+
+--- 应用进入后台前保存一次当前角色；移动端可能没有机会等到 Stop。
+---@param eventType string|nil
+---@param eventData table|nil
+function HandleAppWillEnterBackground(eventType, eventData)
+    SaveCurrentGame(true)
+end
+
+--- 应用收到终止通知时保存一次当前角色。
+---@param eventType string|nil
+---@param eventData table|nil
+function HandleAppTerminating(eventType, eventData)
+    SaveCurrentGame(true)
 end
 
 -- ============================================================================
@@ -336,7 +395,7 @@ function CreateFloor(groundColor)
     floorModel:SetMaterial(darkSoilMat)
     floorModel.castShadows = false
 
-    -- 安全区视觉：低矮的方形虚线边界 + 竖直锥形光芒。
+    -- 安全区视觉：只保留沿边界分布的竖直锥形光芒。
     -- 光芒底部贴地、锥尖朝上；中心必须与 Combat 的 spawnPos 判定一致，
     -- 避免以后地图出生点移动后视觉错位。
     local currentMapDef = MapZone.GetDef(MapZone.GetCurrentMapId())
@@ -359,12 +418,6 @@ function CreateFloor(groundColor)
         return safeCenter.x + safeRadius + (padding or 0) + 2.0, safeCenter.z
     end
 
-    -- 方形边界的低矮虚线，给玩家一个明确的地面轮廓。
-    local borderMat = Material:new()
-    borderMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
-    borderMat:SetShaderParameter("MatDiffColor", Variant(Color(0.3, 0.65, 1.0, 1.0)))
-    borderMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.8, 1.4, 2.4, 1.0)))
-
     -- 透明外锥 + 高亮窄芯组成“光芒”轮廓。Cone 的默认轴向为 Y，
     -- 因而只需把节点中心抬到高度的一半即可保证底部落地、顶部尖锐。
     local rayOuterMat = Material:new()
@@ -382,8 +435,8 @@ function CreateFloor(groundColor)
     rayCoreMat:SetShaderParameter("Metallic", Variant(0.0))
     rayCoreMat:SetShaderParameter("Roughness", Variant(0.12))
 
-    local gapInterval = safeRadius * 2 / 8   -- 每条边分 8 段（虚线间隔）
-    local segLen = gapInterval * 0.5          -- 每段实线长度（占间隔一半）
+    local gapInterval = safeRadius * 2 / 8   -- 每条边分 8 个锥形光芒位置
+    local segLen = gapInterval * 0.5          -- 光芒沿边界居中分布
     local rayHeight = 1.15
     local rayDiameter = 0.22
     local rayCoreHeight = 1.02
@@ -394,7 +447,6 @@ function CreateFloor(groundColor)
             local t0 = -half + seg * gapInterval
             local t1 = t0 + segLen
             local cx = (t0 + t1) / 2
-            local len = (t1 - t0)
             local pos = Vector3(safeCenter.x, 0.045, safeCenter.z)
             if side == 0 then
                 pos = Vector3(safeCenter.x + cx, 0.045, safeCenter.z - half)
@@ -406,20 +458,7 @@ function CreateFloor(groundColor)
                 pos = Vector3(safeCenter.x - half, 0.045, safeCenter.z + cx)
             end
 
-            -- 边线虚线：实际使用 segLen，避免此前算出长度却仍画成竖直小柱。
-            local dash = scene_:CreateChild("SafeZoneDash_" .. side .. "_" .. seg)
-            dash.position = pos
-            if side == 0 or side == 2 then
-                dash.scale = Vector3(len, 0.035, 0.10)
-            else
-                dash.scale = Vector3(0.10, 0.035, len)
-            end
-            local dashModel = dash:CreateComponent("StaticModel")
-            dashModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
-            dashModel:SetMaterial(borderMat)
-            dashModel.castShadows = false
-
-            -- 每个虚线段都放置一组更小、更矮、更通透的竖直锥形光芒，提升边界密度；
+            -- 每个分段只放置一组更小、更矮、更通透的竖直锥形光芒，提升边界密度；
             -- 锥体的底面位于边界线上，顶部保持清晰的尖角轮廓。
             local rayIndex = seg
             local ray = scene_:CreateChild("SafeZoneRay_" .. side .. "_" .. rayIndex)
@@ -1809,7 +1848,8 @@ function LoadFromSave(saveData)
 end
 
 --- 手动保存当前游戏到当前槽位
-function SaveCurrentGame()
+---@param skipLeaderboard boolean|nil 退出/后台保存时跳过额外的排行榜写入
+function SaveCurrentGame(skipLeaderboard)
     if not player_ or not currentSlotIndex then return false end
     if isDead or (tonumber(player_.hp) or 0) <= 0 then
         print("[main] Skip saving while player is dead")
@@ -1822,7 +1862,9 @@ function SaveCurrentGame()
     end
     local ok = SaveSystem.SaveToSlot(currentSlotIndex, snapshot)
     if ok then
-        SyncAccountLeaderboard()
+        if not skipLeaderboard then
+            SyncAccountLeaderboard()
+        end
         print("[main] Auto-saved to slot " .. currentSlotIndex)
     end
     return ok
@@ -3107,6 +3149,11 @@ end
 -- ============================================================================
 function HandleUpdate(eventType, eventData)
     local dt = eventData["TimeStep"]:GetFloat()
+
+    -- 推进云读取的本地超时兜底，即使启动 Logo 仍在播放也不能停止计时。
+    if type(SaveSystem.Update) == "function" then
+        SaveSystem.Update(dt)
+    end
 
     -- 启动 Logo：只更新开场 UI，结束后回调进入存档界面
     if GameUI.UpdateStartupLogo(dt) then

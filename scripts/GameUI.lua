@@ -97,6 +97,12 @@ local startupLogoState = {
     onComplete = nil,
     root = nil,
     finished = false,
+    -- The splash is built once, but keep references to its responsive frame so
+    -- a device rotation/resize during the 2.8s intro can be applied safely.
+    contentFrame = nil,
+    contentCard = nil,
+    contentLayer = nil,
+    lastViewportKey = nil,
 }
 
 -- ============================================================================
@@ -472,6 +478,101 @@ local function _CreateLogoGlyph()
     return mark
 end
 
+-- The splash artwork intentionally keeps its desktop proportions, but its
+-- intrinsic size must not dictate the minimum height of a mobile viewport.
+-- Yoga lays out fixed-size children without shrinking them, so a plain
+-- center-aligned panel becomes vertically clipped on short landscape phones.
+-- Keep the artwork in base-pixel space and scale the complete card as one
+-- transformed unit; the surrounding frame remains responsive and participates
+-- in normal Yoga centering.
+local STARTUP_LOGO_CARD_WIDTH = 340
+-- The card's content is 249px high before padding/borders (128px mark,
+-- three labels and their margins). Keep a small tolerance so the last hint
+-- never gets clipped by Yoga's border-box sizing on narrow viewports.
+local STARTUP_LOGO_CARD_HEIGHT = 304
+local STARTUP_LOGO_EDGE_MARGIN = 12
+
+local function _StartupNumber(value, fallback)
+    local number = tonumber(value)
+    if not number or number ~= number then return fallback end
+    return number
+end
+
+local function _GetStartupLogoLayout()
+    local viewW, viewH
+    if UI.GetViewportSize then
+        viewW, viewH = UI.GetViewportSize()
+    end
+    if not viewW or not viewH then
+        local physW, physH = graphics:GetWidth(), graphics:GetHeight()
+        local uiScale = math.max(_StartupNumber(UI.GetScale and UI.GetScale(), 1), 0.001)
+        viewW, viewH = physW / uiScale, physH / uiScale
+    end
+    viewW = math.max(1, _StartupNumber(viewW, 1))
+    viewH = math.max(1, _StartupNumber(viewH, 1))
+
+    -- Safe-area APIs are available on mobile runtimes, while some desktop
+    -- previews do not expose them. Fall back to the full viewport in that case.
+    local safeLeft, safeTop, safeWidth, safeHeight = 0, 0, viewW, viewH
+    if UI.GetSafeContentArea then
+        local ok, x, y, width, height = pcall(UI.GetSafeContentArea)
+        if ok and type(x) == "number" and type(y) == "number"
+            and type(width) == "number" and type(height) == "number"
+            and width > 0 and height > 0 then
+            safeLeft = math.max(0, math.min(viewW, x))
+            safeTop = math.max(0, math.min(viewH, y))
+            safeWidth = math.max(1, math.min(viewW - safeLeft, width))
+            safeHeight = math.max(1, math.min(viewH - safeTop, height))
+        end
+    end
+
+    local availableWidth = math.max(1, safeWidth - STARTUP_LOGO_EDGE_MARGIN * 2)
+    local availableHeight = math.max(1, safeHeight - STARTUP_LOGO_EDGE_MARGIN * 2)
+    local fitScale = math.min(
+        availableWidth / STARTUP_LOGO_CARD_WIDTH,
+        availableHeight / STARTUP_LOGO_CARD_HEIGHT,
+        1
+    )
+    -- Do not impose a minimum scale here: a hard floor can make the card
+    -- larger than a very short safe area and reintroduce the original crop.
+    -- The exact fit scale guarantees the complete card stays inside bounds.
+    local cardScale = fitScale
+
+    return {
+        left = safeLeft,
+        top = safeTop,
+        width = safeWidth,
+        height = safeHeight,
+        cardWidth = STARTUP_LOGO_CARD_WIDTH * cardScale,
+        cardHeight = STARTUP_LOGO_CARD_HEIGHT * cardScale,
+        cardScale = cardScale,
+        key = string.format("%.2f:%.2f:%.2f:%.2f:%.3f",
+            safeLeft, safeTop, safeWidth, safeHeight, cardScale),
+    }
+end
+
+local function _ApplyStartupLogoLayout(layout)
+    if not layout then return end
+    if startupLogoState.contentLayer then
+        startupLogoState.contentLayer:SetStyle({
+            left = layout.left,
+            top = layout.top,
+            width = layout.width,
+            height = layout.height,
+        })
+    end
+    if startupLogoState.contentFrame then
+        startupLogoState.contentFrame:SetStyle({
+            width = layout.cardWidth,
+            height = layout.cardHeight,
+        })
+    end
+    if startupLogoState.contentCard then
+        startupLogoState.contentCard:SetStyle({ scale = layout.cardScale })
+    end
+    startupLogoState.lastViewportKey = layout.key
+end
+
 function GameUI.ShowStartupLogo(onComplete)
     startupLogoState.active = true
     startupLogoState.timer = 0
@@ -536,6 +637,56 @@ function GameUI.ShowStartupLogo(onComplete)
         direction = "alternate",
     })
 
+    local layout = _GetStartupLogoLayout()
+
+    local contentCard = UI.Panel {
+        position = "absolute",
+        left = 0,
+        top = 0,
+        width = STARTUP_LOGO_CARD_WIDTH,
+        height = STARTUP_LOGO_CARD_HEIGHT,
+        alignItems = "center",
+        justifyContent = "center",
+        paddingHorizontal = 28,
+        paddingVertical = 24,
+        borderRadius = 28,
+        backgroundColor = {10, 10, 10, 162},
+        borderWidth = 1,
+        borderColor = {88, 88, 84, 120},
+        boxShadow = {
+            { x = 0, y = 18, blur = 40, spread = 0, color = {0, 0, 0, 160} },
+            { x = 0, y = 0, blur = 28, spread = 1, color = {92, 92, 88, 38} },
+        },
+        transformOrigin = "top-left",
+        scale = layout.cardScale,
+        children = { logo, title, subtitle, hint },
+    }
+
+    local contentFrame = UI.Panel {
+        width = layout.cardWidth,
+        height = layout.cardHeight,
+        flexShrink = 0,
+        pointerEvents = "none",
+        children = { contentCard },
+    }
+
+    local contentLayer = UI.Panel {
+        position = "absolute",
+        left = layout.left,
+        top = layout.top,
+        width = layout.width,
+        height = layout.height,
+        justifyContent = "center",
+        alignItems = "center",
+        pointerEvents = "none",
+        children = { contentFrame },
+    }
+
+    startupLogoState.contentCard = contentCard
+    startupLogoState.contentFrame = contentFrame
+    startupLogoState.contentLayer = contentLayer
+    startupLogoState.lastViewportKey = layout.key
+
     startupLogoState.root = UI.Panel {
         id = "startupLogo",
         width = "100%",
@@ -562,21 +713,7 @@ function GameUI.ShowStartupLogo(onComplete)
                     to = {7, 7, 7, 0},
                 },
             },
-            UI.Panel {
-                alignItems = "center",
-                justifyContent = "center",
-                paddingHorizontal = 28,
-                paddingVertical = 24,
-                borderRadius = 28,
-                backgroundColor = {10, 10, 10, 162},
-                borderWidth = 1,
-                borderColor = {88, 88, 84, 120},
-                boxShadow = {
-                    { x = 0, y = 18, blur = 40, spread = 0, color = {0, 0, 0, 160} },
-                    { x = 0, y = 0, blur = 28, spread = 1, color = {92, 92, 88, 38} },
-                },
-                children = { logo, title, subtitle, hint },
-            },
+            contentLayer,
         },
     }
 
@@ -587,6 +724,11 @@ end
 function GameUI.UpdateStartupLogo(dt)
     if not startupLogoState.active then return false end
 
+    local layout = _GetStartupLogoLayout()
+    if layout.key ~= startupLogoState.lastViewportKey then
+        _ApplyStartupLogoLayout(layout)
+    end
+
     startupLogoState.timer = startupLogoState.timer + dt
 
     if startupLogoState.timer >= startupLogoState.duration and not startupLogoState.finished then
@@ -594,6 +736,10 @@ function GameUI.UpdateStartupLogo(dt)
         startupLogoState.active = false
         local cb = startupLogoState.onComplete
         startupLogoState.root = nil
+        startupLogoState.contentFrame = nil
+        startupLogoState.contentCard = nil
+        startupLogoState.contentLayer = nil
+        startupLogoState.lastViewportKey = nil
         startupLogoState.onComplete = nil
         print("[GameUI] Startup logo complete")
         if cb then cb() end

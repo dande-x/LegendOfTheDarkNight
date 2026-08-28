@@ -22,6 +22,10 @@ local SAVE_BACKUP_FILE = "saves/characters.backup.json"
 local CLOUD_KEY = "night_legend_save_v1"
 local CLOUD_SCHEMA_VERSION = 1
 local MAX_TIMESTAMP = 9999999999
+-- 云读取有平台层 timeout 回调，但本地预览/旧运行时可能既不返回
+-- timeout，也不返回 error。用 Update 计时提供最后一道本地兜底，避免
+-- 启动流程永远卡在 Logo 和存档槽位页之间。
+local CLOUD_LOAD_TIMEOUT = 8.0
 -- 仅限制损坏存档/异常浮点值；正常玩法等级不设上限。
 local LEVEL_SANITY_LIMIT = Balance.LEVEL_SANITY_LIMIT
 local MAX_RESOURCE = 1000000000
@@ -32,7 +36,7 @@ SaveSystem.CLOUD_KEY = CLOUD_KEY
 -- ============================================================================
 -- 内部状态
 -- ============================================================================
----@type table[] 存档槽位数组，最多 MAX_SLOTS 项
+---@type table<number, table|nil> 存档槽位数组，最多 MAX_SLOTS 项
 local slots = {}  -- { [1] = saveData | nil, [2] = saveData | nil }
 -- 每个槽位独立维护最后一次修改时间，删除槽位时也保留 tombstone 时间戳，
 -- 这样两个设备分别修改不同槽位时可以合并，删除操作也能跨设备生效。
@@ -45,11 +49,17 @@ local cloudReady = false
 local cloudLoadInFlight = false
 local cloudLoadWaiters = {}
 local cloudSaveInFlight = false
+---@type table|nil
 local cloudSavePending = nil
 local cloudSaveWaiters = {}
+---@type table|nil
 local lastCloudPayload = nil
 local cloudStatus = "not_started"
 local cloudLastError = nil
+local cloudLoadElapsed = 0
+local cloudLoadTimeoutHandler = nil
+-- 每次 Init 都递增；异步回调携带创建时的代际，旧会话回调不得污染新会话。
+local cloudSessionId = 0
 
 local function SafeCall(callback, ...)
     if type(callback) == "function" then
@@ -265,7 +275,7 @@ end
 ---@param player table 玩家运行时数据（CharacterClass.CreatePlayer 创建的）
 ---@param inventoryData table Inventory.playerData
 ---@param killCount number 击杀数
----@return table saveData
+---@return table|nil saveData
 function SaveSystem.CreateSnapshot(player, inventoryData, killCount)
     if type(player) ~= "table" or type(inventoryData) ~= "table"
         or not SaveSystem.IsLoadable({ classId = player.classId }) then
@@ -623,9 +633,16 @@ local function MergeCloudPayload(localPayload, cloudPayload)
         local localTimestamp = GetPayloadSlotTimestamp(localPayload, i)
         local cloudTimestamp = GetPayloadSlotTimestamp(cloudPayload, i)
 
-        -- 时间戳相同表示同一版本；若内容因旧客户端差异而不同，优先采用
-        -- 云端的明确结果，保证跨设备启动时行为稳定。
-        local useCloud = cloudTimestamp >= localTimestamp
+        -- 时间戳相同表示同一版本；正常新写入版本都大于 0 时优先采用
+        -- 云端的明确结果。迁移旧版本地文件时两边可能都没有时间戳，
+        -- 此时保留本地非空槽，避免首次云同步误删旧角色。
+        local useCloud = cloudTimestamp > localTimestamp
+            or (cloudTimestamp == localTimestamp
+                and cloudTimestamp > 0)
+        if cloudTimestamp == 0 and localTimestamp == 0
+            and IsCloudEmptyValue(localSlot) and not IsCloudEmptyValue(cloudSlot) then
+            useCloud = true
+        end
         local selectedSlot = useCloud and cloudSlot or localSlot
         local selectedTimestamp = useCloud and cloudTimestamp or localTimestamp
         merged.slots["slot" .. tostring(i)] = IsCloudEmptyValue(selectedSlot)
@@ -681,15 +698,20 @@ local function MakeCloudResult(ok, code, reason, source, changed, skipped)
     }
 end
 
-local function NotifyCloudWaiters(waiters, result)
+local function NotifyCloudWaiters(waiters, result, sessionId)
     for _, callback in ipairs(waiters or {}) do
+        if sessionId and sessionId ~= cloudSessionId then return end
         SafeCall(callback, result)
     end
 end
 
-local StartCloudSave
+---@type fun(payload: table, waiters: table[]): boolean
+local StartCloudSave = nil
+---@type fun(): boolean|nil
+local DrainPendingCloudSave = nil
 
-local function FinishCloudSave(success, code, reason, payload, waiters)
+local function FinishCloudSave(success, code, reason, payload, waiters, sessionId)
+    if sessionId and sessionId ~= cloudSessionId then return end
     cloudSaveInFlight = false
     if success then
         lastCloudPayload = CloneSerializable(payload)
@@ -699,33 +721,33 @@ local function FinishCloudSave(success, code, reason, payload, waiters)
         cloudStatus = "error"
         cloudLastError = reason or code or "cloud_save_failed"
     end
+    -- 先启动排队中的最新快照，再通知当前请求的回调。这样回调里若
+    -- 立即触发下一次保存，会进入新的 in-flight 请求，不会和旧 pending
+    -- 快照并发写入或被旧快照覆盖。
+    if DrainPendingCloudSave then DrainPendingCloudSave() end
     NotifyCloudWaiters(waiters, MakeCloudResult(
-        success, code, reason, success and "cloud" or "local_only", false, false))
-
-    -- 高频自动保存只保留最新快照，避免把旧状态排队写回云端。
-    if cloudSavePending then
-        local nextPayload = cloudSavePending
-        local nextWaiters = cloudSaveWaiters
-        cloudSavePending = nil
-        cloudSaveWaiters = {}
-        StartCloudSave(nextPayload, nextWaiters)
-    end
+        success, code, reason, success and "cloud" or "local_only", false, false),
+        sessionId)
 end
 
 StartCloudSave = function(payload, waiters)
+    local sessionId = cloudSessionId
     local cloud = GetClientCloud()
     if not cloud then
+        cloudStatus = "unavailable"
+        cloudLastError = "平台云存档暂不可用"
         NotifyCloudWaiters(waiters, MakeCloudResult(
-            false, "unavailable", "平台云存档暂不可用", "local_only", false, false))
+            false, "unavailable", cloudLastError, "local_only", false, false),
+            sessionId)
         return false
     end
 
     cloudSaveInFlight = true
     local completed = false
     local function finishOnce(success, code, reason)
-        if completed then return end
+        if completed or sessionId ~= cloudSessionId then return end
         completed = true
-        FinishCloudSave(success, code, reason, payload, waiters)
+        FinishCloudSave(success, code, reason, payload, waiters, sessionId)
     end
 
     local ok, err = pcall(function()
@@ -752,6 +774,19 @@ StartCloudSave = function(payload, waiters)
     return true
 end
 
+DrainPendingCloudSave = function()
+    if cloudLoadInFlight or cloudSaveInFlight or not cloudSavePending then
+        return false
+    end
+    -- 高频自动保存只保留最新快照，避免把旧状态排队写回云端。
+    local nextPayload = cloudSavePending
+    local nextWaiters = cloudSaveWaiters
+    cloudSavePending = nil
+    cloudSaveWaiters = {}
+    StartCloudSave(nextPayload, nextWaiters)
+    return true
+end
+
 --- 判断当前运行时是否提供完整的客户端云存档接口。
 function SaveSystem.IsCloudAvailable()
     return GetClientCloud() ~= nil
@@ -775,9 +810,12 @@ end
 function SaveSystem.SaveToCloud(callback)
     cloudEnabled = true
     local payload = BuildCloudPayload()
-    if cloudLoadInFlight or cloudSaveInFlight then
+    if cloudLoadInFlight or cloudSaveInFlight or cloudSavePending then
         cloudSavePending = payload
         if type(callback) == "function" then table.insert(cloudSaveWaiters, callback) end
+        if not cloudLoadInFlight and not cloudSaveInFlight then
+            DrainPendingCloudSave()
+        end
         return true
     end
 
@@ -823,11 +861,15 @@ function SaveSystem.LoadFromCloud(callback)
     end
 
     cloudLoadInFlight = true
+    cloudLoadElapsed = 0
+    local sessionId = cloudSessionId
     local completed = false
     local function complete(result)
-        if completed then return end
+        if completed or sessionId ~= cloudSessionId then return end
         completed = true
         cloudLoadInFlight = false
+        cloudLoadElapsed = 0
+        cloudLoadTimeoutHandler = nil
         cloudReady = true
         if result.ok then
             cloudStatus = "synced"
@@ -843,20 +885,16 @@ function SaveSystem.LoadFromCloud(callback)
         -- 若读云期间发生了本地保存，以当前内存状态重建最新 pending payload，
         -- 不把读云开始前的旧快照覆盖回云端。
         if cloudSavePending then cloudSavePending = BuildCloudPayload() end
+        if DrainPendingCloudSave then DrainPendingCloudSave() end
         local waiters = cloudLoadWaiters
         cloudLoadWaiters = {}
-        NotifyCloudWaiters(waiters, result)
-
-        if cloudSavePending and not cloudSaveInFlight then
-            local pendingPayload = cloudSavePending
-            local pendingWaiters = cloudSaveWaiters
-            cloudSavePending = nil
-            cloudSaveWaiters = {}
-            StartCloudSave(pendingPayload, pendingWaiters)
-        end
+        NotifyCloudWaiters(waiters, result, sessionId)
+    end
+    cloudLoadTimeoutHandler = function()
+        complete(MakeCloudResult(false, "timeout",
+            "平台云存档读取超时", "local_only", false, false))
     end
 
-    local localPayload = BuildCloudPayload()
     local ok, err = pcall(function()
         local batch = cloud:BatchGet()
         if not batch then error("BatchGet returned nil") end
@@ -864,6 +902,12 @@ function SaveSystem.LoadFromCloud(callback)
         if not batch then error("Key returned nil") end
         batch:Fetch({
             ok = function(values)
+                -- 超时/异常后即使平台迟到返回，也不能再合并旧响应；否则
+                -- 旧云版本可能覆盖已经进入游戏或已写入磁盘的新本地状态。
+                if completed or sessionId ~= cloudSessionId then return end
+                -- 请求在网络上等待期间可能已经发生了本地自动保存；以回调
+                -- 到达时的内存快照为准，不能使用请求发出时的旧 payload。
+                local localPayload = BuildCloudPayload()
                 local raw = type(values) == "table" and values[CLOUD_KEY] or nil
                 if IsCloudEmptyValue(raw) then
                     -- 首次运行或云端尚无此 key：把本地（可能为空）初始化到云端。
@@ -915,15 +959,18 @@ function SaveSystem.LoadFromCloud(callback)
                         end,
                     })
                 else
+                    lastCloudPayload = CloneSerializable(cloudPayload)
                     complete(MakeCloudResult(true, nil, nil,
                         "cloud", localChanged, false))
                 end
             end,
             error = function(code, reason)
+                if sessionId ~= cloudSessionId then return end
                 complete(MakeCloudResult(false, tostring(code),
                     reason or "平台云存档读取失败", "local_only", false, false))
             end,
             timeout = function()
+                if sessionId ~= cloudSessionId then return end
                 complete(MakeCloudResult(false, "timeout",
                     "平台云存档读取超时", "local_only", false, false))
             end,
@@ -934,6 +981,23 @@ function SaveSystem.LoadFromCloud(callback)
         return false
     end
     return true
+end
+
+--- 推进云读取的本地兜底计时。平台正常回调时会自动清零；若运行时长期
+--- 没有任何回调，则按本地 timeout 继续使用磁盘存档，迟到的旧回调会被
+--- 当前请求的 completed/sessionId 检查丢弃。
+---@param timeStep number
+function SaveSystem.Update(timeStep)
+    if not cloudLoadInFlight or type(cloudLoadTimeoutHandler) ~= "function" then
+        return
+    end
+    local dt = tonumber(timeStep)
+    if not dt or dt ~= dt or dt <= 0 then return end
+    cloudLoadElapsed = cloudLoadElapsed + dt
+    if cloudLoadElapsed < CLOUD_LOAD_TIMEOUT then return end
+    local timeoutHandler = cloudLoadTimeoutHandler
+    cloudLoadTimeoutHandler = nil
+    if timeoutHandler then timeoutHandler() end
 end
 
 -- ============================================================================
@@ -1202,6 +1266,7 @@ end
 -- ============================================================================
 function SaveSystem.Init()
     -- 运行时重启时清空上一局的云同步状态；本地槽位会在下面重新读取。
+    cloudSessionId = cloudSessionId + 1
     cloudEnabled = false
     cloudReady = false
     cloudLoadInFlight = false
@@ -1212,6 +1277,8 @@ function SaveSystem.Init()
     lastCloudPayload = nil
     cloudStatus = "not_started"
     cloudLastError = nil
+    cloudLoadElapsed = 0
+    cloudLoadTimeoutHandler = nil
     SaveSystem.ReadFromDisk()
     print("[SaveSystem] Init complete, " .. SaveSystem.GetUsedSlotCount() .. "/" .. MAX_SLOTS .. " slots used")
 end

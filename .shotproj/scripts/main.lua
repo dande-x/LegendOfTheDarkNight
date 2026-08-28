@@ -302,7 +302,7 @@ function CreateFloor(groundColor)
     floorModel:SetMaterial(darkSoilMat)
     floorModel.castShadows = false
 
-    -- 安全区视觉：低矮的方形虚线边界 + 竖直锥形光芒。
+    -- 安全区视觉：只保留沿边界分布的竖直锥形光芒。
     -- 光芒底部贴地、锥尖朝上；中心必须与 Combat 的 spawnPos 判定一致，
     -- 避免以后地图出生点移动后视觉错位。
     local currentMapDef = MapZone.GetDef(MapZone.GetCurrentMapId())
@@ -325,12 +325,6 @@ function CreateFloor(groundColor)
         return safeCenter.x + safeRadius + (padding or 0) + 2.0, safeCenter.z
     end
 
-    -- 方形边界的低矮虚线，给玩家一个明确的地面轮廓。
-    local borderMat = Material:new()
-    borderMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
-    borderMat:SetShaderParameter("MatDiffColor", Variant(Color(0.3, 0.65, 1.0, 1.0)))
-    borderMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.8, 1.4, 2.4, 1.0)))
-
     -- 透明外锥 + 高亮窄芯组成“光芒”轮廓。Cone 的默认轴向为 Y，
     -- 因而只需把节点中心抬到高度的一半即可保证底部落地、顶部尖锐。
     local rayOuterMat = Material:new()
@@ -348,8 +342,8 @@ function CreateFloor(groundColor)
     rayCoreMat:SetShaderParameter("Metallic", Variant(0.0))
     rayCoreMat:SetShaderParameter("Roughness", Variant(0.12))
 
-    local gapInterval = safeRadius * 2 / 8   -- 每条边分 8 段（虚线间隔）
-    local segLen = gapInterval * 0.5          -- 每段实线长度（占间隔一半）
+    local gapInterval = safeRadius * 2 / 8   -- 每条边分 8 个锥形光芒位置
+    local segLen = gapInterval * 0.5          -- 光芒沿边界居中分布
     local rayHeight = 1.15
     local rayDiameter = 0.22
     local rayCoreHeight = 1.02
@@ -360,7 +354,6 @@ function CreateFloor(groundColor)
             local t0 = -half + seg * gapInterval
             local t1 = t0 + segLen
             local cx = (t0 + t1) / 2
-            local len = (t1 - t0)
             local pos = Vector3(safeCenter.x, 0.045, safeCenter.z)
             if side == 0 then
                 pos = Vector3(safeCenter.x + cx, 0.045, safeCenter.z - half)
@@ -372,20 +365,7 @@ function CreateFloor(groundColor)
                 pos = Vector3(safeCenter.x - half, 0.045, safeCenter.z + cx)
             end
 
-            -- 边线虚线：实际使用 segLen，避免此前算出长度却仍画成竖直小柱。
-            local dash = scene_:CreateChild("SafeZoneDash_" .. side .. "_" .. seg)
-            dash.position = pos
-            if side == 0 or side == 2 then
-                dash.scale = Vector3(len, 0.035, 0.10)
-            else
-                dash.scale = Vector3(0.10, 0.035, len)
-            end
-            local dashModel = dash:CreateComponent("StaticModel")
-            dashModel:SetModel(cache:GetResource("Model", "Models/Box.mdl"))
-            dashModel:SetMaterial(borderMat)
-            dashModel.castShadows = false
-
-            -- 每个虚线段都放置一组更小、更矮、更通透的竖直锥形光芒，提升边界密度；
+            -- 每个分段只放置一组更小、更矮、更通透的竖直锥形光芒，提升边界密度；
             -- 锥体的底面位于边界线上，顶部保持清晰的尖角轮廓。
             local rayIndex = seg
             local ray = scene_:CreateChild("SafeZoneRay_" .. side .. "_" .. rayIndex)
