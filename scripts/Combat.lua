@@ -1364,6 +1364,103 @@ function Combat.SpawnEnemy(scene, playerPos, playerLevel, forceDef, mapId, optio
     return enemy
 end
 
+--- 立即移除一个尚存于 enemies 表中的实体，不触发击杀、掉落或任务进度。
+--- 仅用于给更高优先级的任务生成腾出容量，以及回滚未完整生成的任务敌群。
+---@param enemy table|nil
+---@return boolean
+local function RemoveEnemyImmediately(enemy)
+    if not enemy then return false end
+    for index = #enemies, 1, -1 do
+        if enemies[index] == enemy then
+            if enemy.node then enemy.node:Remove() end
+            if lastPlayerTarget == enemy then lastPlayerTarget = nil end
+            table.remove(enemies, index)
+            return true
+        end
+    end
+    return false
+end
+
+---@param groupId string|nil
+---@return string|nil
+local function GetQuestGroupOwner(groupId)
+    if type(groupId) ~= "string" or groupId == "" then return nil end
+    local separator = string.find(groupId, ":", 1, true)
+    return separator and string.sub(groupId, 1, separator - 1) or groupId
+end
+
+--- 在地图总上限内为任务敌群预留完整容量。
+--- 优先回收远离当前目标点的普通自然怪；仍不足时，只回收其它任务留下的
+--- 非关键敌群。当前任务已生成的波次、Boss 与显式遭遇实体都不会被移除。
+---@param mapId string
+---@param requestedCount number
+---@param center Vector3
+---@param groupId string|nil
+---@return boolean ready
+---@return number reclaimed
+local function MakeQuestGroupRoom(mapId, requestedCount, center, groupId)
+    local maxEnemies = MapZone.GetSpawnSettings(mapId).maxEnemies
+    local slotsNeeded = math.max(0, #enemies + requestedCount - maxEnemies)
+    if slotsNeeded == 0 then return true, 0 end
+
+    local activeQuestId = GetQuestGroupOwner(groupId)
+    local candidates = {}
+    for index, enemy in ipairs(enemies) do
+        ---@type number|nil
+        local priority = nil
+        if not enemy.node then
+            priority = 0
+        elseif enemy.tier ~= "boss" and not enemy.encounterId then
+            if enemy.state == "dead" or enemy.state == "dying" then
+                priority = 0
+            else
+                local spawnSource = enemy.spawnSource
+                    or (enemy.questGroupId and "quest_group" or "natural")
+                if spawnSource == "natural" then
+                    priority = 1
+                elseif spawnSource == "quest_group"
+                    and (not activeQuestId
+                        or GetQuestGroupOwner(enemy.questGroupId) ~= activeQuestId) then
+                    priority = 2
+                end
+            end
+        end
+
+        if priority ~= nil then
+            local distanceSq = math.huge
+            if enemy.node then
+                local position = enemy.node.position
+                local dx = (tonumber(position.x) or 0) - center.x
+                local dz = (tonumber(position.z) or 0) - center.z
+                distanceSq = dx * dx + dz * dz
+            end
+            table.insert(candidates, {
+                enemy = enemy,
+                priority = priority,
+                distanceSq = distanceSq,
+                index = index,
+            })
+        end
+    end
+
+    -- 容量不足时保持现状，让上层保留该波次并稍后重试；不做半组生成。
+    if #candidates < slotsNeeded then return false, 0 end
+
+    table.sort(candidates, function(a, b)
+        if a.priority ~= b.priority then return a.priority < b.priority end
+        if a.distanceSq ~= b.distanceSq then return a.distanceSq > b.distanceSq end
+        return a.index > b.index
+    end)
+
+    local reclaimed = 0
+    for index = 1, slotsNeeded do
+        if RemoveEnemyImmediately(candidates[index].enemy) then
+            reclaimed = reclaimed + 1
+        end
+    end
+    return reclaimed == slotsNeeded, reclaimed
+end
+
 --- 在指定目标点附近生成一小组当前地图生态怪物。
 --- 该 API 只重复调用统一 SpawnEnemy 入口，不改变地图池、等级曲线或自然刷怪器；
 --- 因此任务事件只是一次性的压力注入，不会形成第二套怪物来源。
@@ -1372,7 +1469,7 @@ end
 ---@param playerLevel number
 ---@param mapId string|nil
 ---@param options table|nil {count, radius, groupId}
----@return number 实际生成数量（达到地图上限时可能少于请求数）
+---@return number 实际生成数量（容量不足或创建异常时整组返回 0）
 function Combat.SpawnEnemyGroup(scene, center, playerLevel, mapId, options)
     if not scene or not center then return 0 end
 
@@ -1391,6 +1488,12 @@ function Combat.SpawnEnemyGroup(scene, center, playerLevel, mapId, options)
         tonumber(center.y) or 0,
         tonumber(center.z) or 0)
 
+    local roomReady, reclaimed = MakeQuestGroupRoom(
+        spawnMapId, count, centerPos, groupId)
+    if not roomReady then return 0 end
+
+    local spawnedEnemies = {}
+
     for index = 1, count do
         local angle = startAngle + (index - 1) * (math.pi * 2 / count)
         local distance = radius * (0.62 + math.random() * 0.38)
@@ -1403,13 +1506,24 @@ function Combat.SpawnEnemyGroup(scene, center, playerLevel, mapId, options)
             questGroupId = groupId,
             spawnSource = "quest_group",
         })
-        if enemy then spawned = spawned + 1 end
+        if enemy then
+            spawned = spawned + 1
+            table.insert(spawnedEnemies, enemy)
+        end
     end
 
-    if spawned > 0 then
-        print(string.format("[Combat] Quest enemy group spawned: %d/%d (%s)",
-            spawned, count, groupId or "anonymous"))
+    -- 任务波次必须是完整的一组。极端异常下回滚已创建实体，让 Quest
+    -- 保留这一波并在后续帧重试，避免出现提示与实际数量不一致。
+    if spawned ~= count then
+        for _, enemy in ipairs(spawnedEnemies) do
+            RemoveEnemyImmediately(enemy)
+        end
+        return 0
     end
+
+    print(string.format(
+        "[Combat] Quest enemy group spawned: requested=%d actual=%d reclaimed=%d (%s)",
+        count, spawned, reclaimed, groupId or "anonymous"))
     return spawned
 end
 

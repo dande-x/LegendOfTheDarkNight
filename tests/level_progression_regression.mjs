@@ -88,12 +88,22 @@ for (const dir of mirrors) {
 
     // Five clicks are counted only for the boots slot; any other equipment
     // slot clears the sequence, and the fifth click is consumed by the hook.
-    check(gameUI.includes("equipmentSlotDebugState = { clickCount = 0 }")
+    const hasBootsDebugState = gameUI.includes(
+        "equipmentSlotDebugState = { clickCount = 0 }")
+        || (gameUI.includes("equipmentSlotDebugState = {")
+            && gameUI.includes("clickCount = 0")
+            && gameUI.includes("pendingDetail = nil"));
+    const hasBootsDebugHandler = gameUI.includes(
+        "if equipmentSlotDebugState.clickCount < 5 then return false end")
+        || (gameUI.includes("if equipmentSlotDebugState.clickCount < 5 then")
+            && gameUI.includes("return true"));
+    check(hasBootsDebugState
         && gameUI.includes("if slotKey ~= Inventory.SLOT.BOOTS then")
-        && gameUI.includes("if equipmentSlotDebugState.clickCount < 5 then return false end")
+        && hasBootsDebugHandler
         && gameUI.includes("GameUI.onDebugBootsSlotActivated"),
         `${dir}/GameUI.lua 缺少鞋子五连点击调试入口`);
-    check(equipmentPanel.includes("onEquipmentSlotClick(capturedSlot) == true")
+    check((equipmentPanel.includes("onEquipmentSlotClick(capturedSlot) == true")
+        || equipmentPanel.includes("onEquipmentSlotClick(\n                capturedSlot"))
         && equipmentPanel.includes("onClick = handleCellClick"),
         `${dir}/EquipmentPanel.lua 没有让空鞋槽接收点击回调`);
     check(main.includes("GameUI.onDebugBootsSlotActivated = function()")

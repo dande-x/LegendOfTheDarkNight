@@ -168,20 +168,53 @@ local uiState = {
 GameUI.state = uiState
 
 -- 装备栏隐藏调试：同一角色面板内连续点击鞋子槽五次才触发。
-local equipmentSlotDebugState = { clickCount = 0 }
+-- 鞋子已装备时，第一次点击不能立即打开详情，否则详情浮层会拦截后续
+-- 点击。先保留一个很短的单击等待窗口：继续快速点击则触发 Debug，
+-- 没有继续点击时再回放正常的装备详情行为。
+local EQUIPMENT_SLOT_DEBUG_WINDOW = 0.8
+local equipmentSlotDebugState = {
+    clickCount = 0,
+    timer = 0,
+    pendingDetail = nil,
+}
 
 local function ResetEquipmentSlotDebugSequence()
     equipmentSlotDebugState.clickCount = 0
+    equipmentSlotDebugState.timer = 0
+    equipmentSlotDebugState.pendingDetail = nil
 end
 
-function GameUI._HandleEquipmentSlotClick(slotKey)
+local function FlushEquipmentSlotDebugSequence()
+    local pendingDetail = equipmentSlotDebugState.pendingDetail
+    ResetEquipmentSlotDebugSequence()
+    if pendingDetail then pendingDetail() end
+end
+
+function GameUI._UpdateEquipmentSlotDebugSequence(dt)
+    if equipmentSlotDebugState.clickCount <= 0 then return end
+    equipmentSlotDebugState.timer = equipmentSlotDebugState.timer
+        - math.max(0, tonumber(dt) or 0)
+    if equipmentSlotDebugState.timer <= 0 then
+        FlushEquipmentSlotDebugSequence()
+    end
+end
+
+function GameUI._HandleEquipmentSlotClick(slotKey, onSingleClick)
     if slotKey ~= Inventory.SLOT.BOOTS then
         ResetEquipmentSlotDebugSequence()
         return false
     end
 
     equipmentSlotDebugState.clickCount = equipmentSlotDebugState.clickCount + 1
-    if equipmentSlotDebugState.clickCount < 5 then return false end
+    equipmentSlotDebugState.timer = EQUIPMENT_SLOT_DEBUG_WINDOW
+    if equipmentSlotDebugState.clickCount == 1
+        and type(onSingleClick) == "function" then
+        equipmentSlotDebugState.pendingDetail = onSingleClick
+    end
+    if equipmentSlotDebugState.clickCount < 5 then
+        -- 消费鞋子点击，避免已装备鞋子的详情浮层在五连击前抢走输入。
+        return true
+    end
 
     ResetEquipmentSlotDebugSequence()
     if GameUI.onDebugBootsSlotActivated then
@@ -2934,6 +2967,17 @@ function GameUI.ShowGameHUD(player)
         borderWidth = 1, borderColor = {255, 205, 155, 230},
         pointerEvents = "none",
     }
+    -- 当前 Boss 任务目标（红点）。位置由 _UpdateFullMapUI 按 Boss 实体实时更新。
+    -- 与小地图使用独立 widget，打开大地图时不会依赖重建 UI 树。
+    local fullMapBossDot = UI.Panel {
+        position = "absolute", width = 12, height = 12,
+        borderRadius = 6,
+        backgroundColor = {245, 48, 48, 255},
+        borderWidth = 2,
+        borderColor = {255, 220, 220, 255},
+        pointerEvents = "none",
+        visible = false,
+    }
 
     -- 每张地图目前有三个策划地标；复用固定 widget，切图时只更新文字与坐标，
     -- 避免像旧 HUD 一样在每帧重建控件。
@@ -3001,6 +3045,7 @@ function GameUI.ShowGameHUD(player)
     table.insert(fmChildren, fullMapStewardDot)
     table.insert(fmChildren, fullMapMerchantDot)
     table.insert(fmChildren, fullMapBlacksmithDot)
+    table.insert(fmChildren, fullMapBossDot)
     table.insert(fmChildren, fullMapPlayerDir)
     table.insert(fmChildren, fullMapPlayerDot)
 
@@ -3062,6 +3107,13 @@ function GameUI.ShowGameHUD(player)
                     UI.Label { text = "铁匠", fontSize = 11, fontColor = {200, 200, 190, 220} },
                 },
             },
+            UI.Panel {
+                flexDirection = "row", alignItems = "center", gap = 4,
+                children = {
+                    UI.Panel { width = 10, height = 10, borderRadius = 5, backgroundColor = {245, 48, 48, 255}, borderWidth = 1, borderColor = {255, 220, 220, 255} },
+                    UI.Label { text = "Boss目标", fontSize = 11, fontColor = {200, 200, 190, 220} },
+                },
+            },
         },
     }
 
@@ -3112,6 +3164,7 @@ function GameUI.ShowGameHUD(player)
     uiState.refs.fullMapStewardDot = fullMapStewardDot
     uiState.refs.fullMapMerchantDot = fullMapMerchantDot
     uiState.refs.fullMapBlacksmithDot = fullMapBlacksmithDot
+    uiState.refs.fullMapBossDot = fullMapBossDot
     uiState.refs.fullMapLandmarks = fullMapLandmarks
     uiState.refs.fullMapTitle = fullMapTitle
     uiState.refs.fullMapGridLines = fmGridLines
@@ -4620,6 +4673,8 @@ function GameUI.ShowCharacterPanel(player, tab)
                     -- 标题栏
                     _CreateOverlayHeader("角色 — " .. classDef.name, GameUI.CloseCharacterPanel, {
                         subtitle = "Lv." .. player.level,
+                        backText = "X",
+                        backWidth = 34,
                     }),
                     -- Tab 栏
                     UI.Panel {
@@ -4795,7 +4850,7 @@ function GameUI.ShowSystemPanel()
             }
         end)(),
         UI.Button {
-            text = "退出游戏",
+            text = "返回主菜单",
             width = 180, height = 40,
             backgroundColor = {60, 25, 20, 240},
             borderRadius = 6, borderWidth = 1,
@@ -4902,7 +4957,10 @@ function GameUI.ShowSystemPanel()
                 children = {
                     _CreateOverlayHeader("系统", function()
                         GameUI.HideSystemPanel()
-                    end),
+                    end, {
+                        backText = "X",
+                        backWidth = 34,
+                    }),
                     UI.ScrollView {
                         width = "100%",
                         flexGrow = 1,
@@ -4949,6 +5007,7 @@ end
 -- ============================================================================
 function GameUI.UpdateHUD(player, dt)
     if uiState.phase ~= "playing" then return end
+    GameUI._UpdateEquipmentSlotDebugSequence(dt)
     if uiState.charPanelOpen or uiState.systemPanelOpen then
         uiState.player = player
         if doorState.active then
@@ -5085,6 +5144,36 @@ function GameUI._UpdatePotionCDOverlay()
     end
 end
 
+-- 获取当前任务目标的世界坐标。显式遭遇生成后，目标点跟随存活 Boss，
+-- 尚未生成时回退到 Quest 配置的遭遇坐标；其它任务模式直接使用任务点。
+---@param mapId string|nil
+---@return table|nil objectivePos
+---@return table|nil marker
+local function _GetObjectiveMarkerPosition(mapId)
+    local marker = Quest.GetObjectiveMarker()
+    if not marker or marker.mapId ~= mapId then
+        return nil, marker
+    end
+
+    local objectivePos = marker
+    if marker.mode == "encounter" then
+        local Combat = require("scripts.Combat")
+        for _, enemy in ipairs(Combat.enemies or {}) do
+            if enemy and enemy.encounterId == marker.questId
+                and enemy.node and enemy.state ~= "dead" and enemy.state ~= "dying"
+                and type(enemy.hp) == "number" and enemy.hp > 0 then
+                local enemyPos = enemy.node.worldPosition or enemy.node.position
+                if enemyPos then
+                    objectivePos = { x = enemyPos.x, z = enemyPos.z }
+                    break
+                end
+            end
+        end
+    end
+
+    return objectivePos, marker
+end
+
 -- ============================================================================
 -- 小地图 UI 更新（每帧调用）
 -- ============================================================================
@@ -5146,20 +5235,7 @@ function GameUI._UpdateMiniMapUI()
     -- 巡逻、坚守与显式遭遇共用一个目标点。遭遇生成后跟随实体实时位置，
     -- 其它模式显示 Quest 提供的纯坐标；切图后不缓存任何已销毁节点。
     if bossDot then
-        local marker = Quest.GetObjectiveMarker()
-        local objectivePos = marker and marker.mapId == mapId and marker or nil
-        if objectivePos and marker.mode == "encounter" then
-            local Combat = require("scripts.Combat")
-            for _, enemy in ipairs(Combat.enemies or {}) do
-                if enemy and enemy.encounterId == marker.questId
-                    and enemy.node and enemy.state ~= "dead" and enemy.state ~= "dying"
-                    and type(enemy.hp) == "number" and enemy.hp > 0 then
-                    local enemyPos = enemy.node.worldPosition or enemy.node.position
-                    objectivePos = { x = enemyPos.x, z = enemyPos.z }
-                    break
-                end
-            end
-        end
+        local objectivePos, marker = _GetObjectiveMarkerPosition(mapId)
 
         if objectivePos then
             local markerX, markerY = worldToMini(objectivePos.x, objectivePos.z)
@@ -5234,6 +5310,7 @@ function GameUI._UpdateFullMapUI()
     local stewardDot = uiState.refs.fullMapStewardDot
     local merchantDot = uiState.refs.fullMapMerchantDot
     local blacksmithDot = uiState.refs.fullMapBlacksmithDot
+    local bossDot = uiState.refs.fullMapBossDot
     local landmarkRefs = uiState.refs.fullMapLandmarks
     local title = uiState.refs.fullMapTitle
     local gridLines = uiState.refs.fullMapGridLines
@@ -5347,6 +5424,38 @@ function GameUI._UpdateFullMapUI()
                     ref.root:SetStyle({ left = math.floor(landmarkX - 4), top = math.floor(landmarkY - 9) })
                 end
             end
+        end
+    end
+
+    -- 当前任务目标（Boss 遭遇生成后跟随实体位置）。大地图和小地图共用同一
+    -- 目标判定，切图、任务切换、Boss 死亡或离场时自动隐藏，避免残留旧红点。
+    if bossDot then
+        local objectivePos, marker = _GetObjectiveMarkerPosition(mapId)
+        if objectivePos then
+            local markerX, markerY = worldToFullMap(objectivePos.x, objectivePos.z)
+            local markerLeft = math.floor(markerX - 6)
+            local markerTop = math.floor(markerY - 6)
+            if not visuals.bossVisible then
+                bossDot:SetVisible(true)
+            end
+            if visuals.objectiveMode ~= marker.mode then
+                local markerColor = marker.mode == "encounter" and {245, 48, 48, 255}
+                    or marker.mode == "survive" and {245, 150, 55, 255}
+                    or {255, 220, 70, 255}
+                bossDot:SetStyle({ backgroundColor = markerColor })
+                visuals.objectiveMode = marker.mode
+            end
+            if visuals.bossLeft ~= markerLeft or visuals.bossTop ~= markerTop then
+                bossDot:SetStyle({ left = markerLeft, top = markerTop })
+                visuals.bossLeft, visuals.bossTop = markerLeft, markerTop
+            end
+            visuals.bossVisible = true
+        else
+            if visuals.bossVisible ~= false then
+                bossDot:SetVisible(false)
+            end
+            visuals.bossVisible = false
+            visuals.objectiveMode = nil
         end
     end
 

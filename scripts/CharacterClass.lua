@@ -195,8 +195,8 @@ CharacterClass.Classes = {
                 desc = "以咒语化内力为火球，万法之基",
                 slot = 1, cooldown = 0, manaCost = 0,
                 unlockLevel = 1,
-                damage = 90,  -- 免费普攻保持稳定，耗灵技能再享受法术被动
-                range = 10.0, projectileSpeed = 12, castTime = 0.25,
+                damage = 110, -- 提高单发伤害，配合略长前摇维持前期总DPS
+                range = 10.0, projectileSpeed = 12, castTime = 0.35,
             },
 
             {
@@ -277,7 +277,7 @@ CharacterClass.Classes = {
             {
                 id = "t_divineBeast", name = "召唤神兽", type = SKILL_TYPE.SUMMON,
                 desc = "召唤远古神兽为随从，喷火焚敌，永不消散",
-                slot = 2, cooldown = 8, manaCost = 60,
+                slot = 2, cooldown = 8, manaCost = 65,
                 unlockLevel = 1,
                 damage = Balance.DIVINE_BEAST_ATK_PERCENT,  -- 神兽基础ATK倍率
                 duration = -1, -- -1 表示永久
@@ -289,7 +289,7 @@ CharacterClass.Classes = {
             {
                 id = "t_heal", name = "治愈术", type = SKILL_TYPE.HEAL,
                 desc = "引天地灵气修补自身与神兽，道士自保之术",
-                slot = 3, cooldown = 12, manaCost = 45,
+                slot = 3, cooldown = 12, manaCost = 60,
                 unlockLevel = 8,
                 healPercent = 25,
                 range = 0,
@@ -298,7 +298,7 @@ CharacterClass.Classes = {
             {
                 id = "t_poison", name = "施毒术", type = SKILL_TYPE.DOT,
                 desc = "瞬间释放毒雾，使命中范围内妖魔中毒5秒",
-                slot = 4, cooldown = 7, manaCost = 42,
+                slot = 4, cooldown = 7, manaCost = 50,
                 unlockLevel = 16,
                 damage = 50, -- ATK倍率50%/秒
                 duration = 5,
@@ -309,7 +309,7 @@ CharacterClass.Classes = {
             {
                 id = "t_beastRage", name = "神兽狂暴", type = SKILL_TYPE.BUFF,
                 desc = "激发神兽潜能，攻击力与攻速大幅提升",
-                slot = 5, cooldown = 18, manaCost = 45,
+                slot = 5, cooldown = 18, manaCost = 55,
                 unlockLevel = 28,
                 buffMultiplier = 1.6,
                 duration = 7,
@@ -319,7 +319,7 @@ CharacterClass.Classes = {
             {
                 id = "t_trapDemon", name = "困魔咒", type = SKILL_TYPE.AOE,
                 desc = "布下法阵困锁妖魔，圈内之敌无法逃脱且防御降低30%",
-                slot = 6, cooldown = 12, manaCost = 65,
+                slot = 6, cooldown = 12, manaCost = 70,
                 unlockLevel = 40,
                 damage = 0,  -- 不造成伤害，纯控制
                 range = 8.0, aoeRadius = 3.5, castTime = 0.80,

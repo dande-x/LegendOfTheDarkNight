@@ -167,20 +167,53 @@ local uiState = {
 GameUI.state = uiState
 
 -- 装备栏隐藏调试：同一角色面板内连续点击鞋子槽五次才触发。
-local equipmentSlotDebugState = { clickCount = 0 }
+-- 鞋子已装备时，第一次点击不能立即打开详情，否则详情浮层会拦截后续
+-- 点击。先保留一个很短的单击等待窗口：继续快速点击则触发 Debug，
+-- 没有继续点击时再回放正常的装备详情行为。
+local EQUIPMENT_SLOT_DEBUG_WINDOW = 0.8
+local equipmentSlotDebugState = {
+    clickCount = 0,
+    timer = 0,
+    pendingDetail = nil,
+}
 
 local function ResetEquipmentSlotDebugSequence()
     equipmentSlotDebugState.clickCount = 0
+    equipmentSlotDebugState.timer = 0
+    equipmentSlotDebugState.pendingDetail = nil
 end
 
-function GameUI._HandleEquipmentSlotClick(slotKey)
+local function FlushEquipmentSlotDebugSequence()
+    local pendingDetail = equipmentSlotDebugState.pendingDetail
+    ResetEquipmentSlotDebugSequence()
+    if pendingDetail then pendingDetail() end
+end
+
+function GameUI._UpdateEquipmentSlotDebugSequence(dt)
+    if equipmentSlotDebugState.clickCount <= 0 then return end
+    equipmentSlotDebugState.timer = equipmentSlotDebugState.timer
+        - math.max(0, tonumber(dt) or 0)
+    if equipmentSlotDebugState.timer <= 0 then
+        FlushEquipmentSlotDebugSequence()
+    end
+end
+
+function GameUI._HandleEquipmentSlotClick(slotKey, onSingleClick)
     if slotKey ~= Inventory.SLOT.BOOTS then
         ResetEquipmentSlotDebugSequence()
         return false
     end
 
     equipmentSlotDebugState.clickCount = equipmentSlotDebugState.clickCount + 1
-    if equipmentSlotDebugState.clickCount < 5 then return false end
+    equipmentSlotDebugState.timer = EQUIPMENT_SLOT_DEBUG_WINDOW
+    if equipmentSlotDebugState.clickCount == 1
+        and type(onSingleClick) == "function" then
+        equipmentSlotDebugState.pendingDetail = onSingleClick
+    end
+    if equipmentSlotDebugState.clickCount < 5 then
+        -- 消费鞋子点击，避免已装备鞋子的详情浮层在五连击前抢走输入。
+        return true
+    end
 
     ResetEquipmentSlotDebugSequence()
     if GameUI.onDebugBootsSlotActivated then
@@ -4615,6 +4648,8 @@ function GameUI.ShowCharacterPanel(player, tab)
                     -- 标题栏
                     _CreateOverlayHeader("角色 — " .. classDef.name, GameUI.CloseCharacterPanel, {
                         subtitle = "Lv." .. player.level,
+                        backText = "X",
+                        backWidth = 34,
                     }),
                     -- Tab 栏
                     UI.Panel {
@@ -4710,7 +4745,7 @@ function GameUI.ShowSystemPanel()
             backgroundColor = {72, 74, 76, 110},
         },
         UI.Button {
-            text = "退出游戏",
+            text = "返回主菜单",
             width = 180, height = 40,
             backgroundColor = {60, 25, 20, 240},
             borderRadius = 6, borderWidth = 1,
@@ -4817,7 +4852,10 @@ function GameUI.ShowSystemPanel()
                 children = {
                     _CreateOverlayHeader("系统", function()
                         GameUI.HideSystemPanel()
-                    end),
+                    end, {
+                        backText = "X",
+                        backWidth = 34,
+                    }),
                     UI.ScrollView {
                         width = "100%",
                         flexGrow = 1,
@@ -4863,6 +4901,7 @@ end
 -- ============================================================================
 function GameUI.UpdateHUD(player, dt)
     if uiState.phase ~= "playing" then return end
+    GameUI._UpdateEquipmentSlotDebugSequence(dt)
     if uiState.charPanelOpen or uiState.systemPanelOpen then
         uiState.player = player
         if doorState.active then

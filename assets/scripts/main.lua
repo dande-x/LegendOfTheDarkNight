@@ -273,25 +273,25 @@ function CreateFloor(groundColor)
     -- 因而只需把节点中心抬到高度的一半即可保证底部落地、顶部尖锐。
     local rayOuterMat = Material:new()
     rayOuterMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
-    rayOuterMat:SetShaderParameter("MatDiffColor", Variant(Color(0.18, 0.55, 1.0, 0.28)))
+    rayOuterMat:SetShaderParameter("MatDiffColor", Variant(Color(0.18, 0.55, 1.0, 0.16)))
     rayOuterMat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.25, 0.85, 2.6, 1.0)))
     rayOuterMat:SetShaderParameter("Metallic", Variant(0.0))
     rayOuterMat:SetShaderParameter("Roughness", Variant(0.16))
     rayOuterMat:SetCullMode(CULL_NONE)
 
     local rayCoreMat = Material:new()
-    rayCoreMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
-    rayCoreMat:SetShaderParameter("MatDiffColor", Variant(Color(0.68, 0.9, 1.0, 1.0)))
+    rayCoreMat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+    rayCoreMat:SetShaderParameter("MatDiffColor", Variant(Color(0.68, 0.9, 1.0, 0.50)))
     rayCoreMat:SetShaderParameter("MatEmissiveColor", Variant(Color(1.6, 2.6, 4.2, 1.0)))
     rayCoreMat:SetShaderParameter("Metallic", Variant(0.0))
     rayCoreMat:SetShaderParameter("Roughness", Variant(0.12))
 
     local gapInterval = safeRadius * 2 / 8   -- 每条边分 8 段（虚线间隔）
     local segLen = gapInterval * 0.5          -- 每段实线长度（占间隔一半）
-    local rayHeight = 2.4
-    local rayDiameter = 0.34
-    local rayCoreHeight = 2.18
-    local rayCoreDiameter = 0.11
+    local rayHeight = 1.55
+    local rayDiameter = 0.22
+    local rayCoreHeight = 1.40
+    local rayCoreDiameter = 0.07
     for side = 0, 3 do
         -- side 0=上边(z=-half), 1=右边(x=+half), 2=下边(z=+half), 3=左边(x=-half)
         for seg = 0, 7 do
@@ -323,26 +323,24 @@ function CreateFloor(groundColor)
             dashModel:SetMaterial(borderMat)
             dashModel.castShadows = false
 
-            -- 每隔一个虚线段放置一组竖直锥形光芒，避免边界过密；
+            -- 每个虚线段都放置一组更小、更矮的竖直锥形光芒，提升边界密度；
             -- 锥体的底面位于边界线上，顶部保持清晰的尖角轮廓。
-            if seg % 2 == 0 then
-                local rayIndex = math.floor(seg / 2)
-                local ray = scene_:CreateChild("SafeZoneRay_" .. side .. "_" .. rayIndex)
-                ray.position = Vector3(pos.x, pos.y + rayHeight * 0.5, pos.z)
-                ray.scale = Vector3(rayDiameter, rayHeight, rayDiameter)
-                local rayModel = ray:CreateComponent("StaticModel")
-                rayModel:SetModel(cache:GetResource("Model", "Models/Cone.mdl"))
-                rayModel:SetMaterial(rayOuterMat)
-                rayModel.castShadows = false
+            local rayIndex = seg
+            local ray = scene_:CreateChild("SafeZoneRay_" .. side .. "_" .. rayIndex)
+            ray.position = Vector3(pos.x, pos.y + rayHeight * 0.5, pos.z)
+            ray.scale = Vector3(rayDiameter, rayHeight, rayDiameter)
+            local rayModel = ray:CreateComponent("StaticModel")
+            rayModel:SetModel(cache:GetResource("Model", "Models/Cone.mdl"))
+            rayModel:SetMaterial(rayOuterMat)
+            rayModel.castShadows = false
 
-                local core = scene_:CreateChild("SafeZoneRayCore_" .. side .. "_" .. rayIndex)
-                core.position = Vector3(pos.x, pos.y + rayCoreHeight * 0.5, pos.z)
-                core.scale = Vector3(rayCoreDiameter, rayCoreHeight, rayCoreDiameter)
-                local coreModel = core:CreateComponent("StaticModel")
-                coreModel:SetModel(cache:GetResource("Model", "Models/Cone.mdl"))
-                coreModel:SetMaterial(rayCoreMat)
-                coreModel.castShadows = false
-            end
+            local core = scene_:CreateChild("SafeZoneRayCore_" .. side .. "_" .. rayIndex)
+            core.position = Vector3(pos.x, pos.y + rayCoreHeight * 0.5, pos.z)
+            core.scale = Vector3(rayCoreDiameter, rayCoreHeight, rayCoreDiameter)
+            local coreModel = core:CreateComponent("StaticModel")
+            coreModel:SetModel(cache:GetResource("Model", "Models/Cone.mdl"))
+            coreModel:SetMaterial(rayCoreMat)
+            coreModel.castShadows = false
         end
     end
 
