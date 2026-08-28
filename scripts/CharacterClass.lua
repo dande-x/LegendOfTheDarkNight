@@ -203,7 +203,8 @@ CharacterClass.Classes = {
                 id = "m_thunder", name = "雷电术", type = SKILL_TYPE.RANGED,
                 desc = "引下天雷，威力巨大但施法较慢",
                 slot = 3, cooldown = 3.5, manaCost = 55,
-                unlockLevel = 24,
+                -- 法师主动技能解锁节奏与武士统一；跳过武士专属被动的 Lv.10 节点。
+                unlockLevel = 25,
                 damage = 250,  -- ATK倍率250% (单体高伤)
                 range = 7.0, castTime = 0.45,
             },
@@ -221,7 +222,7 @@ CharacterClass.Classes = {
                 id = "m_firewall", name = "火墙", type = SKILL_TYPE.DOT,
                 desc = "点燃不灭之火，烈焰如怨念般不息",
                 slot = 5, cooldown = 5.0, manaCost = 55,
-                unlockLevel = 7,
+                unlockLevel = 6,
                 damage = 45, -- ATK倍率45%/秒 (DOT持续)
                 duration = 5,
                 range = 6.0, aoeRadius = 2.0, castTime = 0.30,
@@ -230,7 +231,7 @@ CharacterClass.Classes = {
                 id = "m_blizzard", name = "冰咆哮", type = SKILL_TYPE.AOE,
                 desc = "召唤冰雪暴风，刺骨寒意冻裂金铁",
                 slot = 6, cooldown = 5.5, manaCost = 90,
-                unlockLevel = 44,
+                unlockLevel = 35,
                 damage = 320,  -- ATK倍率320% (大招AOE)
                 range = 6.0, aoeRadius = 3.5, castTime = 0.55,
             },
@@ -238,7 +239,7 @@ CharacterClass.Classes = {
                 id = "m_shield", name = "魔法盾", type = SKILL_TYPE.BUFF,
                 desc = "纯粹魔力凝成护盾，保命之本",
                 slot = 0, cooldown = 12, manaCost = 75,
-                unlockLevel = 34,
+                unlockLevel = 30,
                 shieldPercent = 25,
                 duration = 4,
                 range = 0,

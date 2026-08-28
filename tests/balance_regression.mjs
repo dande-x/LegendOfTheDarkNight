@@ -103,6 +103,20 @@ check(warriorEarthsplit.includes('name = "地裂斩"')
 check(warriorCharge.includes("unlockLevel = 25"), "野蛮冲撞未改为 25 级解锁");
 check(warriorShield.includes("unlockLevel = 30"), "真气护盾未改为 30 级解锁");
 check(warriorFire.includes("unlockLevel = 35"), "烈火剑法未改为 35 级解锁");
+
+// 法师主动技能沿用武士的解锁节奏；武士专属被动 Lv.10 不占用法师主动技能档位。
+const mageUnlockLevels = {
+    m_fireball: 1,
+    m_firewall: 6,
+    m_explosion: 15,
+    m_thunder: 25,
+    m_shield: 30,
+    m_blizzard: 35,
+};
+for (const [skillId, unlockLevel] of Object.entries(mageUnlockLevels)) {
+    check(getSkillBlock(skillId).includes(`unlockLevel = ${unlockLevel}`),
+        `${skillId} 未对齐武士主动技能解锁档位 Lv.${unlockLevel}`);
+}
 check(combatSource.includes("if skill.isGroundWave then")
     && combatSource.includes("function Combat.SpawnEarthRiftWave")
     && combatSource.includes("groundWave = true")

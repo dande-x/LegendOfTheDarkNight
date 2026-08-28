@@ -2303,16 +2303,26 @@ function SetupGameCallbacks()
                 end
 
                 local wasUnlocked = player_.returnScrollUnlocked == true
-                player_.returnScrollUnlocked = true
-                if type(GameUI.RefreshReturnScrollAccess) == "function" then
-                    pcall(GameUI.RefreshReturnScrollAccess)
+                local rewardMessage
+                if wasUnlocked then
+                    -- 首次广告已解锁功能后，后续每次完整观看都奖励 1 枚金币。
+                    -- AddGold 统一处理金币上限；成功回调仍只发放一次奖励。
+                    local added = Inventory.AddGold(1)
+                    if added then
+                        GameUI.UpdateGold(Inventory.playerData.gold)
+                        rewardMessage = "获取了 1 枚金币和作者的感恩。"
+                    else
+                        rewardMessage = "金币已达上限，仍感谢你的支持。"
+                    end
+                else
+                    player_.returnScrollUnlocked = true
+                    if type(GameUI.RefreshReturnScrollAccess) == "function" then
+                        pcall(GameUI.RefreshReturnScrollAccess)
+                    end
+                    rewardMessage = "获得“使用回城卷轴”功能！"
                 end
                 SaveCurrentGame()
-                GameUI.ShowRewardAdResult(
-                    true,
-                    wasUnlocked
-                        and "感谢再次支持！“使用回城卷轴”功能已解锁。"
-                        or "获得“使用回城卷轴”功能！")
+                GameUI.ShowRewardAdResult(true, rewardMessage)
                 return
             end
 
@@ -2429,7 +2439,7 @@ function SetupGameCallbacks()
         GameUI.RefreshSkillButtons(player_)
     end
 
-    -- 隐藏调试入口：连续点击角色装备栏“鞋子”槽五次，至少升到 Lv.50。
+    -- 隐藏调试入口：连续点击角色装备栏“鞋子”槽正好十二次，至少升到 Lv.50。
     GameUI.onDebugBootsSlotActivated = function()
         if not player_ then return false end
 

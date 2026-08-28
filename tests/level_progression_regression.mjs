@@ -37,7 +37,7 @@ function makeBootsClickSequence() {
             return false;
         }
         count += 1;
-        if (count < 5) return false;
+        if (count < 12) return false;
         count = 0;
         return true;
     };
@@ -52,10 +52,11 @@ addExperience(player, player.expToNext + expToNext(52));
 check(player.level === 53, "Lv.51 之后无法继续连续升级");
 
 const bootsClick = makeBootsClickSequence();
-for (let click = 1; click <= 4; click += 1) {
+for (let click = 1; click <= 11; click += 1) {
     check(bootsClick("boots") === false, `鞋子第 ${click} 次点击提前触发 Debug`);
 }
-check(bootsClick("boots") === true, "鞋子第 5 次点击没有触发 Debug");
+check(bootsClick("boots") === true, "鞋子第 12 次点击没有触发 Debug");
+check(bootsClick("boots") === false, "鞋子第 13 次点击不应再次触发 Debug");
 check(bootsClick("helmet") === false && bootsClick("boots") === false,
     "点击其他装备槽后没有清空鞋子点击计数");
 
@@ -86,29 +87,29 @@ for (const dir of mirrors) {
     check(combat.includes("Balance.LEVEL_SANITY_LIMIT"),
         `${dir}/Combat.lua 仍按 Lv.50 截断玩家等级`);
 
-    // Five clicks are counted only for the boots slot; any other equipment
-    // slot clears the sequence, and the fifth click is consumed by the hook.
+    // Twelve clicks are counted only for the boots slot; any other equipment
+    // slot clears the sequence, and the twelfth click is consumed by the hook.
     const hasBootsDebugState = gameUI.includes(
         "equipmentSlotDebugState = { clickCount = 0 }")
         || (gameUI.includes("equipmentSlotDebugState = {")
             && gameUI.includes("clickCount = 0")
             && gameUI.includes("pendingDetail = nil"));
     const hasBootsDebugHandler = gameUI.includes(
-        "if equipmentSlotDebugState.clickCount < 5 then return false end")
-        || (gameUI.includes("if equipmentSlotDebugState.clickCount < 5 then")
+        "if equipmentSlotDebugState.clickCount < 12 then return false end")
+        || (gameUI.includes("if equipmentSlotDebugState.clickCount < 12 then")
             && gameUI.includes("return true"));
     check(hasBootsDebugState
         && gameUI.includes("if slotKey ~= Inventory.SLOT.BOOTS then")
         && hasBootsDebugHandler
         && gameUI.includes("GameUI.onDebugBootsSlotActivated"),
-        `${dir}/GameUI.lua 缺少鞋子五连点击调试入口`);
+        `${dir}/GameUI.lua 缺少鞋子十二连点击调试入口`);
     check((equipmentPanel.includes("onEquipmentSlotClick(capturedSlot) == true")
         || equipmentPanel.includes("onEquipmentSlotClick(\n                capturedSlot"))
         && equipmentPanel.includes("onClick = handleCellClick"),
         `${dir}/EquipmentPanel.lua 没有让空鞋槽接收点击回调`);
     check(main.includes("GameUI.onDebugBootsSlotActivated = function()")
         && main.includes("math.max(CharacterClass.NormalizeLevel(player_.level), 50)"),
-        `${dir}/main.lua 没有把鞋子五连击提升到至少 Lv.50`);
+        `${dir}/main.lua 没有把鞋子十二连击提升到至少 Lv.50`);
 
     check(gameUI.includes("local levelDigits = #tostring")
         && gameUI.includes("math.max(46, 27 + levelDigits * 9)"),

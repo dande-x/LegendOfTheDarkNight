@@ -54,6 +54,10 @@ for (const [name, paths] of Object.entries(files)) {
     check(ui.includes('confirmText = "观看广告"'), `${name}: 弹窗缺少观看广告按钮`);
     check(systemPanel.includes('text = "使用回城卷轴"'), `${name}: 系统设置缺少使用回城卷轴按钮`);
     check(systemPanel.includes("returnScrollPanel"), `${name}: 使用回城卷轴入口没有加入系统面板`);
+    check(systemPanel.includes("visible = returnScrollUnlocked"),
+        `${name}: 未解锁时没有隐藏使用回城卷轴入口`);
+    check(ui.includes("panel:SetVisible(unlocked)"),
+        `${name}: 广告解锁后没有恢复使用回城卷轴入口显示`);
     check(systemPanel.includes('text = "鼓励作者"'), `${name}: 系统菜单缺少鼓励作者入口`);
     check(systemPanel.indexOf('text = "鼓励作者"') > systemPanel.indexOf("if GameUI.debugMode then"),
         `${name}: 鼓励作者没有放在系统菜单最后的调试区之后`);
@@ -66,6 +70,10 @@ for (const [name, paths] of Object.entries(files)) {
         `${name}: 广告回调缺少同步/异步一次性完成保护`);
     check(callbacks.includes("accepted == false"), `${name}: 没有处理 SDK 请求未受理`);
     check(callbacks.includes("returnScrollUnlocked = true"), `${name}: 广告成功没有解锁使用回城卷轴`);
+    check(callbacks.includes("Inventory.AddGold(1)"),
+        `${name}: 使用回城卷轴解锁后再次观看广告没有奖励 1 枚金币`);
+    check(callbacks.includes("获取了 1 枚金币和作者的感恩。"),
+        `${name}: 再次观看广告后的金币奖励弹窗文案不正确`);
     check(callbacks.includes("Combat.CancelPlayerHostileEffects()")
         && callbacks.includes("Combat.CancelDash()"),
         `${name}: 使用回城卷轴没有清理敌对效果和冲刺状态`);
@@ -92,9 +100,15 @@ for (const [name, paths] of Object.entries(files)) {
 // Small state model for the SDK contract: only the completion callback can
 // grant the reward; false/no-callback and duplicate callbacks are failures or
 // no-ops, never additional rewards.
-function simulateRewardRequest({ accepted, callbackResults = [], watchdog = false }) {
+function simulateRewardRequest({
+    accepted,
+    callbackResults = [],
+    watchdog = false,
+    unlockedBefore = false,
+}) {
     let inFlight = true;
-    let unlocked = false;
+    let unlocked = unlockedBefore;
+    let gold = 0;
     let rewardCount = 0;
     let resultCount = 0;
     let completed = false;
@@ -105,7 +119,8 @@ function simulateRewardRequest({ accepted, callbackResults = [], watchdog = fals
         inFlight = false;
         resultCount += 1;
         if (result?.success === true) {
-            unlocked = true;
+            if (unlocked) gold += 1;
+            else unlocked = true;
             rewardCount += 1;
         }
     };
@@ -113,7 +128,7 @@ function simulateRewardRequest({ accepted, callbackResults = [], watchdog = fals
     for (const result of callbackResults) finish(result);
     if (accepted === false && inFlight) finish({ success: false, msg: "广告暂不可用" });
     if (watchdog && inFlight) finish({ success: false, msg: "广告响应超时" });
-    return { inFlight, unlocked, rewardCount, resultCount };
+    return { inFlight, unlocked, gold, rewardCount, resultCount };
 }
 
 check(simulateRewardRequest({ accepted: true, callbackResults: [{ success: true }] }).unlocked,
@@ -122,6 +137,18 @@ check(!simulateRewardRequest({ accepted: true, callbackResults: [{ success: fals
     "success=false 错误解锁了使用回城卷轴");
 check(!simulateRewardRequest({ accepted: false }).unlocked,
     "请求未受理且无回调时错误解锁了使用回城卷轴");
+check(simulateRewardRequest({
+    accepted: true,
+    unlockedBefore: true,
+    callbackResults: [{ success: true }],
+}).gold === 1,
+    "已解锁后再次完整观看广告没有获得 1 枚金币");
+check(simulateRewardRequest({
+    accepted: true,
+    unlockedBefore: false,
+    callbackResults: [{ success: true }],
+}).gold === 0,
+    "首次完整观看广告不应同时发放重复金币奖励");
 check(simulateRewardRequest({ accepted: true, watchdog: true }).resultCount === 1,
     "无回调 watchdog 没有结束广告请求");
 const duplicate = simulateRewardRequest({

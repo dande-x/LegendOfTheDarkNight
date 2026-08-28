@@ -60,6 +60,9 @@ local NVG_ALIGN_BOTTOM = 32
 local NVG_CW  = 1
 local NVG_CCW = 2
 
+-- 药瓶组左端（NanoVG 720 高设计单位）。向右留出经验百分比文字的安全间距。
+local POTION_LEFT_FROM_ORB = 72 + 52 + 28
+
 -- ============================================================================
 -- NanoVG 状态
 -- ============================================================================
@@ -177,7 +180,7 @@ local uiState = {
 
 GameUI.state = uiState
 
--- 装备栏隐藏调试：同一角色面板内连续点击鞋子槽五次才触发。
+-- 装备栏隐藏调试：同一角色面板内连续点击鞋子槽正好十二次才触发。
 -- 鞋子已装备时，第一次点击不能立即打开详情，否则详情浮层会拦截后续
 -- 点击。先保留一个很短的单击等待窗口：继续快速点击则触发 Debug，
 -- 没有继续点击时再回放正常的装备详情行为。
@@ -221,8 +224,8 @@ function GameUI._HandleEquipmentSlotClick(slotKey, onSingleClick)
         and type(onSingleClick) == "function" then
         equipmentSlotDebugState.pendingDetail = onSingleClick
     end
-    if equipmentSlotDebugState.clickCount < 5 then
-        -- 消费鞋子点击，避免已装备鞋子的详情浮层在五连击前抢走输入。
+    if equipmentSlotDebugState.clickCount < 12 then
+        -- 消费鞋子点击，避免已装备鞋子的详情浮层在十二连击前抢走输入。
         return true
     end
 
@@ -1131,7 +1134,7 @@ function GameUI._DrawPotionCD(ctx, sw, sh)
     -- UI base pixels → NanoVG logical pixels，需要乘 UI scale / DPR。
     local btnSize = math.max(30 * toRaw, 38 * scale)  -- 匹配 potionSize (含下限)
     local gap = math.max(4 * toRaw, 6 * scale)
-    local baseLeft = (72 + 52 + 10) * scale
+    local baseLeft = POTION_LEFT_FROM_ORB * scale
     -- 球心距底 = 105*scale, 药瓶垂直居中于球心
     local baseBottom = 105 * scale - btnSize / 2
 
@@ -4178,7 +4181,7 @@ function GameUI._CreatePotions(player)
     local potionSize = math.floor(math.max(30, 38 * toUI))
     local innerSize = math.floor(potionSize * 0.74)
     local labelH = math.floor(math.max(14, 16 * toUI))
-    local potionLeft = math.floor((72 + 52 + 10) * toUI)     -- 球右边缘 + 间距
+    local potionLeft = math.floor(POTION_LEFT_FROM_ORB * toUI)
     local potionBottom = math.floor(105 * toUI - potionSize / 2 - labelH * 0.55)  -- 图标垂直居中于球心，数字在下方
     local potionGap = math.floor(math.max(4, 6 * toUI))
     local potionFontSize = math.max(11, math.floor(12 * toUI))
@@ -5190,6 +5193,11 @@ function GameUI.RefreshReturnScrollAccess()
     local unlocked = GameUI.IsReturnScrollUnlocked()
     local button = uiState.refs.returnScrollButton
     local status = uiState.refs.returnScrollStatus
+    local panel = uiState.refs.returnScrollPanel
+    -- 解锁前不占用系统菜单布局，也不留下可点击的“使用回城卷轴”入口。
+    if panel then
+        panel:SetVisible(unlocked)
+    end
     if button then
         button:SetText("使用回城卷轴")
         local backgroundColor = unlocked
@@ -5259,6 +5267,7 @@ function GameUI.ShowSystemPanel()
 
     uiState.refs.returnScrollButton = nil
     uiState.refs.returnScrollStatus = nil
+    uiState.refs.returnScrollPanel = nil
 
     local returnScrollUnlocked = GameUI.IsReturnScrollUnlocked()
     local returnScrollStatus = UI.Label {
@@ -5299,6 +5308,8 @@ function GameUI.ShowSystemPanel()
     uiState.refs.returnScrollStatus = returnScrollStatus
     local returnScrollPanel = UI.Panel {
         width = "100%",
+        -- 未完成首次广告前隐藏整个服务卡片；系统菜单只保留“鼓励作者”。
+        visible = returnScrollUnlocked,
         backgroundColor = {28, 28, 26, 180},
         borderRadius = 6, borderWidth = 1,
         borderColor = {92, 88, 70, 150},
@@ -5311,6 +5322,7 @@ function GameUI.ShowSystemPanel()
             returnScrollButton,
         },
     }
+    uiState.refs.returnScrollPanel = returnScrollPanel
 
     local systemContent = {
         UI.Panel {
@@ -5473,6 +5485,10 @@ function GameUI.HideSystemPanel()
     uiState.systemPanelOpen = false
     _SyncPauseState()
     uiState.systemPanelRoot = nil
+    -- 清掉已卸载的入口引用，避免广告迟到回调更新失效的旧控件。
+    uiState.refs.returnScrollButton = nil
+    uiState.refs.returnScrollStatus = nil
+    uiState.refs.returnScrollPanel = nil
     if uiState.hudRoot then
         UI.SetRoot(uiState.hudRoot)
     end
@@ -6023,7 +6039,7 @@ GameUI.onTeleportSelected = nil
 GameUI.onNPCInteract = nil
 GameUI.onDebugLevelChange = nil  -- function(delta) : +1 升级, -1 降级
 GameUI.onDebugMaxLevel = nil     -- function() : 一键满级+技能栏填充
-GameUI.onDebugBootsSlotActivated = nil -- function() : 鞋子槽五连击调试入口
+GameUI.onDebugBootsSlotActivated = nil -- function() : 鞋子槽十二连击调试入口
 
 -- ============================================================================
 -- 清理
