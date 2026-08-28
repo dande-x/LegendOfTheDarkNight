@@ -22,16 +22,16 @@
   "assets": {
     "icon": "./game_material/ICON_2026-08-28T02-53-21_01.png",
     "screenshots": [
-      "./game_material/screenshot_1.png",
-      "./game_material/SCREENSHOT_2026-08-28T07-29-33_02.png",
-      "./game_material/SCREENSHOT_2026-08-28T04-07-52_03.png"
+      "./game_material/SCREENSHOT_2026-08-28T08-13-36_01.png",
+      "./game_material/SCREENSHOT_2026-08-28T08-13-36_02.png",
+      "./game_material/SCREENSHOT_2026-08-28T08-13-36_03.png"
     ],
     "promotional_image": "./game_material/PROMO_2026-08-28T02-53-21_01.jpg",
     "icon_url": "https://tapcode-sce.spark.xd.com/assets/game_material/暗夜传奇/ICON_2026-08-28T02-53-21_01.png",
     "screenshot_urls": [
-      "https://tapcode-sce.spark.xd.com/assets/game_material/p_538d/screenshot_1.png",
-      "https://tapcode-sce.spark.xd.com/assets/game_material/暗夜传奇/SCREENSHOT_2026-08-28T07-29-33_02.png",
-      "https://tapcode-sce.spark.xd.com/assets/game_material/p_538d/SCREENSHOT_2026-08-28T04-07-52_03.png"
+      "https://tapcode-sce.spark.xd.com/assets/game_material/暗夜传奇/SCREENSHOT_2026-08-28T08-13-36_01.png",
+      "https://tapcode-sce.spark.xd.com/assets/game_material/暗夜传奇/SCREENSHOT_2026-08-28T08-13-36_02.png",
+      "https://tapcode-sce.spark.xd.com/assets/game_material/暗夜传奇/SCREENSHOT_2026-08-28T08-13-36_03.png"
     ],
     "promotional_image_url": "https://tapcode-sce.spark.xd.com/assets/game_material/暗夜传奇/PROMO_2026-08-28T02-53-21_01.jpg",
     "cover_horizontal": "./game_material/COVER_HORIZONTAL_2026-08-28T02-55-06_01.png",
