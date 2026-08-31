@@ -1385,8 +1385,18 @@ function CreateMapDecorations(mapId, mapDef)
         local palaceRight = CreateMapModel("ShabakPalace_Right", "Models/Box.mdl",
             Vector3(13, 2.4, 24), Vector3(3.0, 4.8, 13.0), wallMat, "box")
         palaceRight.rotation = Quaternion(4, Vector3.UP)
-        CreateMapModel("ShabakPalace_Back", "Models/Box.mdl",
-            Vector3(0, 2.4, 32), Vector3(26.0, 4.8, 2.2), wallMat, "box")
+        -- 皇宫北墙保留中央通道：整块横墙会把“皇宫封印 → 王座”
+        -- 的必经路线封死，因此拆成左右墙段，并把中央宫门单独建模。
+        -- 封印完成后由 ShabakRuntime 移除宫门碰撞，形成明确的攻入王座反馈。
+        CreateMapModel("ShabakPalace_Back_L", "Models/Box.mdl",
+            Vector3(-8.5, 2.4, 32), Vector3(9.0, 4.8, 2.2), wallMat, "box")
+        CreateMapModel("ShabakPalace_Back_R", "Models/Box.mdl",
+            Vector3(8.5, 2.4, 32), Vector3(9.0, 4.8, 2.2), wallMat, "box")
+        local palaceGate = CreateMapModel("ShabakPalace_Gate", "Models/Box.mdl",
+            Vector3(0, 2.4, 32), Vector3(8.0, 4.8, 2.2), gateMat, "box")
+        palaceGate:SetVar("siegeObjective", Variant("palace_seal"))
+        CreateMapModel("ShabakPalace_GateTop", "Models/Box.mdl",
+            Vector3(0, 4.9, 32), Vector3(8.4, 0.55, 2.45), wallTopMat, nil)
         local seal = CreateMapModel("ShabakSeal_palace_seal", "Models/Torus.mdl",
             Vector3(0, 0.16, 28), Vector3(4.2, 0.12, 4.2), sealMat, nil)
         seal:SetVar("siegeObjective", Variant("palace_seal"))

@@ -858,6 +858,10 @@ function Runtime:_SyncObjectiveVisuals()
             if objectiveId == "palace_seal" then
                 SafeRemove(self.scene:GetChild("ShabakSeal_palace_seal", true))
                 SafeRemove(self.scene:GetChild("ShabakSeal_Core", true))
+                -- 封印破碎后打开皇宫中央宫门；若只移除封印特效而保留
+                -- 门板碰撞，玩家会被挡在王座区外，坚守阶段永远无法开始。
+                SafeRemove(self.scene:GetChild("ShabakPalace_Gate", true))
+                SafeRemove(self.scene:GetChild("ShabakPalace_GateTop", true))
             end
             self.visualState[objectiveId] = true
         end
