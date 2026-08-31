@@ -118,6 +118,34 @@ MapZone.DEFS = {
             { name = "深渊王座", x = 30, z = 26 },
         },
     },
+    map_sb = {
+        name = "沙巴克城",
+        minLevel = 50,
+        -- 这是一次性攻城实例，不参与普通地图的等级封顶；守军由
+        -- ShabakSiege 按玩家当前等级动态生成。
+        maxLevel = nil,
+        groundColor = Color(0.12, 0.10, 0.095, 1.0),
+        fogColor = Color(0.20, 0.18, 0.22, 1.0),
+        spawnPool = {},
+        boss = nil,
+        spawnPos = Vector3(0, 0, -50),
+        safeZoneRadius = 6,
+        -- 沙巴克是主线完成后的重复挑战，入口免费；失败返场也不引入
+        -- 传送税，避免挑战次数被金币门槛限制。
+        teleportCost = 0,
+        mapColor = { 52, 35, 42, 250 },
+        siegeOnly = true,
+        naturalSpawns = false,
+        normalNpcServices = false,
+        landmarks = {
+            { id = "south_gate", name = "南门", x = 0, z = -38 },
+            { id = "east_flag", name = "东街战旗", x = 25, z = -17 },
+            { id = "west_flag", name = "西街战旗", x = -25, z = -17 },
+            { id = "inner_flag", name = "内城战旗", x = 0, z = 4 },
+            { id = "palace_seal", name = "皇宫封印", x = 0, z = 28 },
+            { id = "throne", name = "城主王座", x = 0, z = 38 },
+        },
+    },
 }
 
 local currentMapId = "map_bq"
@@ -139,6 +167,12 @@ end
 ---@return table {initialCount:number,maxEnemies:number,interval:number}
 function MapZone.GetSpawnSettings(mapId)
     local mapDef = MapZone.GetDef(mapId)
+    -- 沙巴克是运行时自行分批生成三职业守军的攻城实例，不应在这里
+    -- 增加一份普通地图刷怪配置。这样既明确禁止自然刷怪，也保留原有
+    -- 五张常规地图各自独立的 spawnSettings 契约。
+    if mapDef and mapDef.naturalSpawns == false then
+        return { initialCount = 0, maxEnemies = 0, interval = 999999 }
+    end
     local settings = mapDef and mapDef.spawnSettings or nil
     return {
         initialCount = settings and settings.initialCount or 10,

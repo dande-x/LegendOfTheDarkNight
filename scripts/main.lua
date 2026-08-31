@@ -25,6 +25,18 @@ local NPC = require("NPC")
 local DivineBeast = require("scripts.DivineBeast")
 local SoundManager = require("scripts.SoundManager")
 local PlatformLeaderboard = require("scripts.PlatformLeaderboard")
+local ShabakSiege = require("ShabakSiege")
+-- 沙巴克的角色模型/AI 运行时是可选适配层。主流程先按契约接入，避免在
+-- 运行时模块尚未同步到资源树时把普通地图和存档入口一并阻断。
+local ShabakRuntime = nil
+do
+    local ok, loaded = pcall(require, "ShabakRuntime")
+    if ok and type(loaded) == "table" then
+        ShabakRuntime = loaded
+    else
+        print("[main] ShabakRuntime unavailable; siege entry will remain locked")
+    end
+end
 require "urhox-libs.UI.GameHUD"
 
 -- ============================================================================
@@ -37,6 +49,69 @@ local cameraNode_ = nil
 ---@type Node
 local playerNode_ = nil
 local player_ = nil
+
+-- 沙巴克是一次性实例，不把中途状态混入普通地图/存档生命周期。
+---@type table|nil
+local shabakSession_ = nil
+---@type table|nil
+local shabakRuntime_ = nil
+local shabakEntryMapId_ = nil
+local shabakPendingDefeat_ = false
+local shabakResultShown_ = false
+local shabakPendingResult_ = nil
+local shabakPendingReason_ = nil
+
+local StartShabakSiege
+local FinishShabakSiege
+local AbortShabakSiege
+local DestroyShabakRuntime
+
+local function IsShabakMap(mapId)
+    return mapId == ShabakSiege.MAP_ID
+end
+
+local function IsShabakActive()
+    return shabakSession_ ~= nil and type(shabakSession_.IsActive) == "function"
+        and shabakSession_:IsActive()
+end
+
+-- 兼容 runtime 以对象方法或模块函数导出的两种写法。对象方法优先，
+-- 模块函数作为旧资源树/热更新期间的回退；异常只记录，不让主循环崩溃。
+local function CallShabakRuntime(methodNames, ...)
+    if type(methodNames) == "string" then methodNames = { methodNames } end
+    local targets = {}
+    if shabakRuntime_ then targets[#targets + 1] = shabakRuntime_ end
+    if ShabakRuntime and ShabakRuntime ~= shabakRuntime_ then
+        targets[#targets + 1] = ShabakRuntime
+    end
+    for _, target in ipairs(targets) do
+        for _, methodName in ipairs(methodNames or {}) do
+            local okLookup, fn = pcall(function() return target[methodName] end)
+            if okLookup and type(fn) == "function" then
+                local ok, a, b, c, d = pcall(fn, target, ...)
+                if ok then return a, b, c, d end
+                print("[main] ShabakRuntime." .. tostring(methodName)
+                    .. " failed: " .. tostring(a))
+            end
+        end
+    end
+    return nil
+end
+
+local function CallShabakModule(methodNames, ...)
+    if not ShabakRuntime then return nil end
+    if type(methodNames) == "string" then methodNames = { methodNames } end
+    for _, methodName in ipairs(methodNames or {}) do
+        local okLookup, fn = pcall(function() return ShabakRuntime[methodName] end)
+        if okLookup and type(fn) == "function" then
+            local ok, a, b, c, d = pcall(fn, ...)
+            if ok then return a, b, c, d end
+            print("[main] ShabakRuntime module " .. tostring(methodName)
+                .. " failed: " .. tostring(a))
+        end
+    end
+    return nil
+end
 
 local C = CharacterClass.Colors
 
@@ -284,6 +359,9 @@ end
 
 function Stop()
     GameUI.ClearHeldSkill()
+    if IsShabakActive() or IsShabakMap(Combat.currentMapId) then
+        AbortShabakSiege(ShabakSiege.RESULT_REASON.INTERRUPTED)
+    end
     -- 退出前先把当前运行时状态落到本地，并发起一次 best-effort 云同步。
     -- 云端请求未必能在进程结束前完成，但本地存档会保留，下一次启动时
     -- 仍会继续上传，因此不会因退出时网络抖动丢失最近进度。
@@ -304,7 +382,12 @@ end
 ---@param eventData table|nil
 function HandleAppWillEnterBackground(eventType, eventData)
     GameUI.ClearHeldSkill()
-    SaveCurrentGame(true)
+    if IsShabakActive() or IsShabakMap(Combat.currentMapId) then
+        -- 不保存攻城中途状态；让会话在后台边界中止并回到可保存地图。
+        AbortShabakSiege(ShabakSiege.RESULT_REASON.INTERRUPTED)
+    else
+        SaveCurrentGame(true)
+    end
     SoundManager.FlushSettings()
 end
 
@@ -313,7 +396,11 @@ end
 ---@param eventData table|nil
 function HandleAppTerminating(eventType, eventData)
     GameUI.ClearHeldSkill()
-    SaveCurrentGame(true)
+    if IsShabakActive() or IsShabakMap(Combat.currentMapId) then
+        AbortShabakSiege(ShabakSiege.RESULT_REASON.INTERRUPTED)
+    else
+        SaveCurrentGame(true)
+    end
     SoundManager.FlushSettings()
 end
 
@@ -372,6 +459,7 @@ function CreateFloor(groundColor)
         map_sc = 7331,
         map_wm = 7349,
         map_zm = 7367,
+        map_sb = 7393,
     }
     math.randomseed(floorSeeds[floorMapId] or 7301)
 
@@ -521,6 +609,11 @@ function CreateFloor(groundColor)
             Vector3(-7, 0, 8), Vector3(0, 0, 0), Vector3(14, 0, -9),
             Vector3(27, 0, -4), Vector3(39, 0, -20), Vector3(48, 0, -34),
         },
+        map_sb = {
+            Vector3(0, 0, -50), Vector3(0, 0, -38), Vector3(0, 0, -24),
+            Vector3(0, 0, -8), Vector3(0, 0, 10), Vector3(0, 0, 27),
+            Vector3(0, 0, 38),
+        },
     }
     local path = paths[floorMapId] or paths.map_bq
     for i = 1, #path - 1 do
@@ -552,6 +645,7 @@ function CreateFloor(groundColor)
         map_sc = Vector3(19, 0, -16),
         map_wm = Vector3(-20, 0, -3),
         map_zm = Vector3(18, 0, 18),
+        map_sb = Vector3(0, 0, 18),
     }
     local scorchCenter = scorchCenters[floorMapId] or scorchCenters.map_bq
     for i = 1, 7 do
@@ -617,6 +711,7 @@ function CreateSceneDecorations(mapId)
         map_sc = 9151,
         map_wm = 9173,
         map_zm = 9199,
+        map_sb = 9221,
     }
     math.randomseed(decorSeeds[mapId] or 9107)
     local isBiqi = mapId == nil or mapId == "map_bq"
@@ -774,6 +869,10 @@ function CreateSceneDecorations(mapId)
             Vector3(-42, 0, -30), Vector3(-32, 0, 16), Vector3(-20, 0, -38), Vector3(18, 0, 36),
             Vector3(34, 0, 18), Vector3(42, 0, -22), Vector3(-40, 0, 35), Vector3(28, 0, -42),
         },
+        -- 沙巴克是按固定路线进行的攻城实例。这里明确使用空表，
+        -- 不能回退到比奇省的随机岩石群，否则岩石碰撞会堵住
+        -- 南门、战旗和皇宫封印之间的必经通道。
+        map_sb = {},
     }
     local rockClusters = rockClustersByMap[mapId or "map_bq"] or rockClustersByMap.map_bq
     for i, pos in ipairs(rockClusters) do
@@ -1206,6 +1305,121 @@ function CreateMapDecorations(mapId, mapDef)
         end
         CreateMapModel("WomarGateDarkness", "Models/Box.mdl", Vector3(30, 1.65, -27.55),
             Vector3(3.2, 3.3, 0.08), solid(Color(0.025, 0.02, 0.035, 1.0), 1.0), nil)
+    elseif mapId == "map_sb" then
+        -- 沙巴克城：由南门、东西街、内城和皇宫组成一条清晰的攻城路线。
+        -- 这里仅创建静态场景几何；城门/战旗/封印的可交互状态由
+        -- ShabakRuntime + ShabakSiege 会话维护，避免装饰节点承载存档状态。
+        local wallMat = solid(Color(0.20, 0.18, 0.19, 1.0), 0.88, nil, 0.15)
+        local wallTopMat = solid(Color(0.31, 0.27, 0.25, 1.0), 0.78, nil, 0.20)
+        local gateMat = solid(Color(0.18, 0.105, 0.055, 1.0), 0.82, nil, 0.08)
+        local ironMat = solid(Color(0.08, 0.085, 0.10, 1.0), 0.48, nil, 0.68)
+        local redFlagMat = solid(Color(0.60, 0.055, 0.045, 1.0), 0.72,
+            Color(0.34, 0.015, 0.008, 1.0))
+        local blueFlagMat = solid(Color(0.05, 0.20, 0.62, 1.0), 0.72,
+            Color(0.02, 0.08, 0.32, 1.0))
+        local sealMat = transparent(Color(0.52, 0.16, 0.72, 0.55), 0.22,
+            Color(1.05, 0.22, 1.35, 1.0))
+        local goldMat = solid(Color(0.66, 0.40, 0.10, 1.0), 0.40,
+            Color(0.34, 0.16, 0.02, 1.0), 0.55)
+        local fireMat = solid(Color(1.0, 0.34, 0.06, 1.0), 0.18,
+            Color(3.0, 0.60, 0.08, 1.0))
+
+        -- 外城墙：两侧纵墙 + 北侧皇宫墙，南门中央保留可见缺口。
+        local outerWalls = {
+            { "L", -46, 0.0, 6.0, 3.8, 92, 0 },
+            { "R",  46, 0.0, 6.0, 3.8, 92, 0 },
+            { "N",   0, 44.0, 92, 3.8, 6.0, 0 },
+            { "SW", -25, -44.0, 34, 3.2, 5.0, 0 },
+            { "SE",  25, -44.0, 34, 3.2, 5.0, 0 },
+        }
+        for _, data in ipairs(outerWalls) do
+            local wall = CreateMapModel("ShabakWall_" .. data[1], "Models/Box.mdl",
+                Vector3(data[2], data[4] * 0.5, data[3]),
+                Vector3(data[5], data[4], data[6]), wallMat, "box")
+            wall.rotation = Quaternion(data[7], Vector3.UP)
+            local crenel = CreateMapModel("ShabakWall_" .. data[1] .. "_Crown",
+                "Models/Box.mdl", Vector3(data[2], data[4] + 0.25, data[3]),
+                Vector3(data[5] * 0.92, 0.42, data[6] * 0.88), wallTopMat, nil)
+            crenel.rotation = Quaternion(data[7], Vector3.UP)
+        end
+
+        -- 南门门楼与可破坏门板。门板保持独立节点，运行时可在 0 HP 时隐藏。
+        for side = -1, 1, 2 do
+            CreateMapModel("ShabakGateTower_" .. tostring(side), "Models/Box.mdl",
+                Vector3(side * 8.0, 3.0, -38), Vector3(5.0, 6.0, 7.0),
+                wallMat, "box")
+            CreateMapModel("ShabakGateTowerTop_" .. tostring(side), "Models/Box.mdl",
+                Vector3(side * 8.0, 6.3, -38), Vector3(5.5, 0.55, 7.5),
+                wallTopMat, nil)
+        end
+        local gate = CreateMapModel("ShabakGate", "Models/Box.mdl",
+            Vector3(0, 2.05, -38), Vector3(10.0, 4.1, 0.72), gateMat, "box")
+        gate:SetVar("siegeObjective", Variant("south_gate"))
+        for i = -4, 4 do
+            local bar = CreateMapModel("ShabakGateBar_" .. tostring(i), "Models/Box.mdl",
+                Vector3(i * 1.05, 2.05, -37.55), Vector3(0.13, 4.0, 0.18),
+                ironMat, nil)
+            bar.rotation = Quaternion(2.0, Vector3.UP)
+        end
+
+        -- 东西街战旗与内城战旗：旗杆 + 旗面使用不同颜色，便于玩家在俯视角下识别。
+        local function CreateSiegeFlag(id, position, material)
+            local pole = CreateMapModel("ShabakFlagPole_" .. id, "Models/Cylinder.mdl",
+                Vector3(position.x, 1.45, position.z), Vector3(0.14, 2.9, 0.14),
+                ironMat, "cylinder")
+            pole:SetVar("siegeObjective", Variant(id))
+            local cloth = CreateMapModel("ShabakFlag_" .. id, "Models/Box.mdl",
+                Vector3(position.x + 1.05, 2.25, position.z), Vector3(2.1, 0.92, 0.08),
+                material, nil)
+            cloth:SetVar("siegeObjective", Variant(id))
+            return pole, cloth
+        end
+        CreateSiegeFlag("east_flag", Vector3(25, 0, -17), redFlagMat)
+        CreateSiegeFlag("west_flag", Vector3(-25, 0, -17), blueFlagMat)
+        CreateSiegeFlag("inner_flag", Vector3(0, 0, 4), goldMat)
+
+        -- 皇宫封印：双柱、封印盘与门墙，给“破封”目标一个明确的可视焦点。
+        local palaceLeft = CreateMapModel("ShabakPalace_Left", "Models/Box.mdl",
+            Vector3(-13, 2.4, 24), Vector3(3.0, 4.8, 13.0), wallMat, "box")
+        palaceLeft.rotation = Quaternion(-4, Vector3.UP)
+        local palaceRight = CreateMapModel("ShabakPalace_Right", "Models/Box.mdl",
+            Vector3(13, 2.4, 24), Vector3(3.0, 4.8, 13.0), wallMat, "box")
+        palaceRight.rotation = Quaternion(4, Vector3.UP)
+        CreateMapModel("ShabakPalace_Back", "Models/Box.mdl",
+            Vector3(0, 2.4, 32), Vector3(26.0, 4.8, 2.2), wallMat, "box")
+        local seal = CreateMapModel("ShabakSeal_palace_seal", "Models/Torus.mdl",
+            Vector3(0, 0.16, 28), Vector3(4.2, 0.12, 4.2), sealMat, nil)
+        seal:SetVar("siegeObjective", Variant("palace_seal"))
+        local sealCore = CreateMapModel("ShabakSeal_Core", "Models/Sphere.mdl",
+            Vector3(0, 0.22, 28), Vector3(1.0, 0.14, 1.0), sealMat, nil)
+        sealCore:SetVar("siegeObjective", Variant("palace_seal"))
+
+        -- 王座和四角火盆构成最终坚守区；不在王座模型上放刚体，避免玩家读条时卡位。
+        CreateMapModel("ShabakThrone_Base", "Models/Box.mdl",
+            Vector3(0, 0.38, 38), Vector3(8.0, 0.76, 6.0), goldMat, nil)
+        CreateMapModel("ShabakThrone_Back", "Models/Box.mdl",
+            Vector3(0, 2.2, 40.4), Vector3(5.8, 4.4, 0.75), wallTopMat, nil)
+        for side = -1, 1, 2 do
+            CreateMapModel("ShabakThrone_Arm_" .. tostring(side), "Models/Box.mdl",
+                Vector3(side * 2.75, 1.3, 38), Vector3(0.72, 2.2, 4.6), goldMat, nil)
+        end
+        local brazierPositions = {
+            Vector3(-9, 0, 27), Vector3(9, 0, 27), Vector3(-9, 0, 39), Vector3(9, 0, 39),
+        }
+        for index, pos in ipairs(brazierPositions) do
+            CreateMapModel("ShabakBrazier_" .. index, "Models/Cylinder.mdl",
+                Vector3(pos.x, 0.55, pos.z), Vector3(0.62, 1.1, 0.62), ironMat, "cylinder")
+            CreateMapModel("ShabakBrazier_Flame_" .. index, "Models/Cone.mdl",
+                Vector3(pos.x, 1.35, pos.z), Vector3(0.34, 0.68, 0.34), fireMat, nil)
+            local lightNode = scene_:CreateChild("ShabakBrazierLight_" .. index)
+            lightNode.position = Vector3(pos.x, 1.2, pos.z)
+            local light = lightNode:CreateComponent("Light")
+            light.lightType = LIGHT_POINT
+            light.color = Color(1.0, 0.28, 0.08, 1.0)
+            light.range = 8.0
+            light.brightness = 3.6
+            light.castShadows = false
+        end
     elseif mapId == "map_zm" then
         -- 火龙魔窟：真正自发光的岩浆池、裂隙和带碰撞的熔岩石。
         -- 火龙王遭遇中心必须保持净空，避免动态刚体出生后被场景碰撞夹住。
@@ -1734,6 +1948,15 @@ function LoadFromSave(saveData)
 
     -- 载入另一个角色时先结束旧会话，避免单例神兽、旧敌人和旧玩家节点
     -- 泄漏到新角色；随后只恢复击杀数，神兽从未召唤的 Lv.1 状态开始。
+    if shabakRuntime_ then DestroyShabakRuntime("load_save") end
+    shabakRuntime_ = nil
+    shabakSession_ = nil
+    shabakEntryMapId_ = nil
+    shabakPendingDefeat_ = false
+    shabakResultShown_ = false
+    shabakPendingResult_ = nil
+    shabakPendingReason_ = nil
+    Combat.SetExternalCombatMode(false)
     Combat.Clear(true, true)
     pendingQuestActivation = false
     pendingQuestPresentation = nil
@@ -1784,6 +2007,12 @@ function LoadFromSave(saveData)
     local mapId = type(saveData.mapId) == "string" and saveData.mapId or "map_bq"
     if not MapZone.GetDef(mapId) then
         print("[main] Unknown saved map " .. tostring(mapId) .. ", fallback to map_bq")
+        mapId = "map_bq"
+    end
+    -- 旧版本可能在攻城中途写入了 map_sb；该实例不支持断点续战，
+    -- 读档一律回到可保存的普通地图，荣誉字段仍按槽位正常恢复。
+    if IsShabakMap(mapId) then
+        print("[main] Saved Shabak instance has no resume state; fallback to map_bq")
         mapId = "map_bq"
     end
     Combat.SetMap(mapId)
@@ -1869,6 +2098,12 @@ end
 ---@param skipLeaderboard boolean|nil 退出/后台保存时跳过额外的排行榜写入
 function SaveCurrentGame(skipLeaderboard)
     if not player_ or not currentSlotIndex then return false end
+    -- 沙巴克会话是临时实例；任何死亡/后台/退出边界都不得把 map_sb 或
+    -- 未完成的守军/占领进度写进普通角色存档。
+    if IsShabakActive() or IsShabakMap(Combat.currentMapId) then
+        print("[main] Skip saving during Shabak siege")
+        return false
+    end
     if isDead or (tonumber(player_.hp) or 0) <= 0 then
         print("[main] Skip saving while player is dead")
         return false
@@ -1886,6 +2121,173 @@ function SaveCurrentGame(skipLeaderboard)
         print("[main] Auto-saved to slot " .. currentSlotIndex)
     end
     return ok
+end
+
+-- ============================================================================
+-- 沙巴克攻城宿主适配
+-- ============================================================================
+
+local function GetShabakQuestState()
+    if type(Quest.GetState) == "function" then return Quest.GetState() end
+    return { finished = type(Quest.IsFinished) == "function" and Quest.IsFinished() }
+end
+
+local function GetShabakObjectivePosition(objectiveId)
+    local contract = type(ShabakSiege.GetMapContract) == "function"
+        and ShabakSiege.GetMapContract() or nil
+    for _, landmark in ipairs(contract and contract.landmarks or {}) do
+        if landmark.id == objectiveId then
+            return Vector3(tonumber(landmark.x) or 0, tonumber(landmark.y) or 0,
+                tonumber(landmark.z) or 0)
+        end
+    end
+    return nil
+end
+
+local function GetShabakRallyPosition(rallyPoint)
+    local runtimePosition = CallShabakRuntime(
+        { "GetRallyPosition", "GetRallyPointPosition", "ResolveRallyPosition" },
+        rallyPoint, playerNode_, player_, shabakSession_)
+    if runtimePosition and runtimePosition.x and runtimePosition.z then
+        return runtimePosition
+    end
+    local aliases = {
+        entry = "south_gate",
+        palace_gate = "palace_seal",
+    }
+    local objectiveId = aliases[rallyPoint] or rallyPoint
+    return GetShabakObjectivePosition(objectiveId)
+        or (MapZone.GetDef(ShabakSiege.MAP_ID)
+            and MapZone.GetDef(ShabakSiege.MAP_ID).spawnPos)
+        or Vector3.ZERO
+end
+
+local function UpdateShabakHUD()
+    if not shabakSession_ then return end
+    local snapshot = type(shabakSession_.GetSnapshot) == "function"
+        and shabakSession_:GetSnapshot() or nil
+    if type(GameUI.UpdateSiegeHUD) == "function" then
+        pcall(GameUI.UpdateSiegeHUD, snapshot, shabakRuntime_, player_)
+    elseif type(GameUI.SetSiegeHUDState) == "function" then
+        pcall(GameUI.SetSiegeHUDState, snapshot, shabakRuntime_, player_)
+    end
+end
+
+local function HideShabakHUD()
+    if type(GameUI.HideSiegeHUD) == "function" then
+        pcall(GameUI.HideSiegeHUD)
+    elseif type(GameUI.SetSiegeHUDState) == "function" then
+        pcall(GameUI.SetSiegeHUDState, nil)
+    end
+end
+
+local function ApplyShabakSupplyEvent(event)
+    if not player_ or type(event) ~= "table" then return end
+    local hpRatio = math.max(0, math.min(1, tonumber(event.hpRatio) or 0))
+    local mpRatio = math.max(0, math.min(1, tonumber(event.mpRatio) or hpRatio))
+    local hpAmount = math.max(0, math.floor((tonumber(player_.maxHP) or 0) * hpRatio + 0.5))
+    local mpAmount = math.max(0, math.floor((tonumber(player_.maxMP) or 0) * mpRatio + 0.5))
+    local oldHP, oldMP = player_.hp, player_.mp
+    player_.hp = math.min(player_.maxHP or player_.hp, (player_.hp or 0) + hpAmount)
+    player_.mp = math.min(player_.maxMP or player_.mp, (player_.mp or 0) + mpAmount)
+    local healed = (player_.hp or 0) - (oldHP or 0)
+    local restored = (player_.mp or 0) - (oldMP or 0)
+    if healed > 0 or restored > 0 then
+        GameUI.AddFloatingText("补给 +" .. tostring(math.floor(healed)) .. " HP",
+            playerNode_ and playerNode_.position or Vector3.ZERO,
+            {120, 230, 150, 255})
+    end
+end
+
+local function HandleShabakEvent(event)
+    if type(event) ~= "table" then return end
+    -- Session 既可通过 onEvent 直接派发，也会在 Update 后由宿主 Drain；
+    -- 标记已处理事件，避免相同 table 被提示两次并重复结算补给。
+    if event._shabakHandled then return end
+    event._shabakHandled = true
+    local eventType = event.type or event.event
+    if eventType == "phase_changed" then
+        local phaseNames = {
+            south_gate = "南门突破",
+            flags = "东西街夺旗",
+            street_flags = "东西街夺旗",
+            inner_flag = "内城夺旗",
+            palace_seal = "击碎皇宫封印",
+            throne = "占领城主王座",
+            throne_defense = "王座坚守",
+        }
+        if phaseNames[event.phase] then
+            GameUI.ShowToast("攻城阶段：" .. phaseNames[event.phase], 2.2)
+        end
+    elseif eventType == "field_supply_claimed" then
+        ApplyShabakSupplyEvent(event)
+        GameUI.ShowToast("前线补给已领取", 1.8)
+    elseif eventType == "field_medkit_used" then
+        GameUI.ShowToast("临时急救药已使用，剩余 " .. tostring(event.remaining or 0), 1.6)
+    elseif eventType == "companion_down" then
+        GameUI.ShowToast("支援队友倒下，推进到下一集结点后可复起", 2.2)
+    elseif eventType == "companions_revived" then
+        GameUI.ShowToast("队友已在集结点复起", 1.8)
+    elseif eventType == "player_down" then
+        shabakPendingDefeat_ = false
+        GameUI.ShowToast("你倒下了，剩余命数：" .. tostring(event.livesRemaining or 0), 2.0)
+    elseif eventType == "siege_victory" then
+        shabakPendingResult_ = "victory"
+        shabakPendingReason_ = nil
+        GameUI.ShowToast("攻城成功：你成为沙巴克城主！", 3.5)
+    elseif eventType == "siege_defeat" or eventType == "siege_aborted" then
+        shabakPendingResult_ = "defeat"
+        shabakPendingReason_ = event.reason or "战斗结束"
+        GameUI.ShowToast("攻城失败：" .. tostring(shabakPendingReason_), 2.8)
+    end
+    UpdateShabakHUD()
+end
+
+local function DrainShabakEvents(events)
+    if type(events) ~= "table" then return end
+    if events.type then
+        HandleShabakEvent(events)
+        return
+    end
+    for _, event in ipairs(events) do HandleShabakEvent(event) end
+end
+
+DestroyShabakRuntime = function(reason)
+    if shabakRuntime_ then
+        CallShabakRuntime({ "Destroy", "Shutdown", "Dispose", "Stop" }, reason,
+            shabakSession_, scene_)
+    end
+    if ShabakRuntime and shabakRuntime_ ~= ShabakRuntime then
+        CallShabakModule({ "Destroy", "Shutdown", "Dispose" }, shabakRuntime_, reason,
+            shabakSession_, scene_)
+    end
+    shabakRuntime_ = nil
+end
+
+local function BuildShabakRuntime(session)
+    if not ShabakRuntime then return nil, "攻城运行时未加载" end
+    local options = {
+        session = session,
+        mapId = ShabakSiege.MAP_ID,
+        player = player_,
+        playerNode = playerNode_,
+        scene = scene_,
+        combat = Combat,
+        onEvent = HandleShabakEvent,
+        itemFactory = Inventory.CreateItem,
+    }
+    local runtime = CallShabakModule({ "Create", "CreateRuntime", "New", "Start" },
+        scene_, playerNode_, player_, session, options)
+    if type(runtime) ~= "table" and runtime == true then runtime = ShabakRuntime end
+    if type(runtime) ~= "table" then return nil, "攻城运行时创建失败" end
+    shabakRuntime_ = runtime
+    local initialized, initReason = CallShabakRuntime({ "Init", "Start", "Activate" }, scene_, playerNode_, player_,
+        session, options)
+    if initialized ~= true then
+        DestroyShabakRuntime("init_failed")
+        return nil, initReason or "攻城运行时初始化失败"
+    end
+    return runtime
 end
 
 -- ============================================================================
@@ -1909,6 +2311,8 @@ local DECOR_PREFIXES = {
     "WomarGate",
     "LavaPool_", "LavaCrack_", "LavaRock_",
     "DragonSlayer", "DragonLair_", "AbyssThrone",
+    "ShabakWall_", "ShabakGate", "ShabakGateBar_", "ShabakFlag_", "ShabakFlagPole_",
+    "ShabakPalace_", "ShabakSeal_", "ShabakThrone_", "ShabakBrazier_", "ShabakBrazierLight_",
     "SafeZone", "SafeZoneDash_", "SafeZoneNeedle_", "SafeZoneRay_", "SafeZoneRayCore_", "SafeZoneRing_",
     "QuestSignal", "QuestAreaEffect",
 }
@@ -1932,6 +2336,236 @@ function ClearDecorations()
     end
 end
 
+local function RebuildMapVisuals(mapId)
+    local mapDef = MapZone.GetDef(mapId)
+    if not mapDef then return false end
+    ClearDecorations()
+    local oldFloor = scene_:GetChild("DarkSoilFloor")
+    if oldFloor then oldFloor:Remove() end
+    CreateFloor(mapDef.groundColor)
+    CreateSceneDecorations(mapId)
+    local zone = scene_:GetComponent("Zone", true)
+    if zone then zone.fogColor = mapDef.fogColor end
+    return true
+end
+
+local function SpawnNormalMapEntities(mapId)
+    local mapDef = MapZone.GetDef(mapId)
+    if not mapDef then return false end
+    NPC.SpawnForMap(scene_, mapId, mapDef.spawnPos)
+    local initialCount = MapZone.GetSpawnSettings(mapId).initialCount
+    for _ = 1, initialCount do
+        Combat.SpawnEnemy(scene_, playerNode_.position, player_.level, nil, mapId)
+    end
+    return true
+end
+
+local function ApplyShabakHonorPatch(session)
+    if not player_ or not session or type(session.GetHonorPatch) ~= "function" then
+        return false
+    end
+    local patch = session:GetHonorPatch()
+    if type(patch) ~= "table" then return false end
+    local honors = patch.honors or {}
+    if honors.shabakLord == true or patch.titlePermanent == true then
+        player_.shabakLord = true
+    end
+    local delta = tonumber(honors.shabakWinCountDelta or honors.shabakWinsDelta) or 0
+    if delta > 0 then
+        player_.shabakWinCount = math.max(0, math.floor(
+            tonumber(player_.shabakWinCount) or 0) + math.floor(delta))
+    end
+    local best = tonumber(honors.shabakBestTime)
+    if best and best > 0 then
+        local previous = tonumber(player_.shabakBestTime) or 0
+        if previous <= 0 or best < previous then player_.shabakBestTime = best end
+    end
+    return true
+end
+
+FinishShabakSiege = function(result, reason)
+    local session = shabakSession_
+    if not session and not IsShabakMap(Combat.currentMapId) then return false end
+    local returnMapId = shabakEntryMapId_
+
+    local victory = result == "victory"
+        or (session and session.state == ShabakSiege.STATE.VICTORY)
+    if session and not victory and not session:IsFinished() then
+        session:Defeat(reason or ShabakSiege.RESULT_REASON.INTERRUPTED)
+    end
+    if victory then ApplyShabakHonorPatch(session) end
+
+    DestroyShabakRuntime(reason or (victory and "victory" or "defeat"))
+    Combat.Clear()
+    Combat.SetExternalCombatMode(false)
+    HideShabakHUD()
+    GameUI.onUseSiegeMedkit = nil
+
+    shabakSession_ = nil
+    shabakEntryMapId_ = nil
+    shabakPendingDefeat_ = false
+    shabakResultShown_ = false
+    shabakPendingResult_ = nil
+    shabakPendingReason_ = nil
+    isDead = false
+    deathTimer = 0
+    deathPhase = "none"
+    deathLossInfo = nil
+    GameUI.HideDeathPresentation()
+    castState.active = false
+    castState.phase = "none"
+    castState.skill = nil
+    castState.slot = 0
+    castState.elapsed = 0
+    GameUI.HideCastBar()
+    ShowChargeGlow(false)
+
+    if player_ then
+        player_.hp = player_.maxHP
+        player_.mp = player_.maxMP
+    end
+
+    if not returnMapId or IsShabakMap(returnMapId) or not MapZone.GetDef(returnMapId) then
+        returnMapId = "map_bq"
+    end
+    -- Combat.Clear() deliberately preserves currentMapId, so explicitly move
+    -- the combat map out of the temporary siege instance before routing through
+    -- the normal SwitchMap path.  Otherwise SwitchMap sees map_sb as an active
+    -- siege and rejects the return, forcing a degraded fallback (and showing an
+    -- incorrect "攻城进行中" toast) after every victory/defeat.
+    Combat.SetMap(returnMapId)
+    -- SwitchMap 负责重建普通地图、NPC、自然刷怪和安全区；此时 session
+    -- 已清空，故不会再次进入沙巴克分支。
+    local switched = player_ and playerNode_ and SwitchMap(returnMapId)
+    if not switched then
+        Combat.SetMap(returnMapId)
+        MapZone.SetCurrentMap(returnMapId)
+        if playerNode_ then
+            local def = MapZone.GetDef(returnMapId)
+            playerNode_.position = def and def.spawnPos or Vector3.ZERO
+        end
+        RebuildMapVisuals(returnMapId)
+        SpawnNormalMapEntities(returnMapId)
+    end
+    if victory then
+        GameUI.ShowToast("沙巴克攻城成功：你已成为城主", 4.0)
+        if playerNode_ then
+            GameUI.AddFloatingText("沙巴克城主", playerNode_.position + Vector3(0, 1.35, 0),
+                {255, 215, 70, 255})
+        end
+    else
+        GameUI.ShowToast("攻城失败，已返回安全区", 3.0)
+    end
+    SaveCurrentGame()
+    return true
+end
+
+AbortShabakSiege = function(reason)
+    if not shabakSession_ and not IsShabakMap(Combat.currentMapId) then return false end
+    if shabakSession_ and shabakSession_:IsActive() then
+        shabakSession_:Abort(reason or ShabakSiege.RESULT_REASON.VOLUNTARY_EXIT)
+    end
+    return FinishShabakSiege("defeat", reason or ShabakSiege.RESULT_REASON.VOLUNTARY_EXIT)
+end
+
+StartShabakSiege = function()
+    if not player_ or not playerNode_ then return false end
+    if IsShabakActive() or IsShabakMap(Combat.currentMapId) then
+        GameUI.ShowToast("攻城已在进行中", 1.8)
+        return false
+    end
+    if not ShabakRuntime then
+        GameUI.ShowToast("攻城运行时未就绪，请稍后重试", 2.4)
+        return false
+    end
+
+    local questState = GetShabakQuestState()
+    local allowed, reason = ShabakSiege.CanEnter(player_, questState)
+    if not allowed then
+        GameUI.ShowToast(reason or "暂时无法进入沙巴克城", 2.6)
+        return false
+    end
+
+    local potionStatus = ShabakSiege.ValidatePotionSupply({
+        hp = Inventory.GetPotionCount("hp"),
+        mp = Inventory.GetPotionCount("mp"),
+    })
+    if potionStatus.warning then
+        GameUI.ShowToast("提示：建议携带至少 8 瓶血瓶与 4 瓶蓝瓶", 3.0)
+    end
+
+    shabakEntryMapId_ = Combat.currentMapId
+    if not MapZone.GetDef(shabakEntryMapId_) or IsShabakMap(shabakEntryMapId_) then
+        shabakEntryMapId_ = "map_bq"
+    end
+    -- 先保存进入前的安全地图，确保攻城失败/中断后可以稳定回到该地图。
+    SaveCurrentGame()
+
+    local session, sessionReason = ShabakSiege.Begin(player_, {
+        questState = questState,
+        itemFactory = Inventory.CreateItem,
+        onEvent = HandleShabakEvent,
+    })
+    if not session then
+        GameUI.ShowToast(sessionReason or "攻城会话创建失败", 2.4)
+        return false
+    end
+    shabakSession_ = session
+    shabakPendingDefeat_ = false
+    shabakResultShown_ = false
+    shabakPendingResult_ = nil
+    shabakPendingReason_ = nil
+
+    GameUI.ClearHeldSkill()
+    Combat.Clear()
+    Combat.SetMap(ShabakSiege.MAP_ID)
+    Combat.SetExternalCombatMode(true)
+    MapZone.SetCurrentMap(ShabakSiege.MAP_ID)
+    GameUI.RefreshMap(ShabakSiege.MAP_ID)
+    RebuildMapVisuals(ShabakSiege.MAP_ID)
+    NPC.Clear()
+    local siegeDef = MapZone.GetDef(ShabakSiege.MAP_ID)
+    if siegeDef then playerNode_.position = siegeDef.spawnPos end
+    local body = playerNode_:GetComponent("RigidBody")
+    if body then body:SetLinearVelocity(Vector3.ZERO) end
+    DivineBeast.OnMapChanged(playerNode_.position)
+
+    local runtime, runtimeReason = BuildShabakRuntime(session)
+    if not runtime then
+        shabakSession_ = nil
+        Combat.Clear()
+        Combat.SetMap(shabakEntryMapId_)
+        Combat.SetExternalCombatMode(false)
+        MapZone.SetCurrentMap(shabakEntryMapId_)
+        RebuildMapVisuals(shabakEntryMapId_)
+        SpawnNormalMapEntities(shabakEntryMapId_)
+        GameUI.ShowToast(runtimeReason or "攻城运行时创建失败", 2.4)
+        return false
+    end
+    GameUI.onUseSiegeMedkit = function()
+        if not IsShabakActive() then return false end
+        local used, result = CallShabakRuntime({ "UseFieldMedkit", "UseMedkit" }, player_)
+        if used then
+            -- Medkits share the regular HP-potion cooldown.  This keeps the
+            -- siege fallback from bypassing the six-second recovery rhythm.
+            hpPotionCD = HP_POTION_CD
+            GameUI.ShowToast("已使用临时急救药", 1.5)
+        else
+            GameUI.ShowToast(type(result) == "string" and result or "没有临时急救药", 1.6)
+        end
+        UpdateShabakHUD()
+        return used == true
+    end
+    if type(GameUI.ShowSiegeHUD) == "function" then
+        GameUI.ShowSiegeHUD(session:GetSnapshot(), runtime, player_)
+    end
+    GameUI.ShowToast("进入沙巴克城：10 秒后开始攻城", 3.0)
+    GameUI.AddFloatingText("沙巴克攻城战", playerNode_.position + Vector3(0, 1.25, 0),
+        {255, 192, 86, 255})
+    UpdateShabakHUD()
+    return true
+end
+
 --- 切换到指定地图（清怪 + 改雾色 + 传送玩家 + 按图刷怪）
 function SwitchMap(mapId)
     local mapDef = MapZone.GetDef(mapId)
@@ -1941,6 +2575,16 @@ function SwitchMap(mapId)
     end
     if not scene_ or not player_ or not playerNode_ then
         print("[main] SwitchMap: game scene/player is not ready")
+        return false
+    end
+
+    -- 沙巴克不是普通传送地图：进入时创建全新会话，离开时由会话结算并
+    -- 返回进入前地图。任何普通地图切换请求都不能中途绕过攻城结算。
+    if IsShabakMap(mapId) then
+        return StartShabakSiege()
+    end
+    if IsShabakActive() or IsShabakMap(Combat.currentMapId) then
+        GameUI.ShowToast("攻城进行中，完成或主动退出后才能离开", 2.2)
         return false
     end
 
@@ -2234,6 +2878,12 @@ function SetupGameCallbacks()
             return
         end
         if not Inventory.UsePotion("hp") then
+            -- 沙巴克补给箱提供的急救药只在真实血瓶耗尽后接管本次按钮；
+            -- 不写入背包或普通存档，也不改变常规地图的药瓶规则。
+            if IsShabakActive() and type(GameUI.onUseSiegeMedkit) == "function"
+                and GameUI.onUseSiegeMedkit() then
+                return
+            end
             GameUI.AddFloatingText("强效金创药已空", playerNode_.position, {200, 200, 200, 200})
             return
         end
@@ -2570,6 +3220,16 @@ function SetupGameCallbacks()
             return false
         end
 
+        -- 沙巴克是主线结束后的重复挑战入口，不属于普通地图路线：
+        -- 必须同时满足主线完成和 Lv.50，且每次点击都创建新攻城实例。
+        if IsShabakMap(mapId) then
+            local allowed, reason = ShabakSiege.CanEnter(player_, GetShabakQuestState())
+            if not allowed then
+                GameUI.ShowToast(reason or "暂时无法挑战沙巴克城", 2.6)
+                return false
+            end
+        end
+
         local currentQuest = Quest.GetCurrent()
         local questTargetMapId = Quest.GetTravelTargetMapId()
             or Quest.GetTargetMapId(currentQuest)
@@ -2614,6 +3274,12 @@ function SetupGameCallbacks()
                 if option.id == questTargetMapId then
                     option.locked = false
                     option.lockReason = nil
+                end
+                -- 沙巴克不是主线中的普通目的地；只有完整主线结束后才
+                -- 应在管家面板中显示为可点击的免费攻城入口。
+                if IsShabakMap(option.id) and not GetShabakQuestState().finished then
+                    option.locked = true
+                    option.lockReason = "需完成全部主线"
                 end
             end
         end
@@ -3154,6 +3820,12 @@ end
 function ReturnToMainMenu()
     print("[main] Returning to main menu...")
 
+    -- 不能把临时攻城地图留在菜单会话中；先回到进入前的普通地图，
+    -- 再执行既有的角色保存与节点销毁流程。
+    if IsShabakActive() or IsShabakMap(Combat.currentMapId) then
+        AbortShabakSiege(ShabakSiege.RESULT_REASON.VOLUNTARY_EXIT)
+    end
+
     -- 角色会话销毁后，广告回调即使迟到也不得给新角色发奖。
     rewardAdRequestSerial = rewardAdRequestSerial + 1
     rewardAdInFlight = false
@@ -3213,6 +3885,48 @@ end
 ---@param currentMap table|nil
 local function RevivePlayer(currentMap)
     if not isDead or not player_ or not playerNode_ then return end
+
+    -- 沙巴克使用独立的两命/集结点规则：不扣普通死亡金币，也不把玩家
+    -- 送回地图出生安全区。最后一命耗尽时，死亡结算按钮只负责返回原地图。
+    if IsShabakActive() or IsShabakMap(Combat.currentMapId) then
+        local session = shabakSession_
+        if shabakPendingDefeat_ or not session or session:IsFinished() then
+            local reason = session and session.resultReason or ShabakSiege.RESULT_REASON.PLAYER_DEAD
+            FinishShabakSiege("defeat", reason)
+            return
+        end
+        local plan = session:GetRespawnPlan()
+        if not plan then
+            FinishShabakSiege("defeat", ShabakSiege.RESULT_REASON.PLAYER_DEAD)
+            return
+        end
+
+        Combat.CancelPlayerHostileEffects()
+        player_.hp = player_.maxHP
+        player_.mp = player_.maxMP
+        playerNode_.position = GetShabakRallyPosition(plan.rallyPoint)
+        local siegeBody = playerNode_:GetComponent("RigidBody")
+        if siegeBody then siegeBody:SetLinearVelocity(Vector3.ZERO) end
+        PlayerAnim.Play("idle")
+
+        local completed = session:CompleteRespawn()
+        if not completed then
+            FinishShabakSiege("defeat", ShabakSiege.RESULT_REASON.PLAYER_DEAD)
+            return
+        end
+        CallShabakRuntime({ "ResetForRespawn", "HandlePlayerRespawn" }, plan, playerNode_, player_)
+        DrainShabakEvents(session:DrainEvents())
+
+        isDead = false
+        deathTimer = 0
+        deathPhase = "none"
+        deathLossInfo = nil
+        shabakPendingDefeat_ = false
+        GameUI.HideDeathPresentation()
+        GameUI.UpdateGold(Inventory.playerData.gold)
+        UpdateShabakHUD()
+        return
+    end
 
     -- 清掉玩家死亡前已经生成的弹道、范围伤害和 Boss 攻击视觉，再重置
     -- 存活敌人的血量、控制状态与仇恨，确保复活后不会承接旧攻击窗口。
@@ -3471,7 +4185,27 @@ function HandleUpdate(eventType, eventData)
         GameUI.ClearHeldSkill()
         deathTimer = DEATH_MARK_DURATION
         deathPhase = "mark"
-        deathLossInfo = Inventory.ApplyDeathPenalty()
+        if IsShabakActive() then
+            local canRespawn, respawnPlanOrReason = shabakSession_:OnPlayerDeath()
+            shabakPendingDefeat_ = canRespawn ~= true
+            local lives = shabakSession_:GetSnapshot().livesRemaining or 0
+            deathLossInfo = {
+                goldLost = 0,
+                goldRemaining = Inventory.playerData.gold,
+                lossRatio = 0,
+                title = canRespawn and "攻城倒下" or "攻城失守",
+                message = canRespawn
+                    and ("已撤回集结点，剩余命数：" .. tostring(lives))
+                    or "两条命数均已耗尽，攻城失败。",
+                actionLabel = canRespawn and "重返战场" or "返回安全区",
+            }
+            if not canRespawn and type(respawnPlanOrReason) == "string" then
+                shabakPendingReason_ = respawnPlanOrReason
+            end
+            UpdateShabakHUD()
+        else
+            deathLossInfo = Inventory.ApplyDeathPenalty()
+        end
         -- 打断施法
         castState.active = false
         castState.phase = "none"
@@ -3498,6 +4232,32 @@ function HandleUpdate(eventType, eventData)
         UpdateQuestAreaEffect()
         UpdateCamera(dt)
         GameUI.UpdateHUD(player_, dt)
+        return
+    end
+
+    -- 沙巴克会话独立于普通任务/自然刷怪循环。只在未暂停时推进，避免
+    -- 打开背包、全图或系统菜单后攻城计时和守军继续攻击。
+    if IsShabakActive() then
+        local runtimeEvents = CallShabakRuntime(
+            { "Update", "Tick", "Step" }, dt, playerNode_, player_, shabakSession_, scene_)
+        DrainShabakEvents(runtimeEvents)
+        local sessionEvents = shabakSession_:Update(dt)
+        DrainShabakEvents(sessionEvents)
+        if shabakSession_:IsFinished() and not shabakResultShown_ then
+            shabakResultShown_ = true
+            shabakPendingResult_ = shabakSession_.state == ShabakSiege.STATE.VICTORY
+                and "victory" or "defeat"
+            shabakPendingReason_ = shabakSession_.resultReason
+        end
+    end
+
+    -- 会话进入 victory/defeat 后 IsShabakActive() 会立即变为 false；
+    -- 结果仍必须在当前 map_sb 实例收口，不能让待结算状态永远悬挂。
+    if shabakPendingResult_
+        and (shabakSession_ ~= nil or IsShabakMap(Combat.currentMapId)) then
+        local result, reason = shabakPendingResult_, shabakPendingReason_
+        shabakPendingResult_, shabakPendingReason_ = nil, nil
+        FinishShabakSiege(result, reason)
         return
     end
 
@@ -3572,15 +4332,19 @@ function HandleUpdate(eventType, eventData)
 
     -- 区域/巡逻进度只在角色存活且位于目标地图时推进；离图、死亡和读档
     -- 都保留已完成部分。显式遭遇逐帧确保存在，但 encounterId 防止重复刷出。
-    Quest.Update(dt, Combat.currentMapId, playerNode_.position, not isDead)
+    if not IsShabakActive() then
+        Quest.Update(dt, Combat.currentMapId, playerNode_.position, not isDead)
+    end
     UpdateQuestAreaEffect()
     if GameUI.IsGamePaused() then
         UpdateCamera(dt)
         GameUI.UpdateHUD(player_, dt)
         return
     end
-    local encounterRequest = pendingQuestPresentation and nil or Quest.GetEncounterRequest()
-    Combat.EnsureEncounter(scene_, playerNode_, player_, encounterRequest, dt)
+    if not IsShabakActive() then
+        local encounterRequest = pendingQuestPresentation and nil or Quest.GetEncounterRequest()
+        Combat.EnsureEncounter(scene_, playerNode_, player_, encounterRequest, dt)
+    end
 
     -- 战斗系统更新
     Combat.Update(scene_, dt, playerNode_, player_)
@@ -3601,6 +4365,7 @@ function HandleUpdate(eventType, eventData)
     GameUI.UpdateHUD(player_, dt)
     GameUI.UpdateKillCount(Combat.killCount)
     GameUI.UpdateGold(Inventory.playerData.gold)
+    if IsShabakActive() then UpdateShabakHUD() end
 end
 
 -- ============================================================================

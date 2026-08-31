@@ -519,6 +519,11 @@ function CharacterClass.CreatePlayer(classId, level, modelStyle, gender)
         gender = gender or "male",
         -- 激励广告奖励：完整观看后永久解锁当前角色的使用回城卷轴。
         returnScrollUnlocked = false,
+        -- 沙巴克城主荣誉（按角色槽位持久化）。数值字段使用稳定默认值，
+        -- 让攻城入口、胜利结算和角色面板无需先判断 nil。
+        shabakLord = false,
+        shabakWinCount = 0,
+        shabakBestTime = 0,
         level     = level,
         exp       = 0,
         expToNext = CharacterClass.GetExpToNext(level),

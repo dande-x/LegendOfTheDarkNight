@@ -105,6 +105,17 @@ local function SafeTimestamp(value)
     return math.floor(number)
 end
 
+-- 攻城最佳用时允许保留小数秒，但仍要限制异常/恶意存档的数量级。
+-- 0 表示尚未完成过攻城；正数才参与“取更快成绩”的合并规则。
+local function SafeDuration(value)
+    local number = tonumber(value)
+    if not number or number ~= number or number == math.huge or number == -math.huge
+        or number <= 0 then
+        return 0
+    end
+    return math.min(MAX_RESOURCE, number)
+end
+
 local function NextTimestamp()
     local now = SafeTimestamp(os.time())
     if now <= localUpdatedAt then
@@ -283,6 +294,7 @@ function SaveSystem.CreateSnapshot(player, inventoryData, killCount)
         return nil
     end
     local now = os.time()
+    local honors = type(player.honors) == "table" and player.honors or {}
     return {
         -- 元信息
         version    = 2,
@@ -295,6 +307,16 @@ function SaveSystem.CreateSnapshot(player, inventoryData, killCount)
         modelStyle = player.modelStyle or "old",
         gender     = player.gender or "male",
         returnScrollUnlocked = player.returnScrollUnlocked == true,
+        -- 沙巴克城主是当前角色槽位的永久荣誉。兼容运行时把荣誉放在
+        -- player.honors 子表的写法，但统一以扁平字段落盘，便于旧存档、
+        -- 云端合并和排行榜读取。
+        shabakLord = player.shabakLord == true or honors.shabakLord == true,
+        shabakWinCount = SafeInteger(
+            player.shabakWinCount or player.shabakWins or honors.shabakWinCount
+                or honors.shabakWins,
+            0, MAX_RESOURCE, 0),
+        shabakBestTime = SafeDuration(
+            player.shabakBestTime or honors.shabakBestTime),
         level      = SafeInteger(player.level, 1, LEVEL_SANITY_LIMIT, 1),
         exp        = SafeInteger(player.exp, 0, MAX_RESOURCE, 0),
         expToNext  = SafeInteger(player.expToNext, 1, MAX_RESOURCE, 1),
@@ -613,6 +635,37 @@ local function IsSameCharacterSnapshot(left, right)
         and left.classId == right.classId
 end
 
+-- 普通进度按槽位时间戳择新，但永久荣誉不能被另一台设备上的较新
+-- 普通存档抹掉。只在 createdAt + classId 都一致时合并，避免角色删除后
+-- 新建同职业角色意外继承旧城主称号。
+local function MergePersistentHonors(mergedSlot, left, right)
+    if type(mergedSlot) ~= "table" or not IsSameCharacterSnapshot(left, right) then
+        return
+    end
+
+    local leftLord = left.shabakLord == true
+    local rightLord = right.shabakLord == true
+    if leftLord or rightLord then mergedSlot.shabakLord = true end
+
+    local leftWins = SafeInteger(left.shabakWinCount or left.shabakWins,
+        0, MAX_RESOURCE, 0)
+    local rightWins = SafeInteger(right.shabakWinCount or right.shabakWins,
+        0, MAX_RESOURCE, 0)
+    if leftWins > 0 or rightWins > 0 then
+        mergedSlot.shabakWinCount = math.max(leftWins, rightWins)
+    end
+
+    local leftBest = SafeDuration(left.shabakBestTime)
+    local rightBest = SafeDuration(right.shabakBestTime)
+    if leftBest > 0 and rightBest > 0 then
+        mergedSlot.shabakBestTime = math.min(leftBest, rightBest)
+    elseif leftBest > 0 then
+        mergedSlot.shabakBestTime = leftBest
+    elseif rightBest > 0 then
+        mergedSlot.shabakBestTime = rightBest
+    end
+end
+
 local function PayloadDataEqual(left, right)
     if type(left) ~= "table" or type(right) ~= "table" then return false end
     for i = 1, MAX_SLOTS do
@@ -666,10 +719,12 @@ local function MergeCloudPayload(localPayload, cloudPayload)
         local mergedSlot = IsCloudEmptyValue(selectedSlot)
             and false or CloneSerializable(selectedSlot)
         if type(mergedSlot) == "table"
-            and IsSameCharacterSnapshot(localSlot, cloudSlot)
-            and (localSlot.returnScrollUnlocked == true
-                or cloudSlot.returnScrollUnlocked == true) then
-            mergedSlot.returnScrollUnlocked = true
+            and IsSameCharacterSnapshot(localSlot, cloudSlot) then
+            if localSlot.returnScrollUnlocked == true
+                or cloudSlot.returnScrollUnlocked == true then
+                mergedSlot.returnScrollUnlocked = true
+            end
+            MergePersistentHonors(mergedSlot, localSlot, cloudSlot)
         end
         merged.slots["slot" .. tostring(i)] = mergedSlot
         merged.slotUpdatedAt["slot" .. tostring(i)] = selectedTimestamp
@@ -1388,6 +1443,13 @@ function SaveSystem.RestorePlayer(saveData, player)
     player.gender = NormalizeGender(saveData.gender)
     player.modelStyle = NormalizeModelStyle(saveData.modelStyle, player.gender)
     player.returnScrollUnlocked = saveData.returnScrollUnlocked == true
+    -- 旧存档没有沙巴克字段时安全回退为未夺城；新存档始终恢复为
+    -- 规范化的布尔值/非负计数/正数最佳用时，避免坏数据穿透 UI 或结算。
+    player.shabakLord = saveData.shabakLord == true
+    player.shabakWinCount = SafeInteger(
+        saveData.shabakWinCount or saveData.shabakWins,
+        0, MAX_RESOURCE, 0)
+    player.shabakBestTime = SafeDuration(saveData.shabakBestTime)
     print("[SaveSystem] Player restored: " .. tostring(player.className) .. " Lv." .. player.level)
     return true
 end
