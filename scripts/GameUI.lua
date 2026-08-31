@@ -1685,8 +1685,22 @@ function GameUI._DrawEnemyHealthBars(ctx, sw, sh)
 
     for _, e in ipairs(enemies) do
         if e.node and e.hp and e.maxHP and e.hp > 0 then
-            -- 头顶位置 (角色高度约1.5m)
-            local headPos = e.node.position + Vector3(0, 1.8, 0)
+            local isBoss = e.tier == "boss"
+            local enemyBarW = isBoss and math.floor(104 * scale) or barW
+            local enemyBarH = isBoss and math.floor(16 * scale) or barH
+            local enemyBorderW = isBoss and math.max(2, math.floor(2.0 * scale)) or borderW
+            local enemyHpFontSize = isBoss and math.max(11, math.floor(14 * scale)) or hpFontSize
+            local enemyNameFontSize = isBoss and math.max(12, math.floor(15 * scale)) or nameFontSize
+
+            -- Boss 体型明显大于普通怪；把标识抬到模型上方，避免标签落在
+            -- 身体内部。SkelRoot 的缩放来自 Boss 定义，缺失时使用保守高度。
+            local headHeight = 1.8
+            if isBoss then
+                local skelRoot = e.node:GetChild("SkelRoot", false)
+                local bossScale = skelRoot and tonumber(skelRoot.scale.y) or 1.0
+                headHeight = math.max(2.7, bossScale * 1.85)
+            end
+            local headPos = e.node.position + Vector3(0, headHeight, 0)
 
             -- 检查敌人是否在相机前方（点积 > 0 表示在前方）
             local toEnemy = headPos - camPos
@@ -1705,22 +1719,41 @@ function GameUI._DrawEnemyHealthBars(ctx, sw, sh)
 
                 local hpRatio = math.max(0, math.min(1, e.hp / e.maxHP))
 
+                -- Boss 血条增加暗红外晕和红金描边，让威胁等级不依赖名字文字。
+                if isBoss then
+                    local bossPulse = e.bossVisual and e.bossVisual.elapsed or 0
+                    local glowAlpha = math.floor(52 + (0.5 + 0.5 * math.sin(bossPulse * 4.6)) * 32)
+                    nvgBeginPath(ctx)
+                    nvgRoundedRect(ctx,
+                        sx - enemyBarW / 2 - enemyBorderW - 3 * scale,
+                        sy - enemyBarH / 2 - enemyBorderW - 3 * scale,
+                        enemyBarW + (enemyBorderW + 3 * scale) * 2,
+                        enemyBarH + (enemyBorderW + 3 * scale) * 2,
+                        4 * scale)
+                    nvgFillColor(ctx, nvgRGBA(130, 0, 0, glowAlpha))
+                    nvgFill(ctx)
+                end
+
                 -- 黑色背景框
                 nvgBeginPath(ctx)
-                nvgRoundedRect(ctx, sx - barW / 2 - borderW, sy - barH / 2 - borderW,
-                    barW + borderW * 2, barH + borderW * 2, 2 * scale)
+                nvgRoundedRect(ctx, sx - enemyBarW / 2 - enemyBorderW,
+                    sy - enemyBarH / 2 - enemyBorderW,
+                    enemyBarW + enemyBorderW * 2, enemyBarH + enemyBorderW * 2,
+                    2 * scale)
                 nvgFillColor(ctx, nvgRGBA(0, 0, 0, 200))
                 nvgFill(ctx)
 
                 -- 红色血条
                 if hpRatio > 0 then
-                    local fillW = math.max(1, barW * hpRatio)
+                    local fillW = math.max(1, enemyBarW * hpRatio)
                     nvgBeginPath(ctx)
-                    nvgRoundedRect(ctx, sx - barW / 2, sy - barH / 2,
-                        fillW, barH, 1.5 * scale)
+                    nvgRoundedRect(ctx, sx - enemyBarW / 2, sy - enemyBarH / 2,
+                        fillW, enemyBarH, 1.5 * scale)
 
                     -- 血量低变黄/红
-                    if hpRatio > 0.5 then
+                    if isBoss then
+                        nvgFillColor(ctx, nvgRGBA(218, 30, 28, 245))
+                    elseif hpRatio > 0.5 then
                         nvgFillColor(ctx, nvgRGBA(200, 40, 40, 230))
                     elseif hpRatio > 0.25 then
                         nvgFillColor(ctx, nvgRGBA(220, 140, 30, 230))
@@ -1730,8 +1763,19 @@ function GameUI._DrawEnemyHealthBars(ctx, sw, sh)
                     nvgFill(ctx)
                 end
 
+                if isBoss then
+                    nvgBeginPath(ctx)
+                    nvgRoundedRect(ctx, sx - enemyBarW / 2 - enemyBorderW,
+                        sy - enemyBarH / 2 - enemyBorderW,
+                        enemyBarW + enemyBorderW * 2, enemyBarH + enemyBorderW * 2,
+                        2 * scale)
+                    nvgStrokeColor(ctx, nvgRGBA(255, 92, 62, 235))
+                    nvgStrokeWidth(ctx, 1.25 * scale)
+                    nvgStroke(ctx)
+                end
+
                 -- 白色数字居中显示 (当前/总量)
-                nvgFontSize(ctx, hpFontSize)
+                nvgFontSize(ctx, enemyHpFontSize)
                 local hpText = math.floor(e.hp) .. "/" .. math.floor(e.maxHP)
                 -- 阴影
                 nvgFillColor(ctx, nvgRGBA(0, 0, 0, 200))
@@ -1741,14 +1785,37 @@ function GameUI._DrawEnemyHealthBars(ctx, sw, sh)
                 nvgText(ctx, sx, sy, hpText, nil)
 
                 -- 名字标签（血条上方）
-                local nameText = (e.name or "???") .. " Lv." .. (e.level or 1)
-                local nameSy = sy - barH / 2 - nameOffset
-                nvgFontSize(ctx, nameFontSize)
+                local nameText = isBoss
+                    and ("【BOSS】 " .. (e.name or "???") .. " Lv." .. (e.level or 1))
+                    or ((e.name or "???") .. " Lv." .. (e.level or 1))
+                local nameSy = sy - enemyBarH / 2 - nameOffset
+                nvgFontSize(ctx, enemyNameFontSize)
+
+                if isBoss then
+                    -- 标签底板使 Boss 标识在复杂地图背景上仍然清楚可读。
+                    local textWidth = nvgTextBounds(ctx, 0, 0, nameText, nil, nil)
+                        or math.max(20 * scale, #nameText * enemyNameFontSize * 0.32)
+                    local badgePadX = 5 * scale
+                    local badgeH = 18 * scale
+                    nvgBeginPath(ctx)
+                    nvgRoundedRect(ctx, sx - textWidth / 2 - badgePadX,
+                        nameSy - badgeH / 2, textWidth + badgePadX * 2, badgeH,
+                        4 * scale)
+                    nvgFillColor(ctx, nvgRGBA(62, 0, 0, 215))
+                    nvgFill(ctx)
+                    nvgStrokeColor(ctx, nvgRGBA(220, 56, 38, 220))
+                    nvgStrokeWidth(ctx, 1.0 * scale)
+                    nvgStroke(ctx)
+                end
                 -- 阴影
                 nvgFillColor(ctx, nvgRGBA(0, 0, 0, 180))
                 nvgText(ctx, sx + 1, nameSy + 1, nameText, nil)
-                -- 正文（白色）
-                nvgFillColor(ctx, nvgRGBA(255, 255, 255, 255))
+                -- Boss 使用红金色正文；普通敌人保持原白色标签。
+                if isBoss then
+                    nvgFillColor(ctx, nvgRGBA(255, 112, 88, 255))
+                else
+                    nvgFillColor(ctx, nvgRGBA(255, 255, 255, 255))
+                end
                 nvgText(ctx, sx, nameSy, nameText, nil)
 
                 -- [调试] 显示与玩家的距离 + 身位区间（开关开启时）
@@ -1765,8 +1832,8 @@ function GameUI._DrawEnemyHealthBars(ctx, sw, sh)
                         zone, zr, zg, zb = "远", 180, 180, 180
                     end
                     local dText = string.format("%.2fm %s", d, zone)
-                    local dSy = sy + barH / 2 + math.floor(13 * scale)
-                    nvgFontSize(ctx, hpFontSize)
+                    local dSy = sy + enemyBarH / 2 + math.floor(13 * scale)
+                    nvgFontSize(ctx, enemyHpFontSize)
                     nvgFillColor(ctx, nvgRGBA(0, 0, 0, 200))
                     nvgText(ctx, sx + 1, dSy + 1, dText, nil)
                     nvgFillColor(ctx, nvgRGBA(zr, zg, zb, 255))
@@ -3472,6 +3539,23 @@ function GameUI.UpdateQuestTracker(quest, progress, count)
         local mapName = targetMap and targetMap.name or ""
         local offTargetMap = targetMapId and MapZone.GetCurrentMapId() ~= targetMapId
         local objectiveText = Quest.GetObjectiveText(quest, progress, count)
+        -- 巡查、坚守和遭遇都要求玩家先到达任务地点；在目标地图上给出
+        -- 一行短提示，直接说明下一步动作。地点来自 Quest 的目标标记，
+        -- 避免 HUD 再维护一份坐标/名称表。
+        local locationReminder = nil
+        if not done and not travelPending then
+            local marker = Quest.GetObjectiveMarker(quest)
+            if marker and marker.mapId == MapZone.GetCurrentMapId() and marker.name then
+                local markerName = tostring(marker.name)
+                if quest.mode == "patrol" then
+                    locationReminder = "提示：请前往指定地点「" .. markerName .. "」完成巡查"
+                elseif quest.mode == "survive" then
+                    locationReminder = "提示：请进入指定区域「" .. markerName .. "」坚守"
+                elseif quest.mode == "encounter" then
+                    locationReminder = "提示：请前往指定地点「" .. markerName .. "」触发遭遇"
+                end
+            end
+        end
         local mapHint = travelPending and " · 请找管家传送"
             or offTargetMap and " · 返回后继续" or ""
         content = UI.Panel {
@@ -3500,6 +3584,15 @@ function GameUI.UpdateQuestTracker(quest, progress, count)
                     fontColor = done and {140, 220, 140, 255} or {210, 200, 180, 230},
                     marginTop = 3,
                 },
+                locationReminder and UI.Label {
+                    text = locationReminder,
+                    fontSize = 10,
+                    fontColor = {255, 190, 105, 235},
+                    marginTop = 2,
+                    lineHeight = 1.25,
+                    whiteSpace = "normal",
+                    maxLines = 2,
+                } or nil,
                 (mapName ~= "") and UI.Label {
                     text = "📍 " .. mapName .. mapHint,
                     fontSize = 10,
@@ -4485,6 +4578,7 @@ function GameUI._CreateMiniMapArea(player)
         backgroundColor = {50, 255, 100, 255},
         borderWidth = 1,
         borderColor = {255, 255, 255, 200},
+        pointerEvents = "none",
     }
 
     -- ── 玩家朝向指示线 ──
@@ -4493,6 +4587,7 @@ function GameUI._CreateMiniMapArea(player)
         width = 2, height = 8,
         backgroundColor = {50, 255, 100, 200},
         transformOrigin = "bottom",
+        pointerEvents = "none",
     }
 
     local miniSafeZone = UI.Panel {
@@ -4555,12 +4650,14 @@ function GameUI._CreateMiniMapArea(player)
         left = 0, top = math.floor(arenaDrawSize / 2),
         width = arenaDrawSize, height = 1,
         backgroundColor = {120, 110, 60, 80},
+        pointerEvents = "none",
     }
     local gridV = UI.Panel {
         position = "absolute",
         left = math.floor(arenaDrawSize / 2), top = 0,
         width = 1, height = arenaDrawSize,
         backgroundColor = {120, 110, 60, 80},
+        pointerEvents = "none",
     }
 
     -- ── 地图区域（实心方块，包含玩家和网格，overflow裁剪）──
@@ -4572,6 +4669,9 @@ function GameUI._CreateMiniMapArea(player)
         borderWidth = 2,
         borderColor = {126, 130, 134, 245},  -- 银灰粗边框
         overflow = "hidden",  -- 裁剪超出边界的玩家标记
+        -- 地图内容只是装饰层；让小地图容器统一接收点击，避免
+        -- 玩家点/网格/地标在按下与抬起之间变化时导致点击目标不一致。
+        pointerEvents = "none",
         children = (function()
             local children = { miniSafeZone, gridH, gridV }
             for _, landmarkDot in ipairs(miniLandmarkDots) do
@@ -4595,6 +4695,7 @@ function GameUI._CreateMiniMapArea(player)
         fontColor = {226, 228, 226, 240},
         fontWeight = "bold",
         top = 1, left = mapRadius - 4,
+        pointerEvents = "none",
     }
 
     -- 组合所有子元素
@@ -4609,6 +4710,7 @@ function GameUI._CreateMiniMapArea(player)
         borderWidth = 2,
         borderColor = {126, 130, 134, 225},
         overflow = "hidden",
+        pointerEvents = "auto",
         onClick = function()
             GameUI._OpenFullMap()
         end,

@@ -28,7 +28,9 @@ Inventory.LEGACY_ENHANCE_STONE_REFUND = 120
 
 -- 分支模块（武器链 / 怪物数据 / 强化规则）
 local WeaponData = require("scripts.WeaponData")
-local MonsterData = require("scripts.MonsterData")
+-- 与 Combat 共用 canonical 怪物数据；`scripts.MonsterData` 可能优先命中
+-- assets/scripts 的旧镜像，导致新海怪生成后没有金币与装备掉落。
+local MonsterData = require("MonsterData")
 local Enhance = require("scripts.Enhance")
 local EquipmentStats = require("scripts.EquipmentStats")
 

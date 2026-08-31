@@ -112,6 +112,9 @@ Balance.MONSTER_PROFILES = {
     wolf          = { hp = 0.88, atk = 1.08, def = 0.85, exp = 1.0 },
     spider        = { hp = 0.84, atk = 1.10, def = 0.82, exp = 1.0 },
     serpent       = { hp = 0.88, atk = 1.08, def = 0.85, exp = 1.0 },
+    -- 水上城市海怪：八爪鱼偏灵活近战，海螺幽灵偏耐久与悬浮控制感。
+    octopus       = { hp = 0.92, atk = 1.10, def = 0.88, exp = 1.0 },
+    conch_ghost   = { hp = 0.96, atk = 1.04, def = 0.94, exp = 1.0 },
     antqueen      = { hp = 0.95, atk = 1.10, def = 0.90, exp = 1.0 },
     boar          = { hp = 1.08, atk = 1.05, def = 1.00, exp = 1.0 },
     orc           = { hp = 1.08, atk = 1.05, def = 1.00, exp = 1.0 },

@@ -2452,6 +2452,9 @@ function SetupGameCallbacks()
         CharacterClass.ApplyDerivedStats(player_, Inventory.playerData, true)
         player_.expToNext = CharacterClass.GetExpToNext(newLevel)
         player_.exp = 0
+        if newLevel > currentLevel and Combat.onLevelUp then
+            Combat.onLevelUp(newLevel, newLevel - currentLevel)
+        end
         print("[Debug] Level set to " .. newLevel)
         -- 刷新技能栏（解锁状态可能变化）
         GameUI.RefreshSkillButtons(player_)
@@ -2460,11 +2463,15 @@ function SetupGameCallbacks()
     -- 一键满级（兼容旧按钮）：至少设为 Lv.50 + 填充全部技能栏。
     GameUI.onDebugMaxLevel = function()
         if not player_ then return end
-        local maxLv = math.max(CharacterClass.NormalizeLevel(player_.level), 50)
+        local previousLevel = CharacterClass.NormalizeLevel(player_.level)
+        local maxLv = math.max(previousLevel, 50)
         player_.level = maxLv
         CharacterClass.ApplyDerivedStats(player_, Inventory.playerData, true)
         player_.expToNext = CharacterClass.GetExpToNext(maxLv)
         player_.exp = 0
+        if maxLv > previousLevel and Combat.onLevelUp then
+            Combat.onLevelUp(maxLv, maxLv - previousLevel)
+        end
         -- 按解锁等级从低到高装备全部主动技能到低位槽
         CharacterClass.RebuildEquippedSkills(player_, true)
         print("[Debug] MAX LEVEL! Lv." .. maxLv .. " all skills equipped")
@@ -2475,11 +2482,15 @@ function SetupGameCallbacks()
     GameUI.onDebugBootsSlotActivated = function()
         if not player_ then return false end
 
-        local targetLevel = math.max(CharacterClass.NormalizeLevel(player_.level), 50)
+        local previousLevel = CharacterClass.NormalizeLevel(player_.level)
+        local targetLevel = math.max(previousLevel, 50)
         player_.level = targetLevel
         CharacterClass.ApplyDerivedStats(player_, Inventory.playerData, true)
         player_.expToNext = CharacterClass.GetExpToNext(targetLevel)
         player_.exp = 0
+        if targetLevel > previousLevel and Combat.onLevelUp then
+            Combat.onLevelUp(targetLevel, targetLevel - previousLevel)
+        end
         CharacterClass.RebuildEquippedSkills(player_, true)
 
         -- 鞋子槽点击发生在角色面板内；重建面板后立即让等级和技能显示同步。
@@ -2921,6 +2932,13 @@ function SetupGameCallbacks()
     end
 
     -- 技能解锁提示
+    Combat.onLevelUp = function(newLevel, _levelsGained)
+        -- 升级光芒由 Combat 统一管理，和任务区域/AOE 视觉共用更新与清理。
+        if scene_ and playerNode_ and Combat.SpawnLevelUpVisual then
+            Combat.SpawnLevelUpVisual(scene_, playerNode_, newLevel)
+        end
+    end
+
     Combat.onSkillUnlocked = function(skillName)
         GameUI.ShowToast("习得新技能【" .. skillName .. "】")
         SoundManager.Play("levelup")
@@ -2932,7 +2950,12 @@ function SetupGameCallbacks()
     Quest.onQuestComplete = function(quest)
         -- 发放奖励
         if player_ then
+            local previousLevel = CharacterClass.NormalizeLevel(player_.level)
             local newSkills = CharacterClass.AddExperience(player_, quest.rewardExp or 0)
+            local currentLevel = CharacterClass.NormalizeLevel(player_.level)
+            if currentLevel > previousLevel and Combat.onLevelUp then
+                Combat.onLevelUp(currentLevel, currentLevel - previousLevel)
+            end
             if newSkills and Combat.onSkillUnlocked then
                 for _, name in ipairs(newSkills) do
                     Combat.onSkillUnlocked(name)

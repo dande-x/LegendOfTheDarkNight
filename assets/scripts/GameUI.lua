@@ -3412,6 +3412,23 @@ function GameUI.UpdateQuestTracker(quest, progress, count)
         local mapName = targetMap and targetMap.name or ""
         local offTargetMap = targetMapId and MapZone.GetCurrentMapId() ~= targetMapId
         local objectiveText = Quest.GetObjectiveText(quest, progress, count)
+        -- 巡查、坚守和遭遇都要求玩家先到达任务地点；在目标地图上给出
+        -- 一行短提示，直接说明下一步动作。地点来自 Quest 的目标标记，
+        -- 避免 HUD 再维护一份坐标/名称表。
+        local locationReminder = nil
+        if not done and not travelPending then
+            local marker = Quest.GetObjectiveMarker(quest)
+            if marker and marker.mapId == MapZone.GetCurrentMapId() and marker.name then
+                local markerName = tostring(marker.name)
+                if quest.mode == "patrol" then
+                    locationReminder = "提示：请前往指定地点「" .. markerName .. "」完成巡查"
+                elseif quest.mode == "survive" then
+                    locationReminder = "提示：请进入指定区域「" .. markerName .. "」坚守"
+                elseif quest.mode == "encounter" then
+                    locationReminder = "提示：请前往指定地点「" .. markerName .. "」触发遭遇"
+                end
+            end
+        end
         local mapHint = travelPending and " · 请找管家传送"
             or offTargetMap and " · 返回后继续" or ""
         content = UI.Panel {
@@ -3440,6 +3457,15 @@ function GameUI.UpdateQuestTracker(quest, progress, count)
                     fontColor = done and {140, 220, 140, 255} or {210, 200, 180, 230},
                     marginTop = 3,
                 },
+                locationReminder and UI.Label {
+                    text = locationReminder,
+                    fontSize = 10,
+                    fontColor = {255, 190, 105, 235},
+                    marginTop = 2,
+                    lineHeight = 1.25,
+                    whiteSpace = "normal",
+                    maxLines = 2,
+                } or nil,
                 (mapName ~= "") and UI.Label {
                     text = "📍 " .. mapName .. mapHint,
                     fontSize = 10,
@@ -4335,6 +4361,7 @@ function GameUI._CreateMiniMapArea(player)
         backgroundColor = {50, 255, 100, 255},
         borderWidth = 1,
         borderColor = {255, 255, 255, 200},
+        pointerEvents = "none",
     }
 
     -- ── 玩家朝向指示线 ──
@@ -4343,6 +4370,7 @@ function GameUI._CreateMiniMapArea(player)
         width = 2, height = 8,
         backgroundColor = {50, 255, 100, 200},
         transformOrigin = "bottom",
+        pointerEvents = "none",
     }
 
     local miniSafeZone = UI.Panel {
@@ -4405,12 +4433,14 @@ function GameUI._CreateMiniMapArea(player)
         left = 0, top = math.floor(arenaDrawSize / 2),
         width = arenaDrawSize, height = 1,
         backgroundColor = {120, 110, 60, 80},
+        pointerEvents = "none",
     }
     local gridV = UI.Panel {
         position = "absolute",
         left = math.floor(arenaDrawSize / 2), top = 0,
         width = 1, height = arenaDrawSize,
         backgroundColor = {120, 110, 60, 80},
+        pointerEvents = "none",
     }
 
     -- ── 地图区域（实心方块，包含玩家和网格，overflow裁剪）──
@@ -4422,6 +4452,9 @@ function GameUI._CreateMiniMapArea(player)
         borderWidth = 2,
         borderColor = {126, 130, 134, 245},  -- 银灰粗边框
         overflow = "hidden",  -- 裁剪超出边界的玩家标记
+        -- 地图内容只是装饰层；让小地图容器统一接收点击，避免
+        -- 玩家点/网格/地标在按下与抬起之间变化时导致点击目标不一致。
+        pointerEvents = "none",
         children = (function()
             local children = { miniSafeZone, gridH, gridV }
             for _, landmarkDot in ipairs(miniLandmarkDots) do
@@ -4445,6 +4478,7 @@ function GameUI._CreateMiniMapArea(player)
         fontColor = {226, 228, 226, 240},
         fontWeight = "bold",
         top = 1, left = mapRadius - 4,
+        pointerEvents = "none",
     }
 
     -- 组合所有子元素
@@ -4459,6 +4493,7 @@ function GameUI._CreateMiniMapArea(player)
         borderWidth = 2,
         borderColor = {126, 130, 134, 225},
         overflow = "hidden",
+        pointerEvents = "auto",
         onClick = function()
             GameUI._OpenFullMap()
         end,

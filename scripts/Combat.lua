@@ -5,10 +5,13 @@
 -- ============================================================================
 
 local CharacterClass = require("scripts.CharacterClass")
-local Balance = require("scripts.Balance")
-local MonsterSkeleton = require("scripts.MonsterSkeleton")
+-- `assets/` 与 `scripts/` 同时是资源根；本轮怪物数据、数值与骨架均
+-- 维护在 canonical scripts/ 下。使用根模块名，避免误读
+-- assets/scripts/ 中缺少八爪鱼、海螺幽灵的旧镜像。
+local Balance = require("Balance")
+local MonsterSkeleton = require("MonsterSkeleton")
 local DivineBeast = require("scripts.DivineBeast")
-local MonsterData = require("scripts.MonsterData")
+local MonsterData = require("MonsterData")
 -- `assets/` 与 `scripts/` 同时是资源根；根模块名确保命中 canonical
 -- scripts/MapZone.lua，而不是旧的 assets/scripts 镜像。
 local MapZone = require("MapZone")
@@ -137,12 +140,6 @@ local ENEMY_DEFS = {
     },
     -- === 高级区 25~40 ===
     {
-        name = "赤焰魔", monsterType = "golem",
-        level = 28, hp = 750,  atk = 45, def = 20,
-        speed = 2.0, chaseRange = 6.7, attackRange = 1.5, attackCD = 2.0,
-        exp = 450, scale = 1.8, tier = "elite",
-    },
-    {
         name = "巨蟒",   monsterType = "serpent",
         level = 32, hp = 950,  atk = 50, def = 18,
         speed = 2.8, chaseRange = 9.3, attackRange = 1.5, attackCD = 1.8,
@@ -209,6 +206,8 @@ local summons = {}        -- 召唤兽列表
 local groundItems = {}   -- 地面掉落物 {node, type="gold"/"item", amount, item, timer, magnetPhase, vel}
 ---@type table[]
 local questEffects = {}   -- 主线到点/波次的短时视觉效果
+---@type table[]
+local levelUpEffects = {} -- 角色升级时挂在玩家身上的短时光芒效果
 ---@type table|nil
 local questAreaEffect = nil -- 当前坚守任务的持续区域效果
 ---@type table|nil
@@ -746,6 +745,386 @@ local function UpdateQuestEffects(dt)
                 and (0.88 + math.sin(questAreaEffect.phase * 4.2 + item.baseHeight) * 0.18)
                 or 0.72
             item.node.scale = Vector3(0.13, item.baseHeight * heightPulse, 0.13)
+        end
+    end
+end
+
+-- ============================================================================
+-- Boss 威压光环
+-- ============================================================================
+-- Boss 的脚底标识挂在敌人根节点上，随实体移动，不参与碰撞，也不会把
+-- 怪物模型整体染红。透明 PBR + 自发光负责轮廓，低亮点光源负责把附近地面
+-- 染上一层暗红色，形成持续的“危险半径”感。
+local function CreateBossThreatMaterial(color, alpha, emissive)
+    local material = CreateQuestEffectMaterial(color, alpha, emissive)
+    material:SetCullMode(CULL_NONE)
+    return material
+end
+
+local function SetBossThreatMaterial(material, color, alpha, emissive)
+    if not material then return end
+    material:SetShaderParameter("MatDiffColor", Variant(Color(
+        color[1], color[2], color[3], math.max(0, math.min(1, alpha)))))
+    material:SetShaderParameter("MatEmissiveColor", Variant(Color(
+        color[1] * (emissive or 1.0),
+        color[2] * (emissive or 1.0),
+        color[3] * (emissive or 1.0), 1.0)))
+end
+
+--- 生成 Boss 脚底红色威压光环。
+---@param enemyNode Node
+---@param bossScale number|nil 怪物骨架缩放，用于让不同体型的 Boss 都能被环住
+---@return table|nil
+local function CreateBossThreatVisual(enemyNode, bossScale)
+    if not enemyNode then return nil end
+
+    local scale = math.max(1.0, tonumber(bossScale) or 1.0)
+    -- 外圈略宽于 Boss 身体投影，尤其照顾蚁后/火龙这类横向展开的体型；
+    -- 光环只作威胁提示，不参与碰撞，因此稍微放大不会改变战斗判定。
+    local radius = math.max(1.05, scale * 0.75)
+    local root = enemyNode:CreateChild("BossThreatAura")
+    root.position = Vector3(0, 0.018, 0)
+
+    local outerColor = { 0.95, 0.025, 0.012 }
+    local innerColor = { 1.0, 0.10, 0.025 }
+    local outerMaterial = CreateBossThreatMaterial(outerColor, 0.34, 2.8)
+    local innerMaterial = CreateBossThreatMaterial(innerColor, 0.68, 4.0)
+    local diskMaterial = CreateBossThreatMaterial({ 0.72, 0.008, 0.004 }, 0.13, 1.9)
+
+    -- 暗红色低面光，配合发光材质让脚下地面也有一圈危险色。
+    local disk = root:CreateChild("BossThreatDisk")
+    disk.position = Vector3(0, 0.012, 0)
+    disk.scale = Vector3(radius * 2.0, 0.018, radius * 2.0)
+    local diskModel = disk:CreateComponent("StaticModel")
+    diskModel:SetModel(cache:GetResource("Model", "Models/Cylinder.mdl"))
+    diskModel:SetMaterial(diskMaterial)
+    diskModel.castShadows = false
+
+    -- 外圈断续红环 + 内圈高亮红环，旋转方向相反，避免看起来像静态贴花。
+    local outerRing = root:CreateChild("BossThreatOuterRing")
+    local outerRingModels = CreateQuestRingSegments(outerRing, radius,
+        outerMaterial, 16, "BossOuterRing")
+    -- CreateQuestRingSegments 将分段直接挂在传入 parent 下，因此外圈和
+    -- 内圈都拥有自己的旋转容器，两个方向可以独立转动。
+    local innerRing = root:CreateChild("BossThreatInnerRing")
+    local innerRingModels = CreateQuestRingSegments(innerRing, radius * 0.64,
+        innerMaterial, 10, "BossInnerRing")
+
+    -- 六枚低矮的红色火柱，围绕脚边轻微起伏，增加“领域”压迫感。
+    local pillars = {}
+    for index = 1, 6 do
+        local angle = (index - 1) / 6 * math.pi * 2
+        local pillar = root:CreateChild("BossThreatPillar_" .. index)
+        pillar.position = Vector3(
+            math.cos(angle) * radius * 0.78,
+            0.12,
+            math.sin(angle) * radius * 0.78)
+        pillar.scale = Vector3(0.085, 0.24, 0.085)
+        local pillarModel = pillar:CreateComponent("StaticModel")
+        pillarModel:SetModel(cache:GetResource("Model", "Models/Cone.mdl"))
+        pillarModel:SetMaterial(innerMaterial)
+        pillarModel.castShadows = false
+        table.insert(pillars, { node = pillar, phase = index * 0.8 })
+    end
+
+    local lightNode = root:CreateChild("BossThreatLight")
+    lightNode.position = Vector3(0, 0.42, 0)
+    local light = lightNode:CreateComponent("Light")
+    light.lightType = LIGHT_POINT
+    light.color = Color(1.0, 0.025, 0.01, 1.0)
+    light.range = math.max(3.0, radius * 2.6)
+    light.brightness = 1.15
+    light.castShadows = false
+
+    return {
+        node = root,
+        outerRing = outerRing,
+        innerRing = innerRing,
+        outerRingModels = outerRingModels,
+        innerRingModels = innerRingModels,
+        disk = disk,
+        pillars = pillars,
+        light = light,
+        radius = radius,
+        elapsed = 0,
+        outerMaterial = outerMaterial,
+        innerMaterial = innerMaterial,
+        diskMaterial = diskMaterial,
+        outerColor = outerColor,
+        innerColor = innerColor,
+    }
+end
+
+local function RemoveBossThreatVisual(effect)
+    if effect and effect.node and IsQuestNodeAttached(effect.node) then
+        effect.node:Remove()
+    end
+end
+
+-- Boss 光环是持续效果，不使用场景根节点的 removeTimer；由敌人状态驱动，
+-- Boss 进入死亡演出后立即撤掉，避免击杀后红光还留在尸体位置。
+local function UpdateBossThreatVisuals(dt)
+    local elapsed = math.max(0, tonumber(dt) or 0)
+    for _, enemy in ipairs(enemies) do
+        local effect = enemy and enemy.bossVisual
+        if effect then
+            if not enemy.node or enemy.state == "dying" or enemy.state == "dead"
+                or not IsQuestNodeAttached(effect.node) then
+                RemoveBossThreatVisual(effect)
+                enemy.bossVisual = nil
+            else
+                effect.elapsed = effect.elapsed + elapsed
+                local pulse = 0.86 + 0.14 * math.sin(effect.elapsed * 4.6)
+                local innerPulse = 0.88 + 0.12 * math.sin(effect.elapsed * 6.8 + 0.7)
+
+                effect.outerRing.rotation = effect.outerRing.rotation
+                    * Quaternion(38 * elapsed, Vector3.UP)
+                effect.innerRing.rotation = effect.innerRing.rotation
+                    * Quaternion(-62 * elapsed, Vector3.UP)
+                effect.outerRing.scale = Vector3(
+                    0.94 + pulse * 0.10, 1.0, 0.94 + pulse * 0.10)
+                effect.innerRing.scale = Vector3(
+                    0.90 + innerPulse * 0.15, 1.0, 0.90 + innerPulse * 0.15)
+                effect.disk.scale = Vector3(
+                    effect.radius * (1.88 + pulse * 0.18),
+                    0.018,
+                    effect.radius * (1.88 + pulse * 0.18))
+
+                SetBossThreatMaterial(effect.outerMaterial, effect.outerColor,
+                    0.23 + pulse * 0.18, 2.1 + pulse * 1.4)
+                SetBossThreatMaterial(effect.innerMaterial, effect.innerColor,
+                    0.46 + innerPulse * 0.28, 3.0 + innerPulse * 1.8)
+                SetBossThreatMaterial(effect.diskMaterial, { 0.72, 0.008, 0.004 },
+                    0.085 + pulse * 0.065, 1.3 + pulse * 0.9)
+
+                for _, pillarInfo in ipairs(effect.pillars or {}) do
+                    local pillarPulse = 0.72 + 0.28 * math.sin(
+                        effect.elapsed * 5.2 + pillarInfo.phase)
+                    local pillarScale = 0.19 + pillarPulse * 0.12
+                    pillarInfo.node.scale = Vector3(
+                        0.075 + pillarPulse * 0.025,
+                        pillarScale,
+                        0.075 + pillarPulse * 0.025)
+                    pillarInfo.node.position = Vector3(
+                        pillarInfo.node.position.x,
+                        0.08 + pillarPulse * 0.08,
+                        pillarInfo.node.position.z)
+                end
+                if effect.light then
+                    effect.light.brightness = 0.72 + pulse * 0.78
+                end
+            end
+        end
+    end
+end
+
+-- ==========================================================================
+-- 角色升级光芒
+-- ==========================================================================
+-- 升级特效使用透明 PBR + HDR 自发光，不依赖额外纹理或点光源。根节点
+-- 挂在玩家节点上，因此玩家在短暂演出期间移动时光芒仍会跟随角色；
+-- Combat.Clear 会显式清理列表，切图/退回角色选择不会留下旧节点。
+local LEVEL_UP_DURATION = 1.55
+
+local function SetLevelUpMaterial(material, color, alpha, emissiveScale)
+    if not material then return end
+    material:SetShaderParameter("MatDiffColor", Variant(Color(
+        color[1], color[2], color[3], math.max(0, math.min(1, alpha)))))
+    material:SetShaderParameter("MatEmissiveColor", Variant(Color(
+        color[1] * (emissiveScale or 1.0),
+        color[2] * (emissiveScale or 1.0),
+        color[3] * (emissiveScale or 1.0), 1.0)))
+end
+
+local function CreateLevelUpMaterial(color, alpha, emissiveScale)
+    local material = CreateQuestEffectMaterial(color, alpha, emissiveScale)
+    material:SetCullMode(CULL_NONE)
+    return material
+end
+
+local function ClearLevelUpEffects()
+    for index = #levelUpEffects, 1, -1 do
+        local effect = levelUpEffects[index]
+        if effect and effect.node and IsQuestNodeAttached(effect.node) then
+            effect.node:Remove()
+        end
+        levelUpEffects[index] = nil
+    end
+end
+
+--- 生成角色升级时的金色光芒。
+--- @param scene Scene
+--- @param playerNode Node
+--- @param level number|nil 新等级，仅用于节点调试名
+--- @return Node|nil
+function Combat.SpawnLevelUpVisual(scene, playerNode, level)
+    if not scene or not playerNode then return nil end
+
+    -- 同一帧可能因任务奖励和击杀奖励连续升级；让新的演出替换旧演出，
+    -- 避免多个完整光柱叠加造成透明 View 峰值。
+    ClearLevelUpEffects()
+    local root = playerNode:CreateChild("LevelUpVisual")
+    root.position = Vector3(0, 0, 0)
+    root.scale = Vector3(0.52, 0.52, 0.52)
+
+    local outerColor = { 1.0, 0.56, 0.08 }
+    local coreColor = { 1.0, 0.92, 0.42 }
+    local outerMaterial = CreateLevelUpMaterial(outerColor, 0.18, 3.6)
+    local coreMaterial = CreateLevelUpMaterial(coreColor, 0.52, 5.0)
+    local sparkMaterial = CreateLevelUpMaterial({ 1.0, 0.72, 0.16 }, 0.86, 4.2)
+
+    -- 脚下和头顶各一圈旋转光环，使用现有环形分段 helper，避免创建
+    -- 粒子系统或额外灯光。
+    local lowerRing = root:CreateChild("LevelUpLowerRing")
+    local lowerRingModels = CreateQuestRingSegments(lowerRing, 0.72,
+        outerMaterial, 16, "LevelRingLower")
+    local upperRing = root:CreateChild("LevelUpUpperRing")
+    upperRing.position = Vector3(0, 1.38, 0)
+    local upperRingModels = CreateQuestRingSegments(upperRing, 0.52,
+        coreMaterial, 14, "LevelRingUpper")
+
+    -- 透明外锥 + 窄芯，形成由脚底升起的竖直光柱。
+    local beam = root:CreateChild("LevelUpBeam")
+    beam.position = Vector3(0, 1.12, 0)
+    beam.scale = Vector3(0.50, 2.24, 0.50)
+    local beamModel = beam:CreateComponent("StaticModel")
+    beamModel:SetModel(cache:GetResource("Model", "Models/Cone.mdl"))
+    beamModel:SetMaterial(outerMaterial)
+    beamModel.castShadows = false
+
+    local beamCore = root:CreateChild("LevelUpBeamCore")
+    beamCore.position = Vector3(0, 1.05, 0)
+    beamCore.scale = Vector3(0.15, 2.10, 0.15)
+    local beamCoreModel = beamCore:CreateComponent("StaticModel")
+    beamCoreModel:SetModel(cache:GetResource("Model", "Models/Cone.mdl"))
+    beamCoreModel:SetMaterial(coreMaterial)
+    beamCoreModel.castShadows = false
+
+    local core = root:CreateChild("LevelUpCore")
+    core.position = Vector3(0, 0.84, 0)
+    core.scale = Vector3(0.28, 0.28, 0.28)
+    local coreModel = core:CreateComponent("StaticModel")
+    coreModel:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
+    coreModel:SetMaterial(coreMaterial)
+    coreModel.castShadows = false
+
+    -- 少量上升火花强化“升级”瞬间的粒子感；数据保存在 effect 中，
+    -- 更新时只改位置/缩放，不创建或销毁节点。
+    local sparks = {}
+    for index = 1, 8 do
+        local angle = (index - 1) / 8 * math.pi * 2
+        local spark = root:CreateChild("LevelUpSpark_" .. index)
+        local radius = 0.38 + (index % 3) * 0.10
+        spark.position = Vector3(math.cos(angle) * radius,
+            0.15 + (index % 4) * 0.12,
+            math.sin(angle) * radius)
+        local size = 0.055 + (index % 2) * 0.018
+        spark.scale = Vector3(size, size * 1.55, size)
+        local sparkModel = spark:CreateComponent("StaticModel")
+        sparkModel:SetModel(cache:GetResource("Model", "Models/Sphere.mdl"))
+        sparkModel:SetMaterial(sparkMaterial)
+        sparkModel.castShadows = false
+        table.insert(sparks, {
+            node = spark,
+            angle = angle,
+            radius = radius,
+            startY = spark.position.y,
+            rise = 0.95 + (index % 3) * 0.25,
+            size = size,
+            phase = index * 0.7,
+        })
+    end
+
+    table.insert(levelUpEffects, {
+        node = root,
+        elapsed = 0,
+        duration = LEVEL_UP_DURATION,
+        lowerRing = lowerRing,
+        upperRing = upperRing,
+        lowerRingModels = lowerRingModels,
+        upperRingModels = upperRingModels,
+        beam = beam,
+        beamCore = beamCore,
+        core = core,
+        sparks = sparks,
+        outerMaterial = outerMaterial,
+        coreMaterial = coreMaterial,
+        sparkMaterial = sparkMaterial,
+        outerColor = outerColor,
+        coreColor = coreColor,
+        level = tonumber(level),
+    })
+    return root
+end
+
+local function UpdateLevelUpEffects(dt)
+    local elapsed = math.max(0, tonumber(dt) or 0)
+    for index = #levelUpEffects, 1, -1 do
+        local effect = levelUpEffects[index]
+        if not effect or not effect.node or not IsQuestNodeAttached(effect.node) then
+            table.remove(levelUpEffects, index)
+        else
+            effect.elapsed = effect.elapsed + elapsed
+            if effect.elapsed >= effect.duration then
+                effect.node:Remove()
+                table.remove(levelUpEffects, index)
+            else
+                local progress = math.max(0, math.min(1,
+                    effect.elapsed / effect.duration))
+                local appear = math.min(1, effect.elapsed / 0.16)
+                local fade = math.max(0, 1.0 - progress)
+                local alpha = appear * fade * fade
+                local pulse = 0.88 + 0.12 * math.sin(effect.elapsed * 13.0)
+
+                effect.node.scale = Vector3(
+                    0.52 + 0.18 * pulse,
+                    0.52 + 0.38 * progress,
+                    0.52 + 0.18 * pulse)
+                effect.lowerRing.rotation = effect.lowerRing.rotation
+                    * Quaternion(175 * elapsed, Vector3.UP)
+                effect.upperRing.rotation = effect.upperRing.rotation
+                    * Quaternion(-220 * elapsed, Vector3.UP)
+                effect.lowerRing.scale = Vector3(0.86 + 0.14 * pulse,
+                    1.0, 0.86 + 0.14 * pulse)
+                effect.upperRing.scale = Vector3(0.78 + 0.22 * pulse,
+                    1.0, 0.78 + 0.22 * pulse)
+                effect.beam.scale = Vector3(0.50 * pulse,
+                    2.24 * (0.82 + 0.18 * progress), 0.50 * pulse)
+                effect.beamCore.scale = Vector3(0.15 * (0.9 + 0.1 * pulse),
+                    2.10 * (0.82 + 0.18 * progress),
+                    0.15 * (0.9 + 0.1 * pulse))
+                effect.core.scale = Vector3(0.28 * (0.86 + 0.24 * pulse),
+                    0.28 * (0.86 + 0.24 * pulse),
+                    0.28 * (0.86 + 0.24 * pulse))
+
+                SetLevelUpMaterial(effect.outerMaterial, effect.outerColor,
+                    alpha * 0.85, 3.6 * (0.75 + 0.25 * pulse))
+                SetLevelUpMaterial(effect.coreMaterial, effect.coreColor,
+                    alpha, 5.0 * (0.78 + 0.22 * pulse))
+                SetLevelUpMaterial(effect.sparkMaterial, { 1.0, 0.72, 0.16 },
+                    alpha, 4.2 * (0.75 + 0.25 * pulse))
+
+                for sparkIndex, sparkInfo in ipairs(effect.sparks) do
+                    local spark = sparkInfo.node
+                    if spark then
+                        local orbit = sparkInfo.angle
+                            + effect.elapsed * (1.25 + sparkIndex * 0.035)
+                        local rise = math.min(1.0,
+                            effect.elapsed / 0.30) * sparkInfo.rise
+                        local orbitRadius = sparkInfo.radius
+                            * (1.0 + progress * 0.32)
+                        spark.position = Vector3(
+                            math.cos(orbit) * orbitRadius,
+                            sparkInfo.startY + rise,
+                            math.sin(orbit) * orbitRadius)
+                        local sparkPulse = 0.72 + 0.28 * math.sin(
+                            effect.elapsed * 11.0 + sparkInfo.phase)
+                        local sparkScale = sparkInfo.size * sparkPulse
+                        spark.scale = Vector3(sparkScale,
+                            sparkScale * 1.55, sparkScale)
+                    end
+                end
+            end
         end
     end
 end
@@ -1370,6 +1749,12 @@ function Combat.SpawnEnemy(scene, playerPos, playerLevel, forceDef, mapId, optio
         spawnSource = type(options) == "table" and options.spawnSource or "natural",
     }
 
+    -- Boss 持续威压光环挂在敌人根节点上，必须在实体正式加入列表前创建，
+    -- 这样同一帧的 HUD/战斗更新就能拿到完整的视觉引用。
+    if isBoss then
+        enemy.bossVisual = CreateBossThreatVisual(enemyNode, def.scale)
+    end
+
     table.insert(enemies, enemy)
     return enemy
 end
@@ -1382,6 +1767,8 @@ local function RemoveEnemyImmediately(enemy)
     if not enemy then return false end
     for index = #enemies, 1, -1 do
         if enemies[index] == enemy then
+            RemoveBossThreatVisual(enemy.bossVisual)
+            enemy.bossVisual = nil
             if enemy.node then enemy.node:Remove() end
             if lastPlayerTarget == enemy then lastPlayerTarget = nil end
             table.remove(enemies, index)
@@ -1553,6 +1940,9 @@ function Combat.TriggerDeath(enemy, player)
 
     enemy.state = "dying"
     enemy.hp = 0
+    -- 死亡演出开始即撤掉持续威压，避免 Boss 已经倒下后红光还停留在原地。
+    RemoveBossThreatVisual(enemy.bossVisual)
+    enemy.bossVisual = nil
     local deathDur = MonsterSkeleton.GetAnimDuration(enemy.monsterType, "death")
     enemy.dyingTimer = deathDur
     -- 停止物理移动
@@ -1571,9 +1961,14 @@ function Combat.TriggerDeath(enemy, player)
     Combat.killCount = killCount
     local awardedExp = enemy.exp
     if player then
+        local previousLevel = CharacterClass.NormalizeLevel(player.level)
         awardedExp = Balance.GetExperienceGain(
             enemy.exp, enemy.level, player.level, enemy.tier) * GetExperienceMultiplier(player)
         local newSkills = CharacterClass.AddExperience(player, awardedExp)
+        local currentLevel = CharacterClass.NormalizeLevel(player.level)
+        if currentLevel > previousLevel and Combat.onLevelUp then
+            Combat.onLevelUp(currentLevel, currentLevel - previousLevel)
+        end
         if newSkills and Combat.onSkillUnlocked then
             for _, name in ipairs(newSkills) do
                 Combat.onSkillUnlocked(name)
@@ -1739,6 +2134,10 @@ function Combat.UpdateEnemies(dt, playerNode, player)
         do
         local e = enemies[i]
         if not e or not e.node then
+            if e then
+                RemoveBossThreatVisual(e.bossVisual)
+                e.bossVisual = nil
+            end
             table.remove(enemies, i)
             goto continue
         end
@@ -1753,6 +2152,8 @@ function Combat.UpdateEnemies(dt, playerNode, player)
             end
             if e.dyingTimer <= 0 then
                 e.state = "dead"
+                RemoveBossThreatVisual(e.bossVisual)
+                e.bossVisual = nil
                 e.node:Remove()
                 table.remove(enemies, i)
             end
@@ -4457,6 +4858,8 @@ end
 function Combat.UpdateVisuals(scene, dt, playerNode)
     if not scene then return end
     UpdateQuestEffects(dt)
+    UpdateBossThreatVisuals(dt)
+    UpdateLevelUpEffects(dt)
 
     -- 清理 AOE / Crescent 视觉效果（场景根级别）
     local children = {}
@@ -4536,6 +4939,8 @@ local function RemoveStaleEncounterEnemies(keepEncounterId)
     for index = #enemies, 1, -1 do
         local enemy = enemies[index]
         if enemy and enemy.encounterId and enemy.encounterId ~= keepEncounterId then
+            RemoveBossThreatVisual(enemy.bossVisual)
+            enemy.bossVisual = nil
             if enemy.node then enemy.node:Remove() end
             if lastPlayerTarget == enemy then lastPlayerTarget = nil end
             table.remove(enemies, index)
@@ -4560,6 +4965,8 @@ local function MakeEncounterRoom()
     for index = #enemies, 1, -1 do
         local enemy = enemies[index]
         if enemy and not enemy.encounterId then
+            RemoveBossThreatVisual(enemy.bossVisual)
+            enemy.bossVisual = nil
             if enemy.node then enemy.node:Remove() end
             if lastPlayerTarget == enemy then lastPlayerTarget = nil end
             table.remove(enemies, index)
@@ -5432,8 +5839,9 @@ function Combat.SetMap(mapId)
         activeEncounterId = nil
         playerWasInSafeZone = false
         -- SetMap 也可能被独立调用（不一定总是先经过 Combat.Clear），
-        -- 因此在地图边界再次清理主线特效，避免旧区域轮廓跨图残留。
+        -- 因此在地图边界再次清理临时特效，避免旧区域轮廓或升级光芒跨图残留。
         ClearQuestEffects()
+        ClearLevelUpEffects()
     end
     return true
 end
@@ -5458,6 +5866,8 @@ end
 function Combat.Clear(resetKillCount, clearPersistentSummon)
     RemoveBossAttackVisuals(combatScene)
     for _, e in ipairs(enemies) do
+        RemoveBossThreatVisual(e.bossVisual)
+        e.bossVisual = nil
         if e.node then e.node:Remove() end
     end
     for _, p in ipairs(projectiles) do
@@ -5473,6 +5883,7 @@ function Combat.Clear(resetKillCount, clearPersistentSummon)
         if g.node then g.node:Remove() end
     end
     ClearQuestEffects()
+    ClearLevelUpEffects()
     enemies = {}
     projectiles = {}
     summons = {}
@@ -5504,6 +5915,7 @@ Combat.onDamageDealt = nil   -- function(dmg, isCrit, worldPos)
 Combat.onEnemyAttack = nil   -- function(enemy, dmg, playerPos)
 Combat.onPlayerHeal = nil    -- function(amount, playerPos)
 Combat.onEnemyDeath = nil    -- function(enemyName, deathPos, exp, deathDuration, tier, mapId, encounterId)
+Combat.onLevelUp = nil       -- function(newLevel, levelsGained)
 Combat.onSkillUnlocked = nil -- function(skillName)
 Combat.onGoldPickup = nil    -- function(amount, worldPos)
 Combat.onItemPickup = nil    -- function(item, worldPos) -> boolean|nil（false 时保留地面物品）

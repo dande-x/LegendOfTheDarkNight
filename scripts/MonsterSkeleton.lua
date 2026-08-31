@@ -33,6 +33,20 @@ local function CreateGhostDeerMat()
     return mat
 end
 
+-- 海螺幽灵使用透明 PBR 材质，保证悬浮壳体和飘带不会退化成不透明的纯色块。
+-- 眼睛、獠牙等带 colorOverride 的部件仍在 CreateSkeleton 中使用不透明材质，
+-- 以保留轮廓对比和可读性。
+local function CreateConchGhostMat(color)
+    local mat = Material:new()
+    mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTextureAlpha.xml"))
+    mat:SetShaderParameter("MatDiffColor", Variant(color or Color(0.35, 0.72, 0.78, 0.78)))
+    mat:SetShaderParameter("MatSpecColor", Variant(Color(0.70, 0.95, 1.0, 1.0)))
+    mat:SetShaderParameter("MatEmissiveColor", Variant(Color(0.10, 0.32, 0.42, 1.0)))
+    mat:SetShaderParameter("Roughness", Variant(0.18))
+    mat:SetShaderParameter("Metallic", Variant(0.0))
+    return mat
+end
+
 local function CreateFireDragonMat(color, emissive, alpha)
     local mat = Material:new()
     local technique = alpha and "Techniques/PBR/PBRNoTextureAlpha.xml"
@@ -593,6 +607,59 @@ local BONES_CAT = {
     rBackLo  = { parent = "rBackUp", pos = {0, -0.18, 0},         meshScale = {0.04, 0.16, 0.04}, model = "Cylinder", meshOffset = {0, -0.08, 0} },
 }
 
+-- 八爪鱼：扁圆头部 + 8 条触手。
+--
+-- 触手沿身体两侧排布，并沿用蜘蛛动画中的 leg* 骨骼命名，
+-- 这样攻击/受击/死亡状态仍由同一套爬行节奏驱动，但材质颜色和
+-- 轮廓与蜘蛛区分开来。
+local BONES_OCTOPUS = {
+    body     = { parent = nil,       pos = {0, 0.32, 0},     meshScale = {0.42, 0.25, 0.40}, model = "Sphere" },
+    head     = { parent = "body",   pos = {0, 0.14, 0.10},  meshScale = {0.28, 0.20, 0.26}, model = "Sphere" },
+    abdomen  = { parent = "body",   pos = {0, 0.02, -0.18}, meshScale = {0.38, 0.24, 0.34}, model = "Sphere" },
+    eyeL     = { parent = "head",   pos = {-0.10, 0.06, 0.18}, meshScale = {0.045, 0.045, 0.03}, model = "Sphere", colorOverride = Color(0.95, 0.78, 0.20, 1.0) },
+    eyeR     = { parent = "head",   pos = {0.10, 0.06, 0.18},  meshScale = {0.045, 0.045, 0.03}, model = "Sphere", colorOverride = Color(0.95, 0.78, 0.20, 1.0) },
+    -- 左侧四条触手
+    leg1LUp  = { parent = "body",   pos = {-0.22, 0.00, 0.18},  meshScale = {0.055, 0.22, 0.055}, model = "Cylinder", meshOffset = {0, -0.11, 0} },
+    leg1LLo  = { parent = "leg1LUp", pos = {-0.02, -0.22, 0.03}, meshScale = {0.045, 0.20, 0.045}, model = "Cylinder", meshOffset = {0, -0.10, 0} },
+    leg2LUp  = { parent = "body",   pos = {-0.26, 0.00, 0.06},  meshScale = {0.055, 0.23, 0.055}, model = "Cylinder", meshOffset = {0, -0.115, 0} },
+    leg2LLo  = { parent = "leg2LUp", pos = {-0.03, -0.23, 0.01}, meshScale = {0.045, 0.20, 0.045}, model = "Cylinder", meshOffset = {0, -0.10, 0} },
+    leg3LUp  = { parent = "body",   pos = {-0.26, 0.00, -0.08}, meshScale = {0.055, 0.23, 0.055}, model = "Cylinder", meshOffset = {0, -0.115, 0} },
+    leg3LLo  = { parent = "leg3LUp", pos = {-0.03, -0.23, -0.01}, meshScale = {0.045, 0.20, 0.045}, model = "Cylinder", meshOffset = {0, -0.10, 0} },
+    leg4LUp  = { parent = "body",   pos = {-0.22, 0.00, -0.18}, meshScale = {0.055, 0.22, 0.055}, model = "Cylinder", meshOffset = {0, -0.11, 0} },
+    leg4LLo  = { parent = "leg4LUp", pos = {-0.02, -0.22, -0.03}, meshScale = {0.045, 0.19, 0.045}, model = "Cylinder", meshOffset = {0, -0.095, 0} },
+    -- 右侧四条触手
+    leg1RUp  = { parent = "body",   pos = {0.22, 0.00, 0.18},   meshScale = {0.055, 0.22, 0.055}, model = "Cylinder", meshOffset = {0, -0.11, 0} },
+    leg1RLo  = { parent = "leg1RUp", pos = {0.02, -0.22, 0.03},  meshScale = {0.045, 0.20, 0.045}, model = "Cylinder", meshOffset = {0, -0.10, 0} },
+    leg2RUp  = { parent = "body",   pos = {0.26, 0.00, 0.06},   meshScale = {0.055, 0.23, 0.055}, model = "Cylinder", meshOffset = {0, -0.115, 0} },
+    leg2RLo  = { parent = "leg2RUp", pos = {0.03, -0.23, 0.01},  meshScale = {0.045, 0.20, 0.045}, model = "Cylinder", meshOffset = {0, -0.10, 0} },
+    leg3RUp  = { parent = "body",   pos = {0.26, 0.00, -0.08},  meshScale = {0.055, 0.23, 0.055}, model = "Cylinder", meshOffset = {0, -0.115, 0} },
+    leg3RLo  = { parent = "leg3RUp", pos = {0.03, -0.23, -0.01}, meshScale = {0.045, 0.20, 0.045}, model = "Cylinder", meshOffset = {0, -0.10, 0} },
+    leg4RUp  = { parent = "body",   pos = {0.22, 0.00, -0.18},  meshScale = {0.055, 0.22, 0.055}, model = "Cylinder", meshOffset = {0, -0.11, 0} },
+    leg4RLo  = { parent = "leg4RUp", pos = {0.02, -0.22, -0.03}, meshScale = {0.045, 0.19, 0.045}, model = "Cylinder", meshOffset = {0, -0.095, 0} },
+}
+
+-- 海螺幽灵：悬浮的海螺壳 + 从壳口探出的幽灵头和飘带。
+-- 这里保留 serpent 动画所需的 seg*/neck/head/jaw 骨骼名，便于
+-- 复用蜿蜒、受击和死亡关键帧，同时用扁平壳体轮廓替代蛇身。
+local BONES_CONCH_GHOST = {
+    seg1     = { parent = nil,       pos = {0, 0.58, 0},     meshScale = {0.48, 0.42, 0.30}, model = "Sphere" },
+    seg2     = { parent = "seg1",    pos = {0, 0.00, -0.22}, meshScale = {0.36, 0.30, 0.24}, model = "Sphere" },
+    seg3     = { parent = "seg2",    pos = {0, 0.02, -0.18}, meshScale = {0.24, 0.20, 0.18}, model = "Sphere" },
+    seg4     = { parent = "seg3",    pos = {0, 0.02, -0.14}, meshScale = {0.14, 0.14, 0.12}, model = "Sphere" },
+    seg5     = { parent = "seg4",    pos = {0, 0.00, -0.12}, meshScale = {0.10, 0.10, 0.09}, model = "Sphere" },
+    tail     = { parent = "seg5",    pos = {0, 0.00, -0.16}, meshScale = {0.06, 0.12, 0.06}, model = "Cylinder" },
+    neck     = { parent = "seg1",    pos = {0, 0.18, 0.22},  meshScale = {0.12, 0.20, 0.12}, model = "Cylinder", meshOffset = {0, 0.10, 0} },
+    head     = { parent = "neck",    pos = {0, 0.18, 0.12},  meshScale = {0.24, 0.18, 0.22}, model = "Sphere" },
+    snout    = { parent = "head",    pos = {0, -0.02, 0.16}, meshScale = {0.16, 0.08, 0.14}, model = "Sphere" },
+    jaw      = { parent = "head",    pos = {0, -0.10, 0.10}, meshScale = {0.18, 0.05, 0.15}, model = "Box" },
+    fangL    = { parent = "jaw",     pos = {-0.05, -0.02, 0.10}, meshScale = {0.018, 0.06, 0.018}, model = "Cylinder", colorOverride = Color(0.80, 0.92, 0.94, 1.0) },
+    fangR    = { parent = "jaw",     pos = {0.05, -0.02, 0.10},  meshScale = {0.018, 0.06, 0.018}, model = "Cylinder", colorOverride = Color(0.80, 0.92, 0.94, 1.0) },
+    eyeL     = { parent = "head",    pos = {-0.075, 0.04, 0.13}, meshScale = {0.038, 0.032, 0.025}, model = "Sphere", colorOverride = Color(0.45, 0.95, 1.0, 1.0) },
+    eyeR     = { parent = "head",    pos = {0.075, 0.04, 0.13},  meshScale = {0.038, 0.032, 0.025}, model = "Sphere", colorOverride = Color(0.45, 0.95, 1.0, 1.0) },
+    wispL    = { parent = "seg1",    pos = {-0.30, 0.06, 0.02}, meshScale = {0.035, 0.28, 0.035}, model = "Cylinder", meshOffset = {0, -0.14, 0} },
+    wispR    = { parent = "seg1",    pos = {0.30, 0.06, 0.02},  meshScale = {0.035, 0.28, 0.035}, model = "Cylinder", meshOffset = {0, -0.14, 0} },
+}
+
 -- 狼：四足犬形，尖嘴 + 竖耳 + 垂尾
 local BONES_WOLF = {
     body     = { parent = nil,       pos = {0, 0.50, 0},    meshScale = {0.26, 0.22, 0.56}, model = "Cylinder" },
@@ -723,6 +790,22 @@ MonsterSkeleton.TYPES = {
         color = Color(0.72, 0.68, 0.60, 1.0),  -- 白猪
         scale = 1.4, heightOffset = 0,
     },
+    octopus = {
+        name = "八爪鱼", bones = BONES_OCTOPUS,
+        color = Color(0.10, 0.34, 0.48, 1.0),  -- 深海蓝
+        scale = 1.05, heightOffset = 0,
+    },
+    conch_ghost = {
+        name = "海螺幽灵", bones = BONES_CONCH_GHOST,
+        color = Color(0.35, 0.72, 0.78, 0.78),  -- 半透明幽蓝
+        scale = 1.05, heightOffset = 0,
+    },
+    -- 兼容早期数据可能使用的英文别名；正式怪物名仍由 MonsterData 提供。
+    shell_ghost = {
+        name = "海螺幽灵", bones = BONES_CONCH_GHOST,
+        color = Color(0.35, 0.72, 0.78, 0.78),
+        scale = 1.05, heightOffset = 0,
+    },
     antqueen = {
         name = "蚁后", bones = BONES_ANTQUEEN,
         color = Color(0.45, 0.20, 0.15, 1.0),  -- 蚁红棕
@@ -785,10 +868,6 @@ ANIMS.fire_dragon = ANIMS.deer
 ANIMS.cat = ANIMS.deer
 ANIMS.wolf = ANIMS.deer
 ANIMS.boar = ANIMS.deer
--- 蛤蟆 / 蚁后复用蜘蛛（多足爬行）步态
-ANIMS.toad = ANIMS.spider
-ANIMS.antqueen = ANIMS.spider
-
 -- ==================== 稻草人 ====================
 ANIMS.scarecrow = {
     idle = { duration = 2.5, looping = true, keyframes = {
@@ -906,6 +985,12 @@ ANIMS.spider = {
         { 0.0, "leg2RUp", 0, 0, 30 }, { 0.6, "leg2RUp", 25, 0, 55 }, { 1.2, "leg2RUp", 45, 0, 75 },
     }},
 }
+
+-- 蛤蟆、蚁后和八爪鱼共用蜘蛛的多足步态；这些别名必须放在
+-- ANIMS.spider 完整定义之后，避免模块加载时读取到 nil。
+ANIMS.toad = ANIMS.spider
+ANIMS.antqueen = ANIMS.spider
+ANIMS.octopus = ANIMS.spider
 
 -- ==================== 半兽人 ====================
 ANIMS.orc = {
@@ -1056,6 +1141,11 @@ ANIMS.serpent = {
     }},
 }
 
+-- 海螺幽灵用蛇形关键帧驱动壳体和幽灵飘带，保持悬浮摆动感。
+-- 这两个别名必须放在 ANIMS.serpent 定义之后，避免模块加载时得到 nil。
+ANIMS.conch_ghost = ANIMS.serpent
+ANIMS.shell_ghost = ANIMS.serpent
+
 -- ============================================================================
 -- 骨架构建
 -- ============================================================================
@@ -1104,6 +1194,13 @@ function MonsterSkeleton.CreateSkeleton(parentNode, monsterType)
         texMat = CreateTexPBRMat(texPath, 0.7, 0.05)
     end
 
+    -- 海螺幽灵（以及兼容别名）整体使用 Alpha technique；局部高亮部件
+    -- 仍由 colorOverride 分支使用不透明材质，以确保眼睛和獠牙清晰可见。
+    local conchGhostMat = nil
+    if monsterType == "conch_ghost" or monsterType == "shell_ghost" then
+        conchGhostMat = CreateConchGhostMat(color)
+    end
+
     for _, name in ipairs(buildOrder) do
         local def = boneDefs[name]
         local pNode = def.parent and bones[def.parent] or parentNode
@@ -1127,6 +1224,8 @@ function MonsterSkeleton.CreateSkeleton(parentNode, monsterType)
                 model:SetMaterial(CreatePBRMat(def.colorOverride, 0.6, 0.1))
             elseif texMat then
                 model:SetMaterial(texMat)
+            elseif conchGhostMat then
+                model:SetMaterial(conchGhostMat)
             else
                 model:SetMaterial(CreatePBRMat(color, 0.6, 0.1))
             end

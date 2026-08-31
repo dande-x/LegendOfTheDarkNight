@@ -63,9 +63,9 @@ MapZone.DEFS = {
         maxLevel = 34,
         groundColor = Color(0.06, 0.17, 0.31, 1.0),
         fogColor = Color(0.12, 0.42, 0.46, 1.0),
-        -- 水城自然生态维持 25~34 级，不再临时补入指定任务怪。
-        -- 减少蛇类比例：用已有的非蛇怪（赤焰魔/石像鬼）替换巨蜥，避免“全是蛇”。
-        spawnPool = { "石像鬼", "海妖", "赤焰魔" },
+        -- 水城自然生态维持 25~34 级；石像鬼、海妖与两种新海洋敌人
+        -- 共同组成常规池，保持水域主题和敌人辨识度。
+        spawnPool = { "石像鬼", "海妖", "八爪鱼", "海螺幽灵" },
         boss = "蚁后",
         spawnSettings = { initialCount = 8, maxEnemies = 22, interval = 1.50 },
         spawnPos = Vector3.ZERO,

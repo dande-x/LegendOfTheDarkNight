@@ -89,6 +89,20 @@ MonsterData.NEW_ENEMIES = {
         exp = 480, scale = 1.9, tier = "normal",
     },
     {
+        name = "八爪鱼", monsterType = "octopus",
+        -- 水上城市的近战海怪：触手密集、移动较快，但防御低于石像鬼。
+        level = 28, hp = 700, atk = 48, def = 15,
+        speed = 2.8, chaseRange = 8.7, attackRange = 1.6, attackCD = 1.5,
+        exp = 420, scale = 1.05, tier = "normal",
+    },
+    {
+        name = "海螺幽灵", monsterType = "conch_ghost",
+        -- 悬浮型水城幽灵：耐久略高、攻速偏慢，作为水城后段的异形敌人。
+        level = 32, hp = 820, atk = 52, def = 18,
+        speed = 2.2, chaseRange = 9.3, attackRange = 1.7, attackCD = 1.9,
+        exp = 500, scale = 1.10, tier = "normal",
+    },
+    {
         name = "岩甲兽", monsterType = "golem",
         level = 37, hp = 1020, atk = 58, def = 24,
         speed = 1.6, chaseRange = 6.0, attackRange = 1.5, attackCD = 2.0,
@@ -330,6 +344,14 @@ MonsterData.DROP_TABLES = {
         goldMin = 136, goldMax = 234, dropChance = 0.35,
         items = WATER_CITY_ITEMS,
     },
+    ["八爪鱼"] = {
+        goldMin = 123, goldMax = 216, dropChance = 0.34,
+        items = WATER_CITY_ITEMS,
+    },
+    ["海螺幽灵"] = {
+        goldMin = 143, goldMax = 247, dropChance = 0.36,
+        items = WATER_CITY_ITEMS,
+    },
     ["岩甲兽"] = {
         goldMin = 169, goldMax = 286, dropChance = 0.36,
         items = WOMAR_ITEMS,
@@ -391,12 +413,6 @@ MonsterData.DROP_TABLES = {
             { id = "belt_knight", weight = 2 },
             { id = "boots_iron", weight = 10 },
         },
-    },
-    ["赤焰魔"] = {
-        -- 赤焰魔作为水城（Lv25~34）精英混入常规生态，掉率略高但掉落贴水城等级带，
-        -- 避免中期提前打出顶级龙装。
-        goldMin = 130, goldMax = 234, dropChance = 0.44,
-        items = WATER_CITY_ITEMS,
     },
     ["巨蟒"] = {
         goldMin = 156, goldMax = 273, dropChance = 0.46,
