@@ -16,6 +16,9 @@ local MonsterData = require("MonsterData")
 -- scripts/MapZone.lua，而不是旧的 assets/scripts 镜像。
 local MapZone = require("MapZone")
 local SoundManager = require("scripts.SoundManager")
+-- 沙巴克外部角色携带的是临时装备描述；复用装备实际属性解析器，确保
+-- COMMON/RARE 未强化装备不是只显示在 descriptor 上而不参与战斗。
+local EquipmentStats = require("scripts.EquipmentStats")
 
 local Combat = {}
 
@@ -197,6 +200,8 @@ Combat.ENEMY_DEFS = ENEMY_DEFS
 ---@type table[]
 local enemies = {}       -- 活着的敌人列表
 ---@type table[]
+local externalEnemies = {} -- 外部角色敌人（例如沙巴克三职业守军）
+---@type table[]
 local projectiles = {}   -- 弹道列表
 ---@type table[]
 local aoeZones = {}      -- 范围持续伤害区域 (火墙等)
@@ -219,6 +224,8 @@ local killCount = 0
 local spawnTimer = 0
 local currentMapId = "map_bq"  -- 当前地图，供按图刷怪
 local playerWasInSafeZone = false
+local naturalSpawnsSuppressed = false
+local externalCombatMode = false
 Combat.currentMapId = currentMapId
 
 local function IsFiniteNumber(value)
@@ -236,6 +243,14 @@ local function SafeInteger(value, fallback, minValue, maxValue)
     return math.floor(number)
 end
 
+local function SafeNumber(value, fallback, minValue, maxValue)
+    local number = tonumber(value)
+    if not IsFiniteNumber(number) then return fallback end
+    if minValue then number = math.max(minValue, number) end
+    if maxValue then number = math.min(maxValue, number) end
+    return number
+end
+
 local MAX_COMBAT_VALUE = 1000000000
 
 local function IsHostileSkill(skill)
@@ -248,6 +263,38 @@ local function IsHostileSkill(skill)
 end
 
 Combat.IsHostileSkill = IsHostileSkill
+
+-- 实例地图（例如沙巴克）有不属于 enemies 列表的可破坏目标。CastSkill
+-- 在正常技能逻辑前发出一个可选通知，让实例运行时能把同一次施法映射到
+-- 城门/封印等目标；回调返回 handled=true 时表示该技能已由实例消费，避免
+-- 为“没有敌人实体”的攻城目标再额外创建一套技能分支。
+local function NotifySiegeSkillCast(context)
+    -- 新适配层可直接接收 context；旧适配层继续使用四个位置参数，
+    -- 第五个参数附带 context 供需要目标/方向的实现读取。
+    if type(Combat.onSiegeSkillCastContext) == "function" then
+        local ok, result = pcall(Combat.onSiegeSkillCastContext, context)
+        if not ok then
+            print("[Combat] siege context callback failed: " .. tostring(result))
+        elseif result == true then
+            return true, "siege"
+        elseif type(result) == "table" and result.handled == true then
+            return true, result.result or result.reason or "siege"
+        end
+    end
+
+    if type(Combat.onSiegeSkillCast) ~= "function" then return false, nil end
+    local ok, result = pcall(Combat.onSiegeSkillCast,
+        context.skill, context.player, context.playerNode, context.scene, context)
+    if not ok then
+        print("[Combat] siege skill callback failed: " .. tostring(result))
+        return false, nil
+    end
+    if result == true then return true, "siege" end
+    if type(result) == "table" and result.handled == true then
+        return true, result.result or result.reason or "siege"
+    end
+    return false, nil
+end
 
 local function GetSafeZoneCenter(mapId)
     local mapDef = MapZone.GetDef(mapId or currentMapId)
@@ -346,13 +393,422 @@ local function GetBeastAttackMultiplier(player)
 end
 
 Combat.enemies = enemies
+Combat.externalEnemies = externalEnemies
 Combat.projectiles = projectiles
 Combat.killCount = 0
 
 IsEnemyTargetable = function(enemy)
     return enemy and enemy.node and enemy.state ~= "dead" and enemy.state ~= "dying"
+        and enemy.state ~= "down"
         and IsFiniteNumber(enemy.hp) and enemy.hp > 0
+        and enemy.combatTargetable ~= false
+        and enemy.faction ~= "ally"
         and not IsInSafeZone(enemy.node.position)
+end
+
+Combat.IsEnemyTargetable = function(enemy)
+    return IsEnemyTargetable(enemy)
+end
+
+-- ============================================================================
+-- 外部角色敌人接口
+-- ============================================================================
+--
+-- 沙巴克守军是三职业“实际角色”，不能复用 MonsterSkeleton 的怪物创建
+-- 流程。运行时负责创建角色模型、碰撞体和职业 AI，再把一个 descriptor（含
+-- node/stats/callbacks）注册到这里。注册后的实体共享玩家技能、目标选择、
+-- DOT/AOE 和血条数据，但默认不参与击杀、经验、掉落或自然刷怪。
+
+local function ResolveExternalNode(actor, options)
+    if type(actor) == "table" and actor.node then return actor.node end
+    if type(options) == "table" and options.node then return options.node end
+    return nil
+end
+
+-- 计算外部角色装备的实际平面属性。生产运行时通常会在 descriptor.item
+-- 放入 Inventory.CreateItem 的实例；离线测试或轻量适配层也可以直接传入
+-- { atk, def, hp } / { baseAtk, bonusAtk, ... }，因此这里保留多种安全形态。
+-- 该函数只读取数据，不修改装备对象，也不把强化等级写回角色。
+local function ResolveExternalEquipmentStats(actor, options)
+    actor = type(actor) == "table" and actor or {}
+    options = type(options) == "table" and options or {}
+    local totals = { atk = 0, def = 0, hp = 0, itemCount = 0 }
+    local equipment = actor.equipment or actor.loadout
+        or options.equipment or options.loadout
+
+    local function AddNumber(key, value)
+        local number = tonumber(value)
+        if IsFiniteNumber(number) and number >= 0 then
+            totals[key] = math.min(MAX_COMBAT_VALUE, totals[key] + number)
+        end
+    end
+
+    local function AddEntry(entry)
+        if type(entry) ~= "table" then return end
+        local item = type(entry.item) == "table" and entry.item or entry
+        local stats = EquipmentStats.Get(item)
+        if stats then
+            AddNumber("atk", stats.atk)
+            AddNumber("def", stats.def)
+            AddNumber("hp", stats.hp)
+            totals.itemCount = totals.itemCount + 1
+            return
+        end
+
+        -- 支持注入层只传基础/强化拆分值，或直接传一组 bonus 字段。
+        local source = type(entry.stats) == "table" and entry.stats or item
+        local atk = tonumber(source.atk)
+        local def = tonumber(source.def)
+        local hp = tonumber(source.hp)
+        if not IsFiniteNumber(atk) then
+            atk = (tonumber(source.baseAtk) or 0) + (tonumber(source.bonusAtk) or 0)
+        end
+        if not IsFiniteNumber(def) then
+            def = (tonumber(source.baseDef) or 0) + (tonumber(source.bonusDef) or 0)
+        end
+        if not IsFiniteNumber(hp) then
+            hp = (tonumber(source.baseHP) or 0) + (tonumber(source.bonusHP) or 0)
+        end
+        local before = totals.atk + totals.def + totals.hp
+        AddNumber("atk", atk)
+        AddNumber("def", def)
+        AddNumber("hp", hp)
+        if totals.atk + totals.def + totals.hp > before then
+            totals.itemCount = totals.itemCount + 1
+        end
+    end
+
+    if type(equipment) == "table" then
+        -- 装备栏/临时套装通常是数组；同时兼容按 slot key 存储的表。
+        for _, entry in pairs(equipment) do AddEntry(entry) end
+    end
+
+    local explicit = actor.equipmentStats or options.equipmentStats
+    if type(explicit) == "table" then
+        AddNumber("atk", explicit.atk)
+        AddNumber("def", explicit.def)
+        AddNumber("hp", explicit.hp)
+    end
+    return totals
+end
+
+local function ResolveExternalStats(actor, options, level)
+    actor = type(actor) == "table" and actor or {}
+    options = type(options) == "table" and options or {}
+    local classId = actor.classId or options.classId
+    local classDef = classId and CharacterClass.Classes[classId] or nil
+    local growth = classDef and classDef.growth or nil
+    local baseHP = classDef and classDef.baseHP or 200
+    local baseMP = classDef and classDef.baseMP or 60
+    local baseATK = classDef and classDef.baseATK or 18
+    local baseDEF = classDef and classDef.baseDEF or 15
+    local hpGrowth = growth and growth.hp or 40
+    local mpGrowth = growth and growth.mp or 8
+    local atkGrowth = growth and growth.atk or 6
+    local defGrowth = growth and growth.def or 1.8
+    local hpScale = tonumber(actor.maxHPMultiplier or options.maxHPMultiplier) or 1.0
+    local atkScale = tonumber(actor.damageMultiplier or options.damageMultiplier) or 1.0
+    local passive = CharacterClass.PASSIVE_MODIFIERS
+        and CharacterClass.PASSIVE_MODIFIERS[classId] or nil
+    -- 角色 descriptor 的倍率是临时装备/攻城难度修正，职业被动仍应生效；
+    -- 显式传入 maxHP 时则在下方覆盖最终值。
+    hpScale = hpScale * (tonumber(passive and passive.maxHPMultiplier) or 1.0)
+    hpScale = IsFiniteNumber(hpScale) and math.max(0.1, hpScale) or 1.0
+    atkScale = IsFiniteNumber(atkScale) and math.max(0.1, atkScale) or 1.0
+
+    local fallback = {
+        maxHP = math.max(1, math.floor((baseHP + hpGrowth * (level - 1)) * hpScale + 0.5)),
+        maxMP = math.max(1, math.floor(baseMP + mpGrowth * (level - 1) + 0.5)),
+        atk = math.max(1, math.floor((baseATK + atkGrowth * (level - 1)) * atkScale + 0.5)),
+        def = math.max(0, math.floor(baseDEF + defGrowth * (level - 1) + 0.5)),
+    }
+    local equipmentStats = ResolveExternalEquipmentStats(actor, options)
+    -- 装备是角色的平面加成，职业/难度倍率先作用于等级成长基线；这样
+    -- 普通与稀有套装会真实影响战斗，又不会把支援/守军倍率重复放大。
+    fallback.maxHP = fallback.maxHP + equipmentStats.hp
+    fallback.atk = fallback.atk + equipmentStats.atk
+    fallback.def = fallback.def + equipmentStats.def
+    local stats = actor.stats or options.stats
+    if type(stats) == "table" then
+        fallback.maxHP = tonumber(stats.maxHP or stats.hp) or fallback.maxHP
+        fallback.maxMP = tonumber(stats.maxMP or stats.mp) or fallback.maxMP
+        fallback.atk = tonumber(stats.atk) or fallback.atk
+        fallback.def = tonumber(stats.def) or fallback.def
+    end
+    fallback.maxHP = tonumber(actor.maxHP or options.maxHP) or fallback.maxHP
+    fallback.maxMP = tonumber(actor.maxMP or options.maxMP) or fallback.maxMP
+    fallback.atk = tonumber(actor.atk or options.atk) or fallback.atk
+    fallback.def = tonumber(actor.def or options.def) or fallback.def
+    fallback.maxHP = math.max(1, math.min(MAX_COMBAT_VALUE, fallback.maxHP))
+    fallback.maxMP = math.max(0, math.min(MAX_COMBAT_VALUE, fallback.maxMP))
+    fallback.atk = math.max(1, math.min(MAX_COMBAT_VALUE, fallback.atk))
+    fallback.def = math.max(0, math.min(MAX_COMBAT_VALUE, fallback.def))
+    fallback.equipmentStats = equipmentStats
+    return fallback
+end
+
+-- 外部角色的 descriptor 由 ShabakRuntime 持有，Combat 只负责把战斗状态
+-- 镜像回去。所有写入都集中在这里，避免 hp、hpRatio、defeated 等字段在
+-- 受击、死亡、复活和清场路径上逐渐分叉。
+local function SyncExternalActor(enemy)
+    if not enemy or type(enemy.actor) ~= "table" then return end
+    local actor = enemy.actor
+    actor.hp = enemy.hp
+    actor.maxHP = enemy.maxHP
+    actor.hpRatio = enemy.maxHP > 0 and enemy.hp / enemy.maxHP or 0
+    actor.mp = enemy.mp
+    actor.maxMP = enemy.maxMP
+    actor.level = enemy.level
+    actor.atk = enemy.atk
+    actor.def = enemy.def
+    actor.defeated = enemy.state == "dead" or enemy.state == "dying"
+    actor.combatState = enemy.state
+end
+
+local function CallExternalCallback(callback, ...)
+    if type(callback) ~= "function" then return false end
+    local ok, err = pcall(callback, ...)
+    if not ok then
+        print("[Combat] external callback failed: " .. tostring(err))
+    end
+    return ok
+end
+
+local function FindExternalEnemy(value)
+    if type(value) == "table" then
+        for _, enemy in ipairs(externalEnemies) do
+            if enemy == value or enemy.actor == value
+                or (value.node and enemy.node == value.node) then
+                return enemy
+            end
+        end
+    elseif type(value) == "string" then
+        for _, enemy in ipairs(externalEnemies) do
+            if enemy.id == value or enemy.externalId == value then return enemy end
+        end
+    end
+    return nil
+end
+
+local function RemoveExternalEnemyReference(enemy, removeNode, reason)
+    if not enemy then return false end
+    for index = #enemies, 1, -1 do
+        if enemies[index] == enemy then
+            table.remove(enemies, index)
+            break
+        end
+    end
+    for index = #externalEnemies, 1, -1 do
+        if externalEnemies[index] == enemy then
+            table.remove(externalEnemies, index)
+            break
+        end
+    end
+    if lastPlayerTarget == enemy then lastPlayerTarget = nil end
+    if removeNode ~= false and enemy.node then enemy.node:Remove() end
+    if enemy.actor and enemy.actor._combatEnemy == enemy then
+        enemy.actor._combatEnemy = nil
+    end
+    if enemy.actor then
+        enemy.actor.defeated = true
+        enemy.actor.combatState = "removed"
+    end
+    if not enemy.externalRemovedNotified then
+        enemy.externalRemovedNotified = true
+        CallExternalCallback(enemy.externalOnRemoved, enemy, reason or "removed")
+    end
+    return true
+end
+
+--- 将一个由外部运行时创建的实际角色注册为可被玩家技能攻击的敌人。
+--- descriptor 至少需要 node；其余 stats/callbacks 均可按需提供。
+--- 支持字段：id/name/classId/level/maxHP/hp/atk/def、updateAI、onDeath、
+--- onReset、onDisengage、onDamage、onHeal、onRemoved、deathDuration、
+--- persistOnDeath、faction、tier。
+---@param actor table
+---@param options table|nil
+---@return table|nil enemy
+---@return string|nil reason
+function Combat.RegisterExternalEnemy(actor, options)
+    if type(actor) ~= "table" then return nil, "外部角色描述无效" end
+    options = type(options) == "table" and options or {}
+    local existing = actor._combatEnemy or FindExternalEnemy(actor)
+    if existing then return existing end
+
+    local node = ResolveExternalNode(actor, options)
+    if not node then return nil, "外部角色缺少节点" end
+
+    local level = SafeInteger(actor.level or options.level, 50, 1, Balance.LEVEL_SANITY_LIMIT)
+    local stats = ResolveExternalStats(actor, options, level)
+    local externalFaction = actor.faction or options.faction or "defender"
+    local maxHP = stats.maxHP
+    local hp = tonumber(actor.hp)
+    if not IsFiniteNumber(hp) then
+        local hpRatio = tonumber(actor.hpRatio)
+        if IsFiniteNumber(hpRatio) then
+            hp = maxHP * math.max(0, math.min(1, hpRatio))
+        else
+            hp = maxHP
+        end
+    end
+    hp = math.max(0, math.min(maxHP, hp))
+
+    local enemy = {
+        node = node,
+        id = actor.id or options.id,
+        externalId = actor.externalId or actor.id or options.id,
+        actor = actor,
+        name = actor.name or actor.className or options.name or "沙巴克守军",
+        monsterType = actor.monsterType or "external_character",
+        classId = actor.classId or options.classId,
+        className = actor.className or options.className,
+        faction = externalFaction,
+        external = true,
+        -- 队友倒下后要等攻城检查点复起，不能像守军一样在死亡动画结束
+        -- 后直接注销；守军仍可显式设置 persistOnDeath=true 来复用该行为。
+        externalPersistOnDeath = actor.persistOnDeath == true
+            or options.persistOnDeath == true or externalFaction == "ally",
+        isMonster = false,
+        noRewards = actor.noRewards ~= false and options.noRewards ~= false,
+        noLoot = actor.noLoot ~= false and options.noLoot ~= false,
+        noExperience = actor.noExperience ~= false and options.noExperience ~= false,
+        noKillCount = actor.noKillCount ~= false and options.noKillCount ~= false,
+        combatTargetable = actor.combatTargetable ~= false,
+        level = level,
+        tier = actor.tier or options.tier or "normal",
+        maxHP = maxHP,
+        hp = hp,
+        maxMP = stats.maxMP,
+        mp = tonumber(actor.mp) or stats.maxMP,
+        atk = stats.atk,
+        def = stats.def,
+        equipmentStats = stats.equipmentStats,
+        speed = math.max(0, SafeNumber(actor.speed or options.speed, 3.0)),
+        chaseRange = math.max(0, SafeNumber(actor.chaseRange or options.chaseRange, 10.0)),
+        attackRange = math.max(0, SafeNumber(actor.attackRange or options.attackRange, 1.8)),
+        attackCD = math.max(0.05, SafeNumber(actor.attackCD or options.attackCD, 1.7)),
+        attackTimer = math.max(0, SafeNumber(actor.attackTimer or options.attackTimer, 0)),
+        attackDamageScale = math.max(0, SafeNumber(
+            actor.attackDamageScale or options.attackDamageScale, 1.0)),
+        -- Shabak descriptors keep their session state separately; legacy
+        -- external callers may still provide options.state explicitly.
+        state = actor.combatState or options.state or "guard",
+        homePosition = actor.homePosition or options.homePosition or node.position,
+        spawnSource = actor.spawnSource or options.spawnSource or "external",
+        encounterId = actor.encounterId or options.encounterId,
+        questGroupId = actor.questGroupId or options.questGroupId,
+        externalUpdate = actor.updateAI or actor.externalUpdate or options.updateAI
+            or options.externalUpdate,
+        externalOnDeath = actor.onDeath or actor.externalOnDeath or options.onDeath,
+        externalOnReset = actor.onReset or actor.externalOnReset or options.onReset,
+        externalOnDisengage = actor.onDisengage or actor.externalOnDisengage
+            or options.onDisengage,
+        externalOnDamage = actor.onDamage or actor.externalOnDamage or options.onDamage,
+        externalOnHeal = actor.onHeal or actor.externalOnHeal or options.onHeal,
+        externalOnRemoved = actor.onRemoved or actor.externalOnRemoved or options.onRemoved,
+        externalDeathDuration = math.max(0,
+            tonumber(actor.deathDuration or options.deathDuration) or 0.55),
+        externalDeathNotified = false,
+        externalRemovedNotified = false,
+        externalHostilePaused = false,
+        hitFlashTimer = 0,
+        hitStunTimer = 0,
+        defReduction = 0,
+        defReductionTimer = 0,
+        dotDamage = 0,
+        dotTimer = 0,
+        dotTickInterval = 0.5,
+        dotTickAccum = 0,
+        dyingTimer = 0,
+        animData = actor.animData or options.animData,
+    }
+
+    table.insert(enemies, enemy)
+    table.insert(externalEnemies, enemy)
+    actor._combatEnemy = enemy
+    if enemy.faction == "ally" then
+        -- 允许注册方暂时复用该接口创建友军，但它们不应进入玩家目标池。
+        enemy.combatTargetable = false
+    end
+    SyncExternalActor(enemy)
+    return enemy
+end
+
+--- 注销一个外部角色；默认同时移除其场景节点。
+---@param enemyOrActor table|string
+---@param options table|nil {removeNode:boolean}
+---@return boolean
+function Combat.UnregisterExternalEnemy(enemyOrActor, options)
+    local enemy = FindExternalEnemy(enemyOrActor)
+    if not enemy then return false end
+    options = type(options) == "table" and options or {}
+    return RemoveExternalEnemyReference(enemy, options.removeNode ~= false,
+        options.reason or "unregistered")
+end
+
+function Combat.GetExternalEnemies()
+    local result = {}
+    for _, enemy in ipairs(externalEnemies) do result[#result + 1] = enemy end
+    return result
+end
+
+--- 将外部角色恢复到指定生命比例（默认满血）并清除持续伤害/硬直状态。
+---@param enemyOrActor table|string
+---@param options table|nil {notify:boolean, disengage:boolean, hpRatio:number}
+---@return boolean
+function Combat.ResetExternalEnemy(enemyOrActor, options)
+    local enemy = FindExternalEnemy(enemyOrActor)
+    if not enemy or not enemy.external then return false end
+    options = type(options) == "table" and options or {}
+    local hpRatio = tonumber(options.hpRatio)
+    if not IsFiniteNumber(hpRatio) then hpRatio = 1.0 end
+    hpRatio = math.max(0, math.min(1, hpRatio))
+    enemy.hp = math.max(0, math.floor(enemy.maxHP * hpRatio + 0.5))
+    local requestedState = options.state
+    if type(requestedState) ~= "string" then
+        requestedState = enemy.faction == "ally" and "active" or "guard"
+    end
+    enemy.state = requestedState
+    if enemy.faction ~= "ally" and options.disengage ~= false then
+        enemy.state = "guard"
+    end
+    enemy.externalHostilePaused = false
+    enemy.attackTimer = math.max(0.35, tonumber(enemy.attackTimer) or 0)
+    enemy.hitStunTimer = 0
+    enemy.hitFlashTimer = 0
+    enemy.dotDamage = 0
+    enemy.dotTimer = 0
+    enemy.dotTickAccum = 0
+    enemy.defReduction = 0
+    enemy.defReductionTimer = 0
+    enemy.externalDeathNotified = false
+    enemy.externalRemovedNotified = false
+    SyncExternalActor(enemy)
+    if options.notify ~= false then
+        CallExternalCallback(enemy.externalOnReset, enemy, options.reason or "reset")
+    end
+    return true
+end
+
+--- 沙巴克等实例地图可关闭自然刷怪；该开关独立于 SetMap，方便实例结束
+--- 后恢复普通生态而不依赖地图 ID 的硬编码。
+function Combat.SetNaturalSpawnsSuppressed(value)
+    naturalSpawnsSuppressed = value == true
+    Combat.naturalSpawnsSuppressed = naturalSpawnsSuppressed
+end
+
+function Combat.IsNaturalSpawnsSuppressed()
+    return naturalSpawnsSuppressed
+end
+
+function Combat.SetExternalCombatMode(value)
+    externalCombatMode = value == true
+    Combat.externalCombatMode = externalCombatMode
+    Combat.SetNaturalSpawnsSuppressed(externalCombatMode)
+end
+
+function Combat.IsExternalCombatMode()
+    return externalCombatMode
 end
 
 local function IsBossNearbyForSpawner(playerPosition)
@@ -1309,6 +1765,9 @@ local function RemoveBossAttackVisuals(scene)
 end
 
 local function ApplyEnemyDamageToPlayer(enemy, player, hitPos)
+    if type(player) ~= "table" or not enemy then return 0 end
+    if enemy.state == "dead" or enemy.state == "dying" then return 0 end
+    if enemy.faction == "ally" or enemy.combatTargetable == false then return 0 end
     local incomingMultiplier = enemy.attackDamageScale or 1.0
     if CharacterClass.RollIncomingDamageReduction
         and CharacterClass.RollIncomingDamageReduction(player) then
@@ -1328,6 +1787,154 @@ local function ApplyEnemyDamageToPlayer(enemy, player, hitPos)
     end
     return dmg
 end
+
+--- 外部职业角色攻击玩家的统一入口。守军 AI 不应直接改写 player.hp，
+--- 这样护盾、职业减伤、受伤飘字和音效仍与普通怪保持一致。
+---@param enemy table
+---@param player table
+---@param hitPos Vector3|nil
+---@return number damage
+function Combat.DealDamageToPlayer(enemy, player, hitPos)
+    return ApplyEnemyDamageToPlayer(enemy, player, hitPos)
+end
+
+--- 给外部运行时使用的安全治疗入口（不消耗玩家药水）。
+---@param player table
+---@param ratio number|nil
+---@param absolute number|nil
+---@return number amount
+function Combat.HealPlayer(player, ratio, absolute)
+    if type(player) ~= "table" then return 0 end
+    local maxHP = tonumber(player.maxHP) or 0
+    local oldHP = tonumber(player.hp) or 0
+    if maxHP <= 0 or oldHP >= maxHP then return 0 end
+    local amount = tonumber(absolute)
+    if not IsFiniteNumber(amount) or amount <= 0 then
+        local normalized = tonumber(ratio) or 0
+        if not IsFiniteNumber(normalized) then normalized = 0 end
+        if normalized > 1 then normalized = normalized / 100 end
+        amount = maxHP * math.max(0, math.min(1, normalized))
+    end
+    amount = math.max(1, math.floor(amount + 0.5))
+    player.hp = math.min(maxHP, oldHP + amount)
+    local healed = player.hp - oldHP
+    if healed > 0 and Combat.onPlayerHeal then
+        local pos = player.position or (player.node and player.node.position)
+        Combat.onPlayerHeal(healed, pos)
+    end
+    return healed
+end
+
+local function ResolveExternalCombatTarget(target)
+    if type(target) ~= "table" then return nil end
+    if target.external and target.node then return target end
+    if target._combatEnemy then return target._combatEnemy end
+    return FindExternalEnemy(target)
+end
+
+--- 对已注册的外部角色造成伤害。
+---
+--- 该入口刻意不复用 DealDamage：后者只接受可被玩家锁定的敌人，而
+--- 沙巴克队友使用 faction="ally" 并且 combatTargetable=false，守军仍需
+--- 能通过这里伤害他们。source 可以是玩家、守军 descriptor 或任意 AI 上下文。
+---@param target table 外部角色 descriptor、其 actor 或 combatEnemy
+---@param baseDmg number 原始伤害
+---@param source table|nil 伤害来源
+---@param opts table|nil {armorPen, ignoreDefense, canCrit, hitStun, ignoreSafeZone}
+---@return number damage
+---@return boolean isCrit
+function Combat.DealDamageToExternal(target, baseDmg, source, opts)
+    local enemy = ResolveExternalCombatTarget(target)
+    if not enemy or not enemy.external or not enemy.node then return 0, false end
+    if enemy.state == "dead" or enemy.state == "dying" or enemy.state == "down" then
+        return 0, false
+    end
+    if not IsFiniteNumber(enemy.hp) or enemy.hp <= 0 then return 0, false end
+    opts = type(opts) == "table" and opts or {}
+
+    baseDmg = tonumber(baseDmg)
+    if not IsFiniteNumber(baseDmg) or baseDmg <= 0 then return 0, false end
+    baseDmg = math.min(baseDmg, MAX_COMBAT_VALUE)
+
+    if opts.ignoreSafeZone ~= true and IsInSafeZone(enemy.node.position) then
+        return 0, false
+    end
+
+    local armorPen = SafeNumber(opts.armorPen, 0, 0, 1)
+    local enemyDef = SafeNumber(enemy.def, 0, 0, MAX_COMBAT_VALUE)
+    local defReduction = SafeNumber(enemy.defReduction, 0, 0, MAX_COMBAT_VALUE)
+    local dmg = Balance.CalculateDamage(baseDmg, enemyDef, {
+        armorPen = armorPen,
+        defenseReduction = defReduction,
+        ignoreDefense = opts.ignoreDefense == true,
+        damageMultiplier = SafeNumber(opts.damageMultiplier, 1, 0, MAX_COMBAT_VALUE),
+    })
+    if dmg <= 0 then return 0, false end
+
+    local canCrit = opts.canCrit ~= false
+    local isCrit = canCrit and math.random() < 0.10
+    if isCrit then dmg = math.min(MAX_COMBAT_VALUE, math.floor(dmg * 1.5)) end
+
+    enemy.hp = math.max(0, enemy.hp - dmg)
+    enemy.hitFlashTimer = 0.15
+    SyncExternalActor(enemy)
+    CallExternalCallback(enemy.externalOnDamage, enemy, dmg, isCrit, source)
+    if Combat.onExternalDamage then
+        CallExternalCallback(Combat.onExternalDamage, enemy, dmg, isCrit, source)
+    end
+
+    if opts.hitStun ~= false and enemy.hp > 0 then
+        enemy.hitStunTimer = math.max(enemy.hitStunTimer or 0,
+            SafeNumber(opts.hitStunDuration, 0.18, 0, 2.0))
+    end
+
+    if enemy.hp <= 0 then
+        Combat.TriggerDeath(enemy, source)
+    end
+    return dmg, isCrit
+end
+
+-- 常见别名保留给不同运行时适配层，避免把战斗规则复制进队友/守军 AI。
+Combat.DealDamageToActor = Combat.DealDamageToExternal
+Combat.DamageExternalActor = Combat.DealDamageToExternal
+
+--- 治疗一个已注册的外部角色（例如队友被道士治疗）。
+---@param target table 外部角色 descriptor、其 actor 或 combatEnemy
+---@param ratio number|nil 比例（0~1 或百分数）
+---@param absolute number|nil 绝对数值
+---@param source table|nil 治疗来源
+---@return number amount
+function Combat.HealExternalActor(target, ratio, absolute, source)
+    local enemy = ResolveExternalCombatTarget(target)
+    if not enemy or not enemy.external
+        or enemy.state == "dead" or enemy.state == "dying" or enemy.state == "down" then
+        return 0
+    end
+    local maxHP = SafeNumber(enemy.maxHP, 0, 0, MAX_COMBAT_VALUE)
+    local oldHP = SafeNumber(enemy.hp, 0, 0, maxHP)
+    if maxHP <= 0 or oldHP >= maxHP then return 0 end
+
+    local amount = tonumber(absolute)
+    if not IsFiniteNumber(amount) or amount <= 0 then
+        local normalized = SafeNumber(ratio, 0)
+        if normalized > 1 then normalized = normalized / 100 end
+        amount = maxHP * math.max(0, math.min(1, normalized))
+    end
+    amount = math.max(1, math.floor(amount + 0.5))
+    enemy.hp = math.min(maxHP, oldHP + amount)
+    local healed = enemy.hp - oldHP
+    if healed > 0 then
+        enemy.externalDeathNotified = false
+        SyncExternalActor(enemy)
+        CallExternalCallback(enemy.externalOnHeal, enemy, healed, source)
+        if Combat.onExternalHeal then
+            CallExternalCallback(Combat.onExternalHeal, enemy, healed, source)
+        end
+    end
+    return healed
+end
+
+Combat.HealExternal = Combat.HealExternalActor
 
 -- ============================================================================
 -- 中毒绿色效果辅助函数
@@ -1439,6 +2046,10 @@ function Combat.CancelPlayerHostileEffects()
                 enemy.knockbackTimer = 0
                 enemy.hitStunTimer = 0
             end
+            if enemy.external and enemy.faction ~= "ally" then
+                enemy.externalHostilePaused = true
+                CallExternalCallback(enemy.externalOnDisengage, enemy, "safe_zone")
+            end
             if hadPoison then RemovePoisonTint(enemy) end
         end
     end
@@ -1463,6 +2074,9 @@ function Combat.SpawnEnemy(scene, playerPos, playerLevel, forceDef, mapId, optio
     -- mapId 参数影响另一套状态（例如读档/切图的安全区半径）。
     local spawnMapId = mapId or currentMapId
     local spawnSettings = MapZone.GetSpawnSettings(spawnMapId)
+    -- 沙巴克是由 ShabakRuntime 注册实际职业角色的实例地图，不允许
+    -- 任何旧的自然怪/任务怪入口把 MonsterSkeleton 实体混进来。
+    if spawnSettings.maxEnemies <= 0 then return nil end
     if #enemies >= spawnSettings.maxEnemies then return nil end
     -- 玩家等级在 Lv.50 后仍可增长；这里只沿用 Balance 的异常数据安全边界。
     local safePlayerLevel = SafeInteger(playerLevel, 1, 1, Balance.LEVEL_SANITY_LIMIT)
@@ -1765,6 +2379,9 @@ end
 ---@return boolean
 local function RemoveEnemyImmediately(enemy)
     if not enemy then return false end
+    if enemy.external then
+        return RemoveExternalEnemyReference(enemy, true, "reclaimed")
+    end
     for index = #enemies, 1, -1 do
         if enemies[index] == enemy then
             RemoveBossThreatVisual(enemy.bossVisual)
@@ -1807,7 +2424,7 @@ local function MakeQuestGroupRoom(mapId, requestedCount, center, groupId)
         local priority = nil
         if not enemy.node then
             priority = 0
-        elseif enemy.tier ~= "boss" and not enemy.encounterId then
+        elseif not enemy.external and enemy.tier ~= "boss" and not enemy.encounterId then
             if enemy.state == "dead" or enemy.state == "dying" then
                 priority = 0
             else
@@ -1932,7 +2549,8 @@ Combat.SpawnQuestGroup = Combat.SpawnEnemyGroup
 -- 敌人死亡处理（统一入口，避免重复触发）
 -- ============================================================================
 function Combat.TriggerDeath(enemy, player)
-    if enemy.state == "dying" or enemy.state == "dead" then return end
+    if not enemy or enemy.state == "dying" or enemy.state == "dead"
+        or (enemy.external and enemy.state == "down") then return end
 
     if lastPlayerTarget == enemy then
         lastPlayerTarget = nil
@@ -1940,18 +2558,57 @@ function Combat.TriggerDeath(enemy, player)
 
     enemy.state = "dying"
     enemy.hp = 0
+    if enemy.actor then
+        enemy.actor.hp = 0
+        -- The actor descriptor's state is owned by the host/session.  Mirror
+        -- Combat's transient lifecycle separately so a dying enemy cannot
+        -- consume or retire a siege descriptor by accident.
+        enemy.actor.combatState = "dying"
+        enemy.actor.defeated = true
+    end
     -- 死亡演出开始即撤掉持续威压，避免 Boss 已经倒下后红光还停留在原地。
     RemoveBossThreatVisual(enemy.bossVisual)
     enemy.bossVisual = nil
-    local deathDur = MonsterSkeleton.GetAnimDuration(enemy.monsterType, "death")
+    local deathDur = enemy.external and (enemy.externalDeathDuration or 0.55)
+        or MonsterSkeleton.GetAnimDuration(enemy.monsterType, "death")
     enemy.dyingTimer = deathDur
     -- 停止物理移动
-    local eBody = enemy.node:GetComponent("RigidBody")
+    local eBody = enemy.node and enemy.node:GetComponent("RigidBody")
     if eBody then eBody:SetLinearVelocity(Vector3.ZERO) end
     -- 播放死亡动画
-    if enemy.animData then
+    if enemy.animData and not enemy.external then
         MonsterSkeleton.PlayAnim(enemy.animData, "death", nil)
     end
+
+    -- 沙巴克守军等外部角色不走普通怪物的击杀/经验/掉落回调；运行时只需
+    -- 收到一次 onDeath，随后可把 descriptor 标记为 defeated 并回收实体。
+    if enemy.external then
+        if enemy.externalPersistOnDeath then
+            -- 队友倒下是可复起状态，不播放“死亡后移除”生命周期；保留
+            -- descriptor 和节点供阶段间集结/复活，且只通知一次 onDeath。
+            enemy.state = "down"
+            enemy.externalHostilePaused = true
+            enemy.dyingTimer = 0
+            enemy.dotDamage = 0
+            enemy.dotTimer = 0
+            enemy.dotTickAccum = 0
+            enemy.defReduction = 0
+            enemy.defReductionTimer = 0
+            enemy.hitStunTimer = 0
+            SyncExternalActor(enemy)
+            if not enemy.externalDeathNotified then
+                enemy.externalDeathNotified = true
+                CallExternalCallback(enemy.externalOnDeath, enemy, player)
+            end
+            return
+        end
+        if not enemy.externalDeathNotified then
+            enemy.externalDeathNotified = true
+            CallExternalCallback(enemy.externalOnDeath, enemy, player)
+        end
+        return
+    end
+
     -- 立即触发掉落和经验。读取公开字段是为了兼容读档时直接写入
     -- Combat.killCount 的旧调用；之后始终保持私有/公开状态同步。
     if type(Combat.killCount) == "number" and Combat.killCount ~= killCount then
@@ -2024,7 +2681,12 @@ function Combat.ResetLivingEnemiesForPlayerRevive()
     local restoredCount = 0
 
     for _, enemy in ipairs(enemies) do
-        if enemy and enemy.node and enemy.state ~= "dead" and enemy.state ~= "dying" then
+        -- 可复起的外部队友处于 down 时由攻城会话/检查点显式复位；这里
+        -- 只重置仍在战场上的活体，避免玩家死亡流程把队友免费满血拉起。
+        local canReset = enemy and enemy.node and enemy.state ~= "dead"
+            and enemy.state ~= "dying"
+            and not (enemy.external and enemy.state == "down")
+        if canReset then
             enemy.hp = enemy.maxHP
 
             local hadPoison = (enemy.dotTimer or 0) > 0 or enemy.poisonTinted
@@ -2043,8 +2705,31 @@ function Combat.ResetLivingEnemiesForPlayerRevive()
             enemy.hitStunTimer = 0
             enemy.hitFlashTimer = 0
             enemy.dyingTimer = 0
+            if enemy.external then
+                -- 一次复活/回位后，下一次倒下必须再次通知会话；否则
+                -- externalDeathNotified 残留会吞掉队友第二次倒下事件。
+                enemy.externalDeathNotified = false
+            end
 
-            SetEnemyDisengaged(enemy, true)
+            if enemy.external then
+                -- 外部角色的状态机（尤其是 faction="ally" 的队友）不使用
+                -- 普通怪物的 patrol/return 状态；保留其运行时状态，并通过
+                -- reset 回调让实例决定回到集结点、恢复模型或重新寻敌。
+                enemy.externalHostilePaused = false
+                local actorState = enemy.actor and enemy.actor.combatState
+                if type(actorState) == "string" and actorState ~= "down"
+                    and actorState ~= "dead" and actorState ~= "dying" then
+                    enemy.state = actorState
+                elseif enemy.faction == "ally" then
+                    enemy.state = "active"
+                else
+                    enemy.state = "guard"
+                end
+                SyncExternalActor(enemy)
+                CallExternalCallback(enemy.externalOnReset, enemy, "player_revive")
+            else
+                SetEnemyDisengaged(enemy, true)
+            end
             enemy.attackTimer = math.max(0.35, enemy.attackTimer or 0)
             enemy.stuckCheckTimer = 0
             enemy.stuckRecoveries = 0
@@ -2137,26 +2822,108 @@ function Combat.UpdateEnemies(dt, playerNode, player)
             if e then
                 RemoveBossThreatVisual(e.bossVisual)
                 e.bossVisual = nil
+                if e.external then
+                    RemoveExternalEnemyReference(e, false, "node_missing")
+                end
             end
-            table.remove(enemies, i)
+            -- RemoveExternalEnemyReference already unlinks external entries;
+            -- ordinary entities still need the local list removal.
+            if not e or not e.external then table.remove(enemies, i) end
             goto continue
         end
-        if e.state == "dead" then goto continue end
+        if e.state == "dead" then
+            if e.external then
+                RemoveExternalEnemyReference(e, true, "dead_state")
+            end
+            goto continue
+        end
 
         -- 死亡动画播放中
         if e.state == "dying" then
             e.dyingTimer = e.dyingTimer - dt
-            -- 更新死亡动画
-            if e.animData then
+            -- 外部角色的动画/倒下表现由其运行时负责；MonsterSkeleton 只
+            -- 处理旧的程序化怪物骨架。
+            if e.external then
+                if type(e.externalUpdate) == "function" then
+                    pcall(e.externalUpdate, e, dt, playerNode, player, Combat)
+                end
+            elseif e.animData then
                 MonsterSkeleton.UpdateAnimation(e.animData, dt, false)
             end
             if e.dyingTimer <= 0 then
                 e.state = "dead"
                 RemoveBossThreatVisual(e.bossVisual)
                 e.bossVisual = nil
-                e.node:Remove()
-                table.remove(enemies, i)
+                if e.external then
+                    RemoveExternalEnemyReference(e, true, "defeated")
+                else
+                    if e.node then e.node:Remove() end
+                    table.remove(enemies, i)
+                end
             end
+            goto continue
+        end
+
+        -- 外部角色拥有独立的三职业 AI（走位、技能、队友治疗等），Combat
+        -- 只负责生命周期、DOT 和目标列表；避免把角色误当作 MonsterSkeleton
+        -- 怪物执行“巡逻/攻击神兽”的旧状态机。
+        if e.external then
+            -- 运行时可能通过 actor.hp（例如队友被守军击中后的倒下标记）
+            -- 反向更新 descriptor；只接受有限范围内的值，避免损坏数据把
+            -- 角色血量变成 NaN/超大数。
+            if e.actor and IsFiniteNumber(e.actor.hp) then
+                e.hp = math.max(0, math.min(e.maxHP, e.actor.hp))
+            end
+            if e.state == "down" then
+                if type(e.externalUpdate) == "function" then
+                    CallExternalCallback(e.externalUpdate, e, dt, playerNode, player, Combat)
+                end
+                SyncExternalActor(e)
+                goto continue
+            end
+            if e.faction ~= "ally" and playerInSafeZone then
+                if not e.externalHostilePaused then
+                    e.externalHostilePaused = true
+                    CallExternalCallback(e.externalOnDisengage, e, "safe_zone")
+                end
+                SyncExternalActor(e)
+                goto continue
+            elseif e.externalHostilePaused then
+                e.externalHostilePaused = false
+                CallExternalCallback(e.externalOnDisengage, e, "resume")
+            end
+            if (e.dotTimer or 0) > 0 then
+                e.dotTimer = e.dotTimer - dt
+                e.dotTickAccum = (e.dotTickAccum or 0) + dt
+                local tickInterval = e.dotTickInterval or 0.5
+                while e.dotTickAccum >= tickInterval and e.dotTimer > 0 do
+                    e.dotTickAccum = e.dotTickAccum - tickInterval
+                    local dealt = Combat.DealDamage(e,
+                        (e.dotDamage or 0) * tickInterval, player, {
+                            ignoreDefense = true,
+                            canCrit = false,
+                            hitStun = false,
+                        })
+                    if dealt <= 0 or e.state == "dying" or e.state == "dead" then break end
+                end
+                if e.dotTimer <= 0 then
+                    e.dotDamage = 0
+                    e.dotTickAccum = 0
+                end
+            end
+            if (e.hitFlashTimer or 0) > 0 then
+                e.hitFlashTimer = e.hitFlashTimer - dt
+            end
+            if (e.defReductionTimer or 0) > 0 then
+                e.defReductionTimer = e.defReductionTimer - dt
+                if e.defReductionTimer <= 0 then e.defReduction = 0 end
+            end
+            if e.hp <= 0 then
+                Combat.TriggerDeath(e, player)
+            elseif type(e.externalUpdate) == "function" then
+                CallExternalCallback(e.externalUpdate, e, dt, playerNode, player, Combat)
+            end
+            SyncExternalActor(e)
             goto continue
         end
 
@@ -2629,6 +3396,22 @@ function Combat.CastSkill(scene, player, playerNode, skillSlot)
         playerDir = playerNode:GetDirection()
     end
 
+    -- 给实例目标（城门、战旗封印等）一个统一的施法接入点。回调在目标
+    -- 选择之后执行，既兼容旧的四参数签名，也让新适配层取得方向/目标。
+    if IsHostileSkill(skill) then
+        local siegeHandled, siegeResult = NotifySiegeSkillCast({
+            scene = scene,
+            player = player,
+            playerNode = playerNode,
+            skill = skill,
+            skillSlot = slot,
+            target = target,
+            position = playerPos,
+            direction = playerDir,
+        })
+        if siegeHandled then return true, siegeResult end
+    end
+
     if skill.type == SKILL_TYPE.MELEE then
         -- 近战：ATK × 倍率百分比
         local dmg = GetSkillDamage(player, skill)
@@ -3092,6 +3875,14 @@ function Combat.DealDamage(enemy, baseDmg, player, opts)
 
     enemy.hp = math.max(0, enemy.hp - dmg)
     enemy.hitFlashTimer = 0.15
+
+    if enemy.external then
+        SyncExternalActor(enemy)
+        CallExternalCallback(enemy.externalOnDamage, enemy, dmg, isCrit, player)
+        if Combat.onExternalDamage then
+            CallExternalCallback(Combat.onExternalDamage, enemy, dmg, isCrit, player)
+        end
+    end
 
     -- 播放受击动画 + 短暂硬直（不打断攻击动画，hp>0 时才播放）
     local allowHitStun = not opts or opts.hitStun ~= false
@@ -4938,7 +5729,8 @@ end
 local function RemoveStaleEncounterEnemies(keepEncounterId)
     for index = #enemies, 1, -1 do
         local enemy = enemies[index]
-        if enemy and enemy.encounterId and enemy.encounterId ~= keepEncounterId then
+        if enemy and not enemy.external and enemy.encounterId
+            and enemy.encounterId ~= keepEncounterId then
             RemoveBossThreatVisual(enemy.bossVisual)
             enemy.bossVisual = nil
             if enemy.node then enemy.node:Remove() end
@@ -4951,7 +5743,7 @@ end
 local function FindEncounterEnemy(encounterId)
     if type(encounterId) ~= "string" then return nil end
     for _, enemy in ipairs(enemies) do
-        if enemy and enemy.encounterId == encounterId and enemy.node
+        if enemy and not enemy.external and enemy.encounterId == encounterId and enemy.node
             and enemy.state ~= "dead" then
             return enemy
         end
@@ -4964,7 +5756,7 @@ local function MakeEncounterRoom()
     if #enemies < maxEnemies then return true end
     for index = #enemies, 1, -1 do
         local enemy = enemies[index]
-        if enemy and not enemy.encounterId then
+        if enemy and not enemy.external and not enemy.encounterId then
             RemoveBossThreatVisual(enemy.bossVisual)
             enemy.bossVisual = nil
             if enemy.node then enemy.node:Remove() end
@@ -5095,6 +5887,12 @@ end
 
 function Combat.UpdateSpawner(scene, dt, playerNode, player)
     if not playerNode or not player then return end
+
+    -- 攻城实例由外部角色运行时自行按阶段放入守军；自然刷怪必须完全旁路。
+    -- 同时读取地图契约，避免只依赖调用方是否记得切换开关。
+    if naturalSpawnsSuppressed or externalCombatMode then return end
+    local mapDef = MapZone.GetDef(currentMapId)
+    if mapDef and mapDef.naturalSpawns == false then return end
 
     -- 地图自然生态始终使用同一套刷新逻辑，不读取或加权任何任务目标。
     -- initialCount 是玩家附近希望维持的基础密度；maxEnemies 只控制全图硬上限。
@@ -5865,10 +6663,27 @@ end
 ---@param clearPersistentSummon boolean|nil
 function Combat.Clear(resetKillCount, clearPersistentSummon)
     RemoveBossAttackVisuals(combatScene)
-    for _, e in ipairs(enemies) do
-        RemoveBossThreatVisual(e.bossVisual)
-        e.bossVisual = nil
-        if e.node then e.node:Remove() end
+    -- 从后往前移除，确保外部角色同时从 enemies 与 externalEnemies 脱链；
+    -- 不能只把列表换成新表，否则旧 descriptor 会继续被攻城运行时当作
+    -- 已注册角色复用，下一场攻城会出现重复 AI/血量镜像。
+    for index = #enemies, 1, -1 do
+        local e = enemies[index]
+        if e and e.external then
+            RemoveExternalEnemyReference(e, true, "clear")
+        else
+            if e then
+                RemoveBossThreatVisual(e.bossVisual)
+                e.bossVisual = nil
+                if e.node then e.node:Remove() end
+            end
+            table.remove(enemies, index)
+        end
+    end
+    -- 防御性清理：外部列表可能含有已经不在 enemies 中的 descriptor（例如
+    -- 外部运行时提前移除了普通战斗实体）。这些也必须解除 actor 反向引用。
+    for index = #externalEnemies, 1, -1 do
+        local e = externalEnemies[index]
+        if e then RemoveExternalEnemyReference(e, true, "clear") end
     end
     for _, p in ipairs(projectiles) do
         if p.node then p.node:Remove() end
@@ -5890,6 +6705,10 @@ function Combat.Clear(resetKillCount, clearPersistentSummon)
     aoeZones = {}
     groundItems = {}
     Combat.enemies = enemies
+    -- externalEnemies 已被对外暴露过，保持表对象不变并清空内容，避免
+    -- 运行时持有旧引用时看到已经失效的守军列表。
+    for index = #externalEnemies, 1, -1 do externalEnemies[index] = nil end
+    Combat.externalEnemies = externalEnemies
     Combat.projectiles = projectiles
     if resetKillCount then
         Combat.SetKillCount(0)
@@ -5903,6 +6722,10 @@ function Combat.Clear(resetKillCount, clearPersistentSummon)
     activeEncounterId = nil
     lastPlayerTarget = nil
     playerWasInSafeZone = false
+    naturalSpawnsSuppressed = false
+    externalCombatMode = false
+    Combat.naturalSpawnsSuppressed = false
+    Combat.externalCombatMode = false
     combatScene = nil
     Combat.CancelDash()
     if clearPersistentSummon then
@@ -5919,5 +6742,11 @@ Combat.onLevelUp = nil       -- function(newLevel, levelsGained)
 Combat.onSkillUnlocked = nil -- function(skillName)
 Combat.onGoldPickup = nil    -- function(amount, worldPos)
 Combat.onItemPickup = nil    -- function(item, worldPos) -> boolean|nil（false 时保留地面物品）
+
+Combat.onExternalDamage = nil -- function(enemy, damage, isCrit, source)
+Combat.onExternalHeal = nil   -- function(enemy, amount, source)
+-- function(skill, player, playerNode, scene, context) -> boolean|table
+Combat.onSiegeSkillCast = nil
+Combat.onSiegeSkillCastContext = nil -- function(context) -> boolean|table
 
 return Combat

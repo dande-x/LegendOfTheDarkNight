@@ -73,10 +73,11 @@ local POTION_CENTER_FROM_BOTTOM = 72
 -- 药瓶组左端（NanoVG 720 高设计单位）。向右留出经验百分比文字的安全间距。
 local POTION_LEFT_FROM_ORB = 72 + 52 + 28
 
--- Every configured map currently exposes three named landmarks.  Keep a fixed
--- set of tiny widgets so a map change only updates data/visibility instead of
--- rebuilding the HUD tree.  The task marker is rendered on top of these dots.
-local MINI_MAP_LANDMARK_COUNT = 3
+-- Keep a fixed pool large enough for the six-point Shabak siege route.  Maps
+-- with fewer landmarks simply hide the unused widgets; a map change only
+-- updates data/visibility instead of rebuilding the HUD tree.  The task
+-- marker is rendered on top of these dots.
+local MINI_MAP_LANDMARK_COUNT = 6
 local LANDMARK_MATCH_TOLERANCE = 1.5
 
 -- ============================================================================
@@ -1514,7 +1515,7 @@ function GameUI.ShowDeathMark(duration)
 end
 
 --- 显示死亡损失明细。弹窗只能通过“复活”按钮关闭，避免返回键绕过流程。
----@param lossInfo table|nil {goldLost,goldRemaining,lossRatio}
+---@param lossInfo table|nil {goldLost,goldRemaining,lossRatio,title,message,actionLabel}
 ---@param onRevive function|nil
 function GameUI.ShowDeathLossDialog(lossInfo, onRevive)
     GameUI.HideDeathMark()
@@ -1530,6 +1531,18 @@ function GameUI.ShowDeathLossDialog(lossInfo, onRevive)
     local lossPercent = math.max(0, math.floor((tonumber(lossInfo.lossRatio) or 0) * 100 + 0.5))
     local lossText = goldLost > 0 and ("-" .. goldLost .. " 金币") or "本次未损失金币"
     local lossColor = goldLost > 0 and {246, 72, 62, 255} or {166, 190, 166, 255}
+    local isSiegeResult = type(lossInfo.title) == "string" and lossInfo.title ~= ""
+    local modalTitle = isSiegeResult and lossInfo.title or "死亡结算"
+    local topMessage = isSiegeResult and "沙巴克攻城战已中断" or "你在战斗中倒下了"
+    local detailHeading = isSiegeResult and "攻城规则" or ("金币损失（当前金币的 " .. lossPercent .. "%）")
+    local detailText = isSiegeResult and (lossInfo.message or "本局不扣金币") or lossText
+    local detailSub = isSiegeResult and "本局不扣金币；守军将在集结点重置。"
+        or ("剩余金币：" .. goldRemaining)
+    local footerText = isSiegeResult and "攻城中途不会保存；胜利后才会记录城主荣誉。"
+        or "经验、装备、任务进度均保留"
+    local reviveHint = isSiegeResult and "继续挑战会恢复满生命与法力，并回到最近集结点。"
+        or "复活时，存活的怪物、精英和 Boss 将恢复满血"
+    local actionLabel = isSiegeResult and (lossInfo.actionLabel or "重返战场") or "复活"
 
     local modal
     local function ConfirmRevive()
@@ -1545,7 +1558,7 @@ function GameUI.ShowDeathLossDialog(lossInfo, onRevive)
     end
 
     modal = UI.Modal {
-        title = "死亡结算",
+        title = modalTitle,
         size = "sm",
         isOpen = false,
         showCloseButton = false,
@@ -1563,7 +1576,7 @@ function GameUI.ShowDeathLossDialog(lossInfo, onRevive)
                 gap = 8,
                 children = {
                     UI.Label {
-                        text = "你在战斗中倒下了",
+                        text = topMessage,
                         fontSize = 14,
                         fontColor = {224, 214, 206, 255},
                     },
@@ -1578,19 +1591,19 @@ function GameUI.ShowDeathLossDialog(lossInfo, onRevive)
                         borderRadius = 6,
                         children = {
                             UI.Label {
-                                text = "金币损失（当前金币的 " .. lossPercent .. "%）",
+                                text = detailHeading,
                                 fontSize = 12,
                                 fontColor = {190, 158, 150, 230},
                             },
                             UI.Label {
-                                text = lossText,
+                                text = detailText,
                                 fontSize = 24,
                                 fontWeight = "bold",
                                 fontColor = lossColor,
                                 marginTop = 3,
                             },
                             UI.Label {
-                                text = "剩余金币：" .. goldRemaining,
+                                text = detailSub,
                                 fontSize = 12,
                                 fontColor = {198, 190, 180, 230},
                                 marginTop = 3,
@@ -1598,12 +1611,12 @@ function GameUI.ShowDeathLossDialog(lossInfo, onRevive)
                         },
                     },
                     UI.Label {
-                        text = "经验、装备、任务进度均保留",
+                        text = footerText,
                         fontSize = 12,
                         fontColor = {170, 196, 168, 240},
                     },
                     UI.Label {
-                        text = "复活时，存活的怪物、精英和 Boss 将恢复满血",
+                        text = reviveHint,
                         width = "100%",
                         fontSize = 12,
                         fontColor = {198, 170, 158, 235},
@@ -1611,7 +1624,9 @@ function GameUI.ShowDeathLossDialog(lossInfo, onRevive)
                         whiteSpace = "normal",
                     },
                     UI.Button {
-                        text = "复活",
+                        -- 普通死亡继续保留固定的“复活”入口；攻城结算才
+                        -- 根据剩余命数显示“重返战场/返回安全区”。
+                        text = isSiegeResult and actionLabel or "复活",
                         width = 132,
                         height = 38,
                         marginTop = 6,
@@ -1685,7 +1700,8 @@ function GameUI._DrawEnemyHealthBars(ctx, sw, sh)
 
     for _, e in ipairs(enemies) do
         if e.node and e.hp and e.maxHP and e.hp > 0 then
-            local isBoss = e.tier == "boss"
+            local isAlly = e.faction == "ally"
+            local isBoss = e.tier == "boss" and not isAlly
             local enemyBarW = isBoss and math.floor(104 * scale) or barW
             local enemyBarH = isBoss and math.floor(16 * scale) or barH
             local enemyBorderW = isBoss and math.max(2, math.floor(2.0 * scale)) or borderW
@@ -1750,8 +1766,17 @@ function GameUI._DrawEnemyHealthBars(ctx, sw, sh)
                     nvgRoundedRect(ctx, sx - enemyBarW / 2, sy - enemyBarH / 2,
                         fillW, enemyBarH, 1.5 * scale)
 
-                    -- 血量低变黄/红
-                    if isBoss then
+                    -- 敌方使用红/黄风险色，支援队友使用绿色，避免把
+                    -- 友军误读成可攻击目标。
+                    if isAlly then
+                        if hpRatio > 0.5 then
+                            nvgFillColor(ctx, nvgRGBA(64, 196, 108, 235))
+                        elseif hpRatio > 0.25 then
+                            nvgFillColor(ctx, nvgRGBA(194, 174, 52, 235))
+                        else
+                            nvgFillColor(ctx, nvgRGBA(224, 112, 48, 245))
+                        end
+                    elseif isBoss then
                         nvgFillColor(ctx, nvgRGBA(218, 30, 28, 245))
                     elseif hpRatio > 0.5 then
                         nvgFillColor(ctx, nvgRGBA(200, 40, 40, 230))
@@ -1785,9 +1810,15 @@ function GameUI._DrawEnemyHealthBars(ctx, sw, sh)
                 nvgText(ctx, sx, sy, hpText, nil)
 
                 -- 名字标签（血条上方）
-                local nameText = isBoss
-                    and ("【BOSS】 " .. (e.name or "???") .. " Lv." .. (e.level or 1))
-                    or ((e.name or "???") .. " Lv." .. (e.level or 1))
+                local nameText
+                if isAlly then
+                    nameText = "【支援】 " .. (e.name or e.className or "队友")
+                        .. " Lv." .. (e.level or 1)
+                elseif isBoss then
+                    nameText = "【BOSS】 " .. (e.name or "???") .. " Lv." .. (e.level or 1)
+                else
+                    nameText = (e.name or "???") .. " Lv." .. (e.level or 1)
+                end
                 local nameSy = sy - enemyBarH / 2 - nameOffset
                 nvgFontSize(ctx, enemyNameFontSize)
 
@@ -1810,9 +1841,11 @@ function GameUI._DrawEnemyHealthBars(ctx, sw, sh)
                 -- 阴影
                 nvgFillColor(ctx, nvgRGBA(0, 0, 0, 180))
                 nvgText(ctx, sx + 1, nameSy + 1, nameText, nil)
-                -- Boss 使用红金色正文；普通敌人保持原白色标签。
+                -- 支援使用绿色标签，Boss 使用红金色正文；普通敌人保持白色。
                 if isBoss then
                     nvgFillColor(ctx, nvgRGBA(255, 112, 88, 255))
+                elseif isAlly then
+                    nvgFillColor(ctx, nvgRGBA(112, 236, 146, 255))
                 else
                     nvgFillColor(ctx, nvgRGBA(255, 255, 255, 255))
                 end
@@ -2037,6 +2070,245 @@ end
 function GameUI.ShowToast(text, duration)
     duration = duration or 2.5
     table.insert(uiState.toasts, { text = text, timer = 0, duration = duration })
+end
+
+-- ============================================================================
+-- 沙巴克攻城 HUD
+-- ============================================================================
+-- 攻城面板始终挂在现有 HUD 根节点上；只在进入/退出实例时创建或移除，
+-- 逐帧仅刷新已保留的 Label/进度条引用，避免 Yoga 树反复重建造成触控抖动。
+local SIEGE_PHASE_LABELS = {
+    deployment = "部署倒计时",
+    south_gate = "南门突破",
+    flags = "东西街夺旗",
+    street_flags = "东西街夺旗",
+    inner_flag = "内城夺旗",
+    palace_seal = "皇宫破封",
+    throne = "占领城主王座",
+    throne_defense = "王座坚守",
+}
+
+local SIEGE_OBJECTIVE_LABELS = {
+    south_gate = "攻破南门",
+    east_flag = "夺取东街战旗",
+    west_flag = "夺取西街战旗",
+    inner_flag = "夺取内城战旗",
+    palace_seal = "击碎皇宫封印",
+    throne = "站上城主王座",
+}
+
+local function _SetSiegeFill(fill, ratio, color)
+    if not fill then return end
+    ratio = math.max(0, math.min(1, tonumber(ratio) or 0))
+    fill:SetStyle({ width = math.max(1, math.floor(238 * ratio)), backgroundColor = color })
+end
+
+local function _FormatSiegeTime(seconds)
+    local total = math.max(0, math.floor(tonumber(seconds) or 0))
+    return string.format("%02d:%02d", math.floor(total / 60), total % 60)
+end
+
+--- 显示沙巴克攻城状态面板。
+---@param snapshot table|nil
+---@param runtime table|nil
+---@param player table|nil
+function GameUI.ShowSiegeHUD(snapshot, runtime, player)
+    if not uiState.hudRoot then return false end
+    if uiState.refs.siegeRoot then
+        GameUI.UpdateSiegeHUD(snapshot, runtime, player)
+        return true
+    end
+
+    local phaseLabel = UI.Label { text = "阶段：部署倒计时", fontSize = 14,
+        fontWeight = "bold", fontColor = {255, 208, 112, 255} }
+    local objectiveLabel = UI.Label { text = "目标：等待攻城开始", fontSize = 12,
+        fontColor = {236, 232, 215, 255} }
+    local timerLabel = UI.Label { text = "剩余 15:00", fontSize = 12,
+        fontColor = {255, 238, 194, 255} }
+    local defenderLabel = UI.Label { text = "守军：0 / 26", fontSize = 11,
+        fontColor = {210, 212, 208, 255} }
+    local progressLabel = UI.Label { text = "", fontSize = 11,
+        fontColor = {180, 225, 188, 255} }
+    local companionOne = UI.Label { text = "队友一：待命", fontSize = 11,
+        fontColor = {194, 220, 242, 255} }
+    local companionTwo = UI.Label { text = "队友二：待命", fontSize = 11,
+        fontColor = {194, 220, 242, 255} }
+    local medkitLabel = UI.Label { text = "临时急救药：0", fontSize = 11,
+        fontColor = {174, 239, 184, 255} }
+    local progressFill = UI.Panel {
+        width = 1, height = 6, borderRadius = 3,
+        backgroundColor = {86, 188, 104, 255},
+    }
+    local medkitButton = UI.Button {
+        text = "使用急救药",
+        width = 104, height = 30,
+        variant = "outline",
+        fontSize = 11,
+        onClick = function()
+            if GameUI.onUseSiegeMedkit then GameUI.onUseSiegeMedkit() end
+        end,
+    }
+
+    local root = UI.Panel {
+        id = "siegeHUD",
+        position = "absolute",
+        top = 50, right = 10,
+        width = 258,
+        padding = 10,
+        gap = 5,
+        borderRadius = 9,
+        borderWidth = 1,
+        borderColor = {177, 126, 62, 225},
+        backgroundColor = {19, 15, 15, 222},
+        pointerEvents = "box-none",
+        children = {
+            UI.Panel {
+                width = "100%", flexDirection = "row", justifyContent = "space-between",
+                alignItems = "center", children = {
+                    UI.Label { text = "沙巴克攻城", fontSize = 16, fontWeight = "bold",
+                        fontColor = {255, 202, 97, 255} },
+                    timerLabel,
+                },
+            },
+            phaseLabel,
+            objectiveLabel,
+            UI.Panel {
+                width = 238, height = 6, borderRadius = 3,
+                backgroundColor = {45, 38, 32, 235},
+                children = { progressFill },
+            },
+            progressLabel,
+            defenderLabel,
+            UI.Panel { width = "100%", height = 1, backgroundColor = {116, 95, 69, 145} },
+            companionOne,
+            companionTwo,
+            UI.Panel {
+                width = "100%", flexDirection = "row", alignItems = "center",
+                justifyContent = "space-between", children = { medkitLabel, medkitButton },
+            },
+        },
+    }
+    uiState.hudRoot:AddChild(root)
+    uiState.refs.siegeRoot = root
+    uiState.refs.siegePhase = phaseLabel
+    uiState.refs.siegeObjective = objectiveLabel
+    uiState.refs.siegeTimer = timerLabel
+    uiState.refs.siegeDefenders = defenderLabel
+    uiState.refs.siegeProgress = progressLabel
+    uiState.refs.siegeProgressFill = progressFill
+    uiState.refs.siegeCompanionOne = companionOne
+    uiState.refs.siegeCompanionTwo = companionTwo
+    uiState.refs.siegeMedkits = medkitLabel
+    uiState.refs.siegeMedkitButton = medkitButton
+    GameUI.UpdateSiegeHUD(snapshot, runtime, player)
+    return true
+end
+
+--- 刷新攻城 HUD 的当前状态；不重建 UI 树。
+---@param snapshot table|nil
+---@param runtime table|nil
+---@param player table|nil
+function GameUI.UpdateSiegeHUD(snapshot, runtime, player)
+    if type(snapshot) ~= "table" then return end
+    if not uiState.refs.siegeRoot then
+        GameUI.ShowSiegeHUD(snapshot, runtime, player)
+        return
+    end
+    local phase = snapshot.phase or "deployment"
+    local objectiveId = snapshot.capturingObjective
+    local objectives = snapshot.objectives or {}
+    if not objectiveId then
+        if phase == "south_gate" then objectiveId = "south_gate"
+        elseif phase == "street_flags" or phase == "flags" then
+            objectiveId = not (objectives.east_flag and objectives.east_flag.captured)
+                and "east_flag" or "west_flag"
+        elseif phase == "inner_flag" then objectiveId = "inner_flag"
+        elseif phase == "palace_seal" then objectiveId = "palace_seal"
+        elseif phase == "throne" or phase == "throne_defense" then objectiveId = "throne" end
+    end
+    local phaseLabel = uiState.refs.siegePhase
+    local objectiveLabel = uiState.refs.siegeObjective
+    local timerLabel = uiState.refs.siegeTimer
+    if phaseLabel then phaseLabel:SetText("阶段：" .. (SIEGE_PHASE_LABELS[phase] or "攻城中")) end
+    if objectiveLabel then
+        objectiveLabel:SetText("目标：" .. (SIEGE_OBJECTIVE_LABELS[objectiveId]
+            or (phase == "deployment" and "等待攻城开始" or "清除守军并推进")))
+    end
+    if timerLabel then timerLabel:SetText("剩余 " .. _FormatSiegeTime(snapshot.remainingTime)) end
+
+    local progress, progressText, progressColor = 0, "", {86, 188, 104, 255}
+    if phase == "throne_defense" then
+        local duration = math.max(1, tonumber(snapshot.throneHoldDuration) or 60)
+        progress = (tonumber(snapshot.throneHoldProgress) or 0) / duration
+        progressText = string.format("王座坚守：%d / %d 秒%s",
+            math.floor(tonumber(snapshot.throneHoldProgress) or 0), math.floor(duration),
+            snapshot.throneHolding and "" or "（需站在王座且清空周围守军）")
+        progressColor = snapshot.throneHolding and {86, 188, 104, 255} or {197, 141, 66, 255}
+    elseif objectiveId and objectives[objectiveId] then
+        local objective = objectives[objectiveId]
+        if objective.maxHP and objective.maxHP > 0 then
+            progress = 1 - (tonumber(objective.hp) or 0) / objective.maxHP
+            local durabilityLabel = objectiveId == "palace_seal"
+                and "封印耐久" or "城门耐久"
+            progressText = string.format("%s：%d / %d", durabilityLabel,
+                math.max(0, math.floor(objective.hp or 0)), math.floor(objective.maxHP))
+            progressColor = {210, 93, 70, 255}
+        elseif objective.progress ~= nil then
+            local duration = tonumber(objective.captureDuration)
+                or (phase == "palace_seal" and 10
+                or (phase == "throne" and 12 or 10))
+            duration = math.max(1, duration)
+            progress = (tonumber(objective.progress) or 0) / duration
+            progressText = string.format("占领读条：%d%%", math.floor(progress * 100 + 0.5))
+        end
+    end
+    _SetSiegeFill(uiState.refs.siegeProgressFill, progress, progressColor)
+    if uiState.refs.siegeProgress then uiState.refs.siegeProgress:SetText(progressText) end
+
+    local budget = snapshot.defenderBudget or {}
+    if uiState.refs.siegeDefenders then
+        uiState.refs.siegeDefenders:SetText(string.format("守军：活跃 %d · 已击败 %d / %d",
+            math.floor(tonumber(budget.active) or 0), math.floor(tonumber(budget.defeated) or 0),
+            math.floor(tonumber(budget.total) or 0)))
+    end
+    local companions = snapshot.companions or {}
+    local companionRefs = { uiState.refs.siegeCompanionOne, uiState.refs.siegeCompanionTwo }
+    for index = 1, 2 do
+        local companion = companions[index]
+        local label = companionRefs[index]
+        if label then
+            if companion then
+                local status = companion.state == "down" and "倒下（下一集结点复起）"
+                    or ("生命 " .. math.floor((tonumber(companion.hpRatio) or 0) * 100 + 0.5) .. "%")
+                label:SetText("队友：" .. (companion.className or "支援") .. " · " .. status)
+            else
+                label:SetText("队友：未部署")
+            end
+        end
+    end
+    local medkits = snapshot.supplies and snapshot.supplies.fieldMedkits or 0
+    if uiState.refs.siegeMedkits then
+        uiState.refs.siegeMedkits:SetText("临时急救药：" .. tostring(math.max(0, math.floor(medkits))))
+    end
+    if uiState.refs.siegeMedkitButton then
+        uiState.refs.siegeMedkitButton:SetDisabled((tonumber(medkits) or 0) <= 0)
+    end
+end
+
+function GameUI.HideSiegeHUD()
+    local root = uiState.refs.siegeRoot
+    if root then root:Remove() end
+    uiState.refs.siegeRoot = nil
+    uiState.refs.siegePhase = nil
+    uiState.refs.siegeObjective = nil
+    uiState.refs.siegeTimer = nil
+    uiState.refs.siegeDefenders = nil
+    uiState.refs.siegeProgress = nil
+    uiState.refs.siegeProgressFill = nil
+    uiState.refs.siegeCompanionOne = nil
+    uiState.refs.siegeCompanionTwo = nil
+    uiState.refs.siegeMedkits = nil
+    uiState.refs.siegeMedkitButton = nil
 end
 
 -- ============================================================================
@@ -3178,6 +3450,7 @@ end
 -- ============================================================================
 function GameUI.ShowGameHUD(player)
     GameUI.HideDeathPresentation()
+    GameUI.HideSiegeHUD()
     GameUI.ClearHeldSkill()
     ResetEquipmentSlotDebugSequence()
     uiState.phase = "playing"
@@ -3263,10 +3536,10 @@ function GameUI.ShowGameHUD(player)
         visible = false,
     }
 
-    -- 每张地图目前有三个策划地标；复用固定 widget，切图时只更新文字与坐标，
+    -- 复用固定 widget，切图时只更新文字与坐标；未使用的地标会隐藏，
     -- 避免像旧 HUD 一样在每帧重建控件。
     local fullMapLandmarks = {}
-    for i = 1, 3 do
+    for i = 1, MINI_MAP_LANDMARK_COUNT do
         local label = UI.Label {
             position = "absolute",
             left = 12, top = 0,
@@ -3649,7 +3922,8 @@ function GameUI.ShowTeleportPanel(maps)
         local maxLevel = math.max(minLevel, math.floor(tonumber(option.maxLevel) or minLevel))
         local cost = math.max(0, math.floor(tonumber(option.cost) or 0))
         local costText = isCurrent and "当前位置"
-            or (cost > 0 and (tostring(cost) .. " 金币") or "不可用")
+            or locked and "未解锁"
+            or (cost > 0 and (tostring(cost) .. " 金币") or "免费")
 
         local function handleClick()
             if isCurrent then
@@ -3657,7 +3931,7 @@ function GameUI.ShowTeleportPanel(maps)
                 return
             end
             if locked then
-                GameUI.ShowToast("等级不足，需要 Lv." .. minLevel, 1.5)
+                GameUI.ShowToast(option.lockReason or ("等级不足，需要 Lv." .. minLevel), 1.8)
                 return
             end
 
@@ -3703,7 +3977,7 @@ function GameUI.ShowTeleportPanel(maps)
                             fontWeight = isCurrent and "bold" or "normal",
                         },
                         UI.Label {
-                            text = locked and ("需要 Lv." .. minLevel)
+                            text = locked and (option.lockReason or ("需要 Lv." .. minLevel))
                                 or ("推荐 Lv." .. minLevel .. "-" .. maxLevel),
                             fontSize = 11,
                             fontColor = locked and {150, 128, 118, 190}
@@ -3725,7 +3999,9 @@ function GameUI.ShowTeleportPanel(maps)
                             fontWeight = "bold",
                         },
                         UI.Label {
-                            text = isCurrent and "不可传送" or locked and "未解锁" or "点击传送",
+                            text = isCurrent and "不可传送"
+                                or locked and "未解锁"
+                                or (cost == 0 and "进入战场" or "点击传送"),
                             fontSize = 10,
                             fontColor = locked and {170, 105, 90, 205}
                                 or isCurrent and {150, 205, 150, 215}
@@ -6615,6 +6891,7 @@ end
 GameUI.onSkillPressed = nil
 GameUI.onUseHpPotion = nil
 GameUI.onUseMpPotion = nil
+GameUI.onUseSiegeMedkit = nil
 GameUI.onMenuPressed = nil
 GameUI.onRewardAdRequested = nil
 GameUI.onUseReturnScroll = nil
