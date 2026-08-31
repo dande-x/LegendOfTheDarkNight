@@ -283,6 +283,7 @@ function Start()
 end
 
 function Stop()
+    GameUI.ClearHeldSkill()
     -- 退出前先把当前运行时状态落到本地，并发起一次 best-effort 云同步。
     -- 云端请求未必能在进程结束前完成，但本地存档会保留，下一次启动时
     -- 仍会继续上传，因此不会因退出时网络抖动丢失最近进度。
@@ -302,6 +303,7 @@ end
 ---@param eventType string|nil
 ---@param eventData table|nil
 function HandleAppWillEnterBackground(eventType, eventData)
+    GameUI.ClearHeldSkill()
     SaveCurrentGame(true)
     SoundManager.FlushSettings()
 end
@@ -310,6 +312,7 @@ end
 ---@param eventType string|nil
 ---@param eventData table|nil
 function HandleAppTerminating(eventType, eventData)
+    GameUI.ClearHeldSkill()
     SaveCurrentGame(true)
     SoundManager.FlushSettings()
 end
@@ -1941,6 +1944,8 @@ function SwitchMap(mapId)
         return false
     end
 
+    GameUI.ClearHeldSkill()
+
     -- 清空当前地图战斗实体与地面掉落；默认保留累计击杀数和本次
     -- 角色会话内培养的道士神兽。
     Combat.Clear()
@@ -1948,6 +1953,11 @@ function SwitchMap(mapId)
     -- 设置战斗系统当前地图（决定按图刷怪池）
     Combat.SetMap(mapId)
     MapZone.SetCurrentMap(mapId)
+    -- 先失效 HUD 的地图缓存，再重建场景；这样传送面板关闭前后
+    -- 小地图/全图都不会继续复用上一张地图的地标与目标点。
+    if type(GameUI.RefreshMap) == "function" then
+        GameUI.RefreshMap(mapId)
+    end
 
     -- 重铺地面与装饰（按地图主色，移除旧地面/装饰节点）
     ClearDecorations()
@@ -2282,6 +2292,7 @@ function SetupGameCallbacks()
         rewardAdRequestSerial = rewardAdRequestSerial + 1
         local requestSerial = rewardAdRequestSerial
         local watchedPlayer = player_
+        local watchedSlotIndex = currentSlotIndex
         local completed = false
         local callbackFired = false
         rewardAdInFlight = true
@@ -2297,7 +2308,8 @@ function SetupGameCallbacks()
 
             if result and result.success == true then
                 -- 广告期间若角色会话已结束，不把奖励发给新角色或空会话。
-                if player_ ~= watchedPlayer or not player_ or not playerNode_ or isDead then
+                if player_ ~= watchedPlayer or currentSlotIndex ~= watchedSlotIndex
+                    or not player_ or not playerNode_ or isDead then
                     print("[main] Reward ad completed after player session ended; reward ignored")
                     return
                 end
@@ -2314,14 +2326,34 @@ function SetupGameCallbacks()
                     else
                         rewardMessage = "金币已达上限，仍感谢你的支持。"
                     end
+                    SaveCurrentGame()
                 else
+                    -- 以广告回调时的完整运行时状态生成快照，再只改变当前槽位的
+                    -- 解锁字段。这样不会因槽位级更新把刚获得的装备/金币回退到
+                    -- 上一次自动保存的旧快照。
+                    local snapshot = SaveSystem.CreateSnapshot(
+                        watchedPlayer, Inventory.playerData, Combat.killCount)
+                    local persisted = false
+                    if snapshot and type(SaveSystem.SetReturnScrollUnlocked) == "function" then
+                        persisted = SaveSystem.SetReturnScrollUnlocked(
+                            watchedSlotIndex, true, snapshot)
+                    elseif snapshot then
+                        -- 兼容仍加载旧模块的预览入口；正式运行时应走上面的
+                        -- 槽位级 API，以便 SaveToSlot 继续排队云同步。
+                        snapshot.returnScrollUnlocked = true
+                        persisted = SaveSystem.SaveToSlot(watchedSlotIndex, snapshot)
+                    end
+                    if not persisted then
+                        GameUI.ShowRewardAdResult(false, "解锁保存失败，请稍后重试。")
+                        print("[main] Reward ad completed but return-scroll unlock was not persisted")
+                        return
+                    end
                     player_.returnScrollUnlocked = true
                     if type(GameUI.RefreshReturnScrollAccess) == "function" then
                         pcall(GameUI.RefreshReturnScrollAccess)
                     end
                     rewardMessage = "获得“使用回城卷轴”功能！"
                 end
-                SaveCurrentGame()
                 GameUI.ShowRewardAdResult(true, rewardMessage)
                 return
             end
@@ -3217,6 +3249,26 @@ local function CanMoveDuringCast()
     return player_.classId == "warrior" and castState.phase == "recovery"
 end
 
+-- 触屏按住技能时，沿用原有施法入口续放。这里先检查所有运行时门槛，
+-- 避免冷却中、灵力不足或身处安全区时每帧重复刷提示/日志。
+local function UpdateHeldSkillInput()
+    if not player_ or not playerNode_ then return end
+
+    -- 即使当前仍在施法，也先读取一次以消费首次按下标记，并验证触摸
+    -- 是否仍真实存在；施法结束后的下一帧即可无缝续放。
+    local slot, skill = GameUI.GetHeldSkill()
+    if not slot or not skill then return end
+    if isDead or castState.active or GameUI.IsGamePaused() then return end
+    if Combat.IsHostileSkill(skill) and Combat.IsInSafeZone(playerNode_.position) then return end
+
+    local canCast = CharacterClass.CanCastSkill(player_, skill)
+    if not canCast then return end
+
+    if GameUI.onSkillPressed then
+        GameUI.onSkillPressed(slot, skill)
+    end
+end
+
 -- ============================================================================
 -- 施法状态机更新
 -- ============================================================================
@@ -3373,6 +3425,7 @@ function HandleUpdate(eventType, eventData)
 
     -- 死亡状态
     if isDead then
+        GameUI.ClearHeldSkill()
         if deathPhase == "mark" then
             deathTimer = deathTimer - dt
             if deathTimer <= 0 then
@@ -3392,6 +3445,7 @@ function HandleUpdate(eventType, eventData)
     -- 检查死亡
     if player_.hp <= 0 then
         isDead = true
+        GameUI.ClearHeldSkill()
         deathTimer = DEATH_MARK_DURATION
         deathPhase = "mark"
         deathLossInfo = Inventory.ApplyDeathPenalty()
@@ -3417,6 +3471,7 @@ function HandleUpdate(eventType, eventData)
     -- 游戏暂停：打开背包/地图/系统面板时暂停游戏逻辑。死亡演出也属于
     -- 暂停界面，但它已在上方单独推进状态机，不能被这个提前 return 冻结。
     if GameUI.IsGamePaused() then
+        GameUI.ClearHeldSkill()
         UpdateQuestAreaEffect()
         UpdateCamera(dt)
         GameUI.UpdateHUD(player_, dt)
@@ -3448,6 +3503,9 @@ function HandleUpdate(eventType, eventData)
 
     -- 施法状态机更新
     UpdateCastState(dt)
+
+    -- 触屏长按续放：必须在本帧施法状态更新后、移动处理前尝试。
+    UpdateHeldSkillInput()
 
     -- 玩家移动：武士后摇可移动；法师/道士施法全程锁定移动；冲刺期间由 Combat 接管位移
     if CanMoveDuringCast() and not Combat.IsDashing() then

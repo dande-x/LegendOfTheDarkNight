@@ -1,7 +1,8 @@
 -- 临时截图入口：职业选择界面（截完即删，不打包）
-require "scripts.main"
-local GameUI = require("scripts.GameUI")
-local SaveSystem = require("scripts.SaveSystem")
+require "main"
+-- 与 canonical main 共享 UI/存档模块，避免截图入口重新加载旧镜像。
+local GameUI = require("GameUI")
+local SaveSystem = require("SaveSystem")
 
 function Start()
     graphics.windowTitle = "暗夜传奇-截图"

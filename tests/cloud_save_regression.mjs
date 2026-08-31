@@ -25,6 +25,10 @@ check(source.includes("local slotUpdatedAt =")
     && source.includes("cloudSavePending")
     && source.includes("cloudSaveWaiters"),
 "云存档缺少按槽位合并或最新快照排队状态");
+check(source.includes("IsSameCharacterSnapshot")
+    && source.includes("localSlot.returnScrollUnlocked == true")
+    && source.includes("cloudSlot.returnScrollUnlocked == true"),
+"同一角色的云存档合并没有单向保留永久回城卷轴状态");
 check(source.includes("if completed or sessionId ~= cloudSessionId then return end")
     && source.includes("local CLOUD_LOAD_TIMEOUT = 8.0")
     && source.includes('cloudStatus = "unavailable"'),
@@ -64,6 +68,13 @@ function slotTimestamp(payload, index) {
     return payload?.slotUpdatedAt?.[`slot${index}`] || 0;
 }
 
+function isSameCharacterSnapshot(left, right) {
+    return isLoadable(left) && isLoadable(right)
+        && Number(left.createdAt) > 0
+        && Number(left.createdAt) === Number(right.createdAt)
+        && left.classId === right.classId;
+}
+
 function payloadDataEqual(left, right) {
     for (let index = 1; index <= 2; index += 1) {
         if (slotTimestamp(left, index) !== slotTimestamp(right, index)) return false;
@@ -98,7 +109,13 @@ function mergeCloudPayload(localPayload, cloudPayload) {
         }
         const selected = useCloud ? cloudSlot : localSlot;
         const selectedTimestamp = useCloud ? cloudTimestamp : localTimestamp;
-        merged.slots[`slot${index}`] = isEmpty(selected) ? false : clone(selected);
+        const mergedSlot = isEmpty(selected) ? false : clone(selected);
+        if (mergedSlot && isSameCharacterSnapshot(localSlot, cloudSlot)
+            && (localSlot.returnScrollUnlocked === true
+                || cloudSlot.returnScrollUnlocked === true)) {
+            mergedSlot.returnScrollUnlocked = true;
+        }
+        merged.slots[`slot${index}`] = mergedSlot;
         merged.slotUpdatedAt[`slot${index}`] = selectedTimestamp;
         merged.updatedAt = Math.max(merged.updatedAt, selectedTimestamp);
     }
@@ -185,7 +202,53 @@ function normalizeCloudPayload(raw) {
         "本地较新的删除没有阻止旧云角色复活");
 }
 
-// 5) Invalid cloud payloads and unavailable platforms fall back to local data.
+// 5) Character-bound feature flags round-trip inside their own slot only.
+{
+    const local = makePayload([
+        { classId: "warrior", createdAt: 100, level: 20, returnScrollUnlocked: true },
+        { classId: "mage", createdAt: 200, level: 12, returnScrollUnlocked: false },
+    ], [300, 250], 300);
+    const roundTrip = normalizeCloudPayload(clone(local));
+    check(roundTrip.reason === null
+        && slot(roundTrip.payload, 1)?.returnScrollUnlocked === true,
+    "回城卷轴解锁状态没有进入云存档并正确回读");
+    check(slot(roundTrip.payload, 2)?.returnScrollUnlocked === false,
+        "槽位 1 的回城卷轴状态污染了槽位 2");
+
+    const cloudWithOlderOtherSlot = makePayload([
+        { classId: "warrior", createdAt: 100, level: 21, returnScrollUnlocked: false },
+        { classId: "mage", createdAt: 200, level: 13, returnScrollUnlocked: false },
+    ], [301, 302], 302);
+    const merged = mergeCloudPayload(local, cloudWithOlderOtherSlot);
+    check(slot(merged, 1)?.level === 21
+        && slot(merged, 1)?.returnScrollUnlocked === true,
+    "同一角色的较新普通进度覆盖了永久回城卷轴状态");
+    check(slot(merged, 2)?.level === 13
+        && slot(merged, 2)?.returnScrollUnlocked === false,
+    "按槽位合并没有保持另一角色自己的回城卷轴状态");
+
+    const deleted = mergeCloudPayload(
+        merged,
+        makePayload([null, slot(merged, 2)], [303, 302], 303),
+    );
+    check(isEmpty(slot(deleted, 1)) && slotTimestamp(deleted, 1) === 303,
+        "删除角色后云端 tombstone 没有同时清除回城卷轴状态");
+
+    const recreated = mergeCloudPayload(
+        merged,
+        makePayload([{
+            classId: "warrior",
+            createdAt: 999,
+            level: 1,
+            returnScrollUnlocked: false,
+        }, slot(merged, 2)], [304, 302], 304),
+    );
+    check(slot(recreated, 1)?.createdAt === 999
+        && slot(recreated, 1)?.returnScrollUnlocked === false,
+    "槽位中新建的角色错误继承了已删除角色的回城卷轴状态");
+}
+
+// 6) Invalid cloud payloads and unavailable platforms fall back to local data.
 {
     check(normalizeCloudPayload({ version: 2, slots: {} }).reason === "unsupported_version",
         "不支持的云存档版本没有被拒绝");
@@ -198,7 +261,7 @@ function normalizeCloudPayload(raw) {
     "平台不可用时没有保留本地存档降级路径");
 }
 
-// 6) If local saving happens while BatchGet is pending, the callback must upload
+// 7) If local saving happens while BatchGet is pending, the callback must upload
 // the callback-time snapshot rather than the stale snapshot from request start.
 {
     const requestStart = makePayload([{ classId: "warrior", level: 1 }], [10, 0], 10);
@@ -211,7 +274,7 @@ function normalizeCloudPayload(raw) {
     "实现没有明确使用云回调到达时的最新本地快照");
 }
 
-// 7) Repeated autosaves while one write is in flight retain only the newest payload.
+// 8) Repeated autosaves while one write is in flight retain only the newest payload.
 function makeWriteQueue() {
     let inFlight = null;
     let pending = null;

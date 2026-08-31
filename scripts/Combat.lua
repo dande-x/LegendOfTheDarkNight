@@ -2928,7 +2928,7 @@ function Combat.SpawnEarthRiftWave(scene, origin, dir, damage, skill)
         dir = fwd,
         speed = tonumber(skill.waveSpeed) or 11.0,
         damage = damage,
-        range = math.max(0.1, (tonumber(skill.range) or 7.0) - startOffset),
+        range = math.max(0.1, (tonumber(skill.range) or 6.0) - startOffset),
         traveled = 0,
         skillId = skill.id or "w_earthsplit",
         groundWave = true,

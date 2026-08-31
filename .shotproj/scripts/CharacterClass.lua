@@ -141,7 +141,7 @@ CharacterClass.Classes = {
                 slot = 3, cooldown = 6.5, manaCost = 35,
                 unlockLevel = 20,
                 damage = 220,  -- ATK倍率220%；穿透式地面波可命中直线内多个目标
-                range = 7.0, aoeRadius = 1.35,
+                range = 6.0, aoeRadius = 1.35,
                 waveSpeed = 11.0, isGroundWave = true,
                 castTime = 0.55, animationType = "buff", -- 重劈动作，而不是回旋 AOE 动作
             },
@@ -196,7 +196,7 @@ CharacterClass.Classes = {
                 slot = 1, cooldown = 0, manaCost = 0,
                 unlockLevel = 1,
                 damage = 110, -- 提高单发伤害，配合略长前摇维持前期总DPS
-                range = 10.0, projectileSpeed = 12, castTime = 0.35,
+                range = 8.0, projectileSpeed = 12, castTime = 0.35,
             },
 
             {
@@ -206,7 +206,7 @@ CharacterClass.Classes = {
                 -- 法师主动技能解锁节奏与武士统一；跳过武士专属被动的 Lv.10 节点。
                 unlockLevel = 25,
                 damage = 250,  -- ATK倍率250% (单体高伤)
-                range = 7.0, castTime = 0.45,
+                range = 8.0, castTime = 0.45,
             },
             {
                 id = "m_explosion", name = "抗拒火环", type = SKILL_TYPE.AOE,
@@ -225,7 +225,7 @@ CharacterClass.Classes = {
                 unlockLevel = 6,
                 damage = 45, -- ATK倍率45%/秒 (DOT持续)
                 duration = 5,
-                range = 6.0, aoeRadius = 2.0, castTime = 0.30,
+                range = 8.0, aoeRadius = 2.0, castTime = 0.30,
             },
             {
                 id = "m_blizzard", name = "冰咆哮", type = SKILL_TYPE.AOE,
@@ -233,7 +233,7 @@ CharacterClass.Classes = {
                 slot = 6, cooldown = 5.5, manaCost = 90,
                 unlockLevel = 35,
                 damage = 320,  -- ATK倍率320% (大招AOE)
-                range = 6.0, aoeRadius = 3.5, castTime = 0.55,
+                range = 8.0, aoeRadius = 3.5, castTime = 0.55,
             },
             {
                 id = "m_shield", name = "魔法盾", type = SKILL_TYPE.BUFF,
@@ -272,7 +272,7 @@ CharacterClass.Classes = {
                 slot = 1, cooldown = 0, manaCost = 0,
                 unlockLevel = 1,
                 damage = 100,  -- ATK倍率100%
-                range = 10.0, projectileSpeed = 12, castTime = 0.38,
+                range = 8.0, projectileSpeed = 12, castTime = 0.38,
             },
             -- 2. 召唤神兽 (核心技 — 永久召唤一只喷火神兽)
             {
@@ -304,7 +304,7 @@ CharacterClass.Classes = {
                 damage = 50, -- ATK倍率50%/秒
                 duration = 5,
                 defReduce = 5,
-                range = 6.0, aoeRadius = 3.0, castTime = 0.0, instant = true,
+                range = 8.0, aoeRadius = 2.5, castTime = 0.0, instant = true,
             },
             -- 5. 神兽狂暴 (BUFF — 强化神兽攻击力)
             {

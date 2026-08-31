@@ -63,6 +63,12 @@ local NVG_CCW = 2
 -- 药瓶组左端（NanoVG 720 高设计单位）。向右留出经验百分比文字的安全间距。
 local POTION_LEFT_FROM_ORB = 72 + 52 + 28
 
+-- Every configured map currently exposes three named landmarks.  Keep a fixed
+-- set of tiny widgets so a map change only updates data/visibility instead of
+-- rebuilding the HUD tree.  The task marker is rendered on top of these dots.
+local MINI_MAP_LANDMARK_COUNT = 3
+local LANDMARK_MATCH_TOLERANCE = 1.5
+
 -- ============================================================================
 -- NanoVG 状态
 -- ============================================================================
@@ -768,6 +774,31 @@ end
 
 function GameUI.SetScene(scene)
     sceneRef = scene
+end
+
+--- 让地图切换显式失效地图 UI 缓存。
+---
+--- SwitchMap 在传送面板仍打开时就会重建世界；如果只依赖下一帧的
+--- mapId 比较，旧地标/目标点可能在面板关闭和 HUD 恢复之间短暂残留。
+--- 这里不重建控件，只清掉按地图缓存，下一次 UpdateHUD 会从当前
+--- MapZone/Quest 数据完整重绘小地图和全图。
+---@param mapId string|nil 仅用于记录本次切换目标，实际状态仍以 MapZone 为准
+function GameUI.RefreshMap(mapId)
+    uiState.miniMapVisuals = {}
+    uiState.fullMapVisuals = {}
+    uiState.mapRefreshMapId = mapId
+
+    local miniBossDot = uiState.refs.miniMapBossDot
+    if miniBossDot then miniBossDot:SetVisible(false) end
+    local fullBossDot = uiState.refs.fullMapBossDot
+    if fullBossDot then fullBossDot:SetVisible(false) end
+
+    for _, landmarkDot in ipairs(uiState.refs.miniMapLandmarks or {}) do
+        landmarkDot:SetVisible(false)
+    end
+    for _, landmarkRef in ipairs(uiState.refs.fullMapLandmarks or {}) do
+        if landmarkRef.root then landmarkRef.root:SetVisible(false) end
+    end
 end
 
 -- ============================================================================
@@ -4340,6 +4371,22 @@ function GameUI._CreateMiniMapArea(player)
         pointerEvents = "none",
     }
 
+    -- 地图策划地标（小地图只显示点，不显示文字；文字在全图显示）。
+    -- 这些点始终来自当前 MapZone.DEFS[mapId].landmarks，任务目标命中
+    -- 的那个点会在 _UpdateMiniMapUI 中换成对应任务颜色。
+    local miniLandmarkDots = {}
+    for i = 1, MINI_MAP_LANDMARK_COUNT do
+        miniLandmarkDots[i] = UI.Panel {
+            position = "absolute", width = 4, height = 4,
+            borderRadius = 2,
+            backgroundColor = {225, 166, 68, 220},
+            borderWidth = 1,
+            borderColor = {255, 232, 176, 210},
+            pointerEvents = "none",
+            visible = false,
+        }
+    end
+
     -- 当前 Boss 任务目标（红点）。位置由 _UpdateMiniMapUI 按 Boss 实体实时更新。
     -- 使用独立 widget，避免每帧重建小地图树；Boss 离场/任务切换时直接隐藏。
     local miniBossDot = UI.Panel {
@@ -4375,7 +4422,19 @@ function GameUI._CreateMiniMapArea(player)
         borderWidth = 2,
         borderColor = {126, 130, 134, 245},  -- 银灰粗边框
         overflow = "hidden",  -- 裁剪超出边界的玩家标记
-        children = { miniSafeZone, gridH, gridV, miniStewardDot, miniMerchantDot, miniBlacksmithDot, miniBossDot, playerDir, playerDot },
+        children = (function()
+            local children = { miniSafeZone, gridH, gridV }
+            for _, landmarkDot in ipairs(miniLandmarkDots) do
+                table.insert(children, landmarkDot)
+            end
+            table.insert(children, miniStewardDot)
+            table.insert(children, miniMerchantDot)
+            table.insert(children, miniBlacksmithDot)
+            table.insert(children, miniBossDot)
+            table.insert(children, playerDir)
+            table.insert(children, playerDot)
+            return children
+        end)(),
     }
 
     -- ── 指北标 "N"（固定在圆形顶部）──
@@ -4414,6 +4473,7 @@ function GameUI._CreateMiniMapArea(player)
     uiState.refs.miniMapStewardDot = miniStewardDot
     uiState.refs.miniMapMerchantDot = miniMerchantDot
     uiState.refs.miniMapBlacksmithDot = miniBlacksmithDot
+    uiState.refs.miniMapLandmarks = miniLandmarkDots
     uiState.refs.miniMapBossDot = miniBossDot
     uiState.refs.miniMapArenaBlock = arenaBlock
     uiState.refs.miniMapNorthLabel = northLabel
@@ -5643,6 +5703,40 @@ function GameUI._UpdatePotionCDOverlay()
     end
 end
 
+-- 在当前地图的策划地标中找到任务目标对应项。任务数据目前保留了
+-- name/x/z 以兼容旧存档，所以优先按名称匹配，名称缺失或改名时再按
+-- 坐标做小范围兜底，避免把另一张地图的同名点误高亮。
+---@param mapDef table|nil
+---@param marker table|nil
+---@return number|nil landmarkIndex
+local function _FindMatchingLandmark(mapDef, marker)
+    if not mapDef or type(mapDef.landmarks) ~= "table" or not marker then
+        return nil
+    end
+
+    local markerName = tostring(marker.name or "")
+    if markerName ~= "" then
+        for i, landmark in ipairs(mapDef.landmarks) do
+            if tostring(landmark.name or "") == markerName then
+                return i
+            end
+        end
+    end
+
+    local markerX = tonumber(marker.x)
+    local markerZ = tonumber(marker.z)
+    if not markerX or not markerZ then return nil end
+    local toleranceSquared = LANDMARK_MATCH_TOLERANCE * LANDMARK_MATCH_TOLERANCE
+    for i, landmark in ipairs(mapDef.landmarks) do
+        local dx = (tonumber(landmark.x) or 0) - markerX
+        local dz = (tonumber(landmark.z) or 0) - markerZ
+        if dx * dx + dz * dz <= toleranceSquared then
+            return i
+        end
+    end
+    return nil
+end
+
 -- ============================================================================
 -- 小地图 UI 更新（每帧调用）
 -- ============================================================================
@@ -5655,6 +5749,7 @@ function GameUI._UpdateMiniMapUI()
     local stewardDot = uiState.refs.miniMapStewardDot
     local merchantDot = uiState.refs.miniMapMerchantDot
     local blacksmithDot = uiState.refs.miniMapBlacksmithDot
+    local landmarkDots = uiState.refs.miniMapLandmarks
     local bossDot = uiState.refs.miniMapBossDot
     local arenaDrawSize = uiState.refs.miniMapArenaDrawSize
     if not arenaDrawSize then return end
@@ -5698,7 +5793,55 @@ function GameUI._UpdateMiniMapUI()
         if stewardDot then stewardDot:SetStyle({ left = math.floor(stewardX - 1), top = math.floor(stewardY - 1) }) end
         if merchantDot then merchantDot:SetStyle({ left = math.floor(merchantX - 1), top = math.floor(merchantY - 1) }) end
         if blacksmithDot then blacksmithDot:SetStyle({ left = math.floor(blacksmithX - 1), top = math.floor(blacksmithY - 1) }) end
+
+        -- 切图时同步整套地标位置和可见性，避免沿用上一张地图的点。
+        if landmarkDots then
+            for i, landmarkDot in ipairs(landmarkDots) do
+                local landmark = mapDef.landmarks and mapDef.landmarks[i] or nil
+                if landmark then
+                    local landmarkX, landmarkY = worldToMini(
+                        tonumber(landmark.x) or 0, tonumber(landmark.z) or 0)
+                    landmarkDot:SetStyle({
+                        left = math.floor(landmarkX - 2),
+                        top = math.floor(landmarkY - 2),
+                    })
+                    landmarkDot:SetVisible(true)
+                else
+                    landmarkDot:SetVisible(false)
+                end
+            end
+        end
         visuals.mapId = mapId
+    end
+
+    -- 地标点使用同一份 MapZone 数据，当前任务目标对应的地标提高亮度；
+    -- 目标推进到下一个巡逻点或切换任务时，样式会随 markerKey 更新。
+    if landmarkDots then
+        local marker = Quest.GetObjectiveMarker()
+        local markerForMap = marker and marker.mapId == mapId and marker or nil
+        local targetIndex = _FindMatchingLandmark(mapDef, markerForMap)
+        local markerKey = markerForMap and (tostring(markerForMap.questId or "")
+            .. ":" .. tostring(markerForMap.mode or "")
+            .. ":" .. tostring(markerForMap.name or "")
+            .. ":" .. tostring(targetIndex or 0)) or "none"
+        if visuals.landmarkMarkerKey ~= markerKey then
+            for i, landmarkDot in ipairs(landmarkDots) do
+                local isTarget = i == targetIndex
+                local markerColor = markerForMap and markerForMap.mode == "encounter"
+                        and {245, 48, 48, 255}
+                    or markerForMap and markerForMap.mode == "survive"
+                        and {245, 150, 55, 255}
+                    or markerForMap and {255, 220, 70, 255}
+                    or {225, 166, 68, 220}
+                local borderColor = isTarget
+                    and {255, 246, 190, 255} or {255, 232, 176, 210}
+                landmarkDot:SetStyle({
+                    backgroundColor = isTarget and markerColor or {225, 166, 68, 220},
+                    borderColor = borderColor,
+                })
+            end
+            visuals.landmarkMarkerKey = markerKey
+        end
     end
 
     -- 巡逻、坚守与显式遭遇共用一个目标点。遭遇生成后跟随实体实时位置，

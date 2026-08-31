@@ -1,9 +1,10 @@
 -- 临时截图入口：存档槽位界面（预置一个战士存档，截完即删，不打包）
-require "scripts.main"
+require "main"
 local CharacterClass = require("scripts.CharacterClass")
 local Inventory = require("scripts.Inventory")
-local GameUI = require("scripts.GameUI")
-local SaveSystem = require("scripts.SaveSystem")
+-- 与 canonical main 共享 UI/存档模块，避免截图入口重新加载旧镜像。
+local GameUI = require("GameUI")
+local SaveSystem = require("SaveSystem")
 
 function Start()
     graphics.windowTitle = "暗夜传奇-截图"

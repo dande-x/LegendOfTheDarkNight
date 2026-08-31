@@ -1,6 +1,10 @@
+---@diagnostic disable: undefined-global, param-type-mismatch, assign-type-mismatch
 -- ============================================================================
 -- SaveSystem.lua — 暗夜传奇 本地存档系统
 -- 支持最多 2 个角色槽位的存储、读取、删除
+--
+-- 本模块同时把完整的双槽位存档镜像到 TapTap Maker 的 clientCloud。
+-- 本地 JSON 仍是离线/预览兜底；云端不可用时不会阻塞游戏。
 -- ============================================================================
 
 local SaveSystem = {}
@@ -15,17 +19,71 @@ local MAX_SLOTS = 2
 local SAVE_DIR = "saves"
 local SAVE_FILE = "saves/characters.json"
 local SAVE_BACKUP_FILE = "saves/characters.backup.json"
+local CLOUD_KEY = "night_legend_save_v1"
+local CLOUD_SCHEMA_VERSION = 1
+local MAX_TIMESTAMP = 9999999999
+-- 云读取有平台层 timeout 回调，但本地预览/旧运行时可能既不返回
+-- timeout，也不返回 error。用 Update 计时提供最后一道本地兜底，避免
+-- 启动流程永远卡在 Logo 和存档槽位页之间。
+local CLOUD_LOAD_TIMEOUT = 8.0
 -- 仅限制损坏存档/异常浮点值；正常玩法等级不设上限。
 local LEVEL_SANITY_LIMIT = Balance.LEVEL_SANITY_LIMIT
 local MAX_RESOURCE = 1000000000
 
 SaveSystem.MAX_SLOTS = MAX_SLOTS
+SaveSystem.CLOUD_KEY = CLOUD_KEY
 
 -- ============================================================================
 -- 内部状态
 -- ============================================================================
----@type table[] 存档槽位数组，最多 MAX_SLOTS 项
+---@type table<number, table|nil> 存档槽位数组，最多 MAX_SLOTS 项
 local slots = {}  -- { [1] = saveData | nil, [2] = saveData | nil }
+-- 每个槽位独立维护最后一次修改时间，删除槽位时也保留 tombstone 时间戳，
+-- 这样两个设备分别修改不同槽位时可以合并，删除操作也能跨设备生效。
+local slotUpdatedAt = { [1] = 0, [2] = 0 }
+local localUpdatedAt = 0
+
+-- 云端读写状态。所有云端操作都是异步的，失败只降级到本地存档。
+local cloudEnabled = false
+local cloudReady = false
+local cloudLoadInFlight = false
+local cloudLoadWaiters = {}
+local cloudSaveInFlight = false
+---@type table|nil
+local cloudSavePending = nil
+local cloudSaveWaiters = {}
+---@type table|nil
+local lastCloudPayload = nil
+local cloudStatus = "not_started"
+local cloudLastError = nil
+local cloudLoadElapsed = 0
+local cloudLoadTimeoutHandler = nil
+-- 每次 Init 都递增；异步回调携带创建时的代际，旧会话回调不得污染新会话。
+local cloudSessionId = 0
+
+local function SafeCall(callback, ...)
+    if type(callback) == "function" then
+        pcall(callback, ...)
+    end
+end
+
+local function GetMethod(object, name)
+    if object == nil then return nil end
+    local ok, method = pcall(function() return object[name] end)
+    if not ok or type(method) ~= "function" then return nil end
+    return method
+end
+
+local function GetClientCloud()
+    -- clientCloud 只在 Standalone/Client 平台运行时注入；本地预览可能没有
+    -- 该对象，或旧运行时只提供不完整的 clientScore 兼容对象。
+    local ok, cloud = pcall(function() return clientCloud end)
+    if not ok or cloud == nil then return nil end
+    if not GetMethod(cloud, "BatchGet") or not GetMethod(cloud, "BatchSet") then
+        return nil
+    end
+    return cloud
+end
 
 -- JSON 是外部可修改的数据源，恢复前统一把数值归一化，避免 NaN、无穷大、
 -- 小数和超大整数穿透到经验、经济或数组索引逻辑。
@@ -36,6 +94,68 @@ local function SafeInteger(value, minValue, maxValue, fallback)
     end
     number = math.max(minValue, math.min(maxValue, number))
     return math.floor(number)
+end
+
+local function SafeTimestamp(value)
+    local number = tonumber(value)
+    if not number or number ~= number or number == math.huge or number == -math.huge then
+        return 0
+    end
+    number = math.max(0, math.min(MAX_TIMESTAMP, number))
+    return math.floor(number)
+end
+
+local function NextTimestamp()
+    local now = SafeTimestamp(os.time())
+    if now <= localUpdatedAt then
+        now = math.min(MAX_TIMESTAMP, localUpdatedAt + 1)
+    end
+    localUpdatedAt = now
+    return now
+end
+
+-- 只复制 JSON 可表达的基础值，避免把运行时对象/函数引用交给云端，
+-- 同时避免云端回调返回的 table 被后续读档逻辑原地修改。
+local function CloneSerializable(value, seen, depth)
+    local valueType = type(value)
+    if value == nil or valueType == "string" or valueType == "number"
+        or valueType == "boolean" then
+        return value
+    end
+    if valueType ~= "table" then return nil end
+    depth = depth or 0
+    if depth > 16 then return nil end
+    seen = seen or {}
+    if seen[value] then return nil end
+    seen[value] = true
+
+    local copy = {}
+    for key, child in pairs(value) do
+        local keyType = type(key)
+        if keyType == "string" or keyType == "number" then
+            local cloned = CloneSerializable(child, seen, depth + 1)
+            if cloned ~= nil then
+                copy[key] = cloned
+            end
+        end
+    end
+    seen[value] = nil
+    return copy
+end
+
+local function IsCloudEmptyValue(value)
+    return value == nil or value == false or value == cjson.null
+end
+
+local function ReadSlotField(container, index)
+    if type(container) ~= "table" then return nil end
+    local named = container["slot" .. tostring(index)]
+    if named ~= nil then return named end
+    return container[index]
+end
+
+local function ReadSlotTimestamp(container, index)
+    return SafeTimestamp(ReadSlotField(container, index))
 end
 
 local function NormalizeSlotIndex(value)
@@ -155,7 +275,7 @@ end
 ---@param player table 玩家运行时数据（CharacterClass.CreatePlayer 创建的）
 ---@param inventoryData table Inventory.playerData
 ---@param killCount number 击杀数
----@return table saveData
+---@return table|nil saveData
 function SaveSystem.CreateSnapshot(player, inventoryData, killCount)
     if type(player) ~= "table" or type(inventoryData) ~= "table"
         or not SaveSystem.IsLoadable({ classId = player.classId }) then
@@ -199,6 +319,9 @@ function SaveSystem.CreateSnapshot(player, inventoryData, killCount)
         quest      = Quest.GetState(),
 
         -- 所在地图
+        -- main.lua/Combat.lua 使用根模块名加载 canonical Combat；继续用
+        -- scripts.Combat 会读取 assets/scripts 的旧实例，切图后可能把旧
+        -- 地图写回存档，下一次进入时又回到错误地图。
         mapId      = (require("Combat").currentMapId) or "map_bq",
 
         -- 神兽是当前角色会话内的临时成长，不写入角色存档。
@@ -239,28 +362,56 @@ local function ReadSaveDocument(path)
     -- 有效文档，随后覆盖掉最后一个好备份。空槽仍以 cjson.null 表示。
     for i = 1, MAX_SLOTS do
         local slot = data.slots[i]
-        if slot ~= nil and slot ~= cjson.null and not SaveSystem.IsLoadable(slot) then
+        if slot ~= nil and slot ~= false and slot ~= cjson.null
+            and not SaveSystem.IsLoadable(slot) then
             return nil, "invalid_slot_" .. tostring(i)
         end
     end
     return data, nil
 end
 
+local function GetDocumentUpdatedAt(data)
+    if type(data) ~= "table" then return 0 end
+    local timestamp = SafeTimestamp(data.updatedAt)
+    local metadata = data.slotUpdatedAt or data.slotTimestamps
+    for i = 1, MAX_SLOTS do
+        local slot = data.slots and data.slots[i]
+        if SaveSystem.IsLoadable(slot) then
+            timestamp = math.max(timestamp, SafeTimestamp(slot.updatedAt))
+        end
+        timestamp = math.max(timestamp, ReadSlotTimestamp(metadata, i))
+    end
+    return timestamp
+end
+
 --- 将所有槽位写入磁盘
+---@param timestampOverride number|nil 用于把云端合并结果按原时间戳落盘
 ---@return boolean success
-function SaveSystem.WriteToDisk()
+function SaveSystem.WriteToDisk(timestampOverride)
     EnsureSaveDir()
+
+    local previousUpdatedAt = localUpdatedAt
+    local writeTimestamp = SafeTimestamp(timestampOverride)
+    if writeTimestamp <= 0 then
+        writeTimestamp = NextTimestamp()
+    else
+        localUpdatedAt = math.max(localUpdatedAt, writeTimestamp)
+    end
 
     local data = {
         version = 1,
+        updatedAt = writeTimestamp,
         slots = {},
+        slotUpdatedAt = {},
     }
     for i = 1, MAX_SLOTS do
         data.slots[i] = slots[i] or cjson.null
+        data.slotUpdatedAt["slot" .. tostring(i)] = SafeTimestamp(slotUpdatedAt[i])
     end
 
     local encoded, jsonStr = pcall(cjson.encode, data)
     if not encoded or type(jsonStr) ~= "string" then
+        localUpdatedAt = previousUpdatedAt
         print("[SaveSystem] ERROR: Failed to encode save data")
         return false
     end
@@ -271,6 +422,7 @@ function SaveSystem.WriteToDisk()
         local currentDocument = ReadSaveDocument(SAVE_FILE)
         if currentDocument then
             if not fileSystem:Copy(SAVE_FILE, SAVE_BACKUP_FILE) then
+                localUpdatedAt = previousUpdatedAt
                 print("[SaveSystem] ERROR: Cannot refresh save backup")
                 return false
             end
@@ -281,6 +433,7 @@ function SaveSystem.WriteToDisk()
 
     local file = File(SAVE_FILE, FILE_WRITE)
     if not file:IsOpen() then
+        localUpdatedAt = previousUpdatedAt
         print("[SaveSystem] ERROR: Cannot open file for writing: " .. SAVE_FILE)
         return false
     end
@@ -295,6 +448,7 @@ function SaveSystem.WriteToDisk()
             and fileSystem:Copy(SAVE_BACKUP_FILE, SAVE_FILE) then
             print("[SaveSystem] Restored previous save from backup")
         end
+        localUpdatedAt = previousUpdatedAt
         return false
     end
 
@@ -314,6 +468,8 @@ end
 ---@return boolean success
 function SaveSystem.ReadFromDisk()
     slots = {}
+    slotUpdatedAt = { [1] = 0, [2] = 0 }
+    localUpdatedAt = 0
 
     local primaryExists = fileSystem:FileExists(SAVE_FILE)
     local backupExists = fileSystem:FileExists(SAVE_BACKUP_FILE)
@@ -341,6 +497,8 @@ function SaveSystem.ReadFromDisk()
 
     -- 解析槽位
     if type(data.slots) == "table" then
+        local documentTimestamp = GetDocumentUpdatedAt(data)
+        local metadata = data.slotUpdatedAt or data.slotTimestamps
         for i = 1, MAX_SLOTS do
             local s = data.slots[i]
             if SaveSystem.IsLoadable(s) then
@@ -348,11 +506,523 @@ function SaveSystem.ReadFromDisk()
             else
                 slots[i] = nil
             end
+            local timestamp = ReadSlotTimestamp(metadata, i)
+            if timestamp <= 0 and SaveSystem.IsLoadable(s) then
+                timestamp = SafeTimestamp(s.updatedAt)
+            end
+            -- 旧版文件没有 slotUpdatedAt；非空槽位至少继承文档时间，
+            -- 让首次云同步仍能正确判断本地版本新旧。
+            if timestamp <= 0 and SaveSystem.IsLoadable(s) then
+                timestamp = documentTimestamp
+            end
+            slotUpdatedAt[i] = timestamp
         end
+        localUpdatedAt = documentTimestamp
     end
 
     print("[SaveSystem] Loaded from disk, " .. SaveSystem.GetUsedSlotCount() .. " character(s)")
     return true
+end
+
+-- ============================================================================
+-- 平台云存档（clientCloud）
+-- ============================================================================
+
+local function NormalizeCloudPayload(raw)
+    if IsCloudEmptyValue(raw) then return nil, "missing" end
+    if type(raw) ~= "table" then return nil, "invalid_payload" end
+
+    local version = tonumber(raw.version or raw.schemaVersion or CLOUD_SCHEMA_VERSION)
+    if not version or version ~= CLOUD_SCHEMA_VERSION then
+        return nil, "unsupported_version"
+    end
+
+    local rawSlots = raw.slots
+    if type(rawSlots) ~= "table" then return nil, "invalid_slots" end
+
+    local payload = {
+        version = CLOUD_SCHEMA_VERSION,
+        updatedAt = SafeTimestamp(raw.updatedAt),
+        slots = {},
+        slotUpdatedAt = {},
+    }
+    local rawMetadata = raw.slotUpdatedAt or raw.slotTimestamps
+    for i = 1, MAX_SLOTS do
+        local key = "slot" .. tostring(i)
+        local rawSlot = ReadSlotField(rawSlots, i)
+        local timestamp = ReadSlotTimestamp(rawMetadata, i)
+        if IsCloudEmptyValue(rawSlot) then
+            -- 云端用 false 表示空槽，避免 JSON 数组洞在不同运行时被截断。
+            payload.slots[key] = false
+            payload.slotUpdatedAt[key] = timestamp
+        elseif SaveSystem.IsLoadable(rawSlot) then
+            local copied = CloneSerializable(rawSlot)
+            if type(copied) ~= "table" then
+                return nil, "invalid_slot_" .. tostring(i)
+            end
+            if timestamp <= 0 then timestamp = SafeTimestamp(rawSlot.updatedAt) end
+            if timestamp <= 0 then timestamp = payload.updatedAt end
+            payload.slots[key] = copied
+            payload.slotUpdatedAt[key] = timestamp
+        else
+            return nil, "invalid_slot_" .. tostring(i)
+        end
+        payload.updatedAt = math.max(payload.updatedAt, payload.slotUpdatedAt[key])
+    end
+    return payload, nil
+end
+
+local function BuildCloudPayload()
+    local payload = {
+        version = CLOUD_SCHEMA_VERSION,
+        updatedAt = localUpdatedAt,
+        slots = {},
+        slotUpdatedAt = {},
+    }
+    for i = 1, MAX_SLOTS do
+        local key = "slot" .. tostring(i)
+        local slot = slots[i]
+        payload.slots[key] = slot and CloneSerializable(slot) or false
+        payload.slotUpdatedAt[key] = SafeTimestamp(slotUpdatedAt[i])
+        payload.updatedAt = math.max(payload.updatedAt, payload.slotUpdatedAt[key])
+    end
+    return payload
+end
+
+local function GetPayloadSlot(payload, index)
+    if type(payload) ~= "table" then return nil end
+    return ReadSlotField(payload.slots, index)
+end
+
+local function GetPayloadSlotTimestamp(payload, index)
+    if type(payload) ~= "table" then return 0 end
+    return ReadSlotTimestamp(payload.slotUpdatedAt or payload.slotTimestamps, index)
+end
+
+-- 永久权益不能被同一角色在另一台离线设备上产生的较新普通进度覆盖。
+-- createdAt 与职业共同标识角色实例；角色删除后新建角色会获得新的
+-- createdAt，因此不会继承旧角色的回城卷轴状态。
+local function IsSameCharacterSnapshot(left, right)
+    if not SaveSystem.IsLoadable(left) or not SaveSystem.IsLoadable(right) then
+        return false
+    end
+    local leftCreatedAt = SafeTimestamp(left.createdAt)
+    local rightCreatedAt = SafeTimestamp(right.createdAt)
+    return leftCreatedAt > 0
+        and leftCreatedAt == rightCreatedAt
+        and left.classId == right.classId
+end
+
+local function PayloadDataEqual(left, right)
+    if type(left) ~= "table" or type(right) ~= "table" then return false end
+    for i = 1, MAX_SLOTS do
+        if GetPayloadSlotTimestamp(left, i) ~= GetPayloadSlotTimestamp(right, i) then
+            return false
+        end
+        local leftSlot = GetPayloadSlot(left, i)
+        local rightSlot = GetPayloadSlot(right, i)
+        local leftEmpty = IsCloudEmptyValue(leftSlot)
+        local rightEmpty = IsCloudEmptyValue(rightSlot)
+        if leftEmpty ~= rightEmpty then return false end
+        if not leftEmpty then
+            local leftOk, leftJson = pcall(cjson.encode, leftSlot)
+            local rightOk, rightJson = pcall(cjson.encode, rightSlot)
+            if not leftOk or not rightOk or leftJson ~= rightJson then
+                return false
+            end
+        end
+    end
+    return true
+end
+
+local function MergeCloudPayload(localPayload, cloudPayload)
+    local merged = {
+        version = CLOUD_SCHEMA_VERSION,
+        updatedAt = math.max(
+            SafeTimestamp(localPayload and localPayload.updatedAt),
+            SafeTimestamp(cloudPayload and cloudPayload.updatedAt)),
+        slots = {},
+        slotUpdatedAt = {},
+    }
+
+    for i = 1, MAX_SLOTS do
+        local localSlot = GetPayloadSlot(localPayload, i)
+        local cloudSlot = GetPayloadSlot(cloudPayload, i)
+        local localTimestamp = GetPayloadSlotTimestamp(localPayload, i)
+        local cloudTimestamp = GetPayloadSlotTimestamp(cloudPayload, i)
+
+        -- 时间戳相同表示同一版本；正常新写入版本都大于 0 时优先采用
+        -- 云端的明确结果。迁移旧版本地文件时两边可能都没有时间戳，
+        -- 此时保留本地非空槽，避免首次云同步误删旧角色。
+        local useCloud = cloudTimestamp > localTimestamp
+            or (cloudTimestamp == localTimestamp
+                and cloudTimestamp > 0)
+        if cloudTimestamp == 0 and localTimestamp == 0
+            and IsCloudEmptyValue(localSlot) and not IsCloudEmptyValue(cloudSlot) then
+            useCloud = true
+        end
+        local selectedSlot = useCloud and cloudSlot or localSlot
+        local selectedTimestamp = useCloud and cloudTimestamp or localTimestamp
+        local mergedSlot = IsCloudEmptyValue(selectedSlot)
+            and false or CloneSerializable(selectedSlot)
+        if type(mergedSlot) == "table"
+            and IsSameCharacterSnapshot(localSlot, cloudSlot)
+            and (localSlot.returnScrollUnlocked == true
+                or cloudSlot.returnScrollUnlocked == true) then
+            mergedSlot.returnScrollUnlocked = true
+        end
+        merged.slots["slot" .. tostring(i)] = mergedSlot
+        merged.slotUpdatedAt["slot" .. tostring(i)] = selectedTimestamp
+        merged.updatedAt = math.max(merged.updatedAt, selectedTimestamp)
+    end
+    return merged
+end
+
+local function ApplyCloudPayload(payload)
+    if type(payload) ~= "table" then return false, "invalid_payload" end
+
+    local previousSlots = slots
+    local previousSlotUpdatedAt = slotUpdatedAt
+    local previousLocalUpdatedAt = localUpdatedAt
+    local nextSlots = {}
+    local nextSlotUpdatedAt = { [1] = 0, [2] = 0 }
+    for i = 1, MAX_SLOTS do
+        local candidate = GetPayloadSlot(payload, i)
+        if not IsCloudEmptyValue(candidate) then
+            if not SaveSystem.IsLoadable(candidate) then
+                return false, "invalid_slot_" .. tostring(i)
+            end
+            nextSlots[i] = CloneSerializable(candidate)
+        end
+        nextSlotUpdatedAt[i] = GetPayloadSlotTimestamp(payload, i)
+    end
+
+    slots = nextSlots
+    slotUpdatedAt = nextSlotUpdatedAt
+    localUpdatedAt = SafeTimestamp(payload.updatedAt)
+    for i = 1, MAX_SLOTS do
+        localUpdatedAt = math.max(localUpdatedAt, slotUpdatedAt[i])
+    end
+    if not SaveSystem.WriteToDisk(localUpdatedAt) then
+        slots = previousSlots
+        slotUpdatedAt = previousSlotUpdatedAt
+        localUpdatedAt = previousLocalUpdatedAt
+        return false, "local_write_failed"
+    end
+    return true, nil
+end
+
+local function MakeCloudResult(ok, code, reason, source, changed, skipped)
+    return {
+        ok = ok == true,
+        code = code,
+        reason = reason,
+        source = source,
+        changed = changed == true,
+        skipped = skipped == true,
+    }
+end
+
+local function NotifyCloudWaiters(waiters, result, sessionId)
+    for _, callback in ipairs(waiters or {}) do
+        if sessionId and sessionId ~= cloudSessionId then return end
+        SafeCall(callback, result)
+    end
+end
+
+---@type fun(payload: table, waiters: table[]): boolean
+local StartCloudSave = nil
+---@type fun(): boolean|nil
+local DrainPendingCloudSave = nil
+
+local function FinishCloudSave(success, code, reason, payload, waiters, sessionId)
+    if sessionId and sessionId ~= cloudSessionId then return end
+    cloudSaveInFlight = false
+    if success then
+        lastCloudPayload = CloneSerializable(payload)
+        cloudStatus = "synced"
+        cloudLastError = nil
+    else
+        cloudStatus = "error"
+        cloudLastError = reason or code or "cloud_save_failed"
+    end
+    -- 先启动排队中的最新快照，再通知当前请求的回调。这样回调里若
+    -- 立即触发下一次保存，会进入新的 in-flight 请求，不会和旧 pending
+    -- 快照并发写入或被旧快照覆盖。
+    if DrainPendingCloudSave then DrainPendingCloudSave() end
+    NotifyCloudWaiters(waiters, MakeCloudResult(
+        success, code, reason, success and "cloud" or "local_only", false, false),
+        sessionId)
+end
+
+StartCloudSave = function(payload, waiters)
+    local sessionId = cloudSessionId
+    local cloud = GetClientCloud()
+    if not cloud then
+        cloudStatus = "unavailable"
+        cloudLastError = "平台云存档暂不可用"
+        NotifyCloudWaiters(waiters, MakeCloudResult(
+            false, "unavailable", cloudLastError, "local_only", false, false),
+            sessionId)
+        return false
+    end
+
+    cloudSaveInFlight = true
+    local completed = false
+    local function finishOnce(success, code, reason)
+        if completed or sessionId ~= cloudSessionId then return end
+        completed = true
+        FinishCloudSave(success, code, reason, payload, waiters, sessionId)
+    end
+
+    local ok, err = pcall(function()
+        local batch = cloud:BatchSet()
+        if not batch then error("BatchSet returned nil") end
+        batch = batch:Set(CLOUD_KEY, payload)
+        if not batch then error("Set returned nil") end
+        batch:Save("暗夜传奇云存档", {
+            ok = function()
+                finishOnce(true)
+            end,
+            error = function(code, reason)
+                finishOnce(false, tostring(code), reason or "平台云存档保存失败")
+            end,
+            timeout = function()
+                finishOnce(false, "timeout", "平台云存档保存超时")
+            end,
+        })
+    end)
+    if not ok then
+        finishOnce(false, "exception", tostring(err))
+        return false
+    end
+    return true
+end
+
+DrainPendingCloudSave = function()
+    if cloudLoadInFlight or cloudSaveInFlight or not cloudSavePending then
+        return false
+    end
+    -- 高频自动保存只保留最新快照，避免把旧状态排队写回云端。
+    local nextPayload = cloudSavePending
+    local nextWaiters = cloudSaveWaiters
+    cloudSavePending = nil
+    cloudSaveWaiters = {}
+    StartCloudSave(nextPayload, nextWaiters)
+    return true
+end
+
+--- 判断当前运行时是否提供完整的客户端云存档接口。
+function SaveSystem.IsCloudAvailable()
+    return GetClientCloud() ~= nil
+end
+
+--- 返回云存档状态快照，供启动流程和调试日志使用。
+function SaveSystem.GetCloudStatus()
+    return {
+        enabled = cloudEnabled,
+        ready = cloudReady,
+        available = SaveSystem.IsCloudAvailable(),
+        status = cloudStatus,
+        error = cloudLastError,
+        key = CLOUD_KEY,
+    }
+end
+
+--- 将当前本地槽位快照写入平台云存档。返回值只表示请求是否成功发出；
+--- 最终结果通过 callback(result) 返回，云端失败不会回滚本地存档。
+---@param callback fun(result: table)|nil
+function SaveSystem.SaveToCloud(callback)
+    cloudEnabled = true
+    local payload = BuildCloudPayload()
+    if cloudLoadInFlight or cloudSaveInFlight or cloudSavePending then
+        cloudSavePending = payload
+        if type(callback) == "function" then table.insert(cloudSaveWaiters, callback) end
+        if not cloudLoadInFlight and not cloudSaveInFlight then
+            DrainPendingCloudSave()
+        end
+        return true
+    end
+
+    if lastCloudPayload and PayloadDataEqual(lastCloudPayload, payload) then
+        SafeCall(callback, MakeCloudResult(true, nil, nil, "cloud", false, true))
+        return true
+    end
+    return StartCloudSave(payload, type(callback) == "function" and { callback } or {})
+end
+
+local function QueueCloudSaveAfterLocalWrite()
+    if not cloudEnabled then return end
+    SaveSystem.SaveToCloud(function(result)
+        if not result.ok then
+            print("[SaveSystem] WARNING: Local save kept; cloud sync failed: "
+                .. tostring(result.reason or result.code))
+        end
+    end)
+end
+
+--- 启动时从平台云存档读取并与本地双槽位按槽位时间戳合并。
+--- 云端不可用、超时或数据损坏时保留本地存档并继续离线运行。
+---@param callback fun(result: table)|nil
+function SaveSystem.LoadFromCloud(callback)
+    cloudEnabled = true
+    if cloudReady then
+        SafeCall(callback, MakeCloudResult(true, nil, nil, "already_ready", false, true))
+        return true
+    end
+    if type(callback) == "function" then table.insert(cloudLoadWaiters, callback) end
+    if cloudLoadInFlight then return true end
+
+    local cloud = GetClientCloud()
+    if not cloud then
+        cloudStatus = "unavailable"
+        cloudLastError = "平台云存档暂不可用"
+        cloudReady = true
+        local waiters = cloudLoadWaiters
+        cloudLoadWaiters = {}
+        NotifyCloudWaiters(waiters, MakeCloudResult(
+            false, "unavailable", cloudLastError, "local_only", false, false))
+        return false
+    end
+
+    cloudLoadInFlight = true
+    cloudLoadElapsed = 0
+    local sessionId = cloudSessionId
+    local completed = false
+    local function complete(result)
+        if completed or sessionId ~= cloudSessionId then return end
+        completed = true
+        cloudLoadInFlight = false
+        cloudLoadElapsed = 0
+        cloudLoadTimeoutHandler = nil
+        cloudReady = true
+        if result.ok then
+            cloudStatus = "synced"
+            cloudLastError = nil
+        elseif result.code ~= "invalid_cloud" then
+            cloudStatus = "error"
+            cloudLastError = result.reason or result.code
+        else
+            cloudStatus = "invalid"
+            cloudLastError = result.reason
+        end
+
+        -- 若读云期间发生了本地保存，以当前内存状态重建最新 pending payload，
+        -- 不把读云开始前的旧快照覆盖回云端。
+        if cloudSavePending then cloudSavePending = BuildCloudPayload() end
+        if DrainPendingCloudSave then DrainPendingCloudSave() end
+        local waiters = cloudLoadWaiters
+        cloudLoadWaiters = {}
+        NotifyCloudWaiters(waiters, result, sessionId)
+    end
+    cloudLoadTimeoutHandler = function()
+        complete(MakeCloudResult(false, "timeout",
+            "平台云存档读取超时", "local_only", false, false))
+    end
+
+    local ok, err = pcall(function()
+        local batch = cloud:BatchGet()
+        if not batch then error("BatchGet returned nil") end
+        batch = batch:Key(CLOUD_KEY)
+        if not batch then error("Key returned nil") end
+        batch:Fetch({
+            ok = function(values)
+                -- 超时/异常后即使平台迟到返回，也不能再合并旧响应；否则
+                -- 旧云版本可能覆盖已经进入游戏或已写入磁盘的新本地状态。
+                if completed or sessionId ~= cloudSessionId then return end
+                -- 请求在网络上等待期间可能已经发生了本地自动保存；以回调
+                -- 到达时的内存快照为准，不能使用请求发出时的旧 payload。
+                local localPayload = BuildCloudPayload()
+                local raw = type(values) == "table" and values[CLOUD_KEY] or nil
+                if IsCloudEmptyValue(raw) then
+                    -- 首次运行或云端尚无此 key：把本地（可能为空）初始化到云端。
+                    StartCloudSave(localPayload, {
+                        function(saveResult)
+                            if saveResult.ok then
+                                complete(MakeCloudResult(true, nil, nil,
+                                    "local_uploaded", true, false))
+                            else
+                                complete(MakeCloudResult(false, saveResult.code,
+                                    saveResult.reason, "local_only", false, false))
+                            end
+                        end,
+                    })
+                    return
+                end
+
+                local cloudPayload, reason = NormalizeCloudPayload(raw)
+                if not cloudPayload then
+                    complete(MakeCloudResult(false, "invalid_cloud",
+                        "云存档数据无效（" .. tostring(reason) .. "）",
+                        "local_only", false, false))
+                    return
+                end
+
+                local mergedPayload = MergeCloudPayload(localPayload, cloudPayload)
+                local localChanged = not PayloadDataEqual(localPayload, mergedPayload)
+                if localChanged then
+                    local applied, applyReason = ApplyCloudPayload(mergedPayload)
+                    if not applied then
+                        complete(MakeCloudResult(false, "local_write_failed",
+                            "云存档已读取，但本地落盘失败（" .. tostring(applyReason) .. "）",
+                            "local_only", false, false))
+                        return
+                    end
+                end
+
+                local cloudChanged = not PayloadDataEqual(cloudPayload, mergedPayload)
+                if cloudChanged then
+                    StartCloudSave(mergedPayload, {
+                        function(saveResult)
+                            if saveResult.ok then
+                                complete(MakeCloudResult(true, nil, nil,
+                                    "merged", localChanged, false))
+                            else
+                                complete(MakeCloudResult(false, saveResult.code,
+                                    saveResult.reason, "merged_local", localChanged, false))
+                            end
+                        end,
+                    })
+                else
+                    lastCloudPayload = CloneSerializable(cloudPayload)
+                    complete(MakeCloudResult(true, nil, nil,
+                        "cloud", localChanged, false))
+                end
+            end,
+            error = function(code, reason)
+                if sessionId ~= cloudSessionId then return end
+                complete(MakeCloudResult(false, tostring(code),
+                    reason or "平台云存档读取失败", "local_only", false, false))
+            end,
+            timeout = function()
+                if sessionId ~= cloudSessionId then return end
+                complete(MakeCloudResult(false, "timeout",
+                    "平台云存档读取超时", "local_only", false, false))
+            end,
+        })
+    end)
+    if not ok then
+        complete(MakeCloudResult(false, "exception", tostring(err), "local_only", false, false))
+        return false
+    end
+    return true
+end
+
+--- 推进云读取的本地兜底计时。平台正常回调时会自动清零；若运行时长期
+--- 没有任何回调，则按本地 timeout 继续使用磁盘存档，迟到的旧回调会被
+--- 当前请求的 completed/sessionId 检查丢弃。
+---@param timeStep number
+function SaveSystem.Update(timeStep)
+    if not cloudLoadInFlight or type(cloudLoadTimeoutHandler) ~= "function" then
+        return
+    end
+    local dt = tonumber(timeStep)
+    if not dt or dt ~= dt or dt <= 0 then return end
+    cloudLoadElapsed = cloudLoadElapsed + dt
+    if cloudLoadElapsed < CLOUD_LOAD_TIMEOUT then return end
+    local timeoutHandler = cloudLoadTimeoutHandler
+    cloudLoadTimeoutHandler = nil
+    if timeoutHandler then timeoutHandler() end
 end
 
 -- ============================================================================
@@ -397,6 +1067,120 @@ function SaveSystem.FindEmptySlot()
     return nil
 end
 
+--- 只更新指定角色槽位的回城卷轴解锁状态。
+---
+--- 广告奖励不能依赖 SaveCurrentGame()：该通用入口会在角色死亡或 HP 为
+--- 0 时拒绝写盘，而广告回调可能恰好落在死亡状态同步边界。这里直接以
+--- 当前槽位快照为基础写入，SaveToSlot() 会负责更新时间戳、落盘以及把
+--- 最新的双槽位 payload 排队同步到 clientCloud。另一个槽位不会被触碰。
+---@param slotIndex number 角色槽位（1 或 2）
+---@param unlocked boolean 是否解锁
+---@param baseSnapshot table|nil 可选的当前角色最新快照；传入时不会用旧槽位覆盖未保存进度
+---@param callback fun(result: table)|nil 本地落盘结果回调（同步调用）
+---@return boolean success 是否已写入本地槽位
+function SaveSystem.SetReturnScrollUnlocked(slotIndex, unlocked, baseSnapshot, callback)
+    local index = NormalizeSlotIndex(slotIndex)
+    local desired = unlocked == true
+    if not index then
+        local result = {
+            ok = false,
+            code = "invalid_slot",
+            reason = "无效的角色槽位",
+            slotIndex = slotIndex,
+            changed = false,
+        }
+        print("[SaveSystem] ERROR: Invalid slot index " .. tostring(slotIndex))
+        SafeCall(callback, result)
+        return false
+    end
+
+    local existing = slots[index]
+    if not SaveSystem.IsLoadable(existing) then
+        local result = {
+            ok = false,
+            code = "empty_slot",
+            reason = "角色槽位为空",
+            slotIndex = index,
+            changed = false,
+        }
+        print("[SaveSystem] ERROR: Cannot update return-scroll state for empty slot " .. index)
+        SafeCall(callback, result)
+        return false
+    end
+
+    -- 没有提供最新快照且已是目标状态时，不制造新的时间戳，也不覆盖另一个
+    -- 设备刚合并的版本。若调用方提供了当前运行时快照，即使布尔值没变，
+    -- 也要把该快照一并落盘，避免把较新的金币/装备回退到旧槽位。
+    if baseSnapshot == nil and existing.returnScrollUnlocked == desired then
+        SafeCall(callback, {
+            ok = true,
+            source = "local",
+            slotIndex = index,
+            changed = false,
+            cloudQueued = false,
+        })
+        return true
+    end
+
+    local sourceSnapshot = existing
+    if baseSnapshot ~= nil then
+        if not SaveSystem.IsLoadable(baseSnapshot)
+            or baseSnapshot.classId ~= existing.classId then
+            local result = {
+                ok = false,
+                code = "snapshot_mismatch",
+                reason = "角色存档快照与当前槽位不匹配",
+                slotIndex = index,
+                changed = false,
+            }
+            print("[SaveSystem] ERROR: Snapshot does not match slot " .. index)
+            SafeCall(callback, result)
+            return false
+        end
+        sourceSnapshot = baseSnapshot
+    end
+
+    -- 不原地修改 slots[index]：写盘失败时 SaveToSlot() 可以完整回滚，
+    -- 同时避免云端正在读取/合并时观察到半更新的槽位对象。
+    local snapshot = CloneSerializable(sourceSnapshot)
+    if type(snapshot) ~= "table" then
+        local result = {
+            ok = false,
+            code = "invalid_snapshot",
+            reason = "角色存档快照无法复制",
+            slotIndex = index,
+            changed = false,
+        }
+        print("[SaveSystem] ERROR: Cannot clone slot " .. index .. " for return-scroll update")
+        SafeCall(callback, result)
+        return false
+    end
+    snapshot.returnScrollUnlocked = desired
+
+    if not SaveSystem.SaveToSlot(index, snapshot) then
+        local result = {
+            ok = false,
+            code = "local_write_failed",
+            reason = "角色存档写入失败",
+            slotIndex = index,
+            changed = false,
+        }
+        SafeCall(callback, result)
+        return false
+    end
+
+    -- SaveToSlot 已完成本地 JSON 写入，并在云功能已启用时通过
+    -- QueueCloudSaveAfterLocalWrite() 排队最新双槽位 payload。
+    SafeCall(callback, {
+        ok = true,
+        source = "local",
+        slotIndex = index,
+        changed = true,
+        cloudQueued = cloudEnabled,
+    })
+    return true
+end
+
 --- 保存到指定槽位（覆盖现有数据）
 ---@param slotIndex number 1 或 2
 ---@param saveData table CreateSnapshot 返回的数据
@@ -412,8 +1196,11 @@ function SaveSystem.SaveToSlot(slotIndex, saveData)
         return false
     end
 
-    -- 更新时间戳
-    saveData.updatedAt = os.time()
+    -- 更新时间戳；使用单调时间保证同一秒内连续保存也能在多设备合并时
+    -- 保持明确的新旧顺序。
+    local previousUpdatedAt = localUpdatedAt
+    local saveTimestamp = NextTimestamp()
+    saveData.updatedAt = saveTimestamp
 
     -- 保留原始创建时间
     local existing = slots[index]
@@ -422,11 +1209,16 @@ function SaveSystem.SaveToSlot(slotIndex, saveData)
     end
 
     local previous = slots[index]
+    local previousSlotTimestamp = slotUpdatedAt[index]
     slots[index] = saveData
-    if not SaveSystem.WriteToDisk() then
+    slotUpdatedAt[index] = saveTimestamp
+    if not SaveSystem.WriteToDisk(saveTimestamp) then
         slots[index] = previous
+        slotUpdatedAt[index] = previousSlotTimestamp
+        localUpdatedAt = previousUpdatedAt
         return false
     end
+    QueueCloudSaveAfterLocalWrite()
     return true
 end
 
@@ -449,13 +1241,19 @@ function SaveSystem.DeleteSlot(slotIndex)
     local name = classDef and classDef.name or tostring(slots[index].className or "???")
     local level = SafeInteger(slots[index].level, 1, LEVEL_SANITY_LIMIT, 1)
     local previous = slots[index]
+    local previousSlotTimestamp = slotUpdatedAt[index]
+    local previousUpdatedAt = localUpdatedAt
     slots[index] = nil
+    slotUpdatedAt[index] = NextTimestamp()
     print("[SaveSystem] Deleted slot " .. index .. " (" .. name .. " Lv." .. level .. ")")
-    if not SaveSystem.WriteToDisk() then
+    if not SaveSystem.WriteToDisk(slotUpdatedAt[index]) then
         slots[index] = previous
+        slotUpdatedAt[index] = previousSlotTimestamp
+        localUpdatedAt = previousUpdatedAt
         print("[SaveSystem] ERROR: Delete was rolled back because disk write failed")
         return false
     end
+    QueueCloudSaveAfterLocalWrite()
     return true
 end
 
@@ -489,6 +1287,7 @@ function SaveSystem.RestoreInventory(saveData, inventoryData)
         legacyEnhanceStones * Inventory.LEGACY_ENHANCE_STONE_REFUND)
     inventoryData.gold = inventoryData.gold + legacyRefund
     saveData.enhanceStones = nil
+
 
     -- 恢复药水
     local savedPotions = type(saveData.potions) == "table" and saveData.potions or {}
@@ -606,6 +1405,20 @@ end
 -- 初始化：启动时自动加载存档
 -- ============================================================================
 function SaveSystem.Init()
+    -- 运行时重启时清空上一局的云同步状态；本地槽位会在下面重新读取。
+    cloudSessionId = cloudSessionId + 1
+    cloudEnabled = false
+    cloudReady = false
+    cloudLoadInFlight = false
+    cloudLoadWaiters = {}
+    cloudSaveInFlight = false
+    cloudSavePending = nil
+    cloudSaveWaiters = {}
+    lastCloudPayload = nil
+    cloudStatus = "not_started"
+    cloudLastError = nil
+    cloudLoadElapsed = 0
+    cloudLoadTimeoutHandler = nil
     SaveSystem.ReadFromDisk()
     print("[SaveSystem] Init complete, " .. SaveSystem.GetUsedSlotCount() .. "/" .. MAX_SLOTS .. " slots used")
 end

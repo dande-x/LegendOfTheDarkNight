@@ -52,6 +52,9 @@ local isDead = false
 local currentSlotIndex = nil  -- 当前使用的存档槽位 (1 或 2)
 local autoSaveTimer = 0
 local AUTO_SAVE_INTERVAL = 30  -- 每30秒自动保存一次
+local startupLogoReady = false
+local cloudSaveReady = false
+local cloudSyncResult = nil
 
 -- 激励广告请求状态：兼容同步/异步回调、请求拒绝和迟到回调。
 local rewardAdInFlight = false
@@ -188,29 +191,91 @@ end
 function Start()
     graphics.windowTitle = "暗夜传奇"
 
+    startupLogoReady = false
+    cloudSaveReady = false
+    cloudSyncResult = nil
+
     GameUI.InitUI()
     GameUI.InitNanoVG()
     CreateScene()
     SetupCamera()
 
-    -- 初始化存档系统
+    -- 初始化本地存档后异步读取平台云存档。存档选择页要等云端合并完成，
+    -- 避免玩家在云数据返回前点击并把旧本地状态再次写回云端。
     SaveSystem.Init()
-    SyncAccountLeaderboard()
+    local function EnterSaveSlotsWhenReady()
+        if not startupLogoReady or not cloudSaveReady then return end
+        SyncAccountLeaderboard()
+        ShowSaveSlotScreen()
+        if cloudSyncResult and not cloudSyncResult.ok
+            and cloudSyncResult.code ~= "unavailable" then
+            GameUI.ShowToast("云存档暂不可用，已使用本地存档")
+        end
+    end
+    local function HandleCloudSaveStartup(result)
+        if cloudSaveReady then return end
+        result = type(result) == "table" and result or {
+            ok = false,
+            code = "unavailable",
+            source = "local_only",
+            reason = "平台云存档接口不可用",
+        }
+        cloudSyncResult = result
+        cloudSaveReady = true
+        print("[main] Cloud save startup sync: source=" .. tostring(result.source)
+            .. " ok=" .. tostring(result.ok)
+            .. (result.reason and (" reason=" .. tostring(result.reason)) or ""))
+        EnterSaveSlotsWhenReady()
+    end
+
+    if type(SaveSystem.LoadFromCloud) == "function" then
+        local cloudCallOk, cloudCallError = pcall(function()
+            SaveSystem.LoadFromCloud(HandleCloudSaveStartup)
+        end)
+        if not cloudCallOk then
+            print("[main] Cloud save startup sync failed: " .. tostring(cloudCallError))
+            HandleCloudSaveStartup({
+                ok = false,
+                code = "exception",
+                source = "local_only",
+                reason = tostring(cloudCallError),
+            })
+        end
+    else
+        print("[main] Cloud save API unavailable; continuing with local saves")
+        HandleCloudSaveStartup()
+    end
 
     -- 先展示启动 Logo，再进入存档槽位选择界面
     GameUI.ShowStartupLogo(function()
-        ShowSaveSlotScreen()
+        startupLogoReady = true
+        EnterSaveSlotsWhenReady()
     end)
 
     SubscribeToEvent("Update", "HandleUpdate")
     SubscribeToEvent("PostUpdate", "HandlePostUpdate")
+    SubscribeToEvent("AppWillEnterBackground", "HandleAppWillEnterBackground")
+    SubscribeToEvent("AppTerminating", "HandleAppTerminating")
     print("=== 暗夜传奇 Started ===")
 end
 
 function Stop()
+    if type(SaveCurrentGame) == "function" then
+        SaveCurrentGame()
+    end
     -- 当前角色会话结束即清空神兽召唤与成长状态。
     DivineBeast.Clear()
     UI.Shutdown()
+end
+
+--- 应用进入后台前保存一次当前角色；移动端可能没有机会等到 Stop。
+function HandleAppWillEnterBackground(eventType, eventData)
+    SaveCurrentGame()
+end
+
+--- 应用收到终止通知时保存一次当前角色。
+function HandleAppTerminating(eventType, eventData)
+    SaveCurrentGame()
 end
 
 -- ============================================================================
@@ -1842,6 +1907,11 @@ function SwitchMap(mapId)
     -- 设置战斗系统当前地图（决定按图刷怪池）
     Combat.SetMap(mapId)
     MapZone.SetCurrentMap(mapId)
+    -- 先失效 HUD 的地图缓存，再重建场景；这样传送面板关闭前后
+    -- 小地图/全图都不会继续复用上一张地图的地标与目标点。
+    if type(GameUI.RefreshMap) == "function" then
+        GameUI.RefreshMap(mapId)
+    end
 
     -- 重铺地面与装饰（按地图主色，移除旧地面/装饰节点）
     ClearDecorations()
@@ -2174,6 +2244,7 @@ function SetupGameCallbacks()
         rewardAdRequestSerial = rewardAdRequestSerial + 1
         local requestSerial = rewardAdRequestSerial
         local watchedPlayer = player_
+        local watchedSlotIndex = currentSlotIndex
         local completed = false
         local callbackFired = false
         rewardAdInFlight = true
@@ -2187,7 +2258,8 @@ function SetupGameCallbacks()
             rewardAdFinish = nil
 
             if result and result.success == true then
-                if player_ ~= watchedPlayer or not player_ or not playerNode_ or isDead then
+                if player_ ~= watchedPlayer or currentSlotIndex ~= watchedSlotIndex
+                    or not player_ or not playerNode_ or isDead then
                     print("[main] Reward ad completed after player session ended; reward ignored")
                     return
                 end
@@ -2202,14 +2274,31 @@ function SetupGameCallbacks()
                     else
                         rewardMessage = "金币已达上限，仍感谢你的支持。"
                     end
+                    SaveCurrentGame()
                 else
+                    -- 以广告回调时的完整运行时状态生成快照，再只改变当前槽位的
+                    -- 解锁字段，避免槽位级更新覆盖尚未自动保存的装备/金币。
+                    local snapshot = SaveSystem.CreateSnapshot(
+                        watchedPlayer, Inventory.playerData, Combat.killCount)
+                    local persisted = false
+                    if snapshot and type(SaveSystem.SetReturnScrollUnlocked) == "function" then
+                        persisted = SaveSystem.SetReturnScrollUnlocked(
+                            watchedSlotIndex, true, snapshot)
+                    elseif snapshot then
+                        snapshot.returnScrollUnlocked = true
+                        persisted = SaveSystem.SaveToSlot(watchedSlotIndex, snapshot)
+                    end
+                    if not persisted then
+                        GameUI.ShowRewardAdResult(false, "解锁保存失败，请稍后重试。")
+                        print("[main] Reward ad completed but return-scroll unlock was not persisted")
+                        return
+                    end
                     player_.returnScrollUnlocked = true
                     if type(GameUI.RefreshReturnScrollAccess) == "function" then
                         pcall(GameUI.RefreshReturnScrollAccess)
                     end
                     rewardMessage = "获得“使用回城卷轴”功能！"
                 end
-                SaveCurrentGame()
                 GameUI.ShowRewardAdResult(true, rewardMessage)
                 return
             end
@@ -3175,6 +3264,11 @@ function HandleUpdate(eventType, eventData)
         if rewardAdElapsed >= REWARD_AD_WATCHDOG_SECONDS and rewardAdFinish then
             rewardAdFinish({ success = false, msg = "广告响应超时" })
         end
+    end
+
+    -- 推进云读取的本地超时兜底，即使启动 Logo 仍在播放也不能停止计时。
+    if type(SaveSystem.Update) == "function" then
+        SaveSystem.Update(dt)
     end
 
     -- 启动 Logo：只更新开场 UI，结束后回调进入存档界面

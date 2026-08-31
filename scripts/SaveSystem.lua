@@ -319,7 +319,10 @@ function SaveSystem.CreateSnapshot(player, inventoryData, killCount)
         quest      = Quest.GetState(),
 
         -- 所在地图
-        mapId      = (require("scripts.Combat").currentMapId) or "map_bq",
+        -- main.lua/Combat.lua 使用根模块名加载 canonical Combat；继续用
+        -- scripts.Combat 会读取 assets/scripts 的旧实例，切图后可能把旧
+        -- 地图写回存档，下一次进入时又回到错误地图。
+        mapId      = (require("Combat").currentMapId) or "map_bq",
 
         -- 神兽是当前角色会话内的临时成长，不写入角色存档。
         -- 旧版本存档即使仍含 divineBeast 字段，读档也会忽略；下一次
@@ -596,6 +599,20 @@ local function GetPayloadSlotTimestamp(payload, index)
     return ReadSlotTimestamp(payload.slotUpdatedAt or payload.slotTimestamps, index)
 end
 
+-- 永久权益不能被同一角色在另一台离线设备上产生的较新普通进度覆盖。
+-- createdAt 与职业共同标识角色实例；角色删除后新建角色会获得新的
+-- createdAt，因此不会继承旧角色的回城卷轴状态。
+local function IsSameCharacterSnapshot(left, right)
+    if not SaveSystem.IsLoadable(left) or not SaveSystem.IsLoadable(right) then
+        return false
+    end
+    local leftCreatedAt = SafeTimestamp(left.createdAt)
+    local rightCreatedAt = SafeTimestamp(right.createdAt)
+    return leftCreatedAt > 0
+        and leftCreatedAt == rightCreatedAt
+        and left.classId == right.classId
+end
+
 local function PayloadDataEqual(left, right)
     if type(left) ~= "table" or type(right) ~= "table" then return false end
     for i = 1, MAX_SLOTS do
@@ -646,8 +663,15 @@ local function MergeCloudPayload(localPayload, cloudPayload)
         end
         local selectedSlot = useCloud and cloudSlot or localSlot
         local selectedTimestamp = useCloud and cloudTimestamp or localTimestamp
-        merged.slots["slot" .. tostring(i)] = IsCloudEmptyValue(selectedSlot)
+        local mergedSlot = IsCloudEmptyValue(selectedSlot)
             and false or CloneSerializable(selectedSlot)
+        if type(mergedSlot) == "table"
+            and IsSameCharacterSnapshot(localSlot, cloudSlot)
+            and (localSlot.returnScrollUnlocked == true
+                or cloudSlot.returnScrollUnlocked == true) then
+            mergedSlot.returnScrollUnlocked = true
+        end
+        merged.slots["slot" .. tostring(i)] = mergedSlot
         merged.slotUpdatedAt["slot" .. tostring(i)] = selectedTimestamp
         merged.updatedAt = math.max(merged.updatedAt, selectedTimestamp)
     end
@@ -1041,6 +1065,120 @@ function SaveSystem.FindEmptySlot()
         if not slots[i] then return i end
     end
     return nil
+end
+
+--- 只更新指定角色槽位的回城卷轴解锁状态。
+---
+--- 广告奖励不能依赖 SaveCurrentGame()：该通用入口会在角色死亡或 HP 为
+--- 0 时拒绝写盘，而广告回调可能恰好落在死亡状态同步边界。这里直接以
+--- 当前槽位快照为基础写入，SaveToSlot() 会负责更新时间戳、落盘以及把
+--- 最新的双槽位 payload 排队同步到 clientCloud。另一个槽位不会被触碰。
+---@param slotIndex number 角色槽位（1 或 2）
+---@param unlocked boolean 是否解锁
+---@param baseSnapshot table|nil 可选的当前角色最新快照；传入时不会用旧槽位覆盖未保存进度
+---@param callback fun(result: table)|nil 本地落盘结果回调（同步调用）
+---@return boolean success 是否已写入本地槽位
+function SaveSystem.SetReturnScrollUnlocked(slotIndex, unlocked, baseSnapshot, callback)
+    local index = NormalizeSlotIndex(slotIndex)
+    local desired = unlocked == true
+    if not index then
+        local result = {
+            ok = false,
+            code = "invalid_slot",
+            reason = "无效的角色槽位",
+            slotIndex = slotIndex,
+            changed = false,
+        }
+        print("[SaveSystem] ERROR: Invalid slot index " .. tostring(slotIndex))
+        SafeCall(callback, result)
+        return false
+    end
+
+    local existing = slots[index]
+    if not SaveSystem.IsLoadable(existing) then
+        local result = {
+            ok = false,
+            code = "empty_slot",
+            reason = "角色槽位为空",
+            slotIndex = index,
+            changed = false,
+        }
+        print("[SaveSystem] ERROR: Cannot update return-scroll state for empty slot " .. index)
+        SafeCall(callback, result)
+        return false
+    end
+
+    -- 没有提供最新快照且已是目标状态时，不制造新的时间戳，也不覆盖另一个
+    -- 设备刚合并的版本。若调用方提供了当前运行时快照，即使布尔值没变，
+    -- 也要把该快照一并落盘，避免把较新的金币/装备回退到旧槽位。
+    if baseSnapshot == nil and existing.returnScrollUnlocked == desired then
+        SafeCall(callback, {
+            ok = true,
+            source = "local",
+            slotIndex = index,
+            changed = false,
+            cloudQueued = false,
+        })
+        return true
+    end
+
+    local sourceSnapshot = existing
+    if baseSnapshot ~= nil then
+        if not SaveSystem.IsLoadable(baseSnapshot)
+            or baseSnapshot.classId ~= existing.classId then
+            local result = {
+                ok = false,
+                code = "snapshot_mismatch",
+                reason = "角色存档快照与当前槽位不匹配",
+                slotIndex = index,
+                changed = false,
+            }
+            print("[SaveSystem] ERROR: Snapshot does not match slot " .. index)
+            SafeCall(callback, result)
+            return false
+        end
+        sourceSnapshot = baseSnapshot
+    end
+
+    -- 不原地修改 slots[index]：写盘失败时 SaveToSlot() 可以完整回滚，
+    -- 同时避免云端正在读取/合并时观察到半更新的槽位对象。
+    local snapshot = CloneSerializable(sourceSnapshot)
+    if type(snapshot) ~= "table" then
+        local result = {
+            ok = false,
+            code = "invalid_snapshot",
+            reason = "角色存档快照无法复制",
+            slotIndex = index,
+            changed = false,
+        }
+        print("[SaveSystem] ERROR: Cannot clone slot " .. index .. " for return-scroll update")
+        SafeCall(callback, result)
+        return false
+    end
+    snapshot.returnScrollUnlocked = desired
+
+    if not SaveSystem.SaveToSlot(index, snapshot) then
+        local result = {
+            ok = false,
+            code = "local_write_failed",
+            reason = "角色存档写入失败",
+            slotIndex = index,
+            changed = false,
+        }
+        SafeCall(callback, result)
+        return false
+    end
+
+    -- SaveToSlot 已完成本地 JSON 写入，并在云功能已启用时通过
+    -- QueueCloudSaveAfterLocalWrite() 排队最新双槽位 payload。
+    SafeCall(callback, {
+        ok = true,
+        source = "local",
+        slotIndex = index,
+        changed = true,
+        cloudQueued = cloudEnabled,
+    })
+    return true
 end
 
 --- 保存到指定槽位（覆盖现有数据）
