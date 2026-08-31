@@ -642,7 +642,7 @@ Inventory.playerData = playerData
 Inventory.POTION_BUY_PRICE = 100
 Inventory.POTION_CONFIG = {
     hp = { max = 10, price = Inventory.POTION_BUY_PRICE, healRatio = 0.30, dropChance = 0.12, label = "强效金创药" },
-    mp = { max = 8,  price = Inventory.POTION_BUY_PRICE, healRatio = 0.40, dropChance = 0.08, label = "法力药水" },
+    mp = { max = 10, price = Inventory.POTION_BUY_PRICE, healRatio = 0.40, dropChance = 0.08, label = "法力药水" },
 }
 
 local function EnsurePotions()
@@ -1086,9 +1086,88 @@ end
 -- ============================================================================
 -- 掉落判定（只计算掉什么，不添加到背包/金币）
 -- ============================================================================
-function Inventory.RollDrop(enemyName, playerClassId)
+-- 从掉落条目中筛出当前职业可用、且达到最低品质的装备。
+-- `minimumRarity` 只在需要保证品质（例如 Boss）时传入；普通怪仍沿用
+-- 各自掉落表的完整品质池和掉落概率。
+local function CollectEligibleDropEntries(entries, playerClassId, minimumRarity)
+    local eligibleEntries = {}
+    local totalWeight = 0
+    local minimumRank = minimumRarity and RARITY_SORT_ORDER[minimumRarity] or nil
+
+    for _, entry in ipairs(entries or {}) do
+        local weight = tonumber(entry.weight)
+        local tmpl = entry.template or ITEM_BY_ID[entry.id]
+        local rarityRank = tmpl and RARITY_SORT_ORDER[tmpl.rarity] or nil
+        if tmpl and IsFiniteNumber(weight) and weight > 0
+            and IsItemCompatibleWithClass(tmpl, playerClassId)
+            and (not minimumRank or (rarityRank and rarityRank >= minimumRank)) then
+            eligibleEntries[#eligibleEntries + 1] = { template = tmpl, weight = weight }
+            totalWeight = totalWeight + weight
+        end
+    end
+
+    return eligibleEntries, totalWeight
+end
+
+-- 按权重从已过滤的装备条目中创建一个全新的运行时实例。
+local function RollWeightedDropItem(eligibleEntries, totalWeight)
+    if totalWeight <= 0 then return nil end
+    local roll = math.random() * totalWeight
+    local acc = 0
+    for _, entry in ipairs(eligibleEntries) do
+        acc = acc + entry.weight
+        if roll <= acc then
+            return Inventory.CreateItem(entry.template.id, 0)
+        end
+    end
+    return nil
+end
+
+local function SumDropEntryWeights(entries)
+    local totalWeight = 0
+    for _, entry in ipairs(entries or {}) do
+        local weight = tonumber(entry.weight)
+        if IsFiniteNumber(weight) and weight > 0 then
+            totalWeight = totalWeight + weight
+        end
+    end
+    return totalWeight
+end
+
+-- Boss 掉落表早期可能只有普通/稀有装备，但 Boss 仍必须兑现“史诗或以上”
+-- 的奖励承诺。此时从全局模板池回退，并让史诗明显多于传说，避免首个 Boss
+-- 过度集中掉落最高阶装备；职业专属装备仍经过同一兼容性过滤。
+local BOSS_GUARANTEED_RARITY_WEIGHT = {
+    EPIC = 4,
+    LEGENDARY = 1,
+}
+
+local function CollectGlobalRarityEntries(playerClassId, minimumRarity)
+    local entries = {}
+    local minimumRank = RARITY_SORT_ORDER[minimumRarity]
+    for _, template in ipairs(ITEM_TEMPLATES) do
+        local rank = RARITY_SORT_ORDER[template.rarity]
+        if rank and minimumRank and rank >= minimumRank
+            and IsItemCompatibleWithClass(template, playerClassId) then
+            entries[#entries + 1] = {
+                template = template,
+                weight = BOSS_GUARANTEED_RARITY_WEIGHT[template.rarity] or 1,
+            }
+        end
+    end
+    return entries
+end
+
+--- 计算一个敌人的掉落。第三个参数用于保证最低品质（Boss 传 "EPIC"）。
+--- 传入最低品质时会跳过普通掉落概率，并优先从该敌人的高品质条目中抽取；
+--- 若该表没有合法高品质条目，则回退到全局职业兼容模板池。
+---@param enemyName string
+---@param playerClassId string
+---@param guaranteedMinRarity string|nil
+---@return table|nil, number
+function Inventory.RollDrop(enemyName, playerClassId, guaranteedMinRarity)
     local dropTable = DROP_TABLES[enemyName]
-    if not dropTable then return nil, 0 end
+    if not dropTable and not guaranteedMinRarity then return nil, 0 end
     -- 掉落是运行时经济入口，职业上下文缺失时直接拒绝，避免旧调用
     -- 把完整模板池当成玩家可用掉落池。
     if not IsKnownClassId(playerClassId) then
@@ -1098,35 +1177,47 @@ function Inventory.RollDrop(enemyName, playerClassId)
 
     -- 金币必掉，但按统一经济倍率折算；至少保留 1 金，避免低级怪
     -- 因取整完全没有金币反馈。
-    local rawGold = math.random(dropTable.goldMin, dropTable.goldMax)
-    local gold = Inventory.GetGoldDropAmount(rawGold)
-
-    -- 物品掉落判定
-    local droppedItem = nil
-    -- 先过滤当前职业不能使用的装备，再按剩余权重抽样。不能在抽中后才
-    -- 丢弃，否则会让玩家看到无效掉落，且不同职业的有效掉落率会被稀释。
-    local eligibleEntries = {}
-    local totalWeight = 0
-    for _, entry in ipairs(dropTable.items or {}) do
-        local weight = tonumber(entry.weight)
-        local tmpl = ITEM_BY_ID[entry.id]
-        if tmpl and IsFiniteNumber(weight) and weight > 0
-            and IsItemCompatibleWithClass(tmpl, playerClassId) then
-            eligibleEntries[#eligibleEntries + 1] = { template = tmpl, weight = weight }
-            totalWeight = totalWeight + weight
-        end
+    local gold = 0
+    if dropTable then
+        local rawGold = math.random(dropTable.goldMin, dropTable.goldMax)
+        gold = Inventory.GetGoldDropAmount(rawGold)
     end
 
-    if totalWeight > 0 and math.random() < (tonumber(dropTable.dropChance) or 0) then
-        local roll = math.random() * totalWeight
-        local acc = 0
-        for _, entry in ipairs(eligibleEntries) do
-            acc = acc + entry.weight
-            if roll <= acc then
-                droppedItem = Inventory.CreateItem(entry.template.id, 0)
-                break
+    -- Boss 传入最低品质时必须掉一件装备；优先使用 Boss 自己的高品质表，
+    -- 早期 Boss 没有史诗条目时再从全局高品质池回退，确保承诺不被 dropChance
+    -- 或某个敌人掉落表配置遗漏打破。
+    if guaranteedMinRarity then
+        if not RARITY_SORT_ORDER[guaranteedMinRarity] then
+            print("[Inventory] RollDrop ignored invalid guaranteed rarity: " .. tostring(guaranteedMinRarity))
+            return nil, gold
+        end
+
+        local eligibleEntries, totalWeight = CollectEligibleDropEntries(
+            dropTable and dropTable.items or {}, playerClassId, guaranteedMinRarity)
+        local droppedItem = RollWeightedDropItem(eligibleEntries, totalWeight)
+        if not droppedItem then
+            local fallbackEntries = CollectGlobalRarityEntries(playerClassId, guaranteedMinRarity)
+            droppedItem = RollWeightedDropItem(
+                fallbackEntries, SumDropEntryWeights(fallbackEntries))
+            -- 权重数据即使被外部工具改坏，也不要让 Boss 保底变成空掉落；
+            -- 全局池首项已经通过同一职业/品质过滤，作为最终确定性兜底。
+            if not droppedItem and fallbackEntries[1] then
+                droppedItem = Inventory.CreateItem(fallbackEntries[1].template.id, 0)
             end
         end
+        if not droppedItem then
+            print("[Inventory] Boss guaranteed drop unavailable: no compatible high-rarity template")
+        end
+        return droppedItem, gold
+    end
+
+    -- 普通怪：先过滤当前职业不能使用的装备，再按剩余权重抽样。不能在抽中
+    -- 后才丢弃，否则会让玩家看到无效掉落，且不同职业的有效掉落率会被稀释。
+    local eligibleEntries, totalWeight = CollectEligibleDropEntries(
+        dropTable.items or {}, playerClassId, nil)
+    local droppedItem = nil
+    if totalWeight > 0 and math.random() < (tonumber(dropTable.dropChance) or 0) then
+        droppedItem = RollWeightedDropItem(eligibleEntries, totalWeight)
     end
 
     return droppedItem, gold

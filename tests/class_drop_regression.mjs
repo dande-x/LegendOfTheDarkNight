@@ -171,19 +171,27 @@ for (const [monster, table] of dropTables) {
 }
 
 // 代码级断言：过滤必须发生在抽样前，且所有实际入口都传入职业。
-const rollStart = inventorySource.indexOf("function Inventory.RollDrop(enemyName, playerClassId)");
+const rollStart = inventorySource.indexOf(
+    "function Inventory.RollDrop(enemyName, playerClassId, guaranteedMinRarity)");
 const rollEnd = inventorySource.indexOf("function Inventory.ProcessDrop", rollStart);
 const rollBlock = inventorySource.slice(rollStart, rollEnd);
 check(rollStart >= 0 && rollEnd > rollStart, "RollDrop 职业参数或函数边界缺失");
 check(rollBlock.includes("if not IsKnownClassId(playerClassId)"),
     "RollDrop 缺少缺失/非法职业的 fail-closed 保护");
-const filterAt = rollBlock.indexOf("IsItemCompatibleWithClass(tmpl, playerClassId)");
-const randomAt = rollBlock.indexOf("math.random() <");
-check(filterAt >= 0 && randomAt > filterAt, "掉落抽样早于职业过滤，可能先抽中再丢弃异职业装备");
+const filterAt = inventorySource.indexOf("IsItemCompatibleWithClass(tmpl, playerClassId)");
+const randomAt = inventorySource.indexOf("math.random() <", filterAt);
+check(filterAt >= 0 && randomAt > filterAt,
+    "掉落抽样早于职业过滤，可能先抽中再丢弃异职业装备");
+check(rollBlock.includes("CollectEligibleDropEntries"),
+    "RollDrop 未复用统一的职业/品质过滤入口");
+check(rollBlock.includes("if guaranteedMinRarity")
+    && rollBlock.includes("CollectGlobalRarityEntries"),
+    "Boss 掉落缺少最低品质保证或全局高品质兜底");
 check(inventorySource.includes("function Inventory.ProcessDrop(enemyName, playerClassId)"),
     "ProcessDrop 未透传职业参数");
-check(mainSource.includes("Inventory.RollDrop(enemyName, player_.classId)"),
-    "敌人死亡回调未把当前职业传入 RollDrop");
+check(mainSource.includes('local guaranteedMinRarity = tier == "boss" and "EPIC" or nil')
+    && mainSource.includes("enemyName, player_.classId, guaranteedMinRarity"),
+    "敌人死亡回调未为 Boss 传入史诗保底参数");
 check(mainSource.includes("Inventory.GetCompatibleItemTemplates(player.classId)"),
     "商店货架未复用统一职业过滤模板");
 

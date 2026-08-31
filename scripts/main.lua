@@ -2873,7 +2873,12 @@ function SetupGameCallbacks()
     Combat.onEnemyDeath = function(enemyName, deathPos, exp, deathDuration, tier, mapId, encounterId)
         -- 怪物死亡音效
         SoundManager.Play("enemy_death", { position = deathPos })
-        local droppedItem, gold = Inventory.RollDrop(enemyName, player_.classId)
+        -- Boss 击败奖励固定保底一件史诗或传说装备；普通怪仍走原有
+        -- 掉落概率与品质池。Inventory 会优先使用该 Boss 的高品质条目，
+        -- 没有时回退到当前职业可用的全局高品质模板池。
+        local guaranteedMinRarity = tier == "boss" and "EPIC" or nil
+        local droppedItem, gold = Inventory.RollDrop(
+            enemyName, player_.classId, guaranteedMinRarity)
         -- 金币散落到地面
         if gold > 0 then
             Combat.SpawnGroundGold(scene_, deathPos, gold)
