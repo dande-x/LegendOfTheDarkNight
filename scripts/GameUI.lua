@@ -3543,6 +3543,7 @@ function GameUI.UpdateQuestTracker(quest, progress, count)
         -- 一行短提示，直接说明下一步动作。地点来自 Quest 的目标标记，
         -- 避免 HUD 再维护一份坐标/名称表。
         local locationReminder = nil
+        local mapLocationHint = nil
         if not done and not travelPending then
             local marker = Quest.GetObjectiveMarker(quest)
             if marker and marker.mapId == MapZone.GetCurrentMapId() and marker.name then
@@ -3553,6 +3554,9 @@ function GameUI.UpdateQuestTracker(quest, progress, count)
                     locationReminder = "提示：请进入指定区域「" .. markerName .. "」坚守"
                 elseif quest.mode == "encounter" then
                     locationReminder = "提示：请前往指定地点「" .. markerName .. "」触发遭遇"
+                end
+                if locationReminder then
+                    mapLocationHint = "点击右上角小地图查看地点位置"
                 end
             end
         end
@@ -3592,6 +3596,12 @@ function GameUI.UpdateQuestTracker(quest, progress, count)
                     lineHeight = 1.25,
                     whiteSpace = "normal",
                     maxLines = 2,
+                } or nil,
+                mapLocationHint and UI.Label {
+                    text = mapLocationHint,
+                    fontSize = 9,
+                    fontColor = {165, 195, 215, 220},
+                    marginTop = 1,
                 } or nil,
                 (mapName ~= "") and UI.Label {
                     text = "📍 " .. mapName .. mapHint,
