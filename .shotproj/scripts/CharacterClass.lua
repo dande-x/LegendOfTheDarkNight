@@ -166,7 +166,7 @@ CharacterClass.Classes = {
                 desc = "内功吸纳天地之火，灌注刀刃，焰如怒龙",
                 slot = 6, cooldown = 8, manaCost = 40,
                 unlockLevel = 35,
-                damage = 350,  -- ATK倍率350% (大招)
+                damage = 420,  -- ATK倍率420% (大招，较原值提升20%)
                 range = 2.8, castTime = 0.35,
             },
         },

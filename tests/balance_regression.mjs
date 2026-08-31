@@ -102,7 +102,9 @@ check(warriorEarthsplit.includes('name = "地裂斩"')
     "地裂斩未完整接入 20 级直线地面 AOE 与重劈动作");
 check(warriorCharge.includes("unlockLevel = 25"), "野蛮冲撞未改为 25 级解锁");
 check(warriorShield.includes("unlockLevel = 30"), "真气护盾未改为 30 级解锁");
-check(warriorFire.includes("unlockLevel = 35"), "烈火剑法未改为 35 级解锁");
+check(warriorFire.includes("unlockLevel = 35")
+    && warriorFire.includes("damage = 420"),
+    "烈火剑法未保持 35 级解锁或伤害倍率未提升至 420%");
 
 // 法师主动技能沿用武士的解锁节奏；武士专属被动 Lv.10 不占用法师主动技能档位。
 const mageUnlockLevels = {
